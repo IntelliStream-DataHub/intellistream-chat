@@ -1,0 +1,77 @@
+{
+  "realm": "chat",
+  "displayName": "Radiance Chat",
+  "displayNameHtml": "<strong>Radiance</strong> Chat",
+  "enabled": true,
+  "registrationAllowed": true,
+  "loginWithEmailAllowed": true,
+  "ssoSessionIdleTimeout": 28800,
+  "ssoSessionMaxLifespan": 28800,
+  "ssoSessionIdleTimeoutRememberMe": 28800,
+  "ssoSessionMaxLifespanRememberMe": 28800,
+  "clients": [
+    {
+      "clientId": "chat",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "chat-secret",
+      "redirectUris": [
+        "http://192.168.100.98:8080/*",
+        "http://localhost:8080/*"
+      ],
+      "webOrigins": [
+        "http://192.168.100.98:8080",
+        "http://localhost:8080"
+      ],
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": true,
+      "protocol": "openid-connect",
+      "attributes": {
+        "post.logout.redirect.uris": "http://192.168.100.98:8080/*##http://localhost:8080/*"
+      },
+      "protocolMappers": [
+        {
+          "name": "chat_max_upload_bytes",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "chat_max_upload_bytes",
+            "claim.name": "chat_max_upload_bytes",
+            "jsonType.label": "long",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "alice",
+      "enabled": true,
+      "email": "alice@example.com",
+      "firstName": "Alice",
+      "lastName": "Anderson",
+      "credentials": [{ "type": "password", "value": "alice", "temporary": false }],
+      "realmRoles": ["user", "chat-admin"]
+    },
+    {
+      "username": "bob",
+      "enabled": true,
+      "email": "bob@example.com",
+      "firstName": "Bob",
+      "lastName": "Brown",
+      "credentials": [{ "type": "password", "value": "bob", "temporary": false }],
+      "realmRoles": ["user"]
+    }
+  ],
+  "roles": {
+    "realm": [
+      { "name": "user" },
+      { "name": "admin" },
+      { "name": "chat-admin", "description": "Application admin (chat-admin) — required to access /admin and platform-wide actions." }
+    ]
+  }
+}

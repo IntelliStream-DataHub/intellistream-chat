@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+    <meta name="theme-color" content="#1e325c"/>
+    <title th:text="'Admin · ' + ${appTitle}">Admin · Radiance</title>
+    <link rel="icon" th:href="${appLogoUrl}"/>
+    <link rel="stylesheet" th:href="@{/css/app.css}"/>
+    <meta name="_csrf" th:content="${_csrf != null ? _csrf.token : ''}"/>
+    <meta name="_csrf_header" th:content="${_csrf != null ? _csrf.headerName : ''}"/>
+</head>
+<body class="app admin-page" th:attr="data-theme=${me.theme}">
+
+<th:block th:replace="~{fragments/icon-sprite :: sprite}"/>
+
+<header class="topbar">
+    <div class="topbar-left">
+        <a th:href="@{/channels}" class="logo">
+            <span class="logo-text" th:text="${appTitle}">Radiance</span>
+            <img th:src="${appLogoUrl}" alt="" class="logo-mark"/>
+        </a>
+    </div>
+    <div class="topbar-center"></div>
+    <div class="topbar-right">
+        <a th:href="@{/channels}" class="link-btn">Back to channels</a>
+        <span class="me">
+            <span class="avatar" th:data-author="${me.username}"
+                  th:text="${#strings.toUpperCase(#strings.substring(me.displayName ?: me.username, 0, 1))}">U</span>
+            <span th:text="${me.displayName ?: me.username}">user</span>
+        </span>
+        <a sec:authorize="hasRole('ADMIN')" th:href="@{/admin}" class="topbar-cog"
+           title="Admin console" aria-label="Admin console">
+            <svg class="icon"><use href="#icon-cog"/></svg>
+        </a>
+        <form th:action="@{/logout}" method="post" style="display:inline">
+            <button type="submit" class="link-btn">Sign out</button>
+        </form>
+    </div>
+</header>
+
+<main class="admin-content">
+    <div class="admin-wrap">
+        <h1>Admin console</h1>
+
+        <div th:if="${flash}" class="admin-flash" th:text="${flash}">Saved.</div>
+        <div th:if="${error}" class="admin-error" th:text="${error}">Error.</div>
+
+        <section class="admin-section">
+            <h2>Branding</h2>
+            <p class="admin-help">Topbar title and logo. The logo is shown in the topbar, on the
+                landing page, and as the favicon. Falls back to the bundled default when cleared.</p>
+
+            <form th:action="@{/admin/title}" method="post" class="admin-form">
+                <label>
+                    Title
+                    <input type="text" name="title" required maxlength="120"
+                           th:value="${settings.title}"/>
+                </label>
+                <button type="submit">Save title</button>
+            </form>
+
+            <form th:action="@{/admin/logo}" method="post" enctype="multipart/form-data" class="admin-form">
+                <label>
+                    Logo (PNG, JPG, or WebP — max 256&#8239;KB)
+                    <input type="file" name="logo" accept="image/png,image/jpeg,image/webp" required/>
+                </label>
+                <div class="admin-form-row">
+                    <button type="submit">Upload logo</button>
+                    <span class="admin-current-logo">
+                        Current: <img th:src="${appLogoUrl}" alt="" class="logo-mark"/>
+                    </span>
+                </div>
+            </form>
+
+            <form th:if="${settings.hasCustomLogo()}" th:action="@{/admin/logo/clear}" method="post" class="admin-form">
+                <button type="submit" class="link-btn">Reset to default logo</button>
+            </form>
+        </section>
+
+        <section class="admin-section">
+            <h2>Channels <small th:text="'(' + ${#lists.size(channelRows)} + ')'">(0)</small></h2>
+            <table class="admin-table">
+                <thead>
+                <tr><th>Name</th><th>Type</th><th>Members</th><th>Messages</th><th>Created</th></tr>
+                </thead>
+                <tbody>
+                <tr th:each="c : ${channelRows}">
+                    <td>
+                        <a th:href="@{'/channels/' + ${c.id}}" th:text="'#' + ${c.name}">#general</a>
+                    </td>
+                    <td th:text="${c.type}">PUBLIC</td>
+                    <td th:text="${c.memberCount}">0</td>
+                    <td th:text="${c.messageCount}">0</td>
+                    <td th:text="${#temporals.format(c.createdAt, 'yyyy-MM-dd')}">2026-01-01</td>
+                </tr>
+                <tr th:if="${#lists.isEmpty(channelRows)}">
+                    <td colspan="5" class="admin-empty">No channels yet.</td>
+                </tr>
+                </tbody>
+            </table>
+        </section>
+
+        <section class="admin-section">
+            <h2>Privacy</h2>
+            <p class="admin-help">
+                Show full email addresses in the user table below. Off masks them to
+                <code>al…@example.com</code>; default is on for backward compatibility.
+                See <code>README.md</code> for context.
+            </p>
+            <form th:action="@{/admin/email-visibility}" method="post" class="admin-form">
+                <label>
+                    <input type="checkbox" name="expose" value="true"
+                           th:checked="${settings.exposeUserEmails}"/>
+                    Show full emails on this page
+                </label>
+                <button type="submit">Save privacy setting</button>
+            </form>
+        </section>
+
+        <section class="admin-section">
+            <h2>Users <small th:text="'(' + ${#lists.size(userRows)} + ')'">(0)</small></h2>
+            <table class="admin-table">
+                <thead>
+                <tr><th>Username</th><th>Display name</th><th>Email</th><th>Last active</th><th>Joined</th></tr>
+                </thead>
+                <tbody>
+                <tr th:each="u : ${userRows}">
+                    <td th:text="${u.username}">alice</td>
+                    <td th:text="${u.displayName}">Alice Anderson</td>
+                    <td th:text="${u.email}">alice@example.com</td>
+                    <td th:text="${u.lastActiveAt != null ? #temporals.format(u.lastActiveAt, 'yyyy-MM-dd HH:mm') : '—'}">—</td>
+                    <td th:text="${#temporals.format(u.createdAt, 'yyyy-MM-dd')}">2026-01-01</td>
+                </tr>
+                <tr th:if="${#lists.isEmpty(userRows)}">
+                    <td colspan="5" class="admin-empty">No users yet.</td>
+                </tr>
+                </tbody>
+            </table>
+        </section>
+    </div>
+</main>
+
+<script th:src="@{/js/idle-logout.js}"></script>
+
+</body>
+</html>

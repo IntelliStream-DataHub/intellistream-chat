@@ -1,0 +1,150 @@
+/*
+ * Copyright 2026 Olav Gjerde
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.example.chat.service;
+
+import com.example.chat.domain.Channel;
+import com.example.chat.domain.ChannelMember;
+import com.example.chat.domain.ChannelRole;
+import com.example.chat.domain.ChannelType;
+import com.example.chat.domain.User;
+import com.example.chat.repository.ChannelMemberRepository;
+import com.example.chat.repository.ChannelRepository;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.UUID;
+
+@Service
+public class ChannelService {
+
+    private final ChannelRepository channelRepository;
+    private final ChannelMemberRepository memberRepository;
+
+    public ChannelService(ChannelRepository channelRepository,
+                          ChannelMemberRepository memberRepository) {
+        this.channelRepository = channelRepository;
+        this.memberRepository = memberRepository;
+    }
+
+    @Transactional
+    public Channel create(String name, String description, ChannelType type, User creator) {
+        var slug = slugify(name);
+        channelRepository.findBySlug(slug).ifPresent(c -> {
+            throw new IllegalStateException("Channel slug already exists: " + slug);
+        });
+        var channel = channelRepository.save(new Channel(slug, name, description, type, creator));
+        memberRepository.save(new ChannelMember(channel, creator, ChannelRole.ADMIN));
+        return channel;
+    }
+
+    @Transactional(readOnly = true)
+    public Channel requireById(UUID id) {
+        return channelRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("Channel not found: " + id));
+    }
+
+    @Transactional(readOnly = true)
+    public Channel requireBySlug(String slug) {
+        return channelRepository.findBySlug(slug)
+                .orElseThrow(() -> new IllegalArgumentException("Channel not found: " + slug));
+    }
+
+    @Transactional(readOnly = true)
+    public List<Channel> listPublic() {
+        return channelRepository.findAllByTypeOrderByNameAsc(ChannelType.PUBLIC);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Channel> listForUser(User user) {
+        return memberRepository.findChannelsForUser(user);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ChannelMember> members(Channel channel) {
+        return memberRepository.findAllByChannelOrderByJoinedAtAsc(channel);
+    }
+
+    @Transactional
+    public ChannelMember join(Channel channel, User user) {
+        if (channel.getType() != ChannelType.PUBLIC) {
+            throw new AccessDeniedException("Channel is private; ask an admin to invite you.");
+        }
+        return memberRepository.findByChannelAndUser(channel, user)
+                .orElseGet(() -> memberRepository.save(new ChannelMember(channel, user, ChannelRole.MEMBER)));
+    }
+
+    @Transactional
+    public ChannelMember invite(Channel channel, User invitee, User actor) {
+        // Slack / Mattermost default: any channel member can invite. Channel admins keep
+        // exclusive control over promote/demote and eventual destructive actions.
+        requireMember(channel, actor);
+        return memberRepository.findByChannelAndUser(channel, invitee)
+                .orElseGet(() -> memberRepository.save(new ChannelMember(channel, invitee, ChannelRole.MEMBER)));
+    }
+
+    @Transactional
+    public void promote(Channel channel, User target, User actor) {
+        requireAdmin(channel, actor);
+        var membership = memberRepository.findByChannelAndUser(channel, target)
+                .orElseThrow(() -> new IllegalArgumentException("User is not a member"));
+        membership.setRole(ChannelRole.ADMIN);
+    }
+
+    @Transactional
+    public void destroy(Channel channel, User actor) {
+        requireAdmin(channel, actor);
+        channelRepository.delete(channel);
+    }
+
+    @Transactional(readOnly = true)
+    public boolean isMember(Channel channel, User user) {
+        return memberRepository.existsByChannelAndUser(channel, user);
+    }
+
+    @Transactional(readOnly = true)
+    public boolean isAdmin(Channel channel, User user) {
+        return memberRepository.findByChannelAndUser(channel, user)
+                .map(m -> m.getRole() == ChannelRole.ADMIN)
+                .orElse(false);
+    }
+
+    public void requireMember(Channel channel, User user) {
+        if (channel.getType() == ChannelType.PUBLIC) {
+            return;
+        }
+        if (!isMember(channel, user)) {
+            throw new AccessDeniedException("Not a member of this channel.");
+        }
+    }
+
+    public void requireAdmin(Channel channel, User user) {
+        if (!isAdmin(channel, user)) {
+            throw new AccessDeniedException("Channel admin role required.");
+        }
+    }
+
+    private static String slugify(String input) {
+        var lower = input == null ? "" : input.toLowerCase();
+        var slug = lower.replaceAll("[^a-z0-9]+", "-").replaceAll("(^-|-$)", "");
+        if (slug.isEmpty()) {
+            throw new IllegalArgumentException("Channel name must contain alphanumeric characters");
+        }
+        return slug.length() > 80 ? slug.substring(0, 80) : slug;
+    }
+}

@@ -1,0 +1,65 @@
+# --- Build output ---
+.gradle/
+build/
+out/
+bin/
+target/
+*.class
+
+# --- IDE / editor ---
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.project
+.classpath
+.settings/
+.factorypath
+.apt_generated/
+nbproject/private/
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Java / Spring ---
+HELP.md
+*.log
+hs_err_pid*.log
+replay_pid*.log
+*.hprof
+
+# --- Runtime data dirs (user content / search index / podman volumes) ---
+# Lucene rebuilds from messages on startup; uploads + avatars are user-owned
+# and should be backed up out-of-band, not committed.
+data/
+podman-data/
+
+# --- Secrets / local config ---
+*.env
+.env
+.env.*
+!.env.example
+application-local.yml
+application-local.properties
+application-secret.yml
+application-secret.properties
+*.pem
+*.key
+*.p12
+*.jks
+*.keystore
+
+# --- Testcontainers / temp ---
+.testcontainers.properties
+*.tmp
+*.bak
+*.swp
+*~
+
+# --- Claude Code / agent state ---
+# Per-project agent memory + runtime metadata. Personal to whoever drove the
+# session; project-wide docs that should be shared belong in CLAUDE.md.
+.claude/
+MEMORY.md

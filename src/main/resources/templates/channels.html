@@ -1,0 +1,513 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+    <meta name="theme-color" content="#1e325c"/>
+    <title th:text="${activeChannel != null ? '#' + activeChannel.name + ' · ' + appTitle : appTitle}">Radiance</title>
+    <link rel="icon" th:href="${appLogoUrl}"/>
+    <link rel="stylesheet" th:href="@{/css/app.css}"/>
+    <meta name="_csrf" th:content="${_csrf != null ? _csrf.token : ''}"/>
+    <meta name="_csrf_header" th:content="${_csrf != null ? _csrf.headerName : ''}"/>
+    <meta name="me-username" th:content="${me.username}"/>
+    <meta name="me-display" th:content="${me.displayName}"/>
+    <meta name="active-channel-id" th:content="${activeChannelId}"/>
+    <meta name="centered-on-anchor" th:content="${centeredOnAnchor != null and centeredOnAnchor ? 'true' : 'false'}"/>
+    <meta name="anchor-message-id" th:content="${anchorMessageId}"/>
+    <meta name="me-is-admin" th:content="${isAdmin == true ? 'true' : 'false'}"/>
+</head>
+<body class="app" th:attr="data-theme=${me.theme}">
+
+<th:block th:replace="~{fragments/icon-sprite :: sprite}"/>
+
+<header class="topbar">
+    <div class="topbar-left">
+        <button type="button" id="sidebar-toggle" class="sidebar-toggle"
+                aria-label="Toggle channel list" aria-controls="app-sidebar" aria-expanded="false">
+            <span class="sidebar-toggle-bar"></span>
+            <span class="sidebar-toggle-bar"></span>
+            <span class="sidebar-toggle-bar"></span>
+        </button>
+        <a th:href="@{/channels}" class="logo">
+            <span class="logo-text" th:text="${appTitle}">Radiance</span>
+            <img th:src="${appLogoUrl}" alt="" class="logo-mark"/>
+        </a>
+    </div>
+    <div class="topbar-center">
+        <form class="search-form" id="global-search-form">
+            <input type="search" id="global-search-input"
+                   placeholder="Search messages…" minlength="2" required/>
+            <button type="submit">Search</button>
+        </form>
+    </div>
+    <div class="topbar-right">
+        <div class="topbar-bell" id="topbar-bell">
+            <button type="button" id="topbar-bell-btn" class="topbar-bell-btn"
+                    aria-haspopup="dialog" aria-expanded="false" aria-controls="topbar-bell-panel"
+                    title="Mentions" aria-label="Mentions">
+                <svg class="icon"><use href="#icon-bell"/></svg>
+                <span class="topbar-bell-count" id="topbar-bell-count" hidden>0</span>
+            </button>
+            <div class="topbar-bell-panel" id="topbar-bell-panel" role="dialog"
+                 aria-label="Mentions" hidden>
+                <header class="topbar-bell-header">
+                    <h3>Mentions</h3>
+                    <button type="button" id="topbar-bell-mark-all" class="topbar-bell-action"
+                            title="Mark every channel with unread mentions as read">Mark all as read</button>
+                </header>
+                <ul class="topbar-bell-list" id="topbar-bell-list"></ul>
+                <p class="topbar-bell-empty" id="topbar-bell-empty">You're all caught up.</p>
+            </div>
+        </div>
+        <a th:href="@{/profile}" class="me" title="Profile settings">
+            <span class="avatar" th:data-author="${me.username}">
+                <img th:if="${me.hasAvatar()}" class="avatar-image" alt=""
+                     th:src="@{/api/users/{u}/avatar(u=${me.username},v=${me.avatarVersion()})}"/>
+                <span class="avatar-letter"
+                      th:text="${#strings.toUpperCase(#strings.substring(me.displayName ?: me.username, 0, 1))}">U</span>
+            </span>
+            <span th:text="${me.displayName ?: me.username}">user</span>
+        </a>
+        <a sec:authorize="hasRole('ADMIN')" th:href="@{/admin}" class="topbar-cog"
+           title="Admin console" aria-label="Admin console">
+            <svg class="icon"><use href="#icon-cog"/></svg>
+        </a>
+        <form th:action="@{/logout}" method="post" style="display:inline">
+            <button type="submit" class="link-btn">Sign out</button>
+        </form>
+    </div>
+</header>
+
+<div class="layout">
+    <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
+    <aside class="sidebar" id="app-sidebar">
+        <div class="sidebar-search">
+            <input type="search" id="sidebar-filter" placeholder="Find channel…"/>
+        </div>
+
+        <div class="sidebar-section">
+            <h2>
+                Channels
+                <button type="button" class="add-btn" id="sidebar-create-add-btn"
+                        title="Create channel" aria-label="Create channel">
+                    <svg class="icon icon-sm"><use href="#icon-plus"/></svg>
+                </button>
+            </h2>
+            <ul class="channel-list" id="sidebar-channel-list">
+                <li th:each="c : ${sidebar}"
+                    th:classappend="${c.joined ? 'joined' : 'public'} + ${c.joined and c.unreadCount > 0 ? ' has-unread' : ''}"
+                    th:with="active=${activeChannelId != null and activeChannelId == c.id}"
+                    th:attr="data-active=${active},data-name=${#strings.toLowerCase(c.name)}">
+                    <a th:href="@{'/channels/' + ${c.id}}" th:classappend="${active ? 'active' : ''}">
+                        <span class="hash">#</span>
+                        <span class="channel-name" th:text="${c.name}">name</span>
+                        <svg th:if="${c.type.name() == 'PRIVATE'}" class="icon icon-sm" title="Private">
+                            <use href="#icon-lock"/>
+                        </svg>
+                        <svg th:if="${c.admin}" class="icon icon-sm" title="Channel admin">
+                            <use href="#icon-star"/>
+                        </svg>
+                        <span class="unread-badge"
+                              th:if="${c.joined and c.unreadCount > 0}"
+                              th:classappend="${c.mentionCount > 0 ? 'mention' : ''}"
+                              th:text="${c.unreadCount > 99 ? '99+' : c.unreadCount}">3</span>
+                    </a>
+                </li>
+            </ul>
+
+            <details class="create-channel">
+                <summary id="sidebar-create-toggle">+ Create channel</summary>
+                <form id="create-channel-form-sidebar" class="create-channel-form">
+                    <label>Name <input name="name" required maxlength="120"/></label>
+                    <label>Description <input name="description" maxlength="500"/></label>
+                    <label>Type
+                        <select name="type">
+                            <option value="PUBLIC">Public</option>
+                            <option value="PRIVATE">Private</option>
+                        </select>
+                    </label>
+                    <button type="submit">Create</button>
+                </form>
+            </details>
+        </div>
+
+        <div class="sidebar-section">
+            <h2>
+                Direct messages
+                <button type="button" class="add-btn" id="sidebar-create-group-btn"
+                        title="Create group conversation" aria-label="Create group conversation">
+                    <svg class="icon icon-sm"><use href="#icon-plus"/></svg>
+                </button>
+            </h2>
+            <ul class="dm-list" id="sidebar-dm-list">
+                <li th:each="d : ${conversations}"
+                    th:classappend="${d.unreadCount > 0 ? 'has-unread' : ''}"
+                    th:attr="data-conv-id=${d.id},data-conv-type=${d.type.name()}">
+                    <a th:href="@{'/conversations/' + ${d.id}}">
+                        <span class="avatar" th:data-author="${d.otherUsername ?: ''}">
+                            <img th:if="${d.otherHasAvatar}" class="avatar-image" alt=""
+                                 th:src="@{/api/users/{u}/avatar(u=${d.otherUsername},v=${d.otherAvatarVersion})}"/>
+                            <span class="avatar-letter"
+                                  th:text="${#strings.toUpperCase(#strings.substring(d.title, 0, 1))}">U</span>
+                        </span>
+                        <span class="dm-name" th:text="${d.title}">name</span>
+                        <svg th:if="${d.type.name() == 'GROUP'}" class="icon icon-sm dm-group-tag"
+                             title="Group conversation"><use href="#icon-group"/></svg>
+                        <span class="unread-badge"
+                              th:if="${d.unreadCount > 0}"
+                              th:text="${d.unreadCount > 99 ? '99+' : d.unreadCount}">3</span>
+                    </a>
+                </li>
+                <li th:if="${conversations == null or conversations.isEmpty()}" class="dm-empty">
+                    Hover an avatar to start one.
+                </li>
+            </ul>
+
+            <details class="create-channel" id="sidebar-create-group-details">
+                <summary id="sidebar-create-group-toggle">+ New group</summary>
+                <form id="create-group-form-sidebar" class="create-channel-form">
+                    <label>Title <input name="title" required maxlength="120"/></label>
+                    <label>Members
+                        <input name="members" required placeholder="alice, bob, carol"/>
+                    </label>
+                    <button type="submit">Create group</button>
+                </form>
+            </details>
+        </div>
+    </aside>
+
+    <main class="content">
+        <div th:if="${activeChannel == null}" class="empty-state">
+            <h2>Welcome, <span th:text="${me.displayName ?: me.username}">user</span></h2>
+            <p>Pick a channel from the left, or create a new one.</p>
+
+            <details class="create-channel" open>
+                <summary>+ Create channel</summary>
+                <form id="create-channel-form" class="create-channel-form">
+                    <label>Name <input name="name" required maxlength="120"/></label>
+                    <label>Description <input name="description" maxlength="500"/></label>
+                    <label>Type
+                        <select name="type">
+                            <option value="PUBLIC">Public</option>
+                            <option value="PRIVATE">Private</option>
+                        </select>
+                    </label>
+                    <button type="submit">Create</button>
+                </form>
+            </details>
+        </div>
+
+        <div th:if="${activeChannel != null and !isMember and activeChannel.type.name() == 'PRIVATE'}"
+             class="empty-state">
+            <h2>#<span th:text="${activeChannel.name}">channel</span></h2>
+            <p>This is a private channel. Ask an admin for an invitation.</p>
+        </div>
+
+        <div th:if="${activeChannel != null and (isMember or activeChannel.type.name() == 'PUBLIC')}"
+             class="channel-view">
+
+            <div class="channel-header">
+                <div class="channel-header-info">
+                    <button th:if="${isMember}" type="button"
+                            id="channel-admin-cog"
+                            class="channel-cog"
+                            aria-haspopup="true" aria-expanded="false"
+                            aria-controls="channel-admin-dropdown"
+                            title="Channel settings" aria-label="Channel settings">
+                        <svg class="icon"><use href="#icon-cog"/></svg>
+                    </button>
+                    <h1>
+                        <span style="opacity:0.5">#</span><span th:text="${activeChannel.name}">general</span>
+                    </h1>
+                    <span th:if="${activeChannel.description}" class="channel-purpose"
+                          th:text="${activeChannel.description}">description</span>
+                </div>
+                <div class="channel-header-actions">
+                    <form class="channel-search" id="channel-search-form">
+                        <input type="search" id="channel-search-input"
+                               placeholder="Search this channel…" minlength="2" required/>
+                        <button type="submit">Search</button>
+                        <button type="button" id="channel-search-clear" class="icon-btn" hidden>Clear</button>
+                    </form>
+                    <button type="button" id="channel-members-toggle" class="icon-btn"
+                            aria-haspopup="true" aria-expanded="false"
+                            aria-controls="channel-members-panel"
+                            title="Channel members" aria-label="Channel members">
+                        <svg class="icon"><use href="#icon-users"/></svg>
+                        <span id="channel-members-count">…</span>
+                    </button>
+                    <button th:if="${activeChannel.type.name() == 'PUBLIC' and !isMember}"
+                            id="join-channel-btn" type="button"
+                            th:data-channel-id="${activeChannel.id}">Join channel</button>
+                </div>
+
+                <section id="channel-members-panel"
+                         class="channel-admin-dropdown"
+                         role="dialog"
+                         aria-labelledby="channel-members-title"
+                         hidden>
+                    <header>
+                        <h3 id="channel-members-title">Members</h3>
+                        <button type="button" id="channel-members-close" class="icon-btn" title="Close" aria-label="Close">
+    <svg class="icon"><use href="#icon-close"/></svg>
+</button>
+                    </header>
+                    <ul class="members" id="channel-members-list">
+                        <li class="dm-empty">Loading…</li>
+                    </ul>
+                </section>
+
+                <section th:if="${isMember}"
+                         id="channel-admin-dropdown"
+                         class="channel-admin-dropdown"
+                         role="dialog"
+                         aria-labelledby="channel-admin-title"
+                         hidden>
+                    <header>
+                        <h3 id="channel-admin-title">Channel members</h3>
+                        <button type="button" id="channel-admin-close" class="icon-btn" title="Close" aria-label="Close">
+    <svg class="icon"><use href="#icon-close"/></svg>
+</button>
+                    </header>
+                    <form id="invite-form" th:data-channel-id="${activeChannel.id}">
+                        <label>Invite user (username)
+                            <input name="username" required autocomplete="off"/>
+                        </label>
+                        <button type="submit">Invite</button>
+                    </form>
+                    <h4>Members</h4>
+                    <ul class="members">
+                        <li th:each="m : ${members}">
+                            <span class="avatar" th:data-author="${m.user.username}">
+                                <img th:if="${m.user.hasAvatar()}" class="avatar-image" alt=""
+                                     th:src="@{/api/users/{u}/avatar(u=${m.user.username},v=${m.user.avatarVersion()})}"/>
+                                <span class="avatar-letter"
+                                      th:text="${#strings.toUpperCase(#strings.substring(m.user.displayName ?: m.user.username, 0, 1))}">U</span>
+                            </span>
+                            <span th:text="${m.user.displayName ?: m.user.username}">user</span>
+                            <small th:text="${m.role}">role</small>
+                        </li>
+                    </ul>
+                </section>
+            </div>
+
+            <div class="messages-stack">
+              <!-- Shown when the page was opened with ?m=<id> (search-result permalink). Lets
+                   the user bail back to the live tail without having to scroll past the
+                   intervening N thousand messages. -->
+              <div id="jump-to-latest-banner" class="jump-to-latest-banner"
+                   th:if="${centeredOnAnchor != null and centeredOnAnchor}">
+                Showing context for an older message.
+                <a th:href="@{'/channels/' + ${activeChannelId}}">Jump to latest →</a>
+              </div>
+              <ol id="messages" class="messages">
+                <th:block th:each="msg, iter : ${messages}"
+                          th:with="prev=${iter.index > 0 ? messages[iter.index - 1] : null},
+                                   curDay=${#temporals.format(msg.createdAt, 'yyyy-MM-dd')},
+                                   prevDay=${prev != null ? #temporals.format(prev.createdAt, 'yyyy-MM-dd') : ''},
+                                   showDay=${prev == null or curDay != prevDay},
+                                   sameAuthor=${prev != null and prev.authorUsername == msg.authorUsername and !showDay},
+                                   nameKey=${msg.authorDisplayName ?: msg.authorUsername}">
+                    <li class="message"
+                        th:classappend="${(sameAuthor ? 'grouped ' : '') + (showDay ? 'first-of-day' : '')}"
+                        th:data-id="${msg.id}" th:data-created-at="${msg.createdAt}"
+                        th:data-author="${msg.authorUsername}"
+                        th:data-day="${curDay}"
+                        th:attr="data-body-markdown=${msg.bodyMarkdown},
+                                 data-parent-id=${msg.parentId}">
+                        <span class="avatar" th:data-author="${msg.authorUsername}">
+                            <img th:if="${msg.authorHasAvatar}" class="avatar-image" alt=""
+                                 th:src="@{/api/users/{u}/avatar(u=${msg.authorUsername},v=${msg.authorAvatarVersion})}"/>
+                            <span class="avatar-letter"
+                                  th:text="${#strings.toUpperCase(#strings.substring(nameKey, 0, 1))}">U</span>
+                        </span>
+                        <div>
+                            <div class="message-meta">
+                                <span class="author" th:data-author="${msg.authorUsername}" th:text="${nameKey}">user</span>
+                                <span th:if="${msg.authorDisplayName != null and msg.authorDisplayName != msg.authorUsername}"
+                                      class="author-handle"
+                                      th:data-author="${msg.authorUsername}"
+                                      th:text="'@' + ${msg.authorUsername}">@user</span>
+                                <time th:text="${#temporals.format(msg.createdAt, 'h:mm a')}">time</time>
+                            </div>
+                            <div th:if="${!#strings.isEmpty(msg.bodyMarkdown)}"
+                                 class="message-body" th:utext="${msg.bodyHtml}">html</div>
+                            <div th:if="${msg.poll != null}"
+                                 class="poll-placeholder"
+                                 th:attr="data-poll-id=${msg.poll.id}">Loading poll…</div>
+                            <div th:if="${msg.reactions != null and !msg.reactions.isEmpty()}" class="message-reactions">
+                                <button th:each="r : ${msg.reactions}" type="button"
+                                        class="reaction"
+                                        th:classappend="${r.mine ? 'mine' : ''}"
+                                        th:data-emoji="${r.emoji}"
+                                        th:data-mine="${r.mine}"
+                                        th:title="${#strings.listJoin(r.usernames, ', ')}">
+                                    <span class="reaction-emoji" th:text="${r.emoji}">👍</span>
+                                    <span class="reaction-count" th:text="${r.count}">1</span>
+                                </button>
+                            </div>
+                            <div th:if="${!msg.attachments.isEmpty()}" class="message-attachments">
+                                <th:block th:each="a : ${msg.attachments}">
+                                    <a th:if="${#strings.startsWith(a.contentType, 'image/')}"
+                                       class="attachment-image"
+                                       th:href="@{${a.downloadUrl}}"
+                                       target="_blank" rel="noopener"
+                                       th:title="${a.filename}">
+                                        <img th:src="@{${a.downloadUrl}}" th:alt="${a.filename}" loading="lazy"/>
+                                    </a>
+                                    <a th:unless="${#strings.startsWith(a.contentType, 'image/')}"
+                                       class="attachment"
+                                       th:href="@{${a.downloadUrl}}"
+                                       th:attr="data-content-type=${a.contentType}"
+                                       th:title="${a.filename}">
+                                        <svg class="icon attachment-icon"><use href="#icon-paperclip"/></svg>
+                                        <span class="attachment-info">
+                                            <span class="attachment-name" th:text="${a.filename}">file</span>
+                                            <span class="attachment-meta">
+                                                <span th:text="${a.contentType}">type</span> ·
+                                                <span th:text="${#numbers.formatDecimal(a.sizeBytes / 1024.0, 1, 1) + ' KiB'}">size</span>
+                                            </span>
+                                        </span>
+                                        <svg class="icon attachment-download"><use href="#icon-download"/></svg>
+                                    </a>
+                                </th:block>
+                            </div>
+                            <button th:if="${msg.replyCount > 0}" type="button"
+                                    class="thread-indicator"
+                                    th:attr="data-count=${msg.replyCount}"
+                                    th:title="|Open thread (${msg.replyCount} ${msg.replyCount == 1 ? 'reply' : 'replies'})|">
+                                <span class="thread-indicator-icon">💬</span>
+                                <span class="thread-indicator-count"
+                                      th:text="|${msg.replyCount} ${msg.replyCount == 1 ? 'reply' : 'replies'}|">1 reply</span>
+                            </button>
+                        </div>
+                    </li>
+                </th:block>
+              </ol>
+              <div id="day-divider-layer" class="day-divider-layer" aria-hidden="true">
+                <th:block th:each="msg, iter : ${messages}"
+                          th:with="prev=${iter.index > 0 ? messages[iter.index - 1] : null},
+                                   curDay=${#temporals.format(msg.createdAt, 'yyyy-MM-dd')},
+                                   prevDay=${prev != null ? #temporals.format(prev.createdAt, 'yyyy-MM-dd') : ''},
+                                   showDay=${prev == null or curDay != prevDay}">
+                    <div th:if="${showDay}" class="day-divider"
+                         th:data-anchor-id="${msg.id}"
+                         th:data-day="${curDay}">
+                        <span th:text="${#temporals.format(msg.createdAt, 'EEEE, MMMM d')}">Today</span>
+                    </div>
+                </th:block>
+              </div>
+            </div>
+
+            <div id="typing-indicator" class="typing-indicator" hidden></div>
+
+            <div th:if="${isMember}" class="composer-wrap"
+                 th:data-channel-id="${activeChannel.id}">
+                <form id="composer" class="composer">
+                    <div id="composer-attachments" class="composer-attachments" hidden></div>
+                    <textarea id="composer-input"
+                              th:placeholder="${'Write to #' + activeChannel.name}"
+                              rows="3" maxlength="8000"></textarea>
+                    <div id="composer-preview" class="composer-preview" hidden>
+                        <div class="composer-preview-label">Preview</div>
+                        <div id="composer-preview-body" class="message-body"></div>
+                    </div>
+                    <div class="composer-toolbar" data-format-target="composer-input">
+                        <button type="button" class="tool" data-format="bold" title="Bold (Ctrl/Cmd+B)"><b>B</b></button>
+                        <button type="button" class="tool" data-format="italic" title="Italic (Ctrl/Cmd+I)"><i>I</i></button>
+                        <button type="button" class="tool" data-format="strike" title="Strikethrough"><s>S</s></button>
+                        <button type="button" class="tool" data-format="link" title="Link (Ctrl/Cmd+K)">🔗</button>
+                        <button type="button" class="tool" data-format="code" title="Code (Ctrl/Cmd+E)">{ }</button>
+                        <button type="button" class="tool" data-format="quote" title="Quote">❝</button>
+                        <button type="button" class="tool" data-format="list" title="Bulleted list">≡</button>
+                        <button type="button" class="tool" id="composer-emoji" title="Insert emoji">😀</button>
+                        <button type="button" class="tool" id="composer-attach" title="Attach file" aria-label="Attach file">
+    <svg class="icon"><use href="#icon-paperclip"/></svg>
+</button>
+                        <input type="file" id="composer-file" hidden multiple/>
+                        <span class="spacer"></span>
+                        <button type="submit" class="send-btn">
+                            <svg class="send-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                <path d="M2.5 20.5 22 12 2.5 3.5 2.5 10 16 12 2.5 14z"/>
+                            </svg>
+                            <span>Send</span>
+                        </button>
+                    </div>
+                </form>
+                <div class="composer-hint">
+                    Markdown supported · **bold**, _italic_, `code`, ```blocks```, [links](url) · Enter to send · Shift+Enter for newline · 📎 to attach
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <aside id="thread-panel" class="thread-panel" hidden>
+        <header class="thread-header">
+            <h3>Thread</h3>
+            <button type="button" id="thread-close" class="icon-btn" title="Close thread" aria-label="Close thread">
+    <svg class="icon"><use href="#icon-close"/></svg>
+</button>
+        </header>
+        <div id="thread-parent" class="thread-parent"></div>
+        <ol id="thread-replies" class="thread-replies"></ol>
+        <form id="thread-composer" class="composer thread-composer">
+            <textarea id="thread-input" placeholder="Reply to thread…" rows="2" maxlength="8000"></textarea>
+            <div id="thread-preview" class="composer-preview" hidden>
+                <div class="composer-preview-label">Preview</div>
+                <div id="thread-preview-body" class="message-body"></div>
+            </div>
+            <div class="composer-toolbar" data-format-target="thread-input">
+                <button type="button" class="tool" data-format="bold" title="Bold (Ctrl/Cmd+B)"><b>B</b></button>
+                <button type="button" class="tool" data-format="italic" title="Italic (Ctrl/Cmd+I)"><i>I</i></button>
+                <button type="button" class="tool" data-format="strike" title="Strikethrough"><s>S</s></button>
+                <button type="button" class="tool" data-format="link" title="Link (Ctrl/Cmd+K)">🔗</button>
+                <button type="button" class="tool" data-format="code" title="Code (Ctrl/Cmd+E)">{ }</button>
+                <button type="button" class="tool" data-format="quote" title="Quote">❝</button>
+                <button type="button" class="tool" data-format="list" title="Bulleted list">≡</button>
+                <button type="button" class="tool" id="thread-emoji" title="Insert emoji">😀</button>
+                <span class="spacer"></span>
+                <button type="submit" class="send-btn">
+                    <svg class="send-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <path d="M2.5 20.5 22 12 2.5 3.5 2.5 10 16 12 2.5 14z"/>
+                    </svg>
+                    <span>Reply</span>
+                </button>
+            </div>
+        </form>
+    </aside>
+</div>
+
+<div id="tutorial-overlay" class="tutorial-overlay" th:if="${!me.tutorialDismissed}" role="dialog" aria-modal="true" aria-labelledby="tutorial-title">
+    <div class="tutorial-card">
+        <button type="button" class="tutorial-skip" id="tutorial-skip" title="Skip tutorial">Skip</button>
+        <h2 id="tutorial-title" th:text="'Welcome to ' + ${appTitle}">Welcome to Radiance</h2>
+        <ol class="tutorial-steps">
+            <li><strong>Channels</strong> live in the sidebar on the left. Public ones are joinable; the <span aria-hidden="true">+</span> button creates a new one.</li>
+            <li><strong>Send messages</strong> with the composer at the bottom. Markdown is supported — try <code>**bold**</code>, <code>`code`</code>, or fenced blocks.</li>
+            <li><strong>Search</strong> from the top bar. Two-character minimum.</li>
+            <li><strong>Profile &amp; themes</strong> are behind your avatar (top right).</li>
+        </ol>
+        <div class="tutorial-actions">
+            <button type="button" class="btn" id="tutorial-done">Got it</button>
+        </div>
+    </div>
+</div>
+
+<script th:src="@{/js/vendor/stomp.umd.min.js}"></script>
+
+<!-- Picks the highlight.js stylesheet matching the active theme; lives in a static file so CSP can ban inline script. -->
+<script th:src="@{/js/theme-loader.js}"></script>
+<script th:src="@{/js/vendor/highlight.min.js}"></script>
+
+<script th:src="@{/js/emoji-data.js}"></script>
+<script th:src="@{/js/chat-kit.js}"></script>
+<script th:src="@{/js/hovercard.js}"></script>
+<script th:src="@{/js/notifications.js}"></script>
+<script th:src="@{/js/mention-inbox.js}"></script>
+<script th:src="@{/js/presence.js}"></script>
+<script th:src="@{/js/idle-logout.js}"></script>
+<script th:src="@{/js/chat.js}"></script>
+</body>
+</html>

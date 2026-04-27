@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+    <meta name="theme-color" content="#1e325c"/>
+    <title th:text="'Profile · ' + ${appTitle}">Profile · Radiance</title>
+    <link rel="icon" th:href="${appLogoUrl}"/>
+    <link rel="stylesheet" th:href="@{/css/app.css}"/>
+    <meta name="_csrf" th:content="${_csrf != null ? _csrf.token : ''}"/>
+    <meta name="_csrf_header" th:content="${_csrf != null ? _csrf.headerName : ''}"/>
+</head>
+<body class="app profile-page" th:attr="data-theme=${me.theme}">
+
+<th:block th:replace="~{fragments/icon-sprite :: sprite}"/>
+
+<header class="topbar">
+    <div class="topbar-left">
+        <a th:href="@{/channels}" class="logo">
+            <span class="logo-text" th:text="${appTitle}">Radiance</span>
+            <img th:src="${appLogoUrl}" alt="" class="logo-mark"/>
+        </a>
+    </div>
+    <div class="topbar-center"></div>
+    <div class="topbar-right">
+        <a th:href="@{/channels}" class="link-btn">Back to channels</a>
+        <span class="me">
+            <span class="avatar" th:data-author="${me.username}">
+                <img th:if="${me.hasAvatar()}" class="avatar-image" alt=""
+                     th:src="@{/api/users/{u}/avatar(u=${me.username},v=${me.avatarVersion()})}"/>
+                <span class="avatar-letter"
+                      th:text="${#strings.toUpperCase(#strings.substring(me.displayName ?: me.username, 0, 1))}">U</span>
+            </span>
+            <span th:text="${me.displayName ?: me.username}">user</span>
+        </span>
+        <a sec:authorize="hasRole('ADMIN')" th:href="@{/admin}" class="topbar-cog"
+           title="Admin console" aria-label="Admin console">
+            <svg class="icon"><use href="#icon-cog"/></svg>
+        </a>
+        <form th:action="@{/logout}" method="post" style="display:inline">
+            <button type="submit" class="link-btn">Sign out</button>
+        </form>
+    </div>
+</header>
+
+<main class="profile-content">
+    <div class="profile-card">
+        <h1>Profile settings</h1>
+
+        <section class="profile-section">
+            <h2>Profile picture</h2>
+            <div class="avatar-editor">
+                <span class="avatar avatar-large" id="avatar-preview" th:data-author="${me.username}">
+                    <img th:if="${me.hasAvatar()}" class="avatar-image" alt=""
+                         th:src="@{/api/users/{u}/avatar(u=${me.username},v=${me.avatarVersion()})}"/>
+                    <span class="avatar-letter"
+                          th:text="${#strings.toUpperCase(#strings.substring(me.displayName ?: me.username, 0, 1))}">U</span>
+                </span>
+                <div class="avatar-editor-controls">
+                    <p class="profile-help">PNG, JPEG, WEBP, or GIF. Up to 5 MiB.</p>
+                    <div class="avatar-editor-buttons">
+                        <input type="file" id="avatar-file" accept="image/png,image/jpeg,image/webp,image/gif" hidden/>
+                        <button type="button" id="avatar-upload-btn">Upload picture</button>
+                        <button type="button" id="avatar-clear-btn"
+                                th:disabled="${!me.hasAvatar()}">Remove</button>
+                    </div>
+                    <p id="avatar-status" class="profile-help" hidden></p>
+                </div>
+            </div>
+        </section>
+
+        <section class="profile-section" id="status-section">
+            <h2>Status</h2>
+            <p class="profile-help">
+                Let teammates know what you're up to. Pairs with the green/grey dot on your avatar.
+            </p>
+            <form id="status-form" class="status-form">
+                <div class="status-form-row">
+                    <input type="text" id="status-emoji" name="emoji" maxlength="16"
+                           placeholder="🍕" autocomplete="off"/>
+                    <input type="text" id="status-text" name="text" maxlength="120"
+                           placeholder="What's on your mind?" autocomplete="off"/>
+                </div>
+                <div class="status-form-row">
+                    <label>
+                        Clear after
+                        <select id="status-clear-after">
+                            <option value="0">Don't auto-clear</option>
+                            <option value="30">30 minutes</option>
+                            <option value="60">1 hour</option>
+                            <option value="240">4 hours</option>
+                            <option value="1440">Today</option>
+                        </select>
+                    </label>
+                    <button type="submit" id="status-set-btn">Set status</button>
+                    <button type="button" id="status-clear-btn" class="link-btn">Clear status</button>
+                </div>
+                <p id="status-feedback" class="profile-help" hidden></p>
+            </form>
+        </section>
+
+        <section class="profile-section">
+            <h2>Account</h2>
+            <dl class="profile-fields">
+                <dt>Username</dt><dd th:text="${me.username}">user</dd>
+                <dt>Display name</dt><dd th:text="${me.displayName ?: '—'}">name</dd>
+                <dt>Email</dt><dd th:text="${me.email ?: '—'}">email</dd>
+            </dl>
+        </section>
+
+        <section class="profile-section">
+            <h2>Theme</h2>
+            <p class="profile-help">
+                Click a theme to preview it. The change is only persisted when you save —
+                leave the page without saving and it reverts to your current theme.
+            </p>
+            <form th:action="@{/profile/theme}" method="post" class="theme-picker"
+                  id="theme-form" th:data-saved-theme="${me.theme}">
+                <div class="theme-grid">
+                    <label th:each="t : ${themes}" class="theme-option"
+                           th:classappend="${t == me.theme ? 'selected' : ''}"
+                           th:data-theme-value="${t}">
+                        <input type="radio" name="theme" th:value="${t}"
+                               th:checked="${t == me.theme}"/>
+                        <span class="theme-swatch" th:attr="data-theme=${t}">
+                            <span class="sw sw-sidebar"></span>
+                            <span class="sw sw-accent"></span>
+                            <span class="sw sw-content"></span>
+                        </span>
+                        <span class="theme-name" th:text="${#strings.capitalize(t)}">Theme</span>
+                    </label>
+                </div>
+                <button type="submit">Save theme</button>
+            </form>
+        </section>
+    </div>
+</main>
+
+<script th:src="@{/js/presence.js}"></script>
+<script th:src="@{/js/idle-logout.js}"></script>
+<script th:src="@{/js/profile.js}"></script>
+
+</body>
+</html>
