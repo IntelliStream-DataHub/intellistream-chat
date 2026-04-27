@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+    <meta name="theme-color" content="#1e325c"/>
+    <title th:text="${appTitle}">Radiance</title>
+    <link rel="icon" th:href="${appLogoUrl}"/>
+    <link rel="stylesheet" th:href="@{/css/app.css}"/>
+</head>
+<body class="landing">
+<main>
+    <h1>
+        <span th:text="${appTitle}">Radiance</span>
+        <img th:src="${appLogoUrl}" alt="" class="landing-logo"/>
+    </h1>
+    <p>A Slack/Mattermost-style workspace.</p>
+    <p>
+        <a class="btn" th:href="@{/oauth2/authorization/keycloak}">Sign in with Keycloak</a>
+        <a class="btn btn-secondary" th:href="@{/oauth2/authorization/keycloak(action=register)}">Create account</a>
+    </p>
+</main>
+</body>
+</html>
