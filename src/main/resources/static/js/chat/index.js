@@ -26,8 +26,10 @@
  */
 import { meta, csrfToken, csrfHeader, activeChannelId, headers } from './shared.js';
 import * as chrome from './chrome.js';
+import * as presenceMenu from './presence-menu.js';
 
 chrome.init();
+presenceMenu.init();
 
 // ---------- Channel CRUD ----------
   const wireCreateChannel = (formId) => {

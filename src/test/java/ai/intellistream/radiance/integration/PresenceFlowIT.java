@@ -306,6 +306,154 @@ class PresenceFlowIT {
         assertThat(controller.get("")).isEmpty();
     }
 
+    // ---------- Manual presence kind (Slack-style Active/Away/DND/Offline) ----------
+
+    @Test
+    void connectedUserDefaultsToActiveKind() {
+        var alice = newUser("alice");
+        tracker.connect(alice.getUsername());
+
+        var dto = presenceService.presenceFor(alice);
+
+        assertThat(dto.online()).isTrue();
+        assertThat(dto.kind()).isEqualTo(ai.intellistream.radiance.domain.PresenceKind.ACTIVE);
+    }
+
+    @Test
+    void disconnectedUserWithoutOverrideIsOffline() {
+        var alice = newUser("alice");
+
+        var dto = presenceService.presenceFor(alice);
+
+        assertThat(dto.online()).isFalse();
+        assertThat(dto.kind()).isEqualTo(ai.intellistream.radiance.domain.PresenceKind.OFFLINE);
+    }
+
+    @Test
+    void manualAwayBeatsConnectedAutoState() {
+        // User is genuinely connected via STOMP, but they've manually set themselves to Away.
+        // The override wins; the auto green dot is replaced with the yellow Away dot, and
+        // the backwards-compat boolean reads as NOT online so old clients dim the avatar.
+        var alice = newUser("alice");
+        tracker.connect(alice.getUsername());
+
+        var dto = presenceService.setKind(alice, ai.intellistream.radiance.domain.PresenceKind.AWAY);
+
+        assertThat(dto.kind()).isEqualTo(ai.intellistream.radiance.domain.PresenceKind.AWAY);
+        assertThat(dto.online()).isFalse();
+    }
+
+    @Test
+    void manualDndAndOfflineAreAlsoApplied() {
+        var alice = newUser("alice");
+        tracker.connect(alice.getUsername());
+
+        assertThat(presenceService.setKind(alice, ai.intellistream.radiance.domain.PresenceKind.DND).kind())
+                .isEqualTo(ai.intellistream.radiance.domain.PresenceKind.DND);
+        assertThat(presenceService.setKind(alice, ai.intellistream.radiance.domain.PresenceKind.OFFLINE).kind())
+                .isEqualTo(ai.intellistream.radiance.domain.PresenceKind.OFFLINE);
+    }
+
+    @Test
+    void clearKindReturnsToActiveForConnectedUser() {
+        var alice = newUser("alice");
+        tracker.connect(alice.getUsername());
+        presenceService.setKind(alice, ai.intellistream.radiance.domain.PresenceKind.AWAY);
+
+        var dto = presenceService.clearKind(alice);
+
+        assertThat(dto.kind()).isEqualTo(ai.intellistream.radiance.domain.PresenceKind.ACTIVE);
+        assertThat(dto.online()).isTrue();
+    }
+
+    @Test
+    void settingActiveAlsoClearsOverride() {
+        // Treating ACTIVE as "no override" lets a single endpoint (PUT /kind) handle both
+        // setting and clearing — UI flips to Active just by sending ACTIVE.
+        var alice = newUser("alice");
+        tracker.connect(alice.getUsername());
+        presenceService.setKind(alice, ai.intellistream.radiance.domain.PresenceKind.DND);
+
+        var dto = presenceService.setKind(alice, ai.intellistream.radiance.domain.PresenceKind.ACTIVE);
+
+        assertThat(dto.kind()).isEqualTo(ai.intellistream.radiance.domain.PresenceKind.ACTIVE);
+        assertThat(presenceRepo.findById(alice.getId()).orElseThrow().getManualKind()).isNull();
+    }
+
+    @Test
+    void manualOverridePersistsAcrossDisconnect() {
+        // Simulate reconnect: connect → set Away → disconnect → reconnect → still Away.
+        // The override survives because it lives in the DB row, not the in-memory tracker.
+        var alice = newUser("alice");
+        tracker.connect(alice.getUsername());
+        presenceService.setKind(alice, ai.intellistream.radiance.domain.PresenceKind.AWAY);
+        tracker.disconnect(alice.getUsername());
+        tracker.connect(alice.getUsername());
+
+        var dto = presenceService.presenceFor(alice);
+        assertThat(dto.kind()).isEqualTo(ai.intellistream.radiance.domain.PresenceKind.AWAY);
+    }
+
+    @Test
+    void customStatusEmojiAndManualKindCoexist() {
+        // The lunch emoji and the AWAY override are independent dimensions of presence —
+        // the user can be Away with a 🍕 status badge.
+        var alice = newUser("alice");
+        tracker.connect(alice.getUsername());
+        presenceService.setStatus(alice, "🍕", "lunch", null);
+        presenceService.setKind(alice, ai.intellistream.radiance.domain.PresenceKind.AWAY);
+
+        var dto = presenceService.presenceFor(alice);
+
+        assertThat(dto.kind()).isEqualTo(ai.intellistream.radiance.domain.PresenceKind.AWAY);
+        assertThat(dto.statusEmoji()).isEqualTo("🍕");
+        assertThat(dto.statusText()).isEqualTo("lunch");
+    }
+
+    @Test
+    void clearStatusKeepsManualKind() {
+        // Clearing the lunch emoji shouldn't accidentally also flip the user back to Active.
+        var alice = newUser("alice");
+        tracker.connect(alice.getUsername());
+        presenceService.setStatus(alice, "🍕", "lunch", null);
+        presenceService.setKind(alice, ai.intellistream.radiance.domain.PresenceKind.AWAY);
+
+        var afterClear = presenceService.clearStatus(alice);
+
+        assertThat(afterClear.kind()).isEqualTo(ai.intellistream.radiance.domain.PresenceKind.AWAY);
+        assertThat(afterClear.statusEmoji()).isNull();
+    }
+
+    @Test
+    void putKindEndpointBroadcasts() {
+        var alice = newUser("alice");
+        tracker.connect(alice.getUsername());
+        when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
+
+        var dto = controller.setKind(
+                new ai.intellistream.radiance.web.dto.SetPresenceKindRequest(
+                        ai.intellistream.radiance.domain.PresenceKind.AWAY),
+                mock(Principal.class));
+
+        assertThat(dto.kind()).isEqualTo(ai.intellistream.radiance.domain.PresenceKind.AWAY);
+        verify(broker).convertAndSend(eq("/topic/presence"), eq(dto));
+    }
+
+    @Test
+    void deleteKindEndpointClearsOverrideAndBroadcasts() {
+        var alice = newUser("alice");
+        tracker.connect(alice.getUsername());
+        when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
+        controller.setKind(new ai.intellistream.radiance.web.dto.SetPresenceKindRequest(
+                ai.intellistream.radiance.domain.PresenceKind.DND), mock(Principal.class));
+
+        var dto = controller.clearKind(mock(Principal.class));
+
+        assertThat(dto.kind()).isEqualTo(ai.intellistream.radiance.domain.PresenceKind.ACTIVE);
+        // setKind broadcast plus the clear broadcast — at least 2 events.
+        verify(broker, org.mockito.Mockito.atLeast(2)).convertAndSend(eq("/topic/presence"), any(PresenceDto.class));
+    }
+
     // ---------- helpers ----------
 
     // The principal name on the STOMP handshake is preferred_username, not the OIDC sub —

@@ -54,6 +54,15 @@ public class UserPresence {
     @Column(name = "status_clear_at")
     private Instant statusClearAt;
 
+    /**
+     * Manual presence override (AWAY / DND / OFFLINE) — beats the auto-derived
+     * connection state. {@code null} means "no override; use the auto state".
+     * {@link PresenceKind#ACTIVE} is never persisted here (it's the default).
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "manual_status_kind", length = 16)
+    private PresenceKind manualKind;
+
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt = Instant.now();
 
@@ -72,6 +81,21 @@ public class UserPresence {
         this.statusEmoji = null;
         this.statusText = null;
         this.statusClearAt = null;
+        this.updatedAt = Instant.now();
+    }
+
+    /**
+     * Set the manual override. {@link PresenceKind#ACTIVE} clears the override
+     * (treated the same as {@link #clearManualKind()}); the other values are
+     * stored verbatim.
+     */
+    public void setManualKind(PresenceKind kind) {
+        this.manualKind = (kind == null || !kind.isManual()) ? null : kind;
+        this.updatedAt = Instant.now();
+    }
+
+    public void clearManualKind() {
+        this.manualKind = null;
         this.updatedAt = Instant.now();
     }
 

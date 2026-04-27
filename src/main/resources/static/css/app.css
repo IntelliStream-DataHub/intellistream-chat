@@ -893,6 +893,19 @@ button.icon-btn > .icon {
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.15);
   display: block;
 }
+/* Manual override colors. data-presence-kind is set by presence.js from PresenceDto.kind.
+   ACTIVE is the same as is-online (green). AWAY = yellow, DND = red, OFFLINE = gray.
+   Each variant renders the dot via display:block so it shows even without is-online
+   (a user manually OFFLINE while STOMP-connected still shows the gray dot). */
+.avatar[data-presence-kind="AWAY"]::after {
+  background: #f0b400; box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.15); display: block;
+}
+.avatar[data-presence-kind="DND"]::after {
+  background: #d94f4f; box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.15); display: block;
+}
+.avatar[data-presence-kind="OFFLINE"]::after {
+  background: #888;    box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.15); display: block;
+}
 .avatar-status-emoji {
   position: absolute;
   bottom: 0;
@@ -916,6 +929,50 @@ button.icon-btn > .icon {
 /* Larger avatars (profile page, hovercard) get bigger badges. */
 .avatar.avatar-large::after { width: 14px; height: 14px; }
 .avatar.avatar-large .avatar-status-emoji { width: 22px; height: 22px; font-size: 14px; }
+
+/* ---------- Presence kind menu (topbar avatar dropdown) ----------
+   Slack-style four-item picker: Active / Away / DND / Offline. Anchored below
+   the .me .avatar via JS-set inline position. Each item renders its own colored
+   dot using the same data-presence-kind variants the avatars use. */
+.presence-menu {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  padding: 4px;
+  z-index: 1000;
+  min-width: 220px;
+}
+.presence-menu-item {
+  display: grid;
+  grid-template-columns: 12px 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 6px 8px;
+  background: none;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+  color: inherit;
+  font: inherit;
+}
+.presence-menu-item:hover { background: var(--bg); }
+.presence-menu-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  grid-row: 1 / span 2;
+  /* Each dot's colour comes from its own data-presence-kind on this element. */
+}
+.presence-menu-dot[data-presence-kind="ACTIVE"]  { background: #2dba56; }
+.presence-menu-dot[data-presence-kind="AWAY"]    { background: #f0b400; }
+.presence-menu-dot[data-presence-kind="DND"]     { background: #d94f4f; }
+.presence-menu-dot[data-presence-kind="OFFLINE"] { background: #888; }
+.presence-menu-label { font-weight: 500; }
+.presence-menu-hint { font-size: 0.75em; color: var(--muted); grid-column: 2; }
 
 
 /* When the user has uploaded a profile picture the renderer adds an <img.avatar-image>

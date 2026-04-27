@@ -40,6 +40,13 @@
   function applyToElement(el, dto) {
     el.classList.toggle('is-online', !!dto.online);
     el.classList.toggle('is-offline', !dto.online);
+    // data-presence-kind drives the dot's color variant (CSS selects on the value).
+    // ACTIVE → green, AWAY → yellow, DND → red, OFFLINE → gray (or hidden by CSS).
+    if (dto.kind) {
+      el.setAttribute('data-presence-kind', dto.kind);
+    } else {
+      el.removeAttribute('data-presence-kind');
+    }
     // Status emoji overlay — only on the avatar elements themselves; reactions / mention
     // chips also use [data-author] but we don't want a 🍕 dangling off them.
     if (!el.classList.contains('avatar')) return;
