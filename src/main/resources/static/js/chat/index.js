@@ -25,6 +25,9 @@
  * chat/browse.js, chat/chrome.js per the modularization plan.
  */
 import { meta, csrfToken, csrfHeader, activeChannelId, headers } from './shared.js';
+import * as chrome from './chrome.js';
+
+chrome.init();
 
 // ---------- Channel CRUD ----------
   const wireCreateChannel = (formId) => {
@@ -876,49 +879,8 @@ import { meta, csrfToken, csrfHeader, activeChannelId, headers } from './shared.
   // are page-specific (fuzzyMatch, levenshtein, formatDay) and stay here.
   const { formatBytes, avatarColor, buildAvatarEl, dayKey, formatTime, appendAuthorHandle } = ChatKit;
 
-  /**
-   * Lenient match for the sidebar channel filter. Returns true when:
-   *   1. the query is empty, or
-   *   2. the query is a substring of the target (cheap fast path), or
-   *   3. every char of the query appears in the target in order (subsequence — handles
-   *      "gen" matching "general", "deveng" matching "dev-engineering"), or
-   *   4. Levenshtein similarity is at least {@code threshold}, defaulting to 50% so
-   *      single-char typos and small transpositions still match.
-   * Inputs are lowercased by the caller; we don't lower-case again per call.
-   */
-  const fuzzyMatch = (query, target, threshold = 0.5) => {
-    if (!query) return true;
-    if (target.includes(query)) return true;
-    let qi = 0;
-    for (let i = 0; i < target.length && qi < query.length; i++) {
-      if (target[i] === query[qi]) qi++;
-    }
-    if (qi === query.length) return true;
-    const distance = levenshtein(query, target);
-    const maxLen = Math.max(query.length, target.length);
-    return maxLen === 0 ? true : (1 - distance / maxLen) >= threshold;
-  };
-
-  const levenshtein = (a, b) => {
-    if (a === b) return 0;
-    const m = a.length, n = b.length;
-    if (!m) return n;
-    if (!n) return m;
-    let prev = new Array(n + 1);
-    let cur = new Array(n + 1);
-    for (let j = 0; j <= n; j++) prev[j] = j;
-    for (let i = 1; i <= m; i++) {
-      cur[0] = i;
-      for (let j = 1; j <= n; j++) {
-        const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
-        cur[j] = Math.min(cur[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
-      }
-      const tmp = prev; prev = cur; cur = tmp;
-    }
-    return prev[n];
-  };
-
   // formatDay is page-local (channel-feed day-divider label); other date helpers come from ChatKit.
+  // fuzzyMatch / levenshtein moved to ./shared.js so chat/chrome.js (sidebar filter) can use them.
   const formatDay = (d) =>
       d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
 
@@ -2091,35 +2053,5 @@ import { meta, csrfToken, csrfHeader, activeChannelId, headers } from './shared.
     });
   })();
 
-  // ---------- Tutorial overlay ----------
-  const tutorialOverlay = document.getElementById('tutorial-overlay');
-  if (tutorialOverlay) {
-    const dismiss = async () => {
-      tutorialOverlay.remove();
-      try {
-        await fetch('/profile/tutorial/dismiss', { method: 'POST', headers: headers() });
-      } catch (_) {
-        // Best-effort: the overlay is gone for this session even if the call fails.
-      }
-    };
-    document.getElementById('tutorial-skip')?.addEventListener('click', dismiss);
-    document.getElementById('tutorial-done')?.addEventListener('click', dismiss);
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && document.body.contains(tutorialOverlay)) dismiss();
-    });
-  }
-
-  // ---------- Sidebar filter ----------
-  // Fuzzy match against the channel name. Substring or subsequence are exact-feeling
-  // matches; otherwise we accept anything within Levenshtein similarity >= 50%, so
-  // small typos still surface the channel you meant.
-  const sidebarFilter = document.getElementById('sidebar-filter');
-  if (sidebarFilter) {
-    sidebarFilter.addEventListener('input', () => {
-      const q = sidebarFilter.value.trim().toLowerCase();
-      document.querySelectorAll('#sidebar-channel-list > li').forEach((li) => {
-        const name = li.dataset.name || '';
-        li.style.display = fuzzyMatch(q, name) ? '' : 'none';
-      });
-    });
-  }
+  // Tutorial overlay + sidebar filter were moved to ./chrome.js — see chrome.init() at the
+  // top of this file. They were structurally independent of the message-feed code in here.

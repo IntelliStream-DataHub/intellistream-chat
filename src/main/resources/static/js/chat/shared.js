@@ -32,3 +32,45 @@ export const headers = (extra) => {
     if (csrfToken && csrfHeader) h[csrfHeader] = csrfToken;
     return h;
 };
+
+/**
+ * Lenient match for the sidebar channel filter. Returns true when:
+ *   1. the query is empty, or
+ *   2. the query is a substring of the target (cheap fast path), or
+ *   3. every char of the query appears in the target in order (subsequence — handles
+ *      "gen" matching "general", "deveng" matching "dev-engineering"), or
+ *   4. Levenshtein similarity is at least {@code threshold}, defaulting to 50% so
+ *      single-char typos and small transpositions still match.
+ * Inputs are expected lower-cased by the caller; we don't lower-case again per call.
+ */
+export const fuzzyMatch = (query, target, threshold = 0.5) => {
+    if (!query) return true;
+    if (target.includes(query)) return true;
+    let qi = 0;
+    for (let i = 0; i < target.length && qi < query.length; i++) {
+        if (target[i] === query[qi]) qi++;
+    }
+    if (qi === query.length) return true;
+    const distance = levenshtein(query, target);
+    const maxLen = Math.max(query.length, target.length);
+    return maxLen === 0 ? true : (1 - distance / maxLen) >= threshold;
+};
+
+const levenshtein = (a, b) => {
+    if (a === b) return 0;
+    const m = a.length, n = b.length;
+    if (!m) return n;
+    if (!n) return m;
+    let prev = new Array(n + 1);
+    let cur = new Array(n + 1);
+    for (let j = 0; j <= n; j++) prev[j] = j;
+    for (let i = 1; i <= m; i++) {
+        cur[0] = i;
+        for (let j = 1; j <= n; j++) {
+            const cost = a.charCodeAt(i - 1) === b.charCodeAt(j - 1) ? 0 : 1;
+            cur[j] = Math.min(cur[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
+        }
+        const tmp = prev; prev = cur; cur = tmp;
+    }
+    return prev[n];
+};
