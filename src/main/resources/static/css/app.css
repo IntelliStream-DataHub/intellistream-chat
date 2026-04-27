@@ -870,12 +870,17 @@ button.icon-btn > .icon {
 
 /* ---------- Presence indicator (online dot + status emoji) ----------
    Both badges sit in the avatar's bottom-right corner; the status emoji wins when set.
-   Position uses bottom/right: 0 so the existing overflow:hidden on .avatar doesn't clip them. */
+   The dot is pulled 2px inward so its box-shadow ring fits inside the avatar (the
+   .avatar wrapper has overflow:hidden to clip the avatar image — that also clips
+   anything overflowing, so the ring at bottom:0/right:0 was getting half-eaten).
+   The status-emoji badge is larger and uses a solid panel background so its full
+   surface is opaque, hiding the avatar underneath; clipping the corner of its
+   box-shadow ring is fine — barely visible. */
 .avatar::after {
   content: '';
   position: absolute;
-  bottom: 0;
-  right: 0;
+  bottom: 2px;
+  right: 2px;
   width: 10px;
   height: 10px;
   border-radius: 50%;
@@ -907,6 +912,10 @@ button.icon-btn > .icon {
 }
 /* Hide the plain online dot when an emoji badge is present. */
 .avatar:has(.avatar-status-emoji)::after { display: none; }
+/* The current user's own avatar in the topbar — they don't need a dot reminding
+   them they're online, and the badge collides with the adjacent display name. */
+.me .avatar::after,
+.me .avatar .avatar-status-emoji { display: none !important; }
 /* Larger avatars (profile page, hovercard) get bigger badges. */
 .avatar.avatar-large::after { width: 14px; height: 14px; }
 .avatar.avatar-large .avatar-status-emoji { width: 22px; height: 22px; font-size: 14px; }
