@@ -869,18 +869,19 @@ button.icon-btn > .icon {
 .avatar[data-color="7"] { background: var(--av8); }
 
 /* ---------- Presence indicator (online dot + status emoji) ----------
-   Both badges sit in the avatar's bottom-right corner; the status emoji wins when set.
-   The dot is pulled 2px inward so its box-shadow ring fits inside the avatar (the
-   .avatar wrapper has overflow:hidden to clip the avatar image — that also clips
-   anything overflowing, so the ring at bottom:0/right:0 was getting half-eaten).
-   The status-emoji badge is larger and uses a solid panel background so its full
-   surface is opaque, hiding the avatar underneath; clipping the corner of its
-   box-shadow ring is fine — barely visible. */
+   The online dot pokes out the bottom-right corner of the avatar (Slack/Discord
+   style). For that to render, the wrapper must NOT clip — but the avatar image
+   inside still needs its rounded corners. Solution: relax overflow on .is-online
+   only, and have the image inherit border-radius from .avatar so it self-clips
+   regardless of the wrapper's overflow setting (see the .avatar-image rule
+   further down). The status-emoji badge sits flush at bottom:0 right:0 — it has
+   its own opaque background and is large enough to dominate the corner. */
+.avatar.is-online { overflow: visible; }
 .avatar::after {
   content: '';
   position: absolute;
-  bottom: 2px;
-  right: 2px;
+  bottom: -2px;
+  right: -2px;
   width: 10px;
   height: 10px;
   border-radius: 50%;
@@ -927,6 +928,9 @@ button.icon-btn > .icon {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  /* Self-clip to the avatar's rounded corners so we don't depend on the wrapper's
+     overflow: hidden (which is relaxed when .is-online so the dot can poke out). */
+  border-radius: inherit;
   display: block;
   border-radius: inherit;
   z-index: 1;
