@@ -104,7 +104,11 @@ public class ReactionService {
     }
 
     private Message requireMessage(UUID messageId) {
-        return messageRepository.findById(messageId)
+        // Join-fetch author + channel so the controller can hand the returned Message to
+        // MessageDto.from(...) after this @Transactional closes — open-in-view is off, so
+        // a bare findById leaves both as lazy proxies that LazyInitialize when the DTO is
+        // built, breaking the broadcast.
+        return messageRepository.findByIdWithChannelAndAuthor(messageId)
                 .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Message not found: " + messageId));
     }
 
