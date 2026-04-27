@@ -1,5 +1,5 @@
 {
-  "realm": "chat",
+  "realm": "radiance",
   "displayName": "Radiance Chat",
   "displayNameHtml": "<strong>Radiance</strong> Chat",
   "enabled": true,
@@ -11,10 +11,10 @@
   "ssoSessionMaxLifespanRememberMe": 28800,
   "clients": [
     {
-      "clientId": "chat",
+      "clientId": "radiance",
       "enabled": true,
       "publicClient": false,
-      "secret": "chat-secret",
+      "secret": "DAJpMxDkLxHidawHQXu8MMlmjEiKQRZzWRiLzFBQ",
       "redirectUris": [
         "http://192.168.100.98:8080/*",
         "http://localhost:8080/*"

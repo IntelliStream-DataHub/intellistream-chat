@@ -4,7 +4,7 @@ plugins {
     id("io.spring.dependency-management") version "1.1.6"
 }
 
-group = "com.example"
+group = "ai.intellistream"
 version = "0.1.0-SNAPSHOT"
 
 java {
@@ -59,6 +59,13 @@ dependencies {
     // for the upload endpoint so we never buffer the file).
     implementation("org.apache.commons:commons-fileupload2-jakarta-servlet6:2.0.0-M2")
 
+    // Optional Vault / OpenBao secret backend. The processor talks to Vault's HTTP KV-v2
+    // endpoint directly with Spring's RestClient — no spring-vault-core / spring-cloud-vault
+    // dependency, both of which currently target Spring Framework 6 and don't link cleanly
+    // against Spring 7 (Boot 4 brings in Spring 7's pruned RestTemplate constructors). The
+    // surface we use is small enough that a 60-line implementation is cheaper than chasing
+    // the upstream library's release schedule.
+
     // Lombok generates entity boilerplate (getters/setters/no-arg ctors). Compile-only +
     // annotation processor so no Lombok bytecode lands on the runtime classpath.
     compileOnly("org.projectlombok:lombok:1.18.38")
@@ -68,6 +75,7 @@ dependencies {
     testImplementation("org.springframework.security:spring-security-test")
     testImplementation("org.springframework.boot:spring-boot-testcontainers")
     testImplementation("org.testcontainers:postgresql")
+    testImplementation("org.testcontainers:vault")
     testImplementation("org.testcontainers:junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testCompileOnly("org.projectlombok:lombok:1.18.38")

@@ -76,13 +76,13 @@ For a real internet-facing deployment. **Do not skip the hardening steps**: the 
 #    or your managed equivalents. Point the app at them via env vars.
 
 # 3. Configure the production env. Each line below is required.
-export CHAT_DB_URL=jdbc:postgresql://db.internal:5432/chat
-export CHAT_DB_USERNAME=chat
-export CHAT_DB_PASSWORD=$(openssl rand -base64 32)
-export KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/chat
+export RADIANCE_DB_URL=jdbc:postgresql://db.internal:5432/radiance_chat
+export RADIANCE_DB_USERNAME=radiance
+export RADIANCE_DB_PASSWORD=$(openssl rand -base64 32)
+export KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/radiance
 export KEYCLOAK_CLIENT_SECRET=$(openssl rand -base64 32)   # rotate from the dev default
 export SERVER_ADDRESS=127.0.0.1                            # bind localhost only; nginx fronts it
-export CHAT_SECURITY_COOKIE_SECURE=true                    # mark JSESSIONID + CSRF cookies Secure
+export RADIANCE_SECURITY_COOKIE_SECURE=true                    # mark JSESSIONID + CSRF cookies Secure
 
 # 4. Run behind a TLS-terminating reverse proxy (see nginx_example.conf in this repo):
 java -jar build/libs/chat-*.jar
@@ -98,6 +98,8 @@ The bare `java -jar …` line above gets you running once. For an actual deploym
 
 Drop this at `/etc/systemd/system/radiance.service`:
 
+Every directive is annotated below — read top to bottom and you'll see exactly what each line buys you. Tested as-is on AlmaLinux 10.1 with SELinux enforcing; `systemd-analyze security` reports an exposure score of **4.7 OK** with this configuration.
+
 ```ini
 [Unit]
 Description=Radiance chat server
@@ -110,6 +112,7 @@ User=radiance
 Group=radiance
 WorkingDirectory=/opt/radiance
 EnvironmentFile=/etc/radiance/env
+# New files default to mode 0750/0640 — no "other" read.
 UMask=0027
 
 ExecStart=/usr/lib/jvm/java-25-openjdk/bin/java $JAVA_OPTS -jar /opt/radiance/chat.jar
@@ -119,21 +122,76 @@ RestartSec=5s
 TimeoutStopSec=30s
 KillSignal=SIGTERM
 
-# Sandboxing — strip Linux capabilities the JVM doesn't need.
+# === Process-level sandbox ============================================
+# Block setuid/setgid binaries from elevating privilege if the JVM ever exec's one.
 NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/opt/radiance/data
-ProtectKernelTunables=true
-ProtectKernelModules=true
-ProtectControlGroups=true
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# Block creation of new namespaces (CLONE_NEWUSER / NEWNET / NEWNS …). The JVM doesn't need them.
 RestrictNamespaces=true
+# Block personality(2) — defence against syscall-table tricks that flip x86_64 to 32-bit.
 LockPersonality=true
+# Only allow native-arch syscalls. Same idea: no "compat" path for an attacker to ride.
 SystemCallArchitectures=native
+# Block creation of files with the setuid/setgid bit set.
+RestrictSUIDSGID=true
 # MemoryDenyWriteExecute is intentionally NOT set — the JIT needs writable + executable
-# pages and the JVM won't start with it on.
+# pages, and the JVM won't start with it on.
+
+# === Filesystem isolation =============================================
+# Whole filesystem read-only EXCEPT what ReadWritePaths= explicitly opens up.
+# Important caveat: this only blocks WRITES. Reads of world-readable files
+# elsewhere on the host are still possible — the InaccessiblePaths= block
+# below closes the read leaks that matter.
+ProtectSystem=strict
+# The only writable location: attachments, avatars, lucene index, heap dumps.
+ReadWritePaths=/opt/radiance/data
+# /home, /root, /run/user/* become inaccessible (mounted over with empty bind).
+ProtectHome=true
+# Service gets a private /tmp and /var/tmp. Can't see other services' temp files,
+# can't leave files behind that survive the unit.
+PrivateTmp=true
+# Minimal /dev — /dev/null, /dev/zero, /dev/random, /dev/urandom, /dev/tty.
+# No /dev/mem, /dev/sda*, /dev/kmem.
+PrivateDevices=true
+
+# === Hide trees the JVM has no business reading =======================
+# `open(2)` on any of these returns ENOENT to the service — they literally
+# do not exist from the JVM's point of view. Without these directives,
+# ProtectSystem=strict only stops writes; everything below is still readable.
+# Verified on AlmaLinux 10.1: with this list, /etc/cron.d/*, /var/log/dnf.log,
+# /var/log/messages and /var/lib/* are all GONE inside the namespace.
+InaccessiblePaths=/var/log /var/spool /var/lib
+InaccessiblePaths=/etc/cron.d /etc/cron.daily /etc/cron.hourly /etc/cron.weekly /etc/cron.monthly /etc/crontab /etc/anacrontab
+InaccessiblePaths=/etc/sudoers /etc/sudoers.d
+InaccessiblePaths=/etc/sssd /etc/pam.d /etc/security
+InaccessiblePaths=/etc/rsyslog.d /etc/rsyslog.conf
+InaccessiblePaths=/etc/ssh /etc/NetworkManager
+# /etc/audit is intentionally NOT in this list — SELinux targeted policy on
+# AlmaLinux 10 / RHEL 10 denies init_t the `mounton` permission for
+# auditd_etc_t, so adding it makes the unit fail to start. The audit logs
+# under /var/log/audit/ are mode 600 anyway, so DAC keeps them out of reach.
+
+# === Kernel surface ===================================================
+# Block writes to /proc/sys (sysctl) and most of /sys.
+ProtectKernelTunables=true
+# Block init_module / finit_module / delete_module — no module load/unload.
+ProtectKernelModules=true
+# /proc/kmsg and /dev/kmsg become inaccessible. The JVM has no use for the kernel ring buffer.
+ProtectKernelLogs=true
+# /sys/fs/cgroup is read-only. Service can't escape its own cgroup.
+ProtectControlGroups=true
+# Block settimeofday(), adjtimex() and friends.
+ProtectClock=true
+# Block sethostname() and setdomainname().
+ProtectHostname=true
+# Hide other processes' /proc entries; only this service's PIDs are visible.
+ProtectProc=invisible
+# /proc shows only PID directories — no /proc/scsi, /proc/sysrq-trigger, /proc/cmdline, …
+ProcSubset=pid
+
+# === Network ==========================================================
+# Restrict socket(2) families to UNIX + IP. No raw, packet, netlink, bluetooth, can, …
+# (The JVM never needs anything else — outbound to Postgres / Keycloak is plain TCP.)
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 
 [Install]
 WantedBy=multi-user.target
@@ -146,13 +204,13 @@ The companion env file at `/etc/radiance/env` (chmod 600, owned by `radiance`):
 JAVA_OPTS=-Xms1g -Xmx1g -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/opt/radiance/data/heapdumps -XX:+UseStringDeduplication -XX:+AlwaysPreTouch -Duser.timezone=UTC
 
 # App config (see "Quick start — production" for the full list)
-CHAT_DB_URL=jdbc:postgresql://db.internal:5432/chat
-CHAT_DB_USERNAME=radiance
-CHAT_DB_PASSWORD=...
-KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/chat
+RADIANCE_DB_URL=jdbc:postgresql://db.internal:5432/radiance_chat
+RADIANCE_DB_USERNAME=radiance
+RADIANCE_DB_PASSWORD=...
+KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/radiance
 KEYCLOAK_CLIENT_SECRET=...
 SERVER_ADDRESS=127.0.0.1
-CHAT_SECURITY_COOKIE_SECURE=true
+RADIANCE_SECURITY_COOKIE_SECURE=true
 ```
 
 Bring it up:
@@ -194,23 +252,87 @@ The app already enables **virtual threads** via `spring.threads.virtual.enabled=
 
 ### What about ZGC / generational ZGC?
 
-Java 25 ships **generational ZGC** (sub-millisecond pauses regardless of heap size) and **generational Shenandoah** as alternatives to the default G1. Both are *exciting*, and both are the wrong choice at a 1 GiB heap.
-
-The honest tradeoff:
-
-- **G1GC** (default): 10–50 ms pauses on a 1 GiB heap, ~5% throughput overhead, mature and well-understood.
-- **ZGC** (`-XX:+UseZGC`): <1 ms pauses regardless of heap size, but reserves ~15–20% extra RAM for colored-pointer metadata and costs ~10–15% throughput. The pause-time win only helps when your p99 GC pause is hurting users — it isn't, at this heap size.
-- **Shenandoah** (`-XX:+UseShenandoahGC`): similar profile to ZGC, slightly less RAM overhead, depends on your JDK build shipping it (most OpenJDK distributions do; some vendor builds don't).
-
-Reach for ZGC when your heap crosses ~4 GiB **and** GC pauses become user-visible (long-poll latency spikes, dropped WebSocket frames during collection). At 1 GiB G1 wins on every axis you actually care about: throughput, RAM footprint, and operational familiarity.
-
-If you scale up later, the migration is one line in `/etc/radiance/env`:
+G1 is the right default at a 1 GiB heap (10–50 ms pauses, mature, well-understood). **ZGC** and **Shenandoah** trade ~15% RAM and ~10% throughput for sub-millisecond pauses; that's only a win once heap > ~4 GiB **and** GC pauses become user-visible. If you scale up later:
 
 ```bash
 JAVA_OPTS=-XX:+UseZGC -Xms4g -Xmx4g -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/opt/radiance/data/heapdumps -Duser.timezone=UTC
 ```
 
-(ZGC self-configures and ignores most legacy GC flags. Drop `+UseStringDeduplication` and `+AlwaysPreTouch` — neither applies under ZGC.)
+(Drop `+UseStringDeduplication` and `+AlwaysPreTouch` under ZGC — neither applies.)
+
+### Verifying the namespace lockdown
+
+After `systemctl restart radiance`, three quick checks:
+
+```bash
+# Exposure score (target: drops into "OK" range, ~4.7 with the unit above).
+sudo systemd-analyze security radiance.service
+
+# From inside the service's mount namespace — these should be Permission denied / ENOENT.
+sudo nsenter -t $(systemctl show -p MainPID --value radiance) -m ls /var/log /etc/cron.d
+
+# No SELinux denials.
+sudo ausearch -m AVC -ts recent
+```
+
+The textbook whitelist alternative (`TemporaryFileSystem=/etc:ro` + `BindReadOnlyPaths=`) **doesn't work on AlmaLinux 10 with SELinux enforcing** — the targeted policy denies `init_t` the `mounton` / `create` rights needed to materialise the bind-mount destinations. Making it work needs a custom policy module; the `InaccessiblePaths=` blacklist above runs with stock policy. If you need a true whitelist, write a custom SELinux domain (see the SELinux section below).
+
+## Production: SELinux on AlmaLinux / RHEL
+
+AlmaLinux 10 (and Rocky / RHEL 10) ships SELinux in **enforcing** mode by default. The systemd unit above runs the JVM in the `unconfined_service_t` domain, so the JIT (writable + executable pages) and the OIDC / JDBC outbound connections work without custom policy. What you do need to set up is **file labels on the data directory** and **one nginx boolean** so the reverse proxy can reach the JVM on `127.0.0.1:8080`.
+
+```bash
+# 0. Sanity check — should print "Enforcing".
+getenforce
+
+# 1. Make sure the policy management tools are installed (they aren't always pulled in on minimal images).
+sudo dnf install -y policycoreutils-python-utils setools-console
+
+# 2. Label /opt/radiance/data so writes survive a relabel (`restorecon -R /` or a touched .autorelabel).
+#    var_lib_t is the catch-all label for system services' state directories.
+sudo semanage fcontext -a -t var_lib_t '/opt/radiance/data(/.*)?'
+sudo restorecon -Rv /opt/radiance
+
+# 3. Allow nginx (httpd_t) to make outbound connections to the JVM on localhost:8080.
+sudo setsebool -P httpd_can_network_connect on
+
+# 4. If you bind the JVM to a port that isn't already labelled (8080 is fine; 9090, 8443 etc. are not):
+#    sudo semanage port -a -t http_port_t -p tcp 9090
+```
+
+The systemd unit's `ReadWritePaths=/opt/radiance/data` and SELinux's file context for the same path are independent layers — both must be correct. The systemd one stops the JVM from writing outside the data dir; the SELinux one stops it from writing inside the data dir if the labels are wrong.
+
+### When something gets denied
+
+The JVM will fail to start, attachments will fail to upload, or nginx will return `502` and there will be **nothing useful** in `journalctl -u radiance` — SELinux denials land in the audit log, not the service log. Check both:
+
+```bash
+sudo ausearch -m AVC,USER_AVC -ts recent
+sudo journalctl -u radiance -p err --since "10 min ago"
+```
+
+Common AVCs and their fixes:
+
+| Symptom | Fix |
+|---|---|
+| `denied { write } ... path="/opt/radiance/data/..."` | The `restorecon` step was skipped, or the directory was created **after** `semanage fcontext`. Re-run `sudo restorecon -Rv /opt/radiance`. |
+| `denied { name_connect } ... port=8080` from `httpd_t` | nginx can't reach the upstream — `sudo setsebool -P httpd_can_network_connect on`. |
+| `denied { name_bind } ... port=NNNN` from the JVM | You've bound to a port the policy doesn't recognise as HTTP — `sudo semanage port -a -t http_port_t -p tcp NNNN`. |
+| `denied { read } ... path="/etc/radiance/env"` | Custom env file location with the wrong label. Either keep it under `/etc/` (already `etc_t`) or label it: `sudo semanage fcontext -a -t etc_t '/path/to/env'; sudo restorecon -v /path/to/env`. |
+
+### Don't reach for `setenforce 0`
+
+If something breaks, capture the denial and write a targeted local module — don't disable enforcement.
+
+```bash
+sudo ausearch -m AVC -ts recent | audit2allow -a -M radiance-local
+less radiance-local.te                  # review before loading
+sudo semodule -i radiance-local.pp
+```
+
+`sudo setenforce 0` is OK as a single-session debug hatch (turn it back on with `setenforce 1`), but never persist permissive across reboots and never edit `/etc/selinux/config` to `SELINUX=disabled` — re-enabling later forces a full relabel.
+
+If you co-locate Postgres on the host, keep `PGDATA` under the default `/var/lib/pgsql/`; moving it elsewhere needs `semanage fcontext -a -t postgresql_db_t '...'`.
 
 ## Features
 
@@ -451,7 +573,7 @@ bin/kc.sh start-dev --import-realm --http-port=8081
 Once Keycloak is up at http://localhost:8081 the `chat` realm exists with users `alice` / `alice` and `bob` / `bob`. Point the chat app at it:
 
 ```bash
-export KEYCLOAK_ISSUER_URI=http://localhost:8081/realms/chat
+export KEYCLOAK_ISSUER_URI=http://localhost:8081/realms/radiance
 export KEYCLOAK_CLIENT_SECRET=<value from realm.json or a fresh one you rotated to>
 ./gradlew bootRun
 ```
@@ -468,7 +590,7 @@ The bundled `keycloak/realm.json` defines everything `podman compose` and `kc.sh
 | Login with email | enabled |
 | Self-registration | enabled |
 | Client id | `chat` (confidential, Authorization Code + PKCE) |
-| Client secret | `chat-secret` (override via `KEYCLOAK_CLIENT_SECRET` in production) |
+| Client secret | `(generated; rotate)` (override via `KEYCLOAK_CLIENT_SECRET` in production) |
 | Valid redirect URIs | `http://localhost:8080/*`, `http://192.168.100.98:8080/*` |
 | Web origins | `http://localhost:8080`, `http://192.168.100.98:8080` |
 
@@ -506,24 +628,60 @@ Then make sure new self-registered accounts get the `user` realm role automatica
 
 ## Configuration
 
-Every override is plain Spring Boot env-var substitution against `application.yml` — no profiles, no Vault, no surprises.
+Every override is plain Spring Boot env-var substitution against `application.yml` — no profiles, no surprises. A [Vault / OpenBao secret backend](#optional-vault--openbao-secret-backend) is available as an opt-in for production; off by default so the env-var path Just Works.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `CHAT_DB_URL` | `jdbc:postgresql://localhost:5432/chat` | JDBC URL for the Postgres instance |
-| `CHAT_DB_USERNAME` | `chat` | Postgres user |
-| `CHAT_DB_PASSWORD` | `chat` | Postgres password — **set this in production** |
-| `KEYCLOAK_ISSUER_URI` | `http://192.168.100.98:8081/realms/chat` | Keycloak realm issuer (used by both OIDC client and resource server) |
-| `KEYCLOAK_CLIENT_ID` | `chat` | OIDC client id |
-| `KEYCLOAK_CLIENT_SECRET` | `chat-secret` | OIDC client secret — **set this in production** |
+| `RADIANCE_DB_URL` | `jdbc:postgresql://localhost:5432/radiance_chat` | JDBC URL for the Postgres instance |
+| `RADIANCE_DB_USERNAME` | `radiance` | Postgres user |
+| `RADIANCE_DB_PASSWORD` | `radiance` — **rotate in production** | Postgres password — **set this in production** |
+| `KEYCLOAK_ISSUER_URI` | `http://192.168.100.98:8081/realms/radiance` | Keycloak realm issuer (used by both OIDC client and resource server) |
+| `KEYCLOAK_CLIENT_ID` | `radiance` | OIDC client id |
+| `KEYCLOAK_CLIENT_SECRET` | `(generated; rotate in production)` | OIDC client secret — **set this in production** |
 | `SERVER_PORT` | `8080` | HTTP port the Boot app binds to |
 | `SERVER_ADDRESS` | `192.168.100.98` | Network interface to bind (`0.0.0.0` to listen on all) |
-| `CHAT_ATTACHMENTS_DIR` | `./data/attachments` | Where uploaded message attachments are stored |
-| `CHAT_AVATARS_DIR` | `./data/avatars` | Where uploaded avatars are stored |
-| `CHAT_BRANDING_DIR` | `./data/branding` | Where the admin-uploaded logo is stored |
-| `CHAT_SECURITY_COOKIE_SECURE` | `false` | Mark JSESSIONID + CSRF cookies `Secure`. Set to `true` when serving over HTTPS. |
+| `RADIANCE_ATTACHMENTS_DIR` | `./data/attachments` | Where uploaded message attachments are stored |
+| `RADIANCE_AVATARS_DIR` | `./data/avatars` | Where uploaded avatars are stored |
+| `RADIANCE_BRANDING_DIR` | `./data/branding` | Where the admin-uploaded logo is stored |
+| `RADIANCE_SECURITY_COOKIE_SECURE` | `false` | Mark JSESSIONID + CSRF cookies `Secure`. Set to `true` when serving over HTTPS. |
 
 The Lucene index lives at `./data/lucene` (override with `chat.search.lucene-dir`). Back up the whole `./data/` directory plus the Postgres database and you have everything: messages, attachments, avatars, branding, and the search index.
+
+### Optional: Vault / OpenBao secret backend
+
+For deployments where shipping `RADIANCE_DB_PASSWORD` and `KEYCLOAK_CLIENT_SECRET` via `EnvironmentFile=` is too coarse, the app can pull them from a [HashiCorp Vault](https://www.vaultproject.io/) / [OpenBao](https://openbao.org/) KV-v2 mount at boot. **Off by default** — `RADIANCE_VAULT_ENABLED=false` skips the integration entirely.
+
+When enabled, a `VaultEnvironmentPostProcessor` runs before Spring autoconfiguration reads `spring.datasource.*` / the OAuth client config, fetches one KV-v2 record, and injects the values as a high-priority `MapPropertySource`.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `RADIANCE_VAULT_ENABLED` | `false` | Master switch. |
+| `RADIANCE_VAULT_URI` | _(empty)_ | Base URL (e.g. `http://127.0.0.1:8200`). Required when enabled. |
+| `RADIANCE_VAULT_TOKEN` | _(empty)_ | Token credential. Required when enabled. |
+| `RADIANCE_VAULT_PATH` | `radiance` | KV-v2 path; default maps to `secret/data/radiance`. |
+
+If enabled but URI or token is missing, the app **fails fast at boot** with `IllegalStateException` — silently falling back to env-var defaults in a "vault-enabled" deploy would be a security bug.
+
+**Vault record schema** (five keys, anything else ignored):
+
+| Vault key | Spring property |
+|---|---|
+| `db.username` | `spring.datasource.username` |
+| `db.password` | `spring.datasource.password` |
+| `keycloak.client-id` | `spring.security.oauth2.client.registration.keycloak.client-id` |
+| `keycloak.client-secret` | `spring.security.oauth2.client.registration.keycloak.client-secret` |
+| `keycloak.issuer-uri` | mirrored into both `spring.security.oauth2.client.provider.keycloak.issuer-uri` and `spring.security.oauth2.resourceserver.jwt.issuer-uri` (the OIDC client and the resource server read different slots) |
+
+**Try it locally** — the bundled `docker-compose.yml` has a profile-gated OpenBao dev container:
+
+```bash
+podman compose --profile openbao up -d
+KEYCLOAK_CLIENT_SECRET=<value-from-keycloak/realm.json> ./scripts/seed-vault.sh
+RADIANCE_VAULT_ENABLED=true RADIANCE_VAULT_URI=http://127.0.0.1:8200 \
+  RADIANCE_VAULT_TOKEN=radiance-dev-token ./gradlew bootRun
+```
+
+Hit `/actuator/env` to verify the `radiance-vault` property source appeared. The OpenBao dev container uses in-memory storage and a root token — for production, switch to sealed deployment + auto-unseal + AppRole or Kubernetes auth.
 
 ### Upload size cap
 
@@ -571,24 +729,21 @@ The setting persists in `app_settings.expose_user_emails` (V20 migration). It ap
 
 ### Production hardening checklist
 
-The bundled defaults are tuned for local development. **Before exposing this to the internet**, work through this list. Each item is something an attacker (or curious user) will probe within minutes of finding the host.
+The systemd / SELinux / Quick start sections cover the mechanical setup. This is the punch-list of things the earlier sections don't enforce on your behalf.
 
 | | What | Why |
 |---|---|---|
-| ☐ | Rotate `KEYCLOAK_CLIENT_SECRET` to a freshly-generated value (Keycloak admin console → **Clients → chat → Credentials → Regenerate**) | The bundled `chat-secret` is in this public repo; anyone can read it. |
-| ☐ | Restrict the `chat` client's **Valid redirect URIs** + **Web origins** to your real hostname; drop `localhost` and the dev IP | OIDC redirect-URI matching is your defence against open-redirect token theft. |
-| ☐ | Set `CHAT_SECURITY_COOKIE_SECURE=true` | Marks JSESSIONID + CSRF cookies `Secure`; without it MITM can lift them over plain HTTP. |
-| ☐ | Bind the JVM to localhost (`SERVER_ADDRESS=127.0.0.1`) and front it with nginx (see `nginx_example.conf`) | Centralises TLS termination, real client IP forwarding, and HSTS. |
-| ☐ | Set `KC_BOOTSTRAP_ADMIN_PASSWORD` on Keycloak to something other than `admin` | The Keycloak admin console is the master key to every account in your realm. |
-| ☐ | Enable **Verify email** in Keycloak (Realm settings → Login) before opening self-registration | With registration on and no email check, bots will mass-register. |
-| ☐ | Configure SMTP under Realm settings → Email so password reset and verification actually work | Otherwise you're locking yourself out of your own deploy. |
-| ☐ | Tighten Keycloak's `ssoSessionIdleTimeout` to whatever your security posture demands (default 8h) | Long idle sessions amplify any one stolen cookie. |
-| ☐ | Replace the in-memory `RateLimiter` with a distributed limiter (Bucket4j+Hazelcast or Redis) before scaling out | Per-process limits don't compose across N replicas. |
-| ☐ | Set `client_max_body_size` in nginx if you want a hard ceiling at the edge (the app's per-user 50 MiB cap is enforced internally) | Stops a misconfigured user-attribute setting an unintentionally huge cap. |
-| ☐ | Take regular Postgres + `./data/` backups; verify restores work | The whole product fits in `pg_dump` + that directory. |
-| ☐ | Enable a CVE scanner in CI (OWASP `dependency-check` Gradle plugin, GitHub Dependabot, etc.) | Hibernate / Tomcat / Jackson all ship CVEs over the lifetime of any deploy. |
+| ☐ | Rotate `KEYCLOAK_CLIENT_SECRET` (Keycloak admin → **Clients → radiance → Credentials → Regenerate**) | The bundled secret in `keycloak/realm.json` is in this public repo. |
+| ☐ | Restrict the `chat` client's **Valid redirect URIs** + **Web origins** to your real hostname | OIDC redirect-URI matching is your defence against open-redirect token theft. |
+| ☐ | Change `KC_BOOTSTRAP_ADMIN_PASSWORD` from `admin` | Master key to every account in your realm. |
+| ☐ | Enable **Verify email** in Keycloak before opening self-registration | Without it, bots will mass-register. |
+| ☐ | Configure SMTP under Realm settings → Email | Otherwise password reset and email verification silently no-op. |
+| ☐ | Set `client_max_body_size` in nginx | Edge ceiling above the app's per-user 50 MiB cap. |
+| ☐ | Schedule Postgres + `./data/` backups; verify restores work | The whole product fits in `pg_dump` + that directory. |
+| ☐ | Enable CVE scanning in CI (OWASP `dependency-check`, Dependabot, etc.) | Hibernate / Tomcat / Jackson ship CVEs over any deploy's lifetime. |
+| ☐ | Replace the in-memory `RateLimiter` before scaling past one replica | Per-process limits don't compose across N replicas. |
 
-The companion `security_plan.md` has the full per-finding rationale plus historical context. Items that have moved from "open" to "addressed" are noted in `SecurityBoundaryIT` and `InternetExposureSecurityIT`.
+`security_plan.md` has the full per-finding rationale; `SecurityBoundaryIT` and `InternetExposureSecurityIT` pin the invariants.
 
 ## Tests
 
@@ -609,40 +764,32 @@ The first run pulls `postgres:17-alpine` (~80 MB); subsequent runs reuse the cac
 ### Run a subset
 
 ```bash
-# Unit tests only — no Docker needed, finishes in seconds
-./gradlew test --tests 'com.example.chat.service.*' --tests 'com.example.chat.security.*'
+# Unit tests only — no Docker needed.
+./gradlew test --tests 'ai.intellistream.radiance.service.*' --tests 'ai.intellistream.radiance.security.*'
 
-# A single integration test class
-./gradlew test --tests 'com.example.chat.integration.HovercardAndDmFlowIT'
-
-# A single test method
-./gradlew test --tests 'com.example.chat.integration.SearchFlowIT.fuzzyMatch_*'
-
-# Force a rerun even if Gradle thinks nothing changed
-./gradlew test --rerun-tasks
-
-# Stop background daemons if the cached env is stale (e.g. after changing DOCKER_HOST)
-./gradlew --stop
+# Single class / method.
+./gradlew test --tests 'ai.intellistream.radiance.integration.HovercardAndDmFlowIT'
+./gradlew test --tests 'ai.intellistream.radiance.integration.SearchFlowIT.fuzzyMatch_*'
 ```
 
 ### Test layers
 
-- **Unit tests** under `src/test/java/.../service/` and `.../security/` (`MarkdownRendererTest`, `ChannelServiceUnitTest`, `SearchServiceUnitTest`, `KeycloakRolesConverterTest`) cover pure-logic branches: Markdown rendering + sanitization, channel slug rules, search input validation, role conversion. They run anywhere — no Docker.
-- **Integration tests** under `src/test/java/.../integration/` boot a slimmed Spring context (`IntegrationTestApplication` excludes security / OAuth2 / web autoconfigs and only scans `service` + `repository` + `search`) against a **Testcontainers Postgres**, run Flyway, and exercise the service layer end-to-end. Each IT class registers a unique `chat.search.lucene-dir` via `TestLuceneDirs.register(...)` so concurrent / cached Spring contexts don't fight over the Lucene index lock.
-- **Controller-shaped ITs** (`AvatarBroadcastIT`, `HovercardAndDmFlowIT`, `MentionBroadcastIT`, `InternetExposureSecurityIT`) construct a controller manually with mocked `CurrentUser` / `SimpMessagingTemplate` so the broadcast wiring + per-endpoint guards can be asserted without spinning up a full web layer.
-- **Security boundary ITs** (`SecurityBoundaryIT`, `InternetExposureSecurityIT`) pin the auth/authz invariants so they can't regress silently — see `security_plan.md` for the full rationale.
+- **Unit** (`src/test/java/.../service/`, `.../security/`) — pure-logic branches: Markdown rendering + sanitization, slug rules, search input validation, role conversion. No Docker.
+- **Integration** (`src/test/java/.../integration/`) — `IntegrationTestApplication` boots a slimmed Spring context (no security / OAuth2 / web autoconfig) against Testcontainers Postgres and exercises the service layer end-to-end. Each IT class registers its own `chat.search.lucene-dir` via `TestLuceneDirs.register(...)` so cached Spring contexts don't fight over the Lucene lock.
+- **Controller-shaped ITs** (`AvatarBroadcastIT`, `HovercardAndDmFlowIT`, `MentionBroadcastIT`) wire a controller manually with mocked `CurrentUser` / `SimpMessagingTemplate` to assert broadcast wiring without a full web layer.
+- **Security boundary ITs** (`SecurityBoundaryIT`, `InternetExposureSecurityIT`) pin the auth/authz invariants — see `security_plan.md`.
 
 ### Constraints worth knowing
 
-- **No H2 fallback.** Hibernate runs in `validate` mode against the production schema; H2 won't accept some of the column types the production schema uses.
-- **Per-class Postgres container.** Each `@Container` annotation spins up a fresh database. Running the whole suite uses ~21 short-lived containers (a few hundred MiB transient).
-- **Lucene per-context dir.** If a test prints "Failed to open Lucene index at …", clear `build/test-lucene/` and re-run — it's a stale lock from a previous run, not a real failure.
-- **Stale daemon env.** Gradle's daemon caches `DOCKER_HOST` from when it started; if you change the export and re-run, follow with `./gradlew --stop` so the next invocation picks up the new value.
+- **No H2 fallback.** Hibernate runs in `validate` mode against the production schema; H2 won't accept some of the column types it uses.
+- **Per-class Postgres container.** Each `@Container` spins up a fresh database (~21 transient containers for the full suite).
+- **Stale daemon env.** Gradle's daemon caches `DOCKER_HOST` from when it started — `./gradlew --stop` if you change the export.
+- **Lucene lock.** "Failed to open Lucene index at …" usually means a stale lock — clear `build/test-lucene/` and rerun.
 
 ## Layout
 
 ```
-src/main/java/com/example/chat/
+src/main/java/ai/intellistream/radiance/
 ├── ChatApplication.java
 ├── config/        # SecurityConfig (two filter chains), WebSocketConfig, StompAuthorizationConfig, MultipartConfig
 ├── domain/        # JPA entities (User, Channel, Message, Conversation, Attachment, Reaction, Mention, ...)

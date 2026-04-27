@@ -24,7 +24,7 @@ podman compose down
 ./gradlew assemble           # compile + bootJar
 ./gradlew bootRun            # run the app on :8080
 ./gradlew test               # all tests (needs Docker for ITs)
-./gradlew test --tests 'com.example.chat.service.*'   # unit tests only
+./gradlew test --tests 'ai.intellistream.radiance.service.*'   # unit tests only
 
 # Wrapper bootstrap (one time, if gradlew is missing)
 gradle wrapper --gradle-version 9.0.0
@@ -35,7 +35,7 @@ App: http://localhost:8080 · Keycloak: http://localhost:8081 · Test users: `al
 ## Layout
 
 ```
-src/main/java/com/example/chat/
+src/main/java/ai/intellistream/radiance/
 ├── ChatApplication.java
 ├── config/        SecurityConfig (two filter chains), WebSocketConfig
 ├── domain/        JPA entities (User, Channel, ChannelMember, Message, ChannelType, ChannelRole)

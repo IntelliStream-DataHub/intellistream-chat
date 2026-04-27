@@ -1,15 +1,15 @@
 spring:
   application:
-    name: chat
+    name: radiance
 
   threads:
     virtual:
       enabled: true
 
   datasource:
-    url: ${CHAT_DB_URL:jdbc:postgresql://localhost:5432/chat}
-    username: ${CHAT_DB_USERNAME:chat}
-    password: ${CHAT_DB_PASSWORD:chat}
+    url: ${RADIANCE_DB_URL:jdbc:postgresql://localhost:5432/radiance_chat}
+    username: ${RADIANCE_DB_USERNAME:radiance}
+    password: ${RADIANCE_DB_PASSWORD:radiance}
 
   jpa:
     hibernate:
@@ -30,19 +30,19 @@ spring:
       client:
         registration:
           keycloak:
-            client-id: ${KEYCLOAK_CLIENT_ID:chat}
-            client-secret: ${KEYCLOAK_CLIENT_SECRET:chat-secret}
+            client-id: ${KEYCLOAK_CLIENT_ID:radiance}
+            client-secret: ${KEYCLOAK_CLIENT_SECRET:DAJpMxDkLxHidawHQXu8MMlmjEiKQRZzWRiLzFBQ}
             scope: openid,profile,email
             authorization-grant-type: authorization_code
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
             client-name: Keycloak
         provider:
           keycloak:
-            issuer-uri: ${KEYCLOAK_ISSUER_URI:http://192.168.100.98:8081/realms/chat}
+            issuer-uri: ${KEYCLOAK_ISSUER_URI:http://192.168.100.98:8081/realms/radiance}
             user-name-attribute: preferred_username
       resourceserver:
         jwt:
-          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://192.168.100.98:8081/realms/chat}
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://192.168.100.98:8081/realms/radiance}
 
   thymeleaf:
     cache: false
@@ -61,15 +61,32 @@ server:
         # Drives the JSESSIONID Secure flag. SecurityConfig sets the same flag on
         # the CSRF cookie. Both must be true behind HTTPS in production; defaults
         # to false so local-dev over plain HTTP keeps working.
-        secure: ${chat.security.cookie-secure:false}
+        secure: ${radiance.security.cookie-secure:false}
 
-chat:
+radiance:
   attachments:
-    dir: ${CHAT_ATTACHMENTS_DIR:./data/attachments}
+    dir: ${RADIANCE_ATTACHMENTS_DIR:./data/attachments}
   avatars:
-    dir: ${CHAT_AVATARS_DIR:./data/avatars}
+    dir: ${RADIANCE_AVATARS_DIR:./data/avatars}
   branding:
-    dir: ${CHAT_BRANDING_DIR:./data/branding}
+    dir: ${RADIANCE_BRANDING_DIR:./data/branding}
+
+  # Optional Vault / OpenBao secret backend. Off by default — the env-var → application.yml
+  # default chain handles credentials. When enabled=true, VaultEnvironmentPostProcessor reads
+  # secret/data/${path} and overrides spring.datasource.{username,password} +
+  # spring.security.oauth2.* before the auto-configurations consume them.
+  #
+  # Vault record shape (KV-v2 fields):
+  #   db.username             - Postgres role
+  #   db.password             - Postgres password
+  #   keycloak.client-id      - OIDC client id
+  #   keycloak.client-secret  - OIDC client secret
+  #   keycloak.issuer-uri     - Keycloak realm URL (used by both client + resource server)
+  vault:
+    enabled: ${RADIANCE_VAULT_ENABLED:false}
+    uri: ${RADIANCE_VAULT_URI:}
+    token: ${RADIANCE_VAULT_TOKEN:}
+    path: ${RADIANCE_VAULT_PATH:radiance}
 
 logging:
   level:
