@@ -65,7 +65,7 @@ class AvatarFlowIT {
 
     @Container
     @SuppressWarnings("resource")
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:17-alpine")
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:18-alpine")
             .withDatabaseName("chat")
             .withUsername("chat")
             .withPassword("chat");

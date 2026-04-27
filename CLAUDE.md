@@ -5,7 +5,7 @@ Spring Boot 4 chat application (Slack/Mattermost-style). Read this before making
 ## Stack
 
 - **Java 25** (toolchain), **Spring Boot 4.0.5**, **Gradle Kotlin DSL**.
-- **Postgres 17** for storage, **Flyway** for migrations.
+- **Postgres 18** for storage, **Flyway** for migrations.
 - **Keycloak 26** for OAuth2/OIDC.
 - **Container runtime: Podman.** Docker is **not** installed. Use `podman compose` (or `podman-compose`) for the local stack. Testcontainers needs `DOCKER_HOST=unix:///run/user/$UID/podman/podman.sock` (start the user socket with `systemctl --user enable --now podman.socket`).
 - **STOMP over native WebSocket** (`/ws`) for real-time messages. No SockJS fallback — its `iframe`/`htmlfile`/`jsonp-polling` transports inject inline `<script>` and break the strict CSP.

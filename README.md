@@ -50,7 +50,7 @@ If `java` doesn't end up on `PATH`, follow the post-install instructions Homebre
 For exploring the app, hacking on it, or quick local testing. Two commands once the prerequisites above are installed:
 
 ```bash
-podman compose up -d   # Postgres 17 + Keycloak 26, with the 'chat' realm pre-imported
+podman compose up -d   # Postgres 18 + Keycloak 26, with the 'chat' realm pre-imported
 ./gradlew bootRun      # the Spring Boot app on :8080
 ```
 
@@ -68,7 +68,7 @@ For a real internet-facing deployment. **Do not skip the hardening steps**: the 
 # 1. Build a runnable jar
 ./gradlew assemble                # produces build/libs/chat-*.jar
 
-# 2. Stand up Postgres 17 + Keycloak 26 on the host (see "Without containers" below)
+# 2. Stand up Postgres 18 + Keycloak 26 on the host (see "Without containers" below)
 #    or your managed equivalents. Point the app at them via env vars.
 
 # 3. Configure the production env. Each line below is required.
@@ -351,7 +351,7 @@ If you co-locate Postgres on the host, keep `PGDATA` under the default `/var/lib
 ### Runtime / build
 - **Java 25** toolchain
 - **Spring Boot 4.0.5**, Gradle Kotlin DSL
-- **PostgreSQL 17** (uses `gen_random_uuid()`)
+- **PostgreSQL 18** (uses `gen_random_uuid()`)
 - **Keycloak 26** as the OIDC issuer (runs out-of-process via `podman compose`)
 
 ### Spring Boot starters
@@ -393,7 +393,7 @@ If you co-locate Postgres on the host, keep `PGDATA` under the default `/var/lib
 - **JUnit 5** (Jupiter) via `spring-boot-starter-test`
 - **AssertJ**, **Mockito** (transitive)
 - `spring-security-test` for security helpers
-- **Testcontainers BOM 1.20.4** (`postgresql` + `junit-jupiter`) — real Postgres 17 per IT class (no H2)
+- **Testcontainers BOM 1.20.4** (`postgresql` + `junit-jupiter`) — real Postgres 18 per IT class (no H2)
 - `spring-boot-testcontainers` for `@ServiceConnection` wiring
 
 ### Code generation
@@ -416,7 +416,7 @@ flowchart LR
   Browser["Browser<br/>Thymeleaf pages +<br/>vanilla JS + STOMP"]
   App["Spring Boot 4 app<br/>Java 25 · Tomcat 11<br/>virtual threads"]
   KC["Keycloak 26<br/>OIDC issuer"]
-  PG[("PostgreSQL 17")]
+  PG[("PostgreSQL 18")]
   Lx[("Lucene index<br/>./data/lucene")]
   Fs[("Local files<br/>./data/{avatars,attachments,branding}")]
 
@@ -503,7 +503,7 @@ podman compose up -d            # or `podman-compose up -d`
 ./gradlew bootRun
 ```
 
-`podman compose up -d` reads `docker-compose.yml`, starts a `postgres:17-alpine` container with the `chat`/`chat`/`chat` (db/user/password) defaults, and a `keycloak:26.0` container that imports `keycloak/realm.json` on first start.
+`podman compose up -d` reads `docker-compose.yml`, starts a `postgres:18-alpine` container with the `chat`/`chat`/`chat` (db/user/password) defaults, and a `keycloak:26.0` container that imports `keycloak/realm.json` on first start.
 
 If `gradlew` is missing (fresh checkout into a tree where the wrapper isn't committed), run once: `gradle wrapper --gradle-version 9.0.0`.
 
@@ -511,25 +511,25 @@ If `gradlew` is missing (fresh checkout into a tree where the wrapper isn't comm
 
 If you'd rather run Postgres and Keycloak directly on the host (production deploy, air-gapped server, no container runtime), here's the path.
 
-#### PostgreSQL 17
+#### PostgreSQL 18
 
 **RHEL / Fedora / Rocky:**
 ```bash
-sudo dnf install -y postgresql17-server postgresql17
-sudo /usr/pgsql-17/bin/postgresql-17-setup initdb
-sudo systemctl enable --now postgresql-17
+sudo dnf install -y postgresql18-server postgresql18
+sudo /usr/pgsql-18/bin/postgresql-18-setup initdb
+sudo systemctl enable --now postgresql-18
 ```
 
 **Debian / Ubuntu:**
 ```bash
-sudo apt install -y postgresql-17
+sudo apt install -y postgresql-18
 sudo systemctl enable --now postgresql
 ```
 
 **macOS (Homebrew):**
 ```bash
-brew install postgresql@17
-brew services start postgresql@17
+brew install postgresql@18
+brew services start postgresql@18
 ```
 
 Create the database and role:
@@ -755,7 +755,7 @@ export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock
 ./gradlew test                    # full suite (unit + integration)
 ```
 
-The first run pulls `postgres:17-alpine` (~80 MB); subsequent runs reuse the cached image and finish in 1–2 minutes on a laptop. Reports land at `build/reports/tests/test/index.html` (HTML) and `build/test-results/test/TEST-*.xml` (JUnit XML for CI).
+The first run pulls `postgres:18-alpine` (~80 MB); subsequent runs reuse the cached image and finish in 1–2 minutes on a laptop. Reports land at `build/reports/tests/test/index.html` (HTML) and `build/test-results/test/TEST-*.xml` (JUnit XML for CI).
 
 ### Run a subset
 

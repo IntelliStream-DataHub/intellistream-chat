@@ -314,7 +314,7 @@ Each finding is tagged by severity: **[H]** high, **[M]** medium, **[L]** low,
 ## 9. Dependencies
 
 ### What's in place
-- Spring Boot 4.0.5, Java 25, Postgres 17, Lucene 10.4.0, jsoup 1.18.1, commonmark 0.22.0,
+- Spring Boot 4.0.5, Java 25, Postgres 18, Lucene 10.4.0, jsoup 1.18.1, commonmark 0.22.0,
   commons-fileupload2 2.0.0-M2, Apache Tika is *not* a dependency yet.
 
 ### Findings
