@@ -81,12 +81,20 @@ public class MarkdownRenderer {
         return doc.body().html();
     }
 
+    // Subdomain is optional and may be www / m (mobile share URLs) / music — all cover the
+    // same video catalogue. The video id captured by group(1) is fed into the
+    // youtube-nocookie embed URL regardless of which entry path the user pasted.
+    private static final String YT_HOST = "(?:www\\.|m\\.|music\\.)?youtube\\.com";
     private static final Pattern YT_WATCH = Pattern.compile(
-            "^https?://(?:www\\.)?youtube\\.com/watch\\?(?:[^#]*&)?v=([A-Za-z0-9_-]{6,20})");
-    private static final Pattern YT_SHORT = Pattern.compile(
+            "^https?://" + YT_HOST + "/watch\\?(?:[^#]*&)?v=([A-Za-z0-9_-]{6,20})");
+    /** Short-domain links — youtu.be/ID — usually the result of the YouTube share button. */
+    private static final Pattern YT_BE = Pattern.compile(
             "^https?://(?:www\\.)?youtu\\.be/([A-Za-z0-9_-]{6,20})");
     private static final Pattern YT_EMBED = Pattern.compile(
-            "^https?://(?:www\\.)?youtube\\.com/embed/([A-Za-z0-9_-]{6,20})");
+            "^https?://" + YT_HOST + "/embed/([A-Za-z0-9_-]{6,20})");
+    /** Vertical-format Shorts (different URL path from /watch but the same embed endpoint). */
+    private static final Pattern YT_SHORTS = Pattern.compile(
+            "^https?://" + YT_HOST + "/shorts/([A-Za-z0-9_-]{6,20})");
     private static final Pattern VIMEO = Pattern.compile(
             "^https?://(?:www\\.)?vimeo\\.com/(?:video/)?(\\d{6,12})");
 
@@ -105,7 +113,7 @@ public class MarkdownRenderer {
             if (next != null && next.hasClass("video-embed-wrapper")) continue;
 
             var href = a.attr("href");
-            var ytId = matchFirst(href, YT_WATCH, YT_SHORT, YT_EMBED);
+            var ytId = matchFirst(href, YT_WATCH, YT_BE, YT_EMBED, YT_SHORTS);
             if (ytId != null) {
                 a.after(buildEmbed("https://www.youtube-nocookie.com/embed/" + ytId, "YouTube video"));
                 continue;
