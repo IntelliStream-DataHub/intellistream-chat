@@ -113,14 +113,24 @@ public class MarkdownRenderer {
             if (next != null && next.hasClass("video-embed-wrapper")) continue;
 
             var href = a.attr("href");
-            var ytId = matchFirst(href, YT_WATCH, YT_BE, YT_EMBED, YT_SHORTS);
+            // Shorts get their own branch so the wrapper can carry data-orientation="vertical",
+            // which the stylesheet uses to render a 9:16 aspect-ratio frame instead of the
+            // landscape default. Regular /watch, /embed, and youtu.be URLs all funnel through
+            // matchFirst below and stay landscape.
+            var shortsId = matchFirst(href, YT_SHORTS);
+            if (shortsId != null) {
+                a.after(buildEmbed("https://www.youtube-nocookie.com/embed/" + shortsId,
+                        "YouTube Short", "vertical"));
+                continue;
+            }
+            var ytId = matchFirst(href, YT_WATCH, YT_BE, YT_EMBED);
             if (ytId != null) {
-                a.after(buildEmbed("https://www.youtube-nocookie.com/embed/" + ytId, "YouTube video"));
+                a.after(buildEmbed("https://www.youtube-nocookie.com/embed/" + ytId, "YouTube video", null));
                 continue;
             }
             var vmId = matchFirst(href, VIMEO);
             if (vmId != null) {
-                a.after(buildEmbed("https://player.vimeo.com/video/" + vmId, "Vimeo video"));
+                a.after(buildEmbed("https://player.vimeo.com/video/" + vmId, "Vimeo video", null));
             }
         }
         return doc.body().html();
@@ -135,9 +145,12 @@ public class MarkdownRenderer {
         return null;
     }
 
-    private static String buildEmbed(String src, String title) {
-        // src and title are constructed from a regex-matched id and a fixed string, so no untrusted content.
-        return "<div class=\"video-embed-wrapper\">"
+    private static String buildEmbed(String src, String title, String orientation) {
+        // src and title are constructed from a regex-matched id and a fixed string, so no
+        // untrusted content. orientation is one of {null, "vertical"} — the stylesheet
+        // selects on data-orientation="vertical" for the 9:16 Shorts frame.
+        var dataAttr = orientation == null ? "" : " data-orientation=\"" + orientation + "\"";
+        return "<div class=\"video-embed-wrapper\"" + dataAttr + ">"
                 + "<iframe class=\"video-embed\" src=\"" + src + "\" "
                 + "title=\"" + title + "\" loading=\"lazy\" allowfullscreen "
                 + "allow=\"accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture\""

@@ -1120,7 +1120,9 @@ button.icon-btn > .icon {
 .message-body img { max-width: 100%; border-radius: 4px; }
 .message-body a { color: var(--accent); }
 
-/* Responsive 16:9 wrapper for YouTube / Vimeo embeds inserted by MarkdownRenderer. */
+/* Responsive wrapper for YouTube / Vimeo embeds inserted by MarkdownRenderer.
+   Default is the landscape 4:1 compact strip used for /watch, /embed, youtu.be, and Vimeo.
+   Shorts ("data-orientation=vertical") flip to a 9:16 phone-shaped frame instead. */
 .video-embed-wrapper {
   position: relative;
   padding-bottom: 25%;
@@ -1130,6 +1132,15 @@ button.icon-btn > .icon {
   margin: 0.5rem 0;
   border-radius: 6px;
   background: #000;
+}
+.video-embed-wrapper[data-orientation="vertical"] {
+  /* Shorts are 9:16. aspect-ratio replaces the padding-bottom hack and is well-supported
+     by every browser shipped since 2021. max-width pinned narrow so the embed sits
+     phone-sized in the feed instead of dominating the column. */
+  padding-bottom: 0;
+  height: auto;
+  aspect-ratio: 9 / 16;
+  max-width: 280px;
 }
 .video-embed-wrapper iframe.video-embed {
   position: absolute;
