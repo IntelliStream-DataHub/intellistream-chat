@@ -913,12 +913,6 @@ button.icon-btn > .icon {
 }
 /* Hide the plain online dot when an emoji badge is present. */
 .avatar:has(.avatar-status-emoji)::after { display: none; }
-/* Topbar "me" link — the logged-in user's own profile entry-point. The dot is
-   redundant there (you don't need to be told you're online), and the badge
-   collides visually with the adjacent display-name. The user's avatar elsewhere
-   (their own messages, member lists, hovercards) still gets the dot. */
-.me .avatar::after,
-.me .avatar .avatar-status-emoji { display: none !important; }
 /* Larger avatars (profile page, hovercard) get bigger badges. */
 .avatar.avatar-large::after { width: 14px; height: 14px; }
 .avatar.avatar-large .avatar-status-emoji { width: 22px; height: 22px; font-size: 14px; }
