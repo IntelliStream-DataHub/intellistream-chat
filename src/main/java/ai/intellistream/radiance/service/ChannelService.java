@@ -93,7 +93,9 @@ public class ChannelService {
     public ChannelMember invite(Channel channel, User invitee, User actor) {
         // Slack / Mattermost default: any channel member can invite. Channel admins keep
         // exclusive control over promote/demote and eventual destructive actions.
-        requireMember(channel, actor);
+        // Writes require actual membership — using requireMember here would let any
+        // authenticated user force-join others into PUBLIC channels.
+        requireWriteAccess(channel, actor);
         return memberRepository.findByChannelAndUser(channel, invitee)
                 .orElseGet(() -> memberRepository.save(new ChannelMember(channel, invitee, ChannelRole.MEMBER)));
     }
@@ -124,12 +126,30 @@ public class ChannelService {
                 .orElse(false);
     }
 
+    /**
+     * Read access. PUBLIC channels are readable by any authenticated user — the listing
+     * endpoint exposes their existence to everyone, so it would be inconsistent to gate
+     * message reads on membership. PRIVATE channels still require actual membership.
+     */
     public void requireMember(Channel channel, User user) {
         if (channel.getType() == ChannelType.PUBLIC) {
             return;
         }
         if (!isMember(channel, user)) {
             throw new AccessDeniedException("Not a member of this channel.");
+        }
+    }
+
+    /**
+     * Write access. Always requires actual membership, regardless of channel type. A
+     * non-member can still see a public channel's messages (via {@link #requireMember}),
+     * but posting / editing / reacting / inviting requires them to first join. This
+     * matches the Slack / Mattermost convention and the way the sidebar's "Join" button
+     * is presented to non-members.
+     */
+    public void requireWriteAccess(Channel channel, User user) {
+        if (!isMember(channel, user)) {
+            throw new AccessDeniedException("Join the channel before posting.");
         }
     }
 

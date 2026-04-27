@@ -104,7 +104,7 @@ public class ConversationAttachmentService {
         var target = storageRoot.resolve(storageKey);
 
         var buffered = new BufferedInputStream(in);
-        var resolvedType = AttachmentBytes.sniffContentType(buffered, safeType);
+        var resolvedType = AttachmentBytes.sniffContentType(buffered, safeType, safeName);
 
         long bytesWritten;
         try {

@@ -71,7 +71,7 @@ public class MessageService {
 
     @Transactional
     public Message post(Channel channel, User author, String body) {
-        channelService.requireMember(channel, author);
+        channelService.requireWriteAccess(channel, author);
         if (body == null || body.isBlank()) {
             throw new IllegalArgumentException("Message body cannot be empty");
         }
@@ -182,7 +182,7 @@ public class MessageService {
             throw new IllegalArgumentException("Cannot reply to a thread reply — reply to its parent instead");
         }
         var channel = parent.getChannel();
-        channelService.requireMember(channel, author);
+        channelService.requireWriteAccess(channel, author);
         if (body == null || body.isBlank()) {
             throw new IllegalArgumentException("Message body cannot be empty");
         }
@@ -234,6 +234,9 @@ public class MessageService {
     public Message edit(UUID messageId, User actor, String newBody) {
         var message = messageRepository.findByIdWithAuthor(messageId)
                 .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Message not found: " + messageId));
+        // Membership re-check: defends against the case where the channel's type was
+        // flipped PUBLIC → PRIVATE and the original author is no longer a member.
+        channelService.requireWriteAccess(message.getChannel(), actor);
         if (!message.getAuthor().getId().equals(actor.getId())) {
             throw new AccessDeniedException("Only the author can edit this message.");
         }

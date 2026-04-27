@@ -18,7 +18,7 @@ refactor) folded in. Outcome:
 
 ### Resolved this round
 
-- **[Was H] Cookie `Secure` flag missing.** Fixed: `chat.security.cookie-secure`
+- **[Was H] Cookie `Secure` flag missing.** Fixed: cookies auto-detect Secure from `request.isSecure()`
   (`CHAT_SECURITY_COOKIE_SECURE` env) drives both the JSESSIONID cookie (via
   `application.yml`'s `server.servlet.session.cookie.secure`) and the CSRF cookie
   (via `csrfRepo.setCookieCustomizer(c -> c.secure(cookieSecure))` in `SecurityConfig`).

@@ -17,12 +17,14 @@
 package ai.intellistream.radiance.attachments;
 
 import ai.intellistream.radiance.security.UploadTooLargeException;
+import org.apache.tika.Tika;
+import org.apache.tika.metadata.Metadata;
+import org.apache.tika.metadata.TikaCoreProperties;
 
 import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.URLConnection;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -48,6 +50,13 @@ public final class AttachmentBytes {
     /** Sentinel: pass this as {@code maxBytes} to disable the cap entirely (admins). */
     public static final long UNLIMITED = -1L;
 
+    /**
+     * Tika's detector reads the first ~few KiB and uses MIME magic + container probing
+     * (ZIP signatures for OOXML, ID3 tags for MP3, HEIC's ftyp box, etc.). One instance
+     * is thread-safe and cheap to share — Tika's MimeTypes registry is loaded once.
+     */
+    private static final Tika TIKA = new Tika();
+
     private AttachmentBytes() {}
 
     /**
@@ -55,13 +64,32 @@ public final class AttachmentBytes {
      * disagrees with what the client declared (especially when the client claimed an image
      * type), we trust the sniff so we can't be tricked into rendering attacker-controlled
      * HTML inline by a future thumbnail endpoint.
+     *
+     * <p>Backed by Apache Tika — recognises ~1500 MIME types via magic bytes + container
+     * probing, including HEIC, AVIF, modern Office formats, and polyglot files where the
+     * declared type is a lie. Filename hint is supplied so Tika can break ties for formats
+     * that share magic bytes (e.g. ZIP-based: docx vs xlsx vs odp).
      */
     public static String sniffContentType(BufferedInputStream in, String declared) throws IOException {
-        in.mark(4096);
-        var sniffed = URLConnection.guessContentTypeFromStream(in);
-        in.reset();
-        if (sniffed == null) return declared;
-        return sniffed.equalsIgnoreCase(declared) ? declared : sniffed;
+        return sniffContentType(in, declared, null);
+    }
+
+    public static String sniffContentType(BufferedInputStream in, String declared, String filenameHint) throws IOException {
+        in.mark(64 * 1024);
+        try {
+            var metadata = new Metadata();
+            if (filenameHint != null && !filenameHint.isBlank()) {
+                metadata.set(TikaCoreProperties.RESOURCE_NAME_KEY, filenameHint);
+            }
+            // Tika's detect() reads from the stream but only the prefix bytes covered by
+            // the mark; we restore the position so the subsequent streamToFile() writes
+            // the full payload — including the prefix Tika just consumed.
+            var sniffed = TIKA.detect(in, metadata);
+            if (sniffed == null || sniffed.isBlank()) return declared;
+            return sniffed.equalsIgnoreCase(declared) ? declared : sniffed;
+        } finally {
+            in.reset();
+        }
     }
 
     /**

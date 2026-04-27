@@ -59,6 +59,14 @@ dependencies {
     // for the upload endpoint so we never buffer the file).
     implementation("org.apache.commons:commons-fileupload2-jakarta-servlet6:2.0.0-M2")
 
+    // Apache Tika for MIME sniffing on attachment uploads. tika-core only — the full
+    // distribution drags in PDFBox, POI, and a half-dozen other parsers we don't need
+    // (the goal is "what type are these bytes really?", not "extract text from PDF").
+    // Replaces URLConnection.guessContentTypeFromStream which only knew ~10 magic-byte
+    // families and mis-typed common formats (HEIC, AVIF, modern Office files, polyglot
+    // PNG-with-HTML payloads).
+    implementation("org.apache.tika:tika-core:2.9.2")
+
     // Optional Vault / OpenBao secret backend. The processor talks to Vault's HTTP KV-v2
     // endpoint directly with Spring's RestClient — no spring-vault-core / spring-cloud-vault
     // dependency, both of which currently target Spring Framework 6 and don't link cleanly

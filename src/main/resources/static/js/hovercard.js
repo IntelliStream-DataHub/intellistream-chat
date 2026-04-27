@@ -139,7 +139,6 @@
       </div>
       ${customStatusRow}
       <dl class="user-hovercard-fields">
-        ${dto.email ? `<dt>Email</dt><dd>${escapeHtml(dto.email)}</dd>` : ''}
         <dt>Status</dt><dd>${escapeHtml(presenceLabel)}</dd>
         <dt>Joined</dt><dd>${escapeHtml(formatDate(dto.createdAt))}</dd>
         <dt>Active</dt><dd>${escapeHtml(formatRelative(dto.lastActiveAt) || '—')}</dd>

@@ -326,6 +326,7 @@ class PollFlowIT {
         var bob = newUser("bob");
         var room = channels.create("Sep-" + SEQ.incrementAndGet(),
                 null, ChannelType.PUBLIC, alice);
+        channels.join(room, bob);
         when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
         var event = slashPoll(room.getId(), "/poll Lunch? | Pizza | Burger");
         var pollId = event.message().poll().id();

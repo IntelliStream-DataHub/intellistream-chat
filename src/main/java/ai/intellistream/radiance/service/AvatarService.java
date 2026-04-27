@@ -35,7 +35,6 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.URLConnection;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Set;
@@ -225,10 +224,8 @@ public class AvatarService {
     }
 
     static String sniffContentType(BufferedInputStream in, String declared) throws IOException {
-        in.mark(4096);
-        var sniffed = URLConnection.guessContentTypeFromStream(in);
-        in.reset();
-        if (sniffed == null) return declared;
-        return sniffed;
+        // Reuse the centralised Tika-backed sniffer so avatars and attachments use the
+        // same MIME detection path. Avatars are further restricted to ALLOWED_TYPES below.
+        return ai.intellistream.radiance.attachments.AttachmentBytes.sniffContentType(in, declared);
     }
 }

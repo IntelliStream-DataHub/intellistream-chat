@@ -61,11 +61,11 @@ server:
       # session lifetime — change it there (Realm settings → Sessions) and bump
       # this to match if you want them to expire together.
       timeout: 8h
-      cookie:
-        # Drives the JSESSIONID Secure flag. SecurityConfig sets the same flag on
-        # the CSRF cookie. Both must be true behind HTTPS in production; defaults
-        # to false so local-dev over plain HTTP keeps working.
-        secure: ${radiance.security.cookie-secure:false}
+      # JSESSIONID Secure flag is auto-detected per request via Tomcat (it ORs
+      # SessionCookieConfig.isSecure() with request.isSecure()). With
+      # forward-headers-strategy: framework (above), an X-Forwarded-Proto: https
+      # request is treated as secure and the cookie is marked Secure automatically.
+      # SameSite is set programmatically via SecurityConfig.sessionCookieSameSite.
 
 radiance:
   attachments:

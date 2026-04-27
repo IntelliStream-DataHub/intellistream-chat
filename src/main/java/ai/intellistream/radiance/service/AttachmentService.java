@@ -86,7 +86,7 @@ public class AttachmentService {
                              String originalFilename, String contentType,
                              long declaredSize, long maxBytes,
                              String caption, InputStream in) throws IOException {
-        channelService.requireMember(channel, uploader);
+        channelService.requireWriteAccess(channel, uploader);
         if (originalFilename == null || originalFilename.isBlank()) {
             throw new IllegalArgumentException("Filename required");
         }
@@ -108,7 +108,8 @@ public class AttachmentService {
         // (e.g. uploads HTML claiming to be image/png). We pick the sniffed MIME when it
         // disagrees with the declared one, so downloads are served with the truthful header.
         var buffered = new BufferedInputStream(in);
-        var resolvedType = AttachmentBytes.sniffContentType(buffered, safeType);
+        // Filename hint helps Tika disambiguate ZIP-based formats (docx vs xlsx vs odt).
+        var resolvedType = AttachmentBytes.sniffContentType(buffered, safeType, safeName);
 
         long bytesWritten;
         try {
