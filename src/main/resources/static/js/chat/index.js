@@ -14,19 +14,19 @@
  * limitations under the License.
  */
 
-(function () {
-  const meta = (name) => document.querySelector(`meta[name="${name}"]`)?.content || '';
-  const csrfToken = meta('_csrf');
-  const csrfHeader = meta('_csrf_header');
-  const activeChannelId = meta('active-channel-id') || null;
+/*
+ * Entry point for the channels page. Loaded as an ES module via
+ * `<script type="module" src="/js/chat/index.js" defer>` from channels.html.
+ *
+ * Currently a near-verbatim port of the previous IIFE-wrapped chat.js — the only
+ * structural change is that the boot-time utilities (meta, headers, csrfToken,
+ * activeChannelId) live in ./shared.js so future splits can pick them up via import.
+ * Subsequent commits will carve this file into chat/realtime.js, chat/interactions.js,
+ * chat/browse.js, chat/chrome.js per the modularization plan.
+ */
+import { meta, csrfToken, csrfHeader, activeChannelId, headers } from './shared.js';
 
-  const headers = (extra) => {
-    const h = Object.assign({ 'Content-Type': 'application/json' }, extra || {});
-    if (csrfToken && csrfHeader) h[csrfHeader] = csrfToken;
-    return h;
-  };
-
-  // ---------- Channel CRUD ----------
+// ---------- Channel CRUD ----------
   const wireCreateChannel = (formId) => {
     const form = document.getElementById(formId);
     if (!form) return;
@@ -2123,4 +2123,3 @@
       });
     });
   }
-})();
