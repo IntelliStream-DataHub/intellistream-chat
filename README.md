@@ -1,16 +1,20 @@
 # Radiance — Spring Boot 4 Slack/Mattermost-style chat app
 
-A small workspace chat built with Spring Boot 4.0.5, Java 25, PostgreSQL, Keycloak OIDC, STOMP-over-WebSocket, Thymeleaf and vanilla JS.
+A small workspace chat built with Spring Boot 4, Java 25, PostgreSQL, Keycloak OIDC, STOMP-over-WebSocket, Thymeleaf and vanilla JS.
 
 ## Why this exists
 
-Workplace chat is critical infrastructure. Decisions get made there, knowledge accrues there, postmortems happen there. Most companies have handed the keys to a vendor whose interests do not include making sure you can still read your own conversations next year.
+This was built by me and Claude in a few hours. I wrote the specification and gave Claude Code free rein on a virtual machine. An application like Slack/Mattermost is actually very simple. Most of the work is plumbing. I trust Claude to get most things correctly, and will spend time reviewing this code later. But I trust it for now, and we are already running it in production in a local isolated environment. Keep in mind, this is still considered AI-slop, and there are bugs, even serious bugs. But finding these bugs can only be done by either reviewing the code or using the application. By just using it in the current state is a quick way to verify that basic functionality works. Backups are important also. Hihgly recommend to use ZFS + snapshots every 15th minute + daily run of pg_backup.
 
-**Slack** is good. It's also proprietary, cloud-only, and your archive is governed by the vendor's pricing tiers and retention rules. The cost-per-seat and the visibility horizon are theirs to set. That's a workable trade for plenty of teams. It isn't workable for regulated industries, security-conscious orgs, or anyone who'd rather not have their internal knowledge graph held off-premises.
+Workplace chat is important infrastructure. We should stop handing the keys to a vendor whose interests do not include making sure you can still read your own conversations next year. For me, a self-hosted application is a very important feature and right.
 
-**Mattermost** sold itself as the open-source escape valve, and for a while it was. Then the free edition started taking things back. SAML and OAuth2 logins are paywalled now. Team message history is capped at 10,000 on the free plan. Governance tooling has moved behind enterprise editions. You can still self-host the binary. The open-core playbook is at work here: the things that separate a real chat app from a demo keep migrating into the licence you have to pay for. "Open source" stops meaning much when the table stakes aren't.
+**Slack** is mostly good. The UI is slow and it's also proprietary, cloud-only, and your archive is governed by the vendor's pricing tiers and retention rules. The cost-per-seat and the visibility horizon are theirs to set. That's a workable trade for plenty of teams. It isn't workable for regulated industries, security-conscious orgs, or anyone who'd rather not have their internal knowledge graph held off-premises.
 
-This is a small bet that those aren't the only two options. A chat application you can deploy on a box you control. No message cap. No SSO paywall. No telemetry. No vendor able to change the terms a year from now because the funding round demanded it. It won't have Slack's polish or Mattermost's feature breadth. It will still be readable in five years, on a server you own, running code you can audit, under a licence that can't be retroactively narrowed.
+**Mattermost** sold itself as the open-source escape valve, and for a while it was. Then the free edition started taking things back. SAML and OAuth2 logins are paywalled now. Team message history is capped at 10,000 on the free plan. You can still self-host the binary. The open-core playbook is at work here: the things that separate a real chat app from a demo keep migrating into the licence you have to pay for. "Open source" stops meaning much when the table stakes aren't. Mattermost has a very slick and responsive UI, so its a shame that the company is going for open-core for short win.
+
+**Microsoft Team** the worst team collabortation application. Loved by Enterprises that hate their employees. I am always late to a MS Teams meetings, because whenever I start it, it has to update and restart and yadda yadda yadda. The UI is so slow that it freezes for seconds.
+
+For me its important that a chat/team collaboration application is something I can deploy on a box I control. Has fast UI. No message cap. No SSO paywall. No telemetry. No vendor able to change the terms a year from now because the funding round demanded it. It won't have Slack's polish or Mattermost's feature breadth. It will still be readable in five years, on a server you own, running code you can audit, under a licence that can't be retroactively narrowed.
 
 ## Prerequisites
 
@@ -30,15 +34,7 @@ sudo apt install -y openjdk-25-jdk podman podman-compose
 java -version
 ```
 
-On Ubuntu 24.04 LTS or older Debian releases OpenJDK 25 is not in the default archives yet. Either upgrade to a newer release, or install Temurin from Adoptium:
-
-```bash
-wget -qO- https://packages.adoptium.net/artifactory/api/gpg/key/public | sudo tee /etc/apt/trusted.gpg.d/adoptium.asc
-echo "deb https://packages.adoptium.net/artifactory/deb $(. /etc/os-release && echo $VERSION_CODENAME) main" \
-  | sudo tee /etc/apt/sources.list.d/adoptium.list
-sudo apt update
-sudo apt install -y temurin-25-jdk
-```
+On Ubuntu 24.04 LTS or older Debian releases OpenJDK 25 is not in the default archives yet. Either upgrade to a newer release or use sdkman.
 
 ### macOS
 
