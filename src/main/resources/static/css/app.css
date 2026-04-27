@@ -851,13 +851,15 @@ button.icon-btn > .icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  /* No overflow: hidden — the presence dot is positioned at bottom:-2px / right:-2px
+     and needs to overhang the avatar. .avatar-image self-clips via border-radius:
+     inherit (see below), so the parent doesn't have to clip on its behalf. */
   font-weight: 700;
   color: white;
   font-size: 0.85rem;
   flex-shrink: 0;
   user-select: none;
   position: relative;       /* anchor the optional <img class="avatar-image"> overlay */
-  overflow: hidden;
 }
 .avatar[data-color="0"] { background: var(--av1); }
 .avatar[data-color="1"] { background: var(--av2); }
@@ -869,14 +871,11 @@ button.icon-btn > .icon {
 .avatar[data-color="7"] { background: var(--av8); }
 
 /* ---------- Presence indicator (online dot + status emoji) ----------
-   The online dot pokes out the bottom-right corner of the avatar (Slack/Discord
-   style). For that to render, the wrapper must NOT clip — but the avatar image
-   inside still needs its rounded corners. Solution: relax overflow on .is-online
-   only, and have the image inherit border-radius from .avatar so it self-clips
-   regardless of the wrapper's overflow setting (see the .avatar-image rule
-   further down). The status-emoji badge sits flush at bottom:0 right:0 — it has
-   its own opaque background and is large enough to dominate the corner. */
-.avatar.is-online { overflow: visible; }
+   The dot pokes out the bottom-right corner of the avatar (Slack/Discord style).
+   The .avatar wrapper has no overflow clipping; the image inside self-clips via
+   border-radius: inherit (see the .avatar-image rule below). The status-emoji
+   badge sits flush at bottom:0 right:0 — its own opaque background covers the
+   underlying avatar corner. */
 .avatar::after {
   content: '';
   position: absolute;
@@ -890,22 +889,15 @@ button.icon-btn > .icon {
 }
 .avatar.is-online::after {
   background: #2dba56;
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.15);
   display: block;
 }
 /* Manual override colors. data-presence-kind is set by presence.js from PresenceDto.kind.
    ACTIVE is the same as is-online (green). AWAY = yellow, DND = red, OFFLINE = gray.
    Each variant renders the dot via display:block so it shows even without is-online
    (a user manually OFFLINE while STOMP-connected still shows the gray dot). */
-.avatar[data-presence-kind="AWAY"]::after {
-  background: #f0b400; box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.15); display: block;
-}
-.avatar[data-presence-kind="DND"]::after {
-  background: #d94f4f; box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.15); display: block;
-}
-.avatar[data-presence-kind="OFFLINE"]::after {
-  background: #888;    box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.15); display: block;
-}
+.avatar[data-presence-kind="AWAY"]::after    { background: #f0b400; display: block; }
+.avatar[data-presence-kind="DND"]::after     { background: #d94f4f; display: block; }
+.avatar[data-presence-kind="OFFLINE"]::after { background: #888;    display: block; }
 .avatar-status-emoji {
   position: absolute;
   bottom: 0;
