@@ -192,9 +192,4 @@ public class UserService {
         return null;
     }
 
-    /** Convenience for tests / fixtures. */
-    public static String pickUsername(Map<String, Object> claims) {
-        var v = (String) claims.getOrDefault("preferred_username", claims.get("sub"));
-        return v == null ? "anonymous" : v;
-    }
 }

@@ -138,7 +138,7 @@ class AdminAndConversationFlowIT {
         // Alice destroys the channel; messages cascade away.
         channels.destroy(general, c.alice());
         assertThatThrownBy(() -> channels.requireById(general.getId()))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(ai.intellistream.radiance.security.ResourceNotFoundException.class);
     }
 
     @Test

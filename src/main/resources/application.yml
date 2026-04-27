@@ -31,7 +31,11 @@ spring:
         registration:
           keycloak:
             client-id: ${KEYCLOAK_CLIENT_ID:radiance}
-            client-secret: ${KEYCLOAK_CLIENT_SECRET:DAJpMxDkLxHidawHQXu8MMlmjEiKQRZzWRiLzFBQ}
+            # No default — operators MUST supply the secret via env (or Vault). The previous
+            # default was the dev secret baked into keycloak/realm.json; if that string ever
+            # leaves the repo it becomes a credential. For local dev, export it from realm.json:
+            #   export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="radiance") | .secret' keycloak/realm.json)
+            client-secret: ${KEYCLOAK_CLIENT_SECRET:}
             scope: openid,profile,email
             authorization-grant-type: authorization_code
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"

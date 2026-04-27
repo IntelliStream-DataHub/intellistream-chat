@@ -124,7 +124,7 @@ public class AttachmentService {
     @Transactional(readOnly = true)
     public Attachment requireForDownload(UUID attachmentId, User viewer) {
         var attachment = attachmentRepository.findById(attachmentId)
-                .orElseThrow(() -> new IllegalArgumentException("Attachment not found: " + attachmentId));
+                .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Attachment not found: " + attachmentId));
         var channel = attachment.getMessage().getChannel();
         channelService.requireMember(channel, viewer);
         return attachment;

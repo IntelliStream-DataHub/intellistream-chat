@@ -43,7 +43,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
      */
     private final String[] allowedOrigins;
 
-    public WebSocketConfig(@Value("${radiance.allowed-origins:http://localhost:8080,http://127.0.0.1:8080,http://192.168.100.98:8080}")
+    public WebSocketConfig(@Value("${radiance.allowed-origins:http://localhost:8080,http://127.0.0.1:8080}")
                            String allowedOriginsCsv) {
         this.allowedOrigins = Arrays.stream(allowedOriginsCsv.split(","))
                 .map(String::trim)
@@ -60,7 +60,9 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
+        // Native WebSocket only. Don't add .withSockJS() — its iframe / htmlfile / jsonp-polling
+        // transports inject inline <script>, which collides with the strict CSP (script-src 'self')
+        // configured in SecurityConfig.
         registry.addEndpoint("/ws").setAllowedOriginPatterns(allowedOrigins);
-        registry.addEndpoint("/ws").setAllowedOriginPatterns(allowedOrigins).withSockJS();
     }
 }

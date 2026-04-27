@@ -211,7 +211,7 @@ class PresenceFlowIT {
         var alice = newUser("alice");
         presenceService.setStatus(alice, "🍕", "lunch", null);
 
-        listener.onConnect(connectEventFor(alice.getSubject()));
+        listener.onConnect(connectEventFor(alice.getUsername()));
 
         var captor = ArgumentCaptor.forClass(PresenceDto.class);
         verify(broker).convertAndSend(eq("/topic/presence"), captor.capture());
@@ -224,8 +224,8 @@ class PresenceFlowIT {
     void secondConnectFromSameUserDoesNotReBroadcast() {
         var alice = newUser("alice");
 
-        listener.onConnect(connectEventFor(alice.getSubject()));
-        listener.onConnect(connectEventFor(alice.getSubject()));
+        listener.onConnect(connectEventFor(alice.getUsername()));
+        listener.onConnect(connectEventFor(alice.getUsername()));
 
         verify(broker).convertAndSend(eq("/topic/presence"), any(PresenceDto.class));
     }
@@ -233,13 +233,13 @@ class PresenceFlowIT {
     @Test
     void disconnectEventBroadcastsOfflineOnlyOnLastSession() {
         var alice = newUser("alice");
-        listener.onConnect(connectEventFor(alice.getSubject()));
-        listener.onConnect(connectEventFor(alice.getSubject()));
+        listener.onConnect(connectEventFor(alice.getUsername()));
+        listener.onConnect(connectEventFor(alice.getUsername()));
 
         // First disconnect: not the last session yet — no broadcast for offline.
-        listener.onDisconnect(disconnectEventFor(alice.getSubject()));
+        listener.onDisconnect(disconnectEventFor(alice.getUsername()));
         // Last session out — broadcast offline.
-        listener.onDisconnect(disconnectEventFor(alice.getSubject()));
+        listener.onDisconnect(disconnectEventFor(alice.getUsername()));
 
         var captor = ArgumentCaptor.forClass(PresenceDto.class);
         verify(broker, org.mockito.Mockito.times(2))
@@ -251,8 +251,8 @@ class PresenceFlowIT {
 
     @Test
     void unknownPrincipalIsIgnored() {
-        listener.onConnect(connectEventFor("not-a-real-subject"));
-        listener.onDisconnect(disconnectEventFor("not-a-real-subject"));
+        listener.onConnect(connectEventFor("not-a-real-user"));
+        listener.onDisconnect(disconnectEventFor("not-a-real-user"));
         verify(broker, never()).convertAndSend(eq("/topic/presence"), any(PresenceDto.class));
     }
 
@@ -308,14 +308,18 @@ class PresenceFlowIT {
 
     // ---------- helpers ----------
 
-    private static SessionConnectedEvent connectEventFor(String subject) {
+    // The principal name on the STOMP handshake is preferred_username, not the OIDC sub —
+    // the OIDC client config sets user-name-attribute: preferred_username, and
+    // KeycloakRolesConverter pins the JWT principal name to the same claim. So the listener
+    // resolves users by username, and these helpers feed username strings.
+    private static SessionConnectedEvent connectEventFor(String principalName) {
         Message<byte[]> msg = new GenericMessage<>(new byte[0]);
-        return new SessionConnectedEvent(new Object(), msg, () -> subject);
+        return new SessionConnectedEvent(new Object(), msg, () -> principalName);
     }
 
-    private static SessionDisconnectEvent disconnectEventFor(String subject) {
+    private static SessionDisconnectEvent disconnectEventFor(String principalName) {
         Message<byte[]> msg = new GenericMessage<>(new byte[0]);
-        return new SessionDisconnectEvent(new Object(), msg, "session-" + subject,
-                org.springframework.web.socket.CloseStatus.NORMAL, () -> subject);
+        return new SessionDisconnectEvent(new Object(), msg, "session-" + principalName,
+                org.springframework.web.socket.CloseStatus.NORMAL, () -> principalName);
     }
 }

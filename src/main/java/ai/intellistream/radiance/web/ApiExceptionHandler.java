@@ -18,6 +18,7 @@ package ai.intellistream.radiance.web;
 
 import ai.intellistream.radiance.security.PublicBadRequestException;
 import ai.intellistream.radiance.security.RateLimitExceededException;
+import ai.intellistream.radiance.security.ResourceNotFoundException;
 import ai.intellistream.radiance.security.UploadTooLargeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -68,6 +69,11 @@ public class ApiExceptionHandler {
     @ExceptionHandler(IllegalStateException.class)
     public ResponseEntity<Map<String, String>> conflict(IllegalStateException ex) {
         return envelope(HttpStatus.CONFLICT, "conflict", ex);
+    }
+
+    @ExceptionHandler(ResourceNotFoundException.class)
+    public ResponseEntity<Map<String, String>> notFound(ResourceNotFoundException ex) {
+        return envelope(HttpStatus.NOT_FOUND, "not_found", ex);
     }
 
     @ExceptionHandler(AccessDeniedException.class)
@@ -124,6 +130,7 @@ public class ApiExceptionHandler {
         var publicMessage = switch (code) {
             case "forbidden" -> "Not allowed.";
             case "conflict"  -> "Conflicting state — refresh and retry.";
+            case "not_found" -> "Not found.";
             default          -> "Request rejected.";
         };
         return ResponseEntity.status(status)

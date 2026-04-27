@@ -128,14 +128,6 @@ public class SearchService {
                 .toList();
     }
 
-    private static String normalize(String query) {
-        if (query == null) {
-            return null;
-        }
-        var trimmed = query.trim();
-        return trimmed.length() < 2 ? null : trimmed;
-    }
-
     /** Body + author tokens parsed out of one user-supplied query. */
     record Parsed(String body, Set<String> authors) {}
 

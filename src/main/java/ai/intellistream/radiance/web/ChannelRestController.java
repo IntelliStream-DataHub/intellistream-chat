@@ -135,8 +135,11 @@ public class ChannelRestController {
         var me = currentUser.resolve(principal);
         var channel = channelService.requireById(id);
         // Three modes: recent (no params), before (up-scroll loading older), after (down-scroll
-        // loading newer when the viewer is centered-on-anchor and reaches the bottom). before
-        // wins if both are passed — the existing client only sends one at a time.
+        // loading newer when the viewer is centered-on-anchor and reaches the bottom). Reject
+        // both-at-once explicitly so a confused client gets a 400 instead of silent precedence.
+        if (before != null && after != null) {
+            throw new IllegalArgumentException("'before' and 'after' are mutually exclusive");
+        }
         List<ai.intellistream.radiance.domain.Message> rows;
         if (before != null) {
             rows = messageService.before(channel, me, before, limit);

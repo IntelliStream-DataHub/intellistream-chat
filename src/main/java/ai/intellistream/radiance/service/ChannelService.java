@@ -56,13 +56,13 @@ public class ChannelService {
     @Transactional(readOnly = true)
     public Channel requireById(UUID id) {
         return channelRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Channel not found: " + id));
+                .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Channel not found: " + id));
     }
 
     @Transactional(readOnly = true)
     public Channel requireBySlug(String slug) {
         return channelRepository.findBySlug(slug)
-                .orElseThrow(() -> new IllegalArgumentException("Channel not found: " + slug));
+                .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Channel not found: " + slug));
     }
 
     @Transactional(readOnly = true)
@@ -140,11 +140,19 @@ public class ChannelService {
     }
 
     private static String slugify(String input) {
-        var lower = input == null ? "" : input.toLowerCase();
+        // Locale.ROOT — under tr_TR the bare toLowerCase() turns "I" into dotless "ı",
+        // which then doesn't match [a-z] and produces a slug with stripped letters.
+        var lower = input == null ? "" : input.toLowerCase(java.util.Locale.ROOT);
         var slug = lower.replaceAll("[^a-z0-9]+", "-").replaceAll("(^-|-$)", "");
         if (slug.isEmpty()) {
             throw new IllegalArgumentException("Channel name must contain alphanumeric characters");
         }
-        return slug.length() > 80 ? slug.substring(0, 80) : slug;
+        if (slug.length() > 80) {
+            slug = slug.substring(0, 80);
+            // Truncation may have left a trailing '-' (e.g. cut mid-separator); strip it
+            // so URLs stay clean and the unique-key matches what the user sees.
+            slug = slug.replaceAll("-+$", "");
+        }
+        return slug;
     }
 }

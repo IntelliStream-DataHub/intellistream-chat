@@ -191,10 +191,10 @@ class MessageAroundIT {
         var roomB = channels.create("B-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice);
         var msgInA = messages.post(roomA, alice, "lives in A");
 
-        // Caller asks "load context for msgInA in roomB" — defensively rejected so probing
-        // for cross-channel message ids is a no-op rather than a leak.
+        // Caller asks "load context for msgInA in roomB" — defensively rejected as 404 so
+        // probing for cross-channel message ids is a no-op rather than a leak.
         assertThatThrownBy(() -> messages.around(roomB, alice, msgInA.getId(), 25))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(ai.intellistream.radiance.security.ResourceNotFoundException.class);
     }
 
     @Test
@@ -217,7 +217,7 @@ class MessageAroundIT {
                 null, ChannelType.PUBLIC, alice);
 
         assertThatThrownBy(() -> messages.around(room, alice, UUID.randomUUID(), 25))
-                .isInstanceOf(IllegalArgumentException.class)
+                .isInstanceOf(ai.intellistream.radiance.security.ResourceNotFoundException.class)
                 .hasMessageContaining("not found");
     }
 

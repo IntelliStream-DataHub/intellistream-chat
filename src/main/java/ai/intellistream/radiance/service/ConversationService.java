@@ -120,7 +120,7 @@ public class ConversationService {
     @Transactional
     public ConversationMessage requireMessageById(UUID id) {
         return messages.findByIdWithAuthor(id)
-                .orElseThrow(() -> new IllegalArgumentException("Message not found: " + id));
+                .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Message not found: " + id));
     }
 
     /** Edit own message body. Author-only; admins do not edit other users' DMs. */
@@ -176,7 +176,7 @@ public class ConversationService {
     @Transactional(readOnly = true)
     public Conversation requireById(UUID id) {
         return conversations.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Conversation not found: " + id));
+                .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Conversation not found: " + id));
     }
 
     @Transactional(readOnly = true)

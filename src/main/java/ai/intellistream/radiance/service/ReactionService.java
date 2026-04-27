@@ -105,7 +105,7 @@ public class ReactionService {
 
     private Message requireMessage(UUID messageId) {
         return messageRepository.findById(messageId)
-                .orElseThrow(() -> new IllegalArgumentException("Message not found: " + messageId));
+                .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Message not found: " + messageId));
     }
 
     private static String sanitize(String emoji) {

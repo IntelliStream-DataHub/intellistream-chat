@@ -74,16 +74,18 @@ public class PresenceEventListener {
     }
 
     /**
-     * STOMP principals come in as the Spring Security Authentication for the HTTP handshake;
-     * its {@code getName()} is the underlying token's subject (Keycloak {@code sub}). We map
-     * that to the domain user via {@link UserRepository#findBySubject} — no provisioning here
-     * because the user must already exist (the handshake went through the resource-server
-     * filter chain which provisions on first sight).
+     * STOMP principals come in as the Spring Security Authentication for the HTTP handshake.
+     * Its {@code getName()} resolves to {@code preferred_username} — both because OIDC pages
+     * configure {@code user-name-attribute: preferred_username} and because
+     * {@code KeycloakRolesConverter} pins the JWT principal name to the same claim. So we
+     * look up by username, not by subject. No provisioning here — the user must already
+     * exist (the handshake went through the resource-server / OIDC chain which provisions
+     * on first sight).
      */
     private Optional<User> resolveUser(Principal principal) {
         if (principal == null) return Optional.empty();
-        var subject = principal.getName();
-        if (subject == null || subject.isBlank()) return Optional.empty();
-        return userRepository.findBySubject(subject);
+        var username = principal.getName();
+        if (username == null || username.isBlank()) return Optional.empty();
+        return userRepository.findByUsernameIgnoreCase(username);
     }
 }

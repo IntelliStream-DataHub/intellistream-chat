@@ -180,7 +180,7 @@ class ChannelMembersListIT {
         when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
 
         assertThatThrownBy(() -> controller.members(java.util.UUID.randomUUID(), mock(Principal.class)))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(ai.intellistream.radiance.security.ResourceNotFoundException.class);
     }
 
     @Test

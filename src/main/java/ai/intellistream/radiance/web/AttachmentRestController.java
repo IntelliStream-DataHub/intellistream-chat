@@ -48,8 +48,6 @@ import java.util.UUID;
 @RestController
 public class AttachmentRestController {
 
-    private static final long MAX_CAPTION_BYTES = 16 * 1024;
-
     private final AttachmentService attachmentService;
     private final ChannelService channelService;
     private final MarkdownRenderer markdown;

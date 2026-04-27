@@ -100,6 +100,8 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
 
     long countByParent(Message parent);
 
+    long countByChannelAndParentIsNull(Channel channel);
+
     /**
      * For each given parent id, count its top-level replies. Parents with zero replies are
      * absent from the result. Used to render the "N replies" thread indicator on a feed

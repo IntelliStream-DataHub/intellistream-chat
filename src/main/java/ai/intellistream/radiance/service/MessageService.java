@@ -127,11 +127,11 @@ public class MessageService {
     public List<Message> around(Channel channel, User viewer, UUID anchorId, int radius) {
         channelService.requireMember(channel, viewer);
         var anchor = messageRepository.findByIdWithChannelAndAuthor(anchorId)
-                .orElseThrow(() -> new IllegalArgumentException("Message not found: " + anchorId));
+                .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Message not found: " + anchorId));
         if (!anchor.getChannel().getId().equals(channel.getId())) {
             // Mismatched channel → treat as not found so a probing user can't enumerate
             // message ids across channels.
-            throw new IllegalArgumentException("Message not found: " + anchorId);
+            throw new ai.intellistream.radiance.security.ResourceNotFoundException("Message not found: " + anchorId);
         }
         if (anchor.isThreadReply()) {
             throw new IllegalArgumentException("Anchor message is a thread reply; open the thread instead");
@@ -153,7 +153,7 @@ public class MessageService {
     @Transactional
     public Message pin(UUID messageId, User actor) {
         var message = messageRepository.findById(messageId)
-                .orElseThrow(() -> new IllegalArgumentException("Message not found: " + messageId));
+                .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Message not found: " + messageId));
         channelService.requireAdmin(message.getChannel(), actor);
         message.pin(actor);
         return message;
@@ -162,7 +162,7 @@ public class MessageService {
     @Transactional
     public Message unpin(UUID messageId, User actor) {
         var message = messageRepository.findById(messageId)
-                .orElseThrow(() -> new IllegalArgumentException("Message not found: " + messageId));
+                .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Message not found: " + messageId));
         channelService.requireAdmin(message.getChannel(), actor);
         message.unpin();
         return message;
@@ -177,7 +177,7 @@ public class MessageService {
     @Transactional
     public Message replyInThread(UUID parentId, User author, String body) {
         var parent = messageRepository.findById(parentId)
-                .orElseThrow(() -> new IllegalArgumentException("Message not found: " + parentId));
+                .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Message not found: " + parentId));
         if (parent.isThreadReply()) {
             throw new IllegalArgumentException("Cannot reply to a thread reply — reply to its parent instead");
         }
@@ -198,7 +198,7 @@ public class MessageService {
     @Transactional(readOnly = true)
     public List<Message> threadReplies(UUID parentId, User viewer) {
         var parent = messageRepository.findById(parentId)
-                .orElseThrow(() -> new IllegalArgumentException("Message not found: " + parentId));
+                .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Message not found: " + parentId));
         channelService.requireMember(parent.getChannel(), viewer);
         return messageRepository.findByParentOrderByCreatedAtAsc(parent);
     }
@@ -226,14 +226,14 @@ public class MessageService {
         // Join-fetch author + channel so the controller can serialize the message and call
         // channelService.requireMember(...) after this transaction closes (open-in-view is off).
         return messageRepository.findByIdWithChannelAndAuthor(id)
-                .orElseThrow(() -> new IllegalArgumentException("Message not found: " + id));
+                .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Message not found: " + id));
     }
 
     /** Author-only edit. Updates body and bumps {@code editedAt}. */
     @Transactional
     public Message edit(UUID messageId, User actor, String newBody) {
         var message = messageRepository.findByIdWithAuthor(messageId)
-                .orElseThrow(() -> new IllegalArgumentException("Message not found: " + messageId));
+                .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Message not found: " + messageId));
         if (!message.getAuthor().getId().equals(actor.getId())) {
             throw new AccessDeniedException("Only the author can edit this message.");
         }
@@ -266,7 +266,7 @@ public class MessageService {
     @Transactional
     public DeletedMessage delete(UUID messageId, User actor) {
         var message = messageRepository.findById(messageId)
-                .orElseThrow(() -> new IllegalArgumentException("Message not found: " + messageId));
+                .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Message not found: " + messageId));
 
         var channel = message.getChannel();
         var isAuthor = message.getAuthor().getId().equals(actor.getId());

@@ -19,6 +19,8 @@ package ai.intellistream.radiance.security;
 import ai.intellistream.radiance.attachments.AttachmentBytes;
 import ai.intellistream.radiance.domain.User;
 import ai.intellistream.radiance.service.UserService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -33,6 +35,8 @@ import java.util.Collection;
 
 @Component
 public class CurrentUser {
+
+    private static final Logger log = LoggerFactory.getLogger(CurrentUser.class);
 
     private final UserService userService;
 
@@ -65,7 +69,10 @@ public class CurrentUser {
         } else if (principal instanceof Jwt jwt) {
             user = userService.provisionFromJwt(jwt);
         } else {
-            throw new AccessDeniedException("Unsupported principal type: " + principal.getClass());
+            // Don't echo the principal class name in the response — log it server-side and
+            // reply with a generic message so we don't leak internal types to API clients.
+            log.warn("Unsupported principal type: {}", principal == null ? "null" : principal.getClass().getName());
+            throw new AccessDeniedException("Unsupported principal type");
         }
         // Per-request last-active stamp; throttled internally so this is cheap.
         userService.touchActiveThrottled(user);
