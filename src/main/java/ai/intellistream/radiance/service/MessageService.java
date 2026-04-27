@@ -246,16 +246,15 @@ public class MessageService {
         if (newBody.length() > 8000) {
             throw new IllegalArgumentException("Message body too long (max 8000 chars)");
         }
-        var oldBody = message.getBodyMarkdown();
         message.setBodyMarkdown(newBody.trim());
         mentionService.syncMentions(message);
         var channelId = message.getChannel().getId();
         var newBodyTrimmed = message.getBodyMarkdown();
-        // Index immediately so reads in the same transaction see the new body; on rollback,
-        // restore the previous body so we don't strand a stale entry pointing to the new content.
         var authorUsername = message.getAuthor().getUsername();
-        messageIndex.index(messageId, channelId, authorUsername, newBodyTrimmed);
-        onRollback(() -> messageIndex.index(messageId, channelId, authorUsername, oldBody));
+        // Push the index write to afterCommit. A within-tx index update would leak the
+        // new body to concurrent searchers before the row is committed; a rollback
+        // compensator can fail silently and leaves the index inconsistent with the DB.
+        afterCommit(() -> messageIndex.index(messageId, channelId, authorUsername, newBodyTrimmed));
         return message;
     }
 
@@ -305,51 +304,44 @@ public class MessageService {
         indexedIds.add(messageId);
         messageRepository.delete(message);
 
-        attachmentService.deleteFiles(fileKeys);
-
-        // Snapshot bodies + authors for rollback restoration before mutating the index.
-        record IndexSnapshot(UUID id, String author, String body) {}
-        var snapshots = new java.util.ArrayList<IndexSnapshot>();
-        snapshots.add(new IndexSnapshot(messageId, message.getAuthor().getUsername(), message.getBodyMarkdown()));
-        for (var reply : replies) {
-            snapshots.add(new IndexSnapshot(reply.getId(), reply.getAuthor().getUsername(), reply.getBodyMarkdown()));
-        }
-        messageIndex.deleteAll(indexedIds);
-        onRollback(() -> {
-            for (var snap : snapshots) {
-                messageIndex.index(snap.id(), channelId, snap.author(), snap.body());
-            }
-        });
+        // Both side effects deferred to afterCommit. Doing them inside the tx leaves files
+        // and index entries inconsistent with the DB if the JPA delete rolls back — the
+        // previous rollback-compensator pattern relied on a snapshot/restore that could
+        // fail silently.
+        var indexedIdsSnapshot = List.copyOf(indexedIds);
+        var fileKeysSnapshot = List.copyOf(fileKeys);
+        afterCommit(() -> messageIndex.deleteAll(indexedIdsSnapshot));
+        afterCommit(() -> attachmentService.deleteFiles(fileKeysSnapshot));
 
         return new DeletedMessage(messageId, channelId, parentId);
     }
 
     /**
-     * Index the message synchronously, with a compensating delete if the surrounding
-     * transaction rolls back. Outside a transaction (no synchronization active) the index
-     * write is immediate and there's nothing to compensate.
+     * Defer the index write to {@code afterCommit} so the index never reflects a row the
+     * DB later rolled back, and concurrent searchers don't see uncommitted entries.
+     * Outside a transaction (no synchronization active) the write is immediate.
      *
-     * <p>Note: a tx-aborted-after-index window does exist (concurrent reader sees the entry
-     * for ~ms before the rollback compensator deletes it). Switching to afterCommit would
-     * close that window but breaks the existing test pattern that relies on within-tx index
-     * visibility — see audit notes for the deferred follow-up.
+     * <p>IT classes are {@code @Transactional} at class level — the test method's tx
+     * rolls back automatically for isolation, which means {@code afterCommit} hooks
+     * never fire under test. Tests that exercise post-then-search or delete-then-check
+     * call {@link Tx#commit()} between the action and the assertion to flush the inner
+     * tx so its hooks fire.
      */
     private void indexNow(UUID messageId, UUID channelId, String author, String body) {
-        messageIndex.index(messageId, channelId, author, body);
-        onRollback(() -> messageIndex.delete(messageId));
+        afterCommit(() -> messageIndex.index(messageId, channelId, author, body));
     }
 
-    /** Run a compensating action if the surrounding transaction rolls back; no-op outside a TX. */
-    private static void onRollback(Runnable action) {
+    /** Register an action to run after a successful commit; if no tx is active, run it now. */
+    private static void afterCommit(Runnable action) {
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
-                public void afterCompletion(int status) {
-                    if (status == STATUS_ROLLED_BACK) {
-                        action.run();
-                    }
+                public void afterCommit() {
+                    action.run();
                 }
             });
+        } else {
+            action.run();
         }
     }
 

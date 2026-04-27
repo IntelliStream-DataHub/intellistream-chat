@@ -94,6 +94,12 @@ class ChannelFlowIT {
         var rendered = markdown.render(recent.get(0).getBodyMarkdown());
         assertThat(rendered).contains("<strong>world</strong>");
 
+        // Lucene index writes are deferred to afterCommit; commit the test tx so the
+        // hooks fire before the search assertions run. Tx.commit() restarts a fresh
+        // tx so the test still gets the @Transactional auto-rollback container around
+        // any subsequent writes.
+        Tx.commit();
+
         var hitsInChannel = search.searchChannel(general, alice, "hello", 10);
         assertThat(hitsInChannel).hasSize(1);
 
