@@ -42,18 +42,25 @@ spring:
             client-name: Keycloak
         provider:
           keycloak:
-            issuer-uri: ${KEYCLOAK_ISSUER_URI:http://192.168.100.98:8081/realms/radiance}
+            # Default points at a localhost-bound Keycloak. Local-dev with the bundled
+            # docker-compose stack (Keycloak bound to a LAN IP) overrides this in
+            # application-dev.properties. Production sets KEYCLOAK_ISSUER_URI explicitly.
+            issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/radiance}
             user-name-attribute: preferred_username
       resourceserver:
         jwt:
-          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://192.168.100.98:8081/realms/radiance}
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/radiance}
 
   thymeleaf:
     cache: false
 
 server:
   port: ${SERVER_PORT:8080}
-  address: ${SERVER_ADDRESS:192.168.100.98}
+  # Default binds localhost only — safe for any environment, including a misconfigured
+  # production deploy that forgot to set SERVER_ADDRESS. The dev profile overrides this
+  # to the maintainer's LAN IP so phones / other devices can reach the app during
+  # mobile-layout testing.
+  address: ${SERVER_ADDRESS:127.0.0.1}
   forward-headers-strategy: framework
   servlet:
     session:

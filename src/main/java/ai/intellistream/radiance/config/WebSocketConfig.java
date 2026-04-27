@@ -34,21 +34,18 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
      * let any malicious site (visited by a logged-in user) negotiate a WebSocket against
      * the chat server — combined with cookie-based auth, that's a CSWSH primitive. Lock it
      * down to the deploy host(s); production deployments should set
-     * {@code radiance.allowed-origins=https://chat.example.com} explicitly and drop the
-     * defaults below. {@code SameSite=Strict} on the session cookie is a parallel defence —
-     * removing the wildcard is the belt to its braces.
+     * {@code radiance.allowed-origins=https://chat.example.com} explicitly.
+     * {@code SameSite=Strict} on the session cookie is a parallel defence — removing the
+     * wildcard is the belt to its braces.
      *
-     * <p>The default list covers the typical local-dev hostnames so {@code ./gradlew bootRun}
-     * keeps working without any extra config: {@code localhost} and {@code 127.0.0.1} for
-     * solo dev, plus {@code 192.168.100.98} which is the maintainer's LAN test address. The
-     * LAN entry is harmless on someone else's box (no service answers there); it stays in
-     * the default so the dev workflow doesn't require a per-developer property override.
-     * The README's production-hardening checklist calls out replacing this list outright
-     * for any internet-facing deploy.
+     * <p>The default below covers solo local-dev on {@code localhost} / {@code 127.0.0.1}.
+     * The {@code dev} profile (see {@code application-dev.properties}) extends the list
+     * with the maintainer's LAN IP so phones / other devices on the LAN can reach the WS
+     * endpoint during mobile-layout testing.
      */
     private final String[] allowedOrigins;
 
-    public WebSocketConfig(@Value("${radiance.allowed-origins:http://localhost:8080,http://127.0.0.1:8080,http://192.168.100.98:8080}")
+    public WebSocketConfig(@Value("${radiance.allowed-origins:http://localhost:8080,http://127.0.0.1:8080}")
                            String allowedOriginsCsv) {
         this.allowedOrigins = Arrays.stream(allowedOriginsCsv.split(","))
                 .map(String::trim)

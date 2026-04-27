@@ -93,3 +93,11 @@ dependencies {
 tasks.withType<Test> {
     useJUnitPlatform()
 }
+
+// Auto-activate the dev profile when running via Gradle so plain `./gradlew bootRun`
+// picks up the maintainer's local LAN config (server.address, Keycloak issuer-uri,
+// allowed-origins). Tests and `java -jar build/libs/...` are unaffected — the dev
+// profile only activates here.
+tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
+    args("--spring.profiles.active=dev")
+}
