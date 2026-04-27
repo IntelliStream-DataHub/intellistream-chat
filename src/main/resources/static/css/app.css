@@ -912,10 +912,6 @@ button.icon-btn > .icon {
 }
 /* Hide the plain online dot when an emoji badge is present. */
 .avatar:has(.avatar-status-emoji)::after { display: none; }
-/* The current user's own avatar in the topbar — they don't need a dot reminding
-   them they're online, and the badge collides with the adjacent display name. */
-.me .avatar::after,
-.me .avatar .avatar-status-emoji { display: none !important; }
 /* Larger avatars (profile page, hovercard) get bigger badges. */
 .avatar.avatar-large::after { width: 14px; height: 14px; }
 .avatar.avatar-large .avatar-status-emoji { width: 22px; height: 22px; font-size: 14px; }

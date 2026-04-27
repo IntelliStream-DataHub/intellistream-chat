@@ -97,6 +97,14 @@
         // Ignore malformed frames.
       }
     });
+    // Backfill the window between STOMP CONNECT and this subscription registering on
+    // the broker. The server fires PresenceEventListener.onConnect (broadcasting
+    // alice=online) the moment it processes the CONNECT frame, which is before the
+    // client's onConnect callback runs and before this subscribe lands. Spring's
+    // in-memory broker has no replay, so the broadcast is lost to us. The REST
+    // endpoint queries the live PresenceTracker and gives us the current state —
+    // including ourselves, who's now definitely online by the time this fires.
+    refreshAll();
   }
 
   function onChange(cb) {
