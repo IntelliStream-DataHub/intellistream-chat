@@ -17,7 +17,6 @@
 package ai.intellistream.radiance.config;
 
 import ai.intellistream.radiance.security.KeycloakRolesConverter;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.server.servlet.CookieSameSiteSupplier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -45,17 +44,22 @@ import java.util.Set;
 @Configuration
 public class SecurityConfig {
 
-    /**
-     * Whether to mark session and CSRF cookies {@code Secure}. Defaults to {@code false}
-     * so local-dev over plain HTTP keeps working; set
-     * {@code chat.security.cookie-secure=true} (or {@code CHAT_SECURITY_COOKIE_SECURE=true})
-     * in any HTTPS-fronted deployment so the cookies can't be lifted over the wire.
+    /*
+     * Cookie {@code Secure} flag is auto-detected per request: both the JSESSIONID and
+     * the CSRF cookie inherit {@code request.isSecure()}, which is set to {@code true}
+     * by Tomcat's RemoteIpValve whenever the inbound request carried
+     * {@code X-Forwarded-Proto: https} (enabled by {@code forward-headers-strategy: framework}
+     * in application.yml). On plain-HTTP local dev the cookies are written without Secure
+     * so they round-trip; behind a TLS-terminating proxy they're marked Secure automatically.
+     *
+     * Tomcat session cookie: see {@code Request#configureSessionCookie}, which ORs
+     * {@code SessionCookieConfig.isSecure()} with {@code request.isSecure()}. We don't set
+     * the config knob, so the OR collapses to per-request.
+     *
+     * CSRF cookie: see {@link CookieCsrfTokenRepository#saveToken} — when the {@code secure}
+     * field is null (we don't set it), the cookie's Secure flag is set from
+     * {@code request.isSecure()}.
      */
-    private final boolean cookieSecure;
-
-    public SecurityConfig(@Value("${radiance.security.cookie-secure:false}") boolean cookieSecure) {
-        this.cookieSecure = cookieSecure;
-    }
 
     /**
      * API + WebSocket handshake for programmatic clients carrying a bearer JWT issued by Keycloak.
@@ -91,10 +95,10 @@ public class SecurityConfig {
         var registrationResolver = new RegistrationAuthorizationRequestResolver(clientRegistrationRepository);
 
         var csrfRepo = CookieCsrfTokenRepository.withHttpOnlyFalse();
-        // SameSite=Strict blocks cross-site submission even if the cookie leaks. Secure
-        // is gated on chat.security.cookie-secure so local-dev over plain HTTP still
-        // receives the cookie; production over HTTPS must set it true.
-        csrfRepo.setCookieCustomizer(c -> c.sameSite("Strict").secure(cookieSecure));
+        // SameSite=Strict blocks cross-site submission even if the cookie leaks. We
+        // intentionally don't call .secure(...) — without it the repository falls back
+        // to request.isSecure() per request (see class-level comment).
+        csrfRepo.setCookieCustomizer(c -> c.sameSite("Strict"));
 
         // Content-Security-Policy: ban inline script (pages must load chat.js / theme-loader.js
         // via <script src=…>); allow inline style because Thymeleaf templates use a few inline
@@ -149,11 +153,6 @@ public class SecurityConfig {
     public CookieSameSiteSupplier sessionCookieSameSite() {
         return CookieSameSiteSupplier.ofStrict().whenHasName("JSESSIONID");
     }
-
-    // The JSESSIONID cookie's Secure flag is bound from application.yml's
-    // server.servlet.session.cookie.secure → ${radiance.security.cookie-secure:false}.
-    // Setting it programmatically is container-specific in Spring Boot 4; the property
-    // route works regardless of whether Tomcat or another embedded server is on the path.
 
     private static LogoutSuccessHandler oidcLogoutSuccessHandler(ClientRegistrationRepository repo) {
         var handler = new OidcClientInitiatedLogoutSuccessHandler(repo);

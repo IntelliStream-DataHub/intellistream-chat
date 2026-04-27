@@ -23,14 +23,17 @@ import java.time.Instant;
 /**
  * Public-facing snapshot of a user, served to any authenticated viewer that hovers
  * over their avatar. Mirrors the avatar visibility posture: anyone you can chat with
- * can see your name, username, and rough activity. Email is included because the
- * existing admin page already exposes it across the org — when that changes, drop
- * it here too.
+ * can see your name, username, and rough activity.
+ *
+ * <p>Email is intentionally NOT exposed here. With this endpoint reachable to any
+ * authenticated peer at 120 req/min, including email turned a single compromised
+ * account into a full org email-directory dump by walking usernames. The admin page
+ * still exposes email (with its own {@code expose-user-emails} privacy toggle) for
+ * operators who actively need the directory; the hovercard does not.
  */
 public record UserProfileDto(
         String username,
         String displayName,
-        String email,
         Instant createdAt,
         Instant lastActiveAt,
         boolean hasAvatar,
@@ -41,7 +44,6 @@ public record UserProfileDto(
         return new UserProfileDto(
                 user.getUsername(),
                 user.getDisplayName(),
-                user.getEmail(),
                 user.getCreatedAt(),
                 user.getLastActiveAt(),
                 user.hasAvatar(),

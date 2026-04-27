@@ -71,8 +71,33 @@ class MarkdownRendererTest {
     }
 
     @Test
-    void embedsYouTubeShortUrls() {
+    void embedsYouTubeShortDomainUrls() {
+        // youtu.be — share-button shortlink, not the /shorts/ path (different feature).
         var html = renderer.render("look https://youtu.be/dQw4w9WgXcQ");
+        assertThat(html).contains("src=\"https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ\"");
+    }
+
+    @Test
+    void embedsYouTubeShortsPath() {
+        // /shorts/ID — vertical-format videos. Same embed endpoint, but the wrapper carries
+        // data-orientation="vertical" so the stylesheet renders a 9:16 phone-shaped frame.
+        var html = renderer.render("look https://www.youtube.com/shorts/phwq5hZZwDU");
+        assertThat(html).contains("class=\"video-embed-wrapper\"");
+        assertThat(html).contains("data-orientation=\"vertical\"");
+        assertThat(html).contains("src=\"https://www.youtube-nocookie.com/embed/phwq5hZZwDU\"");
+    }
+
+    @Test
+    void landscapeYouTubeDoesNotSetVerticalOrientation() {
+        // Sanity: /watch URLs stay in the landscape default; data-orientation is shorts-only.
+        var html = renderer.render("look https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+        assertThat(html).doesNotContain("data-orientation");
+    }
+
+    @Test
+    void embedsYouTubeMobileSubdomain() {
+        // m.youtube.com is what the YouTube mobile app emits when sharing via "Copy link".
+        var html = renderer.render("look https://m.youtube.com/watch?v=dQw4w9WgXcQ");
         assertThat(html).contains("src=\"https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ\"");
     }
 

@@ -1,5 +1,6 @@
 package ai.intellistream.radiance.config;
 
+import ai.intellistream.radiance.domain.User;
 import ai.intellistream.radiance.security.CurrentUser;
 import ai.intellistream.radiance.service.ChannelService;
 import ai.intellistream.radiance.service.ConversationService;
@@ -15,6 +16,8 @@ import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBr
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
 import org.springframework.messaging.simp.config.ChannelRegistration;
 
+import java.security.Principal;
+import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -22,6 +25,11 @@ import java.util.regex.Pattern;
  * Authorize STOMP {@code SUBSCRIBE} frames so a connected user can only subscribe to channels
  * they're allowed to read. Without this, anyone with a valid handshake could
  * {@code SUBSCRIBE /topic/channels/{any-uuid}} and silently observe private channels.
+ *
+ * <p>The resolved {@link User} is cached on the STOMP session attributes on the {@code CONNECT}
+ * frame; subsequent {@code SUBSCRIBE} frames read from the cache instead of going back through
+ * {@link CurrentUser#resolve} (which provisions on first sight and writes a per-request
+ * last-active stamp). Without the cache, a chatty client triggers a DB upsert per frame.
  */
 @Configuration
 @EnableWebSocketMessageBroker
@@ -31,6 +39,7 @@ public class StompAuthorizationConfig implements WebSocketMessageBrokerConfigure
             Pattern.compile("^/topic/channels/([0-9a-fA-F-]{36})(?:/[a-zA-Z0-9_-]+)?$");
     static final Pattern CONVERSATION_TOPIC =
             Pattern.compile("^/topic/conversations/([0-9a-fA-F-]{36})(?:/[a-zA-Z0-9_-]+)?$");
+    static final String SESSION_USER_KEY = "radiance.chatUser";
 
     private final ChannelService channelService;
     private final ConversationService conversationService;
@@ -50,7 +59,22 @@ public class StompAuthorizationConfig implements WebSocketMessageBrokerConfigure
             @Override
             public Message<?> preSend(Message<?> message, MessageChannel channel) {
                 var accessor = MessageHeaderAccessor.getAccessor(message, StompHeaderAccessor.class);
-                if (accessor == null || !StompCommand.SUBSCRIBE.equals(accessor.getCommand())) {
+                if (accessor == null) return message;
+                var command = accessor.getCommand();
+
+                if (StompCommand.CONNECT.equals(command)) {
+                    // Resolve once at session start and cache on the session attributes;
+                    // re-resolving on every SUBSCRIBE / SEND would write to users.last_active_at
+                    // per frame and amplify any DoS surface against the DB.
+                    var principal = accessor.getUser();
+                    var sessionAttrs = accessor.getSessionAttributes();
+                    if (principal != null && sessionAttrs != null) {
+                        sessionAttrs.put(SESSION_USER_KEY, currentUser.resolve(principal));
+                    }
+                    return message;
+                }
+
+                if (!StompCommand.SUBSCRIBE.equals(command)) {
                     return message;
                 }
                 var dest = accessor.getDestination();
@@ -60,19 +84,15 @@ public class StompAuthorizationConfig implements WebSocketMessageBrokerConfigure
                 var convMatch = CONVERSATION_TOPIC.matcher(dest);
                 if (!channelMatch.matches() && !convMatch.matches()) return message;
 
-                var principal = accessor.getUser();
-                if (principal == null) {
-                    throw new AccessDeniedException("Authentication required to subscribe");
-                }
-                var user = currentUser.resolve(principal);
+                var user = resolveCached(accessor.getSessionAttributes(), accessor.getUser());
 
                 if (channelMatch.matches()) {
                     UUID channelId;
                     try { channelId = UUID.fromString(channelMatch.group(1)); }
                     catch (IllegalArgumentException ex) { return message; }
                     var ch = channelService.requireById(channelId);
-                    // Re-uses the same membership semantic the message-read path uses
-                    // (PUBLIC channels are subscribable by any authenticated user).
+                    // Subscribe = read; reuses the read-access semantic so PUBLIC channels
+                    // remain subscribable by any authenticated user.
                     channelService.requireMember(ch, user);
                 } else {
                     UUID conversationId;
@@ -85,5 +105,22 @@ public class StompAuthorizationConfig implements WebSocketMessageBrokerConfigure
                 return message;
             }
         });
+    }
+
+    private User resolveCached(Map<String, Object> sessionAttrs, Principal principal) {
+        if (sessionAttrs != null) {
+            var cached = sessionAttrs.get(SESSION_USER_KEY);
+            if (cached instanceof User u) return u;
+        }
+        // CONNECT didn't fire (test harness, mid-deploy session that pre-existed the cache,
+        // etc.) — fall back to resolving and stash for next time.
+        if (principal == null) {
+            throw new AccessDeniedException("Authentication required to subscribe");
+        }
+        var user = currentUser.resolve(principal);
+        if (sessionAttrs != null) {
+            sessionAttrs.put(SESSION_USER_KEY, user);
+        }
+        return user;
     }
 }

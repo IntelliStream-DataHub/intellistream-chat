@@ -40,6 +40,13 @@
   function applyToElement(el, dto) {
     el.classList.toggle('is-online', !!dto.online);
     el.classList.toggle('is-offline', !dto.online);
+    // data-presence-kind drives the dot's color variant (CSS selects on the value).
+    // ACTIVE → green, AWAY → yellow, DND → red, OFFLINE → gray (or hidden by CSS).
+    if (dto.kind) {
+      el.setAttribute('data-presence-kind', dto.kind);
+    } else {
+      el.removeAttribute('data-presence-kind');
+    }
     // Status emoji overlay — only on the avatar elements themselves; reactions / mention
     // chips also use [data-author] but we don't want a 🍕 dangling off them.
     if (!el.classList.contains('avatar')) return;
@@ -97,6 +104,14 @@
         // Ignore malformed frames.
       }
     });
+    // Backfill the window between STOMP CONNECT and this subscription registering on
+    // the broker. The server fires PresenceEventListener.onConnect (broadcasting
+    // alice=online) the moment it processes the CONNECT frame, which is before the
+    // client's onConnect callback runs and before this subscribe lands. Spring's
+    // in-memory broker has no replay, so the broadcast is lost to us. The REST
+    // endpoint queries the live PresenceTracker and gives us the current state —
+    // including ourselves, who's now definitely online by the time this fires.
+    refreshAll();
   }
 
   function onChange(cb) {

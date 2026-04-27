@@ -48,4 +48,6 @@ public interface ChannelMemberRepository extends JpaRepository<ChannelMember, UU
     List<Channel> findChannelsForUser(User user);
 
     boolean existsByChannelAndUser(Channel channel, User user);
+
+    long countByChannel(Channel channel);
 }

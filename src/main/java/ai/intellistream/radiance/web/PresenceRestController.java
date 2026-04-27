@@ -16,14 +16,17 @@
 
 package ai.intellistream.radiance.web;
 
+import ai.intellistream.radiance.domain.PresenceKind;
 import ai.intellistream.radiance.security.CurrentUser;
 import ai.intellistream.radiance.service.PresenceService;
 import ai.intellistream.radiance.web.dto.PresenceDto;
+import ai.intellistream.radiance.web.dto.SetPresenceKindRequest;
 import ai.intellistream.radiance.web.dto.SetStatusRequest;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -78,6 +81,28 @@ public class PresenceRestController {
     public PresenceDto clearStatus(Principal principal) {
         var me = currentUser.resolve(principal);
         var dto = presenceService.clearStatus(me);
+        broker.convertAndSend("/topic/presence", dto);
+        return dto;
+    }
+
+    /**
+     * Set the manual presence override (AWAY / DND / OFFLINE). Pass {@code ACTIVE}
+     * to clear back to the auto-derived state — equivalent to {@code DELETE /kind}.
+     * Broadcasts the new effective DTO so other clients update.
+     */
+    @PutMapping("/kind")
+    public PresenceDto setKind(@RequestBody SetPresenceKindRequest body, Principal principal) {
+        var me = currentUser.resolve(principal);
+        var kind = body == null || body.kind() == null ? PresenceKind.ACTIVE : body.kind();
+        var dto = presenceService.setKind(me, kind);
+        broker.convertAndSend("/topic/presence", dto);
+        return dto;
+    }
+
+    @DeleteMapping("/kind")
+    public PresenceDto clearKind(Principal principal) {
+        var me = currentUser.resolve(principal);
+        var dto = presenceService.clearKind(me);
         broker.convertAndSend("/topic/presence", dto);
         return dto;
     }

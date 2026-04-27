@@ -34,23 +34,41 @@ App: http://localhost:8080 · Keycloak: http://localhost:8081 · Test users: `al
 
 ## Layout
 
+The tree below is a sketch — `service/` and `web/dto/` keep growing; treat the directory listing
+as authoritative and CLAUDE.md as a starting orientation.
+
 ```
 src/main/java/ai/intellistream/radiance/
 ├── ChatApplication.java
-├── config/        SecurityConfig (two filter chains), WebSocketConfig
-├── domain/        JPA entities (User, Channel, ChannelMember, Message, ChannelType, ChannelRole)
-├── repository/    Spring Data JPA repos
-├── service/       ChannelService, MessageService, SearchService, SidebarService,
-│                  MarkdownRenderer, UserService
-├── security/      CurrentUser (resolves OidcUser/Jwt → domain User), KeycloakRolesConverter
-└── web/           REST controllers, HomeController (Thymeleaf), ChatWebSocketController,
-                   ApiExceptionHandler, dto/
+├── attachments/   AttachmentBytes (per-user upload cap resolution)
+├── config/        SecurityConfig (two filter chains), WebSocketConfig,
+│                  StompAuthorizationConfig, MultipartConfig, VaultEnvironmentPostProcessor,
+│                  RegistrationAuthorizationRequestResolver
+├── domain/        JPA entities — User, Channel, Message, Conversation,
+│                  Attachment / ConversationAttachment, MessageReaction / ConversationReaction,
+│                  Poll / PollOption / PollVote, Reminder, MessageMention,
+│                  AppSettings, UserPresence, ChannelRead, ChannelType / ChannelRole
+├── repository/    Spring Data JPA repos (one per entity)
+├── search/        MessageIndexService (embedded Lucene), LuceneBootstrap, LuceneConfig
+├── service/       ChannelService, MessageService, ConversationService, SearchService,
+│                  SidebarService, MarkdownRenderer, UserService, AvatarService,
+│                  AttachmentService, ConversationAttachmentService, ReactionService,
+│                  ConversationReactionService, ReadStateService, MentionService,
+│                  PollService, PresenceService / PresenceTracker, AppSettingsService
+├── slash/         SlashCommandService + commands (PollCommand, RemindCommand, ReminderScheduler)
+├── security/      CurrentUser, KeycloakRolesConverter, RateLimiter,
+│                  RateLimitExceededException, UploadTooLargeException,
+│                  PublicBadRequestException, ResourceNotFoundException
+└── web/           REST + Thymeleaf controllers, ChatWebSocketController,
+                   ConversationWebSocketController, PresenceEventListener,
+                   ApiExceptionHandler, BrandingModelAdvice, UploadParts, dto/
 
 src/main/resources/
 ├── application.yml
-├── db/migration/V1__init.sql
-├── templates/landing.html, channels.html
-└── static/css/app.css, js/chat.js
+├── db/migration/V1__…V13__…sql           Flyway migrations (channels → DMs → attachments → reactions → ...)
+├── META-INF/spring.factories             registers VaultEnvironmentPostProcessor
+├── templates/                            landing, channels, conversation, profile, admin
+└── static/{css/app.css, js/, img/}       chat.js, conversation.js, profile.js + shared modules
 ```
 
 ## Spring Boot 4 module split — gotchas
@@ -65,7 +83,7 @@ Several autoconfigurations that lived inside `spring-boot-autoconfigure` in 3.x 
 ## Conventions worth knowing
 
 - **Two security filter chains.** `apiFilterChain` (order 1) handles `/api/**` + `/ws/**` with bearer JWT (stateless, CSRF off). `webFilterChain` (order 2) handles browser pages with oauth2Login (stateful, cookie-based CSRF). Don't merge them. The browser uses the *web* chain for page loads and the *API* chain for `/api/**` calls — those calls therefore need a Bearer token; the JS clients today rely on the OIDC session having seeded one. If you add a new programmatic API client, give it a JWT directly from Keycloak.
-- **Public-channel read posture is "anyone authenticated".** `ChannelService.requireMember` short-circuits for `PUBLIC` channels — any logged-in user can read messages, search, download attachments, and react in a public channel without joining it. Joining only matters for write actions (post / edit) and for sidebar grouping. Tighten in `ChannelService.requireMember` if the product calls for member-only reads.
+- **Two access levels on channels.** `ChannelService.requireMember(channel, user)` is the **read** check — it short-circuits for `PUBLIC` channels so any authenticated user can read messages, search, and download attachments. `ChannelService.requireWriteAccess(channel, user)` is the **write** check — it always requires actual membership, regardless of channel type. Posting, editing, replying, reacting, attaching, and inviting all go through `requireWriteAccess`. PRIVATE channels behave the same way under both methods. If you add a new write endpoint, call `requireWriteAccess`, not `requireMember`.
 - **Per-user rate limits.** `RateLimiter` is an in-memory sliding-window limiter scoped per (username, action). Today: 30 messages/minute, 60 typing pings/minute, 10 attachment uploads/minute. Replace with a distributed limiter (Bucket4j-with-Hazelcast or Redis) before going multi-instance.
 - **Security headers + CSP.** `SecurityConfig` sets a strict CSP (`script-src 'self'`, no inline JS), `X-Content-Type-Options: nosniff`, `frame-ancestors 'none'`, `Referrer-Policy: strict-origin-when-cross-origin`, and HSTS. The CSRF cookie carries `SameSite=Strict`; the JSESSIONID cookie too via `CookieSameSiteSupplier`. Don't reintroduce inline `<script>` blocks — extract to `static/js/` instead.
 - **STOMP SUBSCRIBE is authorised.** `StompAuthorizationConfig` rejects `SUBSCRIBE` frames whose destination is `/topic/channels/{id}` (or `/typing`) when the user isn't a member of that channel. Without this, a connected client could snoop on private channels.
@@ -81,11 +99,11 @@ Several autoconfigurations that lived inside `spring-boot-autoconfigure` in 3.x 
 
 ## Testing
 
-- **Unit tests** (`src/test/java/.../service/`): pure JUnit 5 + Mockito. No Spring context. Cover slug rules, markdown rendering, search input validation.
-- **Integration test** (`ChannelFlowIT`): `@SpringBootTest(classes = IntegrationTestApplication.class)` against a Testcontainers Postgres. **`IntegrationTestApplication` deliberately excludes** `SecurityAutoConfiguration`, `ServletWebSecurityAutoConfiguration`, `OAuth2ClientAutoConfiguration`, `OAuth2ClientWebSecurityAutoConfiguration`, `OAuth2ResourceServerAutoConfiguration`, and only scans `service` + `repository`, so the test doesn't need a live Keycloak. Don't widen the scan in this class.
+- **Unit tests** (`src/test/java/.../service/`, `.../security/`): pure JUnit 5 + Mockito. No Spring context. Cover slug rules, markdown rendering, search input validation, role conversion.
+- **Integration tests** (`src/test/java/.../integration/*IT.java`): each feature area has a sibling IT (≈24 of them — `ChannelFlowIT`, `SearchFlowIT`, `MentionInboxIT`, `PresenceFlowIT`, etc.). They `@SpringBootTest(classes = IntegrationTestApplication.class)` against a Testcontainers Postgres. **`IntegrationTestApplication` deliberately excludes** `SecurityAutoConfiguration`, `ServletWebSecurityAutoConfiguration`, `OAuth2ClientAutoConfiguration`, `OAuth2ClientWebSecurityAutoConfiguration`, `OAuth2ResourceServerAutoConfiguration`, and only scans `service` + `repository` + `search`, so tests don't need a live Keycloak. Don't widen the scan in this class.
 - **No H2.** Tests must use the real Postgres via Testcontainers; H2 won't accept the production schema. The Lucene index in tests is wired via a `@Bean MessageIndexService` in `IntegrationTestApplication` that points at a fresh `Files.createTempDirectory(...)` per Spring context.
 - **Testcontainers + Podman.** Before running `./gradlew test`, expose the Podman socket: `systemctl --user enable --now podman.socket`, then `export DOCKER_HOST=unix:///run/user/$UID/podman/podman.sock`. If Ryuk misbehaves, fall back to `TESTCONTAINERS_RYUK_DISABLED=true`.
-- When adding a feature, default to: a unit test for any pure-logic branch + an addition to `ChannelFlowIT` (or a sibling IT) for anything DB-shaped.
+- When adding a feature, default to: a unit test for any pure-logic branch + a new IT under `integration/` (or an addition to a sibling IT) for anything DB-shaped.
 
 ## When you're tempted to…
 
@@ -101,5 +119,5 @@ Several autoconfigurations that lived inside `spring-boot-autoconfigure` in 3.x 
 - Permission UI for promoting/demoting admins (the service supports it; no controller wired yet).
 - E2E test with a real Keycloak (Testcontainers Keycloak module).
 - OWASP `dependency-check` Gradle plugin for CVE scanning — opt in when you add the build-side dep policy.
-- MIME sniffing on upload uses `URLConnection.guessContentTypeFromStream` which only knows ~10 magic-byte families; swap in Apache Tika if you need broader coverage.
+- MIME sniffing on upload goes through Apache Tika (`AttachmentBytes.sniffContentType`). Filename hints are passed so Tika can disambiguate ZIP-based formats (docx vs xlsx vs odt). The previous `URLConnection.guessContentTypeFromStream` only knew ~10 families and mis-typed common formats.
 - Distributed rate limiting (current `RateLimiter` is per-process).

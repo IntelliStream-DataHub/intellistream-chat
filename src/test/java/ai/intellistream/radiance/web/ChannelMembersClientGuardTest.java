@@ -42,7 +42,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ChannelMembersClientGuardTest {
 
     private static String chatJs() throws Exception {
-        return Files.readString(Path.of("src/main/resources/static/js/chat.js"));
+        // chat.js was modularized into static/js/chat/{index,shared,chrome}.js. The members
+        // panel block we're guarding still lives in index.js (it hasn't been carved out yet).
+        return Files.readString(Path.of("src/main/resources/static/js/chat/index.js"));
     }
 
     @Test

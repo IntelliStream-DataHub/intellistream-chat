@@ -67,12 +67,18 @@ public class ConversationService {
             throw new IllegalArgumentException("Cannot start a direct conversation with yourself");
         }
         var key = directKey(a, b);
-        return conversations.findByDmKey(key).orElseGet(() -> {
+        var existing = conversations.findByDmKey(key);
+        if (existing.isPresent()) return existing.get();
+        try {
             var conv = conversations.save(new Conversation(ConversationType.DIRECT, null, key, a));
             members.save(new ConversationMember(conv, a));
             members.save(new ConversationMember(conv, b));
             return conv;
-        });
+        } catch (org.springframework.dao.DataIntegrityViolationException race) {
+            // Both peers opened the DM at once; the unique constraint on dm_key rejected
+            // one. The winner's row is in the DB now — return it and let this caller share.
+            return conversations.findByDmKey(key).orElseThrow(() -> race);
+        }
     }
 
     @Transactional
@@ -120,7 +126,7 @@ public class ConversationService {
     @Transactional
     public ConversationMessage requireMessageById(UUID id) {
         return messages.findByIdWithAuthor(id)
-                .orElseThrow(() -> new IllegalArgumentException("Message not found: " + id));
+                .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Message not found: " + id));
     }
 
     /** Edit own message body. Author-only; admins do not edit other users' DMs. */
@@ -176,7 +182,7 @@ public class ConversationService {
     @Transactional(readOnly = true)
     public Conversation requireById(UUID id) {
         return conversations.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("Conversation not found: " + id));
+                .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Conversation not found: " + id));
     }
 
     @Transactional(readOnly = true)

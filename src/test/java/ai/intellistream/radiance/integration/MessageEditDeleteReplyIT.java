@@ -205,13 +205,17 @@ class MessageEditDeleteReplyIT {
         em.flush();
 
         var path = attachments.resolve(attachment);
+        var attachmentId = attachment.getId();
+        var messageId = attachment.getMessage().getId();
         assertThat(Files.exists(path)).isTrue();
 
-        messages.delete(attachment.getMessage().getId(), alice);
-        em.flush();
+        // delete() defers file deletion to afterCommit so a rolled-back DB delete
+        // never strands the file. Tx.commit() flushes the test tx so the hook fires.
+        messages.delete(messageId, alice);
+        Tx.commit();
 
         assertThat(Files.exists(path)).isFalse();
-        assertThat(attachmentRepo.findById(attachment.getId())).isEmpty();
+        assertThat(attachmentRepo.findById(attachmentId)).isEmpty();
     }
 
     // ---------- Thread reply ----------

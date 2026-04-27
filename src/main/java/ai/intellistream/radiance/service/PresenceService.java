@@ -16,6 +16,7 @@
 
 package ai.intellistream.radiance.service;
 
+import ai.intellistream.radiance.domain.PresenceKind;
 import ai.intellistream.radiance.domain.User;
 import ai.intellistream.radiance.domain.UserPresence;
 import ai.intellistream.radiance.repository.UserPresenceRepository;
@@ -77,13 +78,34 @@ public class PresenceService {
 
     @Transactional
     public PresenceDto clearStatus(User user) {
-        repo.findById(user.getId()).ifPresent(row -> {
+        var row = repo.findById(user.getId()).orElse(null);
+        if (row != null) {
             row.clearStatus();
-            repo.save(row);
-        });
-        return tracker.isOnline(user.getUsername())
-                ? PresenceDto.online(user.getUsername())
-                : PresenceDto.offline(user.getUsername());
+            row = repo.save(row);
+        }
+        // Custom-status emoji is gone but the manual KIND override (Away/DND/Offline)
+        // stays — those are independent. Recompute the effective DTO so a user who's
+        // marked themselves Away keeps the yellow dot after clearing their lunch emoji.
+        return toDto(user.getUsername(), row, tracker.isOnline(user.getUsername()), Instant.now());
+    }
+
+    /**
+     * Apply a manual presence override. Passing {@link PresenceKind#ACTIVE} (or null)
+     * clears the override, taking the user back to the auto-derived state. The other
+     * three values are persisted to {@code user_presence.manual_status_kind}.
+     */
+    @Transactional
+    public PresenceDto setKind(User user, PresenceKind kind) {
+        var row = repo.findById(user.getId()).orElseGet(() -> new UserPresence(user));
+        row.setManualKind(kind);
+        var saved = repo.save(row);
+        return toDto(user.getUsername(), saved, tracker.isOnline(user.getUsername()), Instant.now());
+    }
+
+    /** Clear the manual override; equivalent to {@code setKind(user, ACTIVE)}. */
+    @Transactional
+    public PresenceDto clearKind(User user) {
+        return setKind(user, PresenceKind.ACTIVE);
     }
 
     /** Single-user lookup, used by the WS connect listener to attach status to the broadcast. */
@@ -123,11 +145,18 @@ public class PresenceService {
     }
 
     private static PresenceDto toDto(String username, UserPresence row, boolean online, Instant now) {
+        var manual = row == null ? null : row.getManualKind();
+        // Effective kind: manual override beats auto state. ACTIVE is reserved for the
+        // auto state (connected + no override); the override is one of AWAY/DND/OFFLINE.
+        var kind = manual != null ? manual
+                : online ? PresenceKind.ACTIVE : PresenceKind.OFFLINE;
+        // Backwards-compat boolean: only true when truly active (auto, no manual override).
+        var onlineFlag = kind == PresenceKind.ACTIVE;
         if (row == null || !row.hasActiveStatus(now)) {
-            return online ? PresenceDto.online(username) : PresenceDto.offline(username);
+            return new PresenceDto(username, onlineFlag, kind, null, null, null);
         }
-        return new PresenceDto(username, online, row.getStatusEmoji(), row.getStatusText(),
-                row.getStatusClearAt());
+        return new PresenceDto(username, onlineFlag, kind,
+                row.getStatusEmoji(), row.getStatusText(), row.getStatusClearAt());
     }
 
     private static String emptyToNull(String s) {

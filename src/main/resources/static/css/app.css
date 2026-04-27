@@ -857,7 +857,6 @@ button.icon-btn > .icon {
   flex-shrink: 0;
   user-select: none;
   position: relative;       /* anchor the optional <img class="avatar-image"> overlay */
-  overflow: hidden;
 }
 .avatar[data-color="0"] { background: var(--av1); }
 .avatar[data-color="1"] { background: var(--av2); }
@@ -869,13 +868,16 @@ button.icon-btn > .icon {
 .avatar[data-color="7"] { background: var(--av8); }
 
 /* ---------- Presence indicator (online dot + status emoji) ----------
-   Both badges sit in the avatar's bottom-right corner; the status emoji wins when set.
-   Position uses bottom/right: 0 so the existing overflow:hidden on .avatar doesn't clip them. */
+   The dot pokes out the bottom-right corner of the avatar (Slack/Discord style).
+   The .avatar wrapper has no overflow clipping; the image inside self-clips via
+   border-radius: inherit (see the .avatar-image rule below). The status-emoji
+   badge sits flush at bottom:0 right:0 — its own opaque background covers the
+   underlying avatar corner. */
 .avatar::after {
   content: '';
   position: absolute;
-  bottom: 0;
-  right: 0;
+  bottom: -2px;
+  right: -2px;
   width: 10px;
   height: 10px;
   border-radius: 50%;
@@ -884,9 +886,15 @@ button.icon-btn > .icon {
 }
 .avatar.is-online::after {
   background: #2dba56;
-  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.15);
   display: block;
 }
+/* Manual override colors. data-presence-kind is set by presence.js from PresenceDto.kind.
+   ACTIVE is the same as is-online (green). AWAY = yellow, DND = red, OFFLINE = gray.
+   Each variant renders the dot via display:block so it shows even without is-online
+   (a user manually OFFLINE while STOMP-connected still shows the gray dot). */
+.avatar[data-presence-kind="AWAY"]::after    { background: #f0b400; display: block; }
+.avatar[data-presence-kind="DND"]::after     { background: #d94f4f; display: block; }
+.avatar[data-presence-kind="OFFLINE"]::after { background: #888;    display: block; }
 .avatar-status-emoji {
   position: absolute;
   bottom: 0;
@@ -911,6 +919,50 @@ button.icon-btn > .icon {
 .avatar.avatar-large::after { width: 14px; height: 14px; }
 .avatar.avatar-large .avatar-status-emoji { width: 22px; height: 22px; font-size: 14px; }
 
+/* ---------- Presence kind menu (topbar avatar dropdown) ----------
+   Slack-style four-item picker: Active / Away / DND / Offline. Anchored below
+   the .me .avatar via JS-set inline position. Each item renders its own colored
+   dot using the same data-presence-kind variants the avatars use. */
+.presence-menu {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+  padding: 4px;
+  z-index: 1000;
+  min-width: 220px;
+}
+.presence-menu-item {
+  display: grid;
+  grid-template-columns: 12px 1fr;
+  grid-template-rows: auto auto;
+  column-gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 6px 8px;
+  background: none;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 4px;
+  color: inherit;
+  font: inherit;
+}
+.presence-menu-item:hover { background: var(--bg); }
+.presence-menu-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  grid-row: 1 / span 2;
+  /* Each dot's colour comes from its own data-presence-kind on this element. */
+}
+.presence-menu-dot[data-presence-kind="ACTIVE"]  { background: #2dba56; }
+.presence-menu-dot[data-presence-kind="AWAY"]    { background: #f0b400; }
+.presence-menu-dot[data-presence-kind="DND"]     { background: #d94f4f; }
+.presence-menu-dot[data-presence-kind="OFFLINE"] { background: #888; }
+.presence-menu-label { font-weight: 500; }
+.presence-menu-hint { font-size: 0.75em; color: var(--muted); grid-column: 2; }
+
 
 /* When the user has uploaded a profile picture the renderer adds an <img.avatar-image>
    inside the .avatar wrapper. The image covers the wrapper completely and obscures
@@ -922,8 +974,9 @@ button.icon-btn > .icon {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  display: block;
+  /* Self-clip to the avatar's rounded corners — the parent has no overflow clipping. */
   border-radius: inherit;
+  display: block;
   z-index: 1;
 }
 .avatar .avatar-letter {
@@ -1120,7 +1173,9 @@ button.icon-btn > .icon {
 .message-body img { max-width: 100%; border-radius: 4px; }
 .message-body a { color: var(--accent); }
 
-/* Responsive 16:9 wrapper for YouTube / Vimeo embeds inserted by MarkdownRenderer. */
+/* Responsive wrapper for YouTube / Vimeo embeds inserted by MarkdownRenderer.
+   Default is the landscape 4:1 compact strip used for /watch, /embed, youtu.be, and Vimeo.
+   Shorts ("data-orientation=vertical") flip to a 9:16 phone-shaped frame instead. */
 .video-embed-wrapper {
   position: relative;
   padding-bottom: 25%;
@@ -1130,6 +1185,15 @@ button.icon-btn > .icon {
   margin: 0.5rem 0;
   border-radius: 6px;
   background: #000;
+}
+.video-embed-wrapper[data-orientation="vertical"] {
+  /* Shorts are 9:16. aspect-ratio replaces the padding-bottom hack and is well-supported
+     by every browser shipped since 2021. max-width pinned narrow so the embed sits
+     phone-sized in the feed instead of dominating the column. */
+  padding-bottom: 0;
+  height: auto;
+  aspect-ratio: 9 / 16;
+  max-width: 280px;
 }
 .video-embed-wrapper iframe.video-embed {
   position: absolute;

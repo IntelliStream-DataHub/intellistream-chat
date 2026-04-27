@@ -98,9 +98,8 @@ public class AdminController {
                     row.put("id", c.getId());
                     row.put("name", c.getName());
                     row.put("type", c.getType().name());
-                    row.put("memberCount", members.findAllByChannelOrderByJoinedAtAsc(c).size());
-                    row.put("messageCount", messages.findByChannelAndParentIsNullOrderByCreatedAtDesc(
-                            c, org.springframework.data.domain.PageRequest.of(0, Integer.MAX_VALUE)).size());
+                    row.put("memberCount", members.countByChannel(c));
+                    row.put("messageCount", messages.countByChannelAndParentIsNull(c));
                     row.put("createdAt", c.getCreatedAt());
                     return row;
                 })

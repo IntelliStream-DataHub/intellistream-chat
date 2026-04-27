@@ -78,7 +78,9 @@ export RADIANCE_DB_PASSWORD=$(openssl rand -base64 32)
 export KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/radiance
 export KEYCLOAK_CLIENT_SECRET=$(openssl rand -base64 32)   # rotate from the dev default
 export SERVER_ADDRESS=127.0.0.1                            # bind localhost only; nginx fronts it
-export RADIANCE_SECURITY_COOKIE_SECURE=true                    # mark JSESSIONID + CSRF cookies Secure
+# Cookie Secure flag auto-detects from X-Forwarded-Proto via forward-headers-strategy:
+# framework (already set in application.yml), so no explicit RADIANCE_SECURITY_COOKIE_SECURE
+# is needed when nginx forwards X-Forwarded-Proto: https.
 
 # 4. Run behind a TLS-terminating reverse proxy (see nginx_example.conf in this repo):
 java -jar build/libs/chat-*.jar
@@ -206,7 +208,10 @@ RADIANCE_DB_PASSWORD=...
 KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/radiance
 KEYCLOAK_CLIENT_SECRET=...
 SERVER_ADDRESS=127.0.0.1
-RADIANCE_SECURITY_COOKIE_SECURE=true
+# RADIANCE_SECURITY_COOKIE_SECURE is no longer needed — cookies auto-mark Secure based on
+# request.isSecure() (which RemoteIpValve sets from X-Forwarded-Proto). Override at the
+# Servlet API level (server.servlet.session.cookie.secure=true) only if you want to force
+# Secure even on non-forwarded requests — e.g. behind a proxy that doesn't set the header.
 ```
 
 Bring it up:
@@ -639,7 +644,7 @@ Every override is plain Spring Boot env-var substitution against `application.ym
 | `RADIANCE_ATTACHMENTS_DIR` | `./data/attachments` | Where uploaded message attachments are stored |
 | `RADIANCE_AVATARS_DIR` | `./data/avatars` | Where uploaded avatars are stored |
 | `RADIANCE_BRANDING_DIR` | `./data/branding` | Where the admin-uploaded logo is stored |
-| `RADIANCE_SECURITY_COOKIE_SECURE` | `false` | Mark JSESSIONID + CSRF cookies `Secure`. Set to `true` when serving over HTTPS. |
+| _(no env var)_ | _auto_ | The JSESSIONID and CSRF cookies' `Secure` flag is auto-detected from `request.isSecure()` per request. Behind a TLS-terminating proxy with `X-Forwarded-Proto: https`, `forward-headers-strategy: framework` flips request.isSecure() to true and the cookies are marked Secure automatically. To force Secure for every request (e.g. behind a proxy that strips the header), set `server.servlet.session.cookie.secure=true`. |
 
 The Lucene index lives at `./data/lucene` (override with `chat.search.lucene-dir`). Back up the whole `./data/` directory plus the Postgres database and you have everything: messages, attachments, avatars, branding, and the search index.
 
@@ -813,7 +818,6 @@ src/main/resources/
 - E2E test with a real Keycloak (Testcontainers Keycloak module).
 - Distributed rate limiting (`RateLimiter` is per-process; replace with Bucket4j-with-Hazelcast or Redis before going multi-instance).
 - OWASP `dependency-check` Gradle plugin for CVE scanning.
-- Broader MIME sniffing on upload — currently `URLConnection.guessContentTypeFromStream`; swap in Apache Tika for wider coverage.
 
 ## License
 

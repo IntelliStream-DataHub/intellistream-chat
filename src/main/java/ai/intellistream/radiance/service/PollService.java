@@ -95,7 +95,7 @@ public class PollService {
     @Transactional
     public PollDto castVote(UUID pollId, UUID optionId, User voter) {
         var poll = pollRepo.findByIdWithOptions(pollId)
-                .orElseThrow(() -> new IllegalArgumentException("Poll not found: " + pollId));
+                .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Poll not found: " + pollId));
         var option = poll.getOptions().stream()
                 .filter(o -> o.getId().equals(optionId))
                 .findFirst()
@@ -118,7 +118,7 @@ public class PollService {
     @Transactional
     public PollDto removeVote(UUID pollId, User voter) {
         var poll = pollRepo.findByIdWithOptions(pollId)
-                .orElseThrow(() -> new IllegalArgumentException("Poll not found: " + pollId));
+                .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Poll not found: " + pollId));
         voteRepo.deleteByPollAndVoter(poll, voter);
         return toDto(poll, voter);
     }

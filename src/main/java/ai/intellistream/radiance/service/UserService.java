@@ -118,19 +118,26 @@ public class UserService {
 
     @Transactional
     public User upsert(String subject, String username, String email, String displayName, boolean admin) {
-        return userRepository.findBySubject(subject)
-                .map(existing -> {
-                    existing.setUsername(username);
-                    existing.setEmail(email);
-                    existing.setDisplayName(displayName);
-                    existing.setAdmin(admin);
-                    return existing;
-                })
-                .orElseGet(() -> {
-                    var fresh = new User(subject, username, email, displayName);
-                    fresh.setAdmin(admin);
-                    return userRepository.save(fresh);
-                });
+        var existing = userRepository.findBySubject(subject);
+        if (existing.isPresent()) {
+            var u = existing.get();
+            u.setUsername(username);
+            u.setEmail(email);
+            u.setDisplayName(displayName);
+            u.setAdmin(admin);
+            return u;
+        }
+        try {
+            var fresh = new User(subject, username, email, displayName);
+            fresh.setAdmin(admin);
+            return userRepository.saveAndFlush(fresh);
+        } catch (org.springframework.dao.DataIntegrityViolationException race) {
+            // Two concurrent first-time logins for the same subject: both saw the row
+            // missing, both inserted, the unique constraint kicks one out. Re-read; the
+            // winner's row is now in the DB and that's the canonical user we should use.
+            return userRepository.findBySubject(subject)
+                    .orElseThrow(() -> race);
+        }
     }
 
     @Transactional(readOnly = true)
@@ -192,9 +199,4 @@ public class UserService {
         return null;
     }
 
-    /** Convenience for tests / fixtures. */
-    public static String pickUsername(Map<String, Object> claims) {
-        var v = (String) claims.getOrDefault("preferred_username", claims.get("sub"));
-        return v == null ? "anonymous" : v;
-    }
 }

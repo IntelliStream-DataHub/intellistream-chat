@@ -129,7 +129,7 @@ class HovercardAndDmFlowIT {
         assertThat(dto).isNotNull();
         assertThat(dto.username()).isEqualTo(alice.getUsername());
         assertThat(dto.displayName()).isEqualTo("Alice Anderson");
-        assertThat(dto.email()).isEqualTo(alice.getEmail());
+        // Email is intentionally not exposed via this endpoint — see UserProfileDto javadoc.
         assertThat(dto.createdAt()).isNotNull();
         assertThat(dto.hasAvatar()).isFalse();
         assertThat(dto.avatarVersion()).isZero();

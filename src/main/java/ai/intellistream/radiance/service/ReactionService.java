@@ -42,7 +42,7 @@ public class ReactionService {
     @Transactional
     public Message addReaction(UUID messageId, User actor, String emoji) {
         var message = requireMessage(messageId);
-        channelService.requireMember(message.getChannel(), actor);
+        channelService.requireWriteAccess(message.getChannel(), actor);
         // Authors can't react to their own messages — matches Slack/Mattermost.
         if (message.getAuthor() != null && actor.getId().equals(message.getAuthor().getId())) {
             throw new AccessDeniedException("You cannot react to your own message.");
@@ -56,7 +56,7 @@ public class ReactionService {
     @Transactional
     public Message removeReaction(UUID messageId, User actor, String emoji) {
         var message = requireMessage(messageId);
-        channelService.requireMember(message.getChannel(), actor);
+        channelService.requireWriteAccess(message.getChannel(), actor);
         var trimmed = sanitize(emoji);
         reactionRepository.deleteByMessageAndUserAndEmoji(message, actor, trimmed);
         return message;
@@ -104,8 +104,12 @@ public class ReactionService {
     }
 
     private Message requireMessage(UUID messageId) {
-        return messageRepository.findById(messageId)
-                .orElseThrow(() -> new IllegalArgumentException("Message not found: " + messageId));
+        // Join-fetch author + channel so the controller can hand the returned Message to
+        // MessageDto.from(...) after this @Transactional closes — open-in-view is off, so
+        // a bare findById leaves both as lazy proxies that LazyInitialize when the DTO is
+        // built, breaking the broadcast.
+        return messageRepository.findByIdWithChannelAndAuthor(messageId)
+                .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Message not found: " + messageId));
     }
 
     private static String sanitize(String emoji) {

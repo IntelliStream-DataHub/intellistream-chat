@@ -81,12 +81,20 @@ public class MarkdownRenderer {
         return doc.body().html();
     }
 
+    // Subdomain is optional and may be www / m (mobile share URLs) / music — all cover the
+    // same video catalogue. The video id captured by group(1) is fed into the
+    // youtube-nocookie embed URL regardless of which entry path the user pasted.
+    private static final String YT_HOST = "(?:www\\.|m\\.|music\\.)?youtube\\.com";
     private static final Pattern YT_WATCH = Pattern.compile(
-            "^https?://(?:www\\.)?youtube\\.com/watch\\?(?:[^#]*&)?v=([A-Za-z0-9_-]{6,20})");
-    private static final Pattern YT_SHORT = Pattern.compile(
+            "^https?://" + YT_HOST + "/watch\\?(?:[^#]*&)?v=([A-Za-z0-9_-]{6,20})");
+    /** Short-domain links — youtu.be/ID — usually the result of the YouTube share button. */
+    private static final Pattern YT_BE = Pattern.compile(
             "^https?://(?:www\\.)?youtu\\.be/([A-Za-z0-9_-]{6,20})");
     private static final Pattern YT_EMBED = Pattern.compile(
-            "^https?://(?:www\\.)?youtube\\.com/embed/([A-Za-z0-9_-]{6,20})");
+            "^https?://" + YT_HOST + "/embed/([A-Za-z0-9_-]{6,20})");
+    /** Vertical-format Shorts (different URL path from /watch but the same embed endpoint). */
+    private static final Pattern YT_SHORTS = Pattern.compile(
+            "^https?://" + YT_HOST + "/shorts/([A-Za-z0-9_-]{6,20})");
     private static final Pattern VIMEO = Pattern.compile(
             "^https?://(?:www\\.)?vimeo\\.com/(?:video/)?(\\d{6,12})");
 
@@ -105,14 +113,24 @@ public class MarkdownRenderer {
             if (next != null && next.hasClass("video-embed-wrapper")) continue;
 
             var href = a.attr("href");
-            var ytId = matchFirst(href, YT_WATCH, YT_SHORT, YT_EMBED);
+            // Shorts get their own branch so the wrapper can carry data-orientation="vertical",
+            // which the stylesheet uses to render a 9:16 aspect-ratio frame instead of the
+            // landscape default. Regular /watch, /embed, and youtu.be URLs all funnel through
+            // matchFirst below and stay landscape.
+            var shortsId = matchFirst(href, YT_SHORTS);
+            if (shortsId != null) {
+                a.after(buildEmbed("https://www.youtube-nocookie.com/embed/" + shortsId,
+                        "YouTube Short", "vertical"));
+                continue;
+            }
+            var ytId = matchFirst(href, YT_WATCH, YT_BE, YT_EMBED);
             if (ytId != null) {
-                a.after(buildEmbed("https://www.youtube-nocookie.com/embed/" + ytId, "YouTube video"));
+                a.after(buildEmbed("https://www.youtube-nocookie.com/embed/" + ytId, "YouTube video", null));
                 continue;
             }
             var vmId = matchFirst(href, VIMEO);
             if (vmId != null) {
-                a.after(buildEmbed("https://player.vimeo.com/video/" + vmId, "Vimeo video"));
+                a.after(buildEmbed("https://player.vimeo.com/video/" + vmId, "Vimeo video", null));
             }
         }
         return doc.body().html();
@@ -127,9 +145,12 @@ public class MarkdownRenderer {
         return null;
     }
 
-    private static String buildEmbed(String src, String title) {
-        // src and title are constructed from a regex-matched id and a fixed string, so no untrusted content.
-        return "<div class=\"video-embed-wrapper\">"
+    private static String buildEmbed(String src, String title, String orientation) {
+        // src and title are constructed from a regex-matched id and a fixed string, so no
+        // untrusted content. orientation is one of {null, "vertical"} — the stylesheet
+        // selects on data-orientation="vertical" for the 9:16 Shorts frame.
+        var dataAttr = orientation == null ? "" : " data-orientation=\"" + orientation + "\"";
+        return "<div class=\"video-embed-wrapper\"" + dataAttr + ">"
                 + "<iframe class=\"video-embed\" src=\"" + src + "\" "
                 + "title=\"" + title + "\" loading=\"lazy\" allowfullscreen "
                 + "allow=\"accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture\""

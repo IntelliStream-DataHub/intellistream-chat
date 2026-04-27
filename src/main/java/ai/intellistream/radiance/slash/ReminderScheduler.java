@@ -23,9 +23,12 @@ import ai.intellistream.radiance.web.dto.MessageEvent;
 import ai.intellistream.radiance.service.MarkdownRenderer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -53,14 +56,25 @@ public class ReminderScheduler {
     private final MarkdownRenderer markdown;
     private final SimpMessagingTemplate broker;
 
+    /**
+     * Self-reference resolved through the Spring proxy so {@code REQUIRES_NEW} propagation
+     * actually fires on {@code fireOne(...)} / {@code markFiredInNewTx(...)}. A direct
+     * {@code this.fireOne(...)} call bypasses the proxy and runs in whatever tx the caller
+     * is in (here: none, since {@link #runOnce} is no longer transactional). {@code @Lazy}
+     * breaks the constructor cycle.
+     */
+    private final ReminderScheduler self;
+
     public ReminderScheduler(ReminderRepository repo,
                              MessageService messageService,
                              MarkdownRenderer markdown,
-                             SimpMessagingTemplate broker) {
+                             SimpMessagingTemplate broker,
+                             @Lazy @Autowired ReminderScheduler self) {
         this.repo = repo;
         this.messageService = messageService;
         this.markdown = markdown;
         this.broker = broker;
+        this.self = self;
     }
 
     @Scheduled(fixedDelayString = "${radiance.reminders.poll-ms:30000}")
@@ -68,34 +82,61 @@ public class ReminderScheduler {
         return runOnce(Instant.now());
     }
 
-    /** Test-visible single-pass trigger so specs don't have to wait on the scheduler thread. */
-    @Transactional
+    /**
+     * Test-visible single-pass trigger so specs don't have to wait on the scheduler thread.
+     * Intentionally NOT {@code @Transactional}: each reminder runs in its own
+     * {@code REQUIRES_NEW} transaction via {@link #fireOne}. Sharing one tx across the
+     * whole batch lets a single failure (e.g. constraint violation, slow Hibernate flush)
+     * mark the EntityManager rollback-only and break every subsequent iteration's
+     * {@code repo.save(r)} with {@code TransactionRequiredException} /
+     * {@code UnexpectedRollbackException}.
+     */
     public int runOnce(Instant now) {
         var due = repo.findDue(now);
         if (due.isEmpty()) return 0;
         int fired = 0;
         for (var r : due) {
-            try {
-                var saved = messageService.post(r.getChannel(), r.getCreator(), r.getBody());
-                r.markFired(now);
-                repo.save(r);
-                // Same shape as a normal channel post — clients render it via the existing
-                // /topic/channels/{id} subscription. Mentions list is left empty here because
-                // the body's @-mention (if any) is parsed by the renderer; the WS-side caller
-                // refresh path handles the badge bump.
-                var dto = MessageDto.from(saved, markdown.render(saved.getBodyMarkdown()),
-                        List.of(), List.of(), 0L, List.of());
-                broker.convertAndSend("/topic/channels/" + r.getChannel().getId(),
-                        MessageEvent.created(dto));
-                fired++;
-            } catch (RuntimeException e) {
-                // One bad reminder shouldn't stop the rest of the batch; mark it fired so we
-                // don't retry forever and log the underlying issue for the operator.
-                log.warn("Reminder {} failed to fire and will be skipped", r.getId(), e);
-                r.markFired(now);
-                repo.save(r);
-            }
+            if (self.fireOne(r.getId(), now)) fired++;
         }
         return fired;
+    }
+
+    /**
+     * Fire a single reminder in a fresh transaction. Returns {@code true} when the message
+     * was posted; on failure, marks the reminder fired anyway (in another fresh tx) so a
+     * single bad row doesn't block the schedule forever.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public boolean fireOne(java.util.UUID reminderId, Instant now) {
+        var r = repo.findById(reminderId).orElse(null);
+        if (r == null || r.getFiredAt() != null) return false;
+        try {
+            var saved = messageService.post(r.getChannel(), r.getCreator(), r.getBody());
+            r.markFired(now);
+            repo.save(r);
+            // Same shape as a normal channel post — clients render it via the existing
+            // /topic/channels/{id} subscription. Mentions list is left empty here because
+            // the body's @-mention (if any) is parsed by the renderer; the WS-side caller
+            // refresh path handles the badge bump.
+            var dto = MessageDto.from(saved, markdown.render(saved.getBodyMarkdown()),
+                    List.of(), List.of(), 0L, List.of());
+            broker.convertAndSend("/topic/channels/" + r.getChannel().getId(),
+                    MessageEvent.created(dto));
+            return true;
+        } catch (RuntimeException e) {
+            log.warn("Reminder {} failed to fire and will be skipped", reminderId, e);
+            // The current tx is rollback-only after the failed post; flag the row in a
+            // separate tx so the next runOnce() doesn't pick it up again forever.
+            self.markFiredInNewTx(reminderId, now);
+            return false;
+        }
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void markFiredInNewTx(java.util.UUID reminderId, Instant now) {
+        repo.findById(reminderId).ifPresent(r -> {
+            r.markFired(now);
+            repo.save(r);
+        });
     }
 }

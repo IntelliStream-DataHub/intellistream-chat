@@ -72,8 +72,11 @@ public class PollRestController {
     public PollDto get(@PathVariable UUID pollId, Principal principal) {
         var me = currentUser.resolve(principal);
         requireMembership(pollId, me);
+        // findByIdWithOptions join-fetches message + channel; plain findById returns a poll
+        // whose message is lazy, and with open-in-view off the .getMessage() below would
+        // throw LazyInitializationException once the Spring-Data tx closes.
         return pollService.pollFor(
-                pollRepository.findById(pollId).orElseThrow().getMessage(), me);
+                pollRepository.findByIdWithOptions(pollId).orElseThrow().getMessage(), me);
     }
 
     @PostMapping("/{pollId}/vote")
@@ -113,7 +116,7 @@ public class PollRestController {
      */
     private UUID requireMembership(UUID pollId, ai.intellistream.radiance.domain.User me) {
         var poll = pollRepository.findByIdWithOptions(pollId)
-                .orElseThrow(() -> new IllegalArgumentException("Poll not found: " + pollId));
+                .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Poll not found: " + pollId));
         var channel = poll.getMessage().getChannel();
         channelService.requireMember(channel, me);
         return channel.getId();

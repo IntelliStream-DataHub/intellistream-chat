@@ -69,9 +69,9 @@ class ReactionFlowIT {
     void addingReactionShowsUpInGrouping() {
         var alice = newUser("alice");
         var bob = newUser("bob");
-        var msg = messages.post(
-                channels.create("r-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice),
-                alice, "hi");
+        var room = channels.create("r-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice);
+        channels.join(room, bob);
+        var msg = messages.post(room, alice, "hi");
         em.flush();
 
         reactions.addReaction(msg.getId(), bob, "👍");
@@ -89,9 +89,9 @@ class ReactionFlowIT {
     void duplicateReactionFromSameUserIsIdempotent() {
         var alice = newUser("alice");
         var bob = newUser("bob");
-        var msg = messages.post(
-                channels.create("r-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice),
-                alice, "hi");
+        var room = channels.create("r-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice);
+        channels.join(room, bob);
+        var msg = messages.post(room, alice, "hi");
         em.flush();
 
         reactions.addReaction(msg.getId(), bob, "👍");
@@ -136,9 +136,9 @@ class ReactionFlowIT {
     void removeReactionDeletesIt() {
         var alice = newUser("alice");
         var bob = newUser("bob");
-        var msg = messages.post(
-                channels.create("r-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice),
-                alice, "hi");
+        var room = channels.create("r-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice);
+        channels.join(room, bob);
+        var msg = messages.post(room, alice, "hi");
         em.flush();
 
         reactions.addReaction(msg.getId(), bob, "👍");
@@ -154,9 +154,9 @@ class ReactionFlowIT {
     void removingReactionThatDoesntExistIsNoop() {
         var alice = newUser("alice");
         var bob = newUser("bob");
-        var msg = messages.post(
-                channels.create("r-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice),
-                alice, "hi");
+        var room = channels.create("r-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice);
+        channels.join(room, bob);
+        var msg = messages.post(room, alice, "hi");
         em.flush();
 
         // Should not throw.
@@ -179,9 +179,9 @@ class ReactionFlowIT {
     void emojiValidation() {
         var alice = newUser("alice");
         var bob = newUser("bob");
-        var msg = messages.post(
-                channels.create("r-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice),
-                alice, "hi");
+        var room = channels.create("r-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice);
+        channels.join(room, bob);
+        var msg = messages.post(room, alice, "hi");
         em.flush();
 
         assertThatThrownBy(() -> reactions.addReaction(msg.getId(), bob, ""))
@@ -199,6 +199,7 @@ class ReactionFlowIT {
         var alice = newUser("alice");
         var bob = newUser("bob");
         var room = channels.create("r-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice);
+        channels.join(room, bob);
         var m1 = messages.post(room, alice, "one");
         var m2 = messages.post(room, alice, "two");
         em.flush();
@@ -217,9 +218,9 @@ class ReactionFlowIT {
     void deletingMessageRemovesReactions() {
         var alice = newUser("alice");
         var bob = newUser("bob");
-        var msg = messages.post(
-                channels.create("r-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice),
-                alice, "hi");
+        var room = channels.create("r-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice);
+        channels.join(room, bob);
+        var msg = messages.post(room, alice, "hi");
         reactions.addReaction(msg.getId(), bob, "👍");
         em.flush();
         var reactionId = reactionRepo.findByMessageOrderByCreatedAtAsc(msg).get(0).getId();

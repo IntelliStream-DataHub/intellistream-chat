@@ -16,26 +16,38 @@
 
 package ai.intellistream.radiance.web.dto;
 
+import ai.intellistream.radiance.domain.PresenceKind;
+
 import java.time.Instant;
 
 /**
  * Wire shape for both the REST batch endpoint and the {@code /topic/presence} WS broadcast.
- * {@code online} is the live-connection signal; {@code statusEmoji} / {@code statusText} are
- * the user's persisted custom status (already filtered for {@code statusClearAt} expiry by the
- * service before sending — clients render whatever they receive).
+ *
+ * <p>{@code kind} is the effective presence state — Slack/Mattermost-style:
+ * {@code ACTIVE} (auto: connected and no override), {@code AWAY} / {@code DND} /
+ * {@code OFFLINE} (user-chosen overrides that beat the auto state).
+ *
+ * <p>{@code online} is kept for backwards-compatibility and is true exactly when
+ * {@code kind == ACTIVE} — old clients that only know the boolean still work,
+ * new clients should switch on {@code kind} for the proper four-way dot.
+ *
+ * <p>{@code statusEmoji} / {@code statusText} are the user's persisted custom
+ * status (lunch break etc.) — independent of {@code kind} and already filtered
+ * for {@code statusClearAt} expiry by the service before sending.
  */
 public record PresenceDto(
         String username,
         boolean online,
+        PresenceKind kind,
         String statusEmoji,
         String statusText,
         Instant statusClearAt
 ) {
     public static PresenceDto online(String username) {
-        return new PresenceDto(username, true, null, null, null);
+        return new PresenceDto(username, true, PresenceKind.ACTIVE, null, null, null);
     }
 
     public static PresenceDto offline(String username) {
-        return new PresenceDto(username, false, null, null, null);
+        return new PresenceDto(username, false, PresenceKind.OFFLINE, null, null, null);
     }
 }
