@@ -16,6 +16,7 @@
 
 package ai.intellistream.radiance.security;
 
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
@@ -32,9 +33,17 @@ import java.util.concurrent.ConcurrentMap;
  * <p>Each call to {@link #tryAcquire(String, String, int, Duration)} appends a timestamp to a
  * per-key/per-action deque and trims entries older than the window. If the trimmed deque is
  * shorter than {@code limit}, the call succeeds.
+ *
+ * <p>A scheduled sweep prunes deques that are empty after their last trim, so the {@code windows}
+ * map doesn't grow unboundedly across user churn (deleted accounts, transient federation IDs,
+ * etc.) over a long-lived process.
  */
 @Component
 public class RateLimiter {
+
+    /** Largest sane sliding window we use (10 min for slow actions like uploads). Anything older
+     *  than this for any bucket is safe to drop. */
+    private static final long PRUNE_HORIZON_NANOS = Duration.ofMinutes(10).toNanos();
 
     private final ConcurrentMap<String, Deque<Long>> windows = new ConcurrentHashMap<>();
 
@@ -57,5 +66,20 @@ public class RateLimiter {
             deque.addLast(now);
             return true;
         }
+    }
+
+    /** Drop buckets whose most-recent entry is older than the prune horizon. Cheap; runs every 5 min. */
+    @Scheduled(fixedDelay = 5 * 60 * 1000L)
+    void prune() {
+        var floor = System.nanoTime() - PRUNE_HORIZON_NANOS;
+        windows.entrySet().removeIf(entry -> {
+            var deque = entry.getValue();
+            synchronized (deque) {
+                while (!deque.isEmpty() && deque.peekFirst() < floor) {
+                    deque.pollFirst();
+                }
+                return deque.isEmpty();
+            }
+        });
     }
 }

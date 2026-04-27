@@ -26,6 +26,8 @@ import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.io.BufferedInputStream;
 import java.io.IOException;
@@ -112,10 +114,27 @@ public class ConversationAttachmentService {
             throw e;
         }
 
+        // Orphan guard: rollback after the file is on disk would otherwise strand it.
+        deleteOnRollback(target);
+
         var savedMessage = conversations.post(conversation, uploader,
                 captionText.isEmpty() ? "(attachment)" : captionText);
         return repo.save(new ConversationAttachment(
                 savedMessage, safeName, resolvedType, bytesWritten, storageKey));
+    }
+
+    private static void deleteOnRollback(Path file) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCompletion(int status) {
+                    if (status == STATUS_ROLLED_BACK) {
+                        try { Files.deleteIfExists(file); }
+                        catch (IOException ignored) { /* orphan; cleanup later */ }
+                    }
+                }
+            });
+        }
     }
 
     /**

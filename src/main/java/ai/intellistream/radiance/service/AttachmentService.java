@@ -27,6 +27,8 @@ import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.io.BufferedInputStream;
 import java.io.IOException;
@@ -116,9 +118,29 @@ public class AttachmentService {
             throw e;
         }
 
+        // Orphan guard: if the surrounding tx rolls back AFTER the file is on disk
+        // (a constraint violation in the message/attachment save, or a controller-level
+        // exception that triggers rollback later), the file would otherwise be stranded
+        // forever. Wire a rollback-only cleanup hook before any further DB activity.
+        deleteOnRollback(target);
+
         var message = messageRepository.save(new Message(channel, uploader, captionText));
         return attachmentRepository.save(
                 new Attachment(message, safeName, resolvedType, bytesWritten, storageKey));
+    }
+
+    private static void deleteOnRollback(Path file) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCompletion(int status) {
+                    if (status == STATUS_ROLLED_BACK) {
+                        try { Files.deleteIfExists(file); }
+                        catch (IOException ignored) { /* orphan; cleanup later */ }
+                    }
+                }
+            });
+        }
     }
 
     @Transactional(readOnly = true)

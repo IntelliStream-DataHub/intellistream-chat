@@ -325,6 +325,11 @@ public class MessageService {
      * Index the message synchronously, with a compensating delete if the surrounding
      * transaction rolls back. Outside a transaction (no synchronization active) the index
      * write is immediate and there's nothing to compensate.
+     *
+     * <p>Note: a tx-aborted-after-index window does exist (concurrent reader sees the entry
+     * for ~ms before the rollback compensator deletes it). Switching to afterCommit would
+     * close that window but breaks the existing test pattern that relies on within-tx index
+     * visibility — see audit notes for the deferred follow-up.
      */
     private void indexNow(UUID messageId, UUID channelId, String author, String body) {
         messageIndex.index(messageId, channelId, author, body);

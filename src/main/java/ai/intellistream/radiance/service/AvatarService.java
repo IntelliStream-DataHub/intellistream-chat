@@ -22,6 +22,8 @@ import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import javax.imageio.ImageIO;
 import java.awt.AlphaComposite;
@@ -104,13 +106,16 @@ public class AvatarService {
         var managed = userRepository.findById(user.getId())
                 .orElseThrow(() -> new IllegalStateException("User missing: " + user.getId()));
 
-        // Best-effort cleanup of the previous file — do this after the new one is written so
-        // a failure to delete the old key never leaves the user with no avatar at all.
+        // Best-effort cleanup of the previous file, deferred to afterCommit. Doing it inside
+        // the tx leaves the user pointing at a missing file if the JPA flush rolls back —
+        // and a failure to delete the old key never leaves the user with no avatar.
         var previousKey = managed.getAvatarStorageKey();
         managed.setAvatar(newKey, resolvedType);
         if (previousKey != null) {
-            try { Files.deleteIfExists(storageRoot.resolve(previousKey)); }
-            catch (IOException ignored) { /* orphan; cleanup later */ }
+            afterCommit(() -> {
+                try { Files.deleteIfExists(storageRoot.resolve(previousKey)); }
+                catch (IOException ignored) { /* orphan; cleanup later */ }
+            });
         }
         return managed;
     }
@@ -186,10 +191,26 @@ public class AvatarService {
         var previousKey = managed.getAvatarStorageKey();
         managed.clearAvatar();
         if (previousKey != null) {
-            try { Files.deleteIfExists(storageRoot.resolve(previousKey)); }
-            catch (IOException ignored) { /* orphan; cleanup later */ }
+            afterCommit(() -> {
+                try { Files.deleteIfExists(storageRoot.resolve(previousKey)); }
+                catch (IOException ignored) { /* orphan; cleanup later */ }
+            });
         }
         return managed;
+    }
+
+    /** Run an action after the surrounding transaction commits; if no tx is active, run now. */
+    private static void afterCommit(Runnable action) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    action.run();
+                }
+            });
+        } else {
+            action.run();
+        }
     }
 
     /** Return the file path for a user's avatar, or {@code null} if they don't have one. */
