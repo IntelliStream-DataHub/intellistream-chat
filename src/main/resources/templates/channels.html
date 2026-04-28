@@ -509,5 +509,8 @@
 <script th:src="@{/js/presence.js}"></script>
 <script th:src="@{/js/idle-logout.js}"></script>
 <script type="module" th:src="@{/js/chat/index.js}" defer></script>
+<!-- In-browser smoke runner — only loaded when radiance.dev-tools.enabled=true (auto in
+     the dev profile, off in prod). Type runTests() in the devtools console. -->
+<script th:if="${devToolsEnabled}" type="module" th:src="@{/js/test/index.js}" defer></script>
 </body>
 </html>
