@@ -28,9 +28,9 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
-public interface PollVoteRepository extends JpaRepository<PollVote, UUID> {
+
+public interface PollVoteRepository extends JpaRepository<PollVote, Long> {
 
     Optional<PollVote> findByPollAndVoter(Poll poll, User voter);
 
@@ -48,7 +48,7 @@ public interface PollVoteRepository extends JpaRepository<PollVote, UUID> {
              where v.poll.id in (:pollIds)
              group by v.poll.id, v.option.id
             """)
-    List<Object[]> tallyByPollIds(@Param("pollIds") Collection<UUID> pollIds);
+    List<Object[]> tallyByPollIds(@Param("pollIds") Collection<Long> pollIds);
 
     /** Resolve "which option did THIS user vote for" for a list of polls. */
     @Query("""
@@ -57,5 +57,5 @@ public interface PollVoteRepository extends JpaRepository<PollVote, UUID> {
              where v.voter = :voter and v.poll.id in (:pollIds)
             """)
     List<Object[]> myVotesByPollIds(@Param("voter") User voter,
-                                    @Param("pollIds") Collection<UUID> pollIds);
+                                    @Param("pollIds") Collection<Long> pollIds);
 }

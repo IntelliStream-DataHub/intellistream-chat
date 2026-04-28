@@ -20,7 +20,7 @@ import ai.intellistream.radiance.domain.Conversation;
 import ai.intellistream.radiance.domain.ConversationType;
 import ai.intellistream.radiance.domain.User;
 
-import java.util.UUID;
+
 
 /**
  * Sidebar/page entry for a {@link Conversation}. For DIRECT conversations we surface
@@ -28,7 +28,7 @@ import java.util.UUID;
  * in the DM list); for GROUP conversations we use the conversation title.
  */
 public record ConversationDto(
-        UUID id,
+        Long id,
         ConversationType type,
         String title,
         String otherUsername,

@@ -22,9 +22,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Collection;
 import java.util.List;
-import java.util.UUID;
 
-public interface ConversationAttachmentRepository extends JpaRepository<ConversationAttachment, UUID> {
+
+public interface ConversationAttachmentRepository extends JpaRepository<ConversationAttachment, Long> {
 
     List<ConversationAttachment> findByMessageOrderByCreatedAtAsc(ConversationMessage message);
 

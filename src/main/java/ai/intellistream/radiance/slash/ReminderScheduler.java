@@ -107,7 +107,7 @@ public class ReminderScheduler {
      * single bad row doesn't block the schedule forever.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public boolean fireOne(java.util.UUID reminderId, Instant now) {
+    public boolean fireOne(Long reminderId, Instant now) {
         var r = repo.findById(reminderId).orElse(null);
         if (r == null || r.getFiredAt() != null) return false;
         try {
@@ -133,7 +133,7 @@ public class ReminderScheduler {
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void markFiredInNewTx(java.util.UUID reminderId, Instant now) {
+    public void markFiredInNewTx(Long reminderId, Instant now) {
         repo.findById(reminderId).ifPresent(r -> {
             r.markFired(now);
             repo.save(r);

@@ -21,12 +21,12 @@ import ai.intellistream.radiance.domain.Message;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.UUID;
+
 
 public record MessageDto(
-        UUID id,
-        UUID channelId,
-        UUID parentId,
+        Long id,
+        Long channelId,
+        Long parentId,
         String authorUsername,
         String authorDisplayName,
         boolean authorHasAvatar,

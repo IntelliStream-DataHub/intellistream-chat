@@ -27,7 +27,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
@@ -50,7 +49,7 @@ public class UserService {
 
     private final UserRepository userRepository;
     /** In-memory throttle: userId -> instant of the most recent persisted bump. */
-    private final ConcurrentHashMap<UUID, Instant> lastBumpByUser = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, Instant> lastBumpByUser = new ConcurrentHashMap<>();
 
     public UserService(UserRepository userRepository) {
         this.userRepository = userRepository;

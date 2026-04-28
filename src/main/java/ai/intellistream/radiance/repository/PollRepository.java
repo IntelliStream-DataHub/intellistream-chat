@@ -24,9 +24,9 @@ import org.springframework.data.repository.query.Param;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
-public interface PollRepository extends JpaRepository<Poll, UUID> {
+
+public interface PollRepository extends JpaRepository<Poll, Long> {
 
     /**
      * Single-poll lookup with options + host message + channel eagerly fetched. The vote
@@ -40,7 +40,7 @@ public interface PollRepository extends JpaRepository<Poll, UUID> {
               left join fetch m.channel
              where p.id = :id
             """)
-    Optional<Poll> findByIdWithOptions(@Param("id") UUID id);
+    Optional<Poll> findByIdWithOptions(@Param("id") Long id);
 
     /** Single-poll lookup by host message id. */
     @Query("""
@@ -50,9 +50,9 @@ public interface PollRepository extends JpaRepository<Poll, UUID> {
               left join fetch m.channel
              where m.id = :messageId
             """)
-    Optional<Poll> findByMessageIdWithOptions(@Param("messageId") UUID messageId);
+    Optional<Poll> findByMessageIdWithOptions(@Param("messageId") Long messageId);
 
     /** Batch fetch for rendering a page of channel messages — one round-trip, options included. */
     @Query("select p from Poll p left join fetch p.options where p.message.id in (:messageIds)")
-    List<Poll> findByMessageIdsWithOptions(@Param("messageIds") Collection<UUID> messageIds);
+    List<Poll> findByMessageIdsWithOptions(@Param("messageIds") Collection<Long> messageIds);
 }

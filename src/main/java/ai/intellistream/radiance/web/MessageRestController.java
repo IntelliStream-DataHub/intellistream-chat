@@ -41,7 +41,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.security.Principal;
 import java.util.List;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/messages")
@@ -72,7 +71,7 @@ public class MessageRestController {
     }
 
     @PostMapping("/{id}/reactions")
-    public MessageDto addReaction(@PathVariable UUID id,
+    public MessageDto addReaction(@PathVariable Long id,
                                   @RequestBody @Valid ReactionRequest body,
                                   Principal principal) {
         var me = currentUser.resolve(principal);
@@ -81,7 +80,7 @@ public class MessageRestController {
     }
 
     @DeleteMapping("/{id}/reactions/{emoji}")
-    public ResponseEntity<Void> removeReaction(@PathVariable UUID id,
+    public ResponseEntity<Void> removeReaction(@PathVariable Long id,
                                                @PathVariable String emoji,
                                                Principal principal) {
         var me = currentUser.resolve(principal);
@@ -99,7 +98,7 @@ public class MessageRestController {
     }
 
     @PatchMapping("/{id}")
-    public MessageDto edit(@PathVariable UUID id,
+    public MessageDto edit(@PathVariable Long id,
                            @RequestBody @Valid EditMessageRequest body,
                            Principal principal) {
         var me = currentUser.resolve(principal);
@@ -112,7 +111,7 @@ public class MessageRestController {
     }
 
     @DeleteMapping("/{id}")
-    public ResponseEntity<Void> delete(@PathVariable UUID id, Principal principal) {
+    public ResponseEntity<Void> delete(@PathVariable Long id, Principal principal) {
         var me = currentUser.resolve(principal);
         var deleted = messageService.delete(id, me);
         broker.convertAndSend("/topic/channels/" + deleted.channelId(),
@@ -121,7 +120,7 @@ public class MessageRestController {
     }
 
     @GetMapping("/{id}/thread")
-    public ThreadDto thread(@PathVariable UUID id, Principal principal) {
+    public ThreadDto thread(@PathVariable Long id, Principal principal) {
         var me = currentUser.resolve(principal);
         var parent = messageService.requireById(id);
         channelService.requireMember(parent.getChannel(), me);
@@ -143,7 +142,7 @@ public class MessageRestController {
     }
 
     @PostMapping("/{id}/replies")
-    public MessageDto reply(@PathVariable UUID id,
+    public MessageDto reply(@PathVariable Long id,
                             @RequestBody @Valid SendMessageRequest body,
                             Principal principal) {
         var me = currentUser.resolve(principal);

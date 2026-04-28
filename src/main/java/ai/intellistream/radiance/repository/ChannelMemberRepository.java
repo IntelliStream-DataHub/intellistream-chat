@@ -24,9 +24,9 @@ import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
-public interface ChannelMemberRepository extends JpaRepository<ChannelMember, UUID> {
+
+public interface ChannelMemberRepository extends JpaRepository<ChannelMember, Long> {
 
     Optional<ChannelMember> findByChannelAndUser(Channel channel, User user);
 

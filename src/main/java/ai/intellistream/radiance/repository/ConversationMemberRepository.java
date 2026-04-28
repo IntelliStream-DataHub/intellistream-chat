@@ -26,9 +26,9 @@ import org.springframework.data.repository.query.Param;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
-public interface ConversationMemberRepository extends JpaRepository<ConversationMember, UUID> {
+
+public interface ConversationMemberRepository extends JpaRepository<ConversationMember, Long> {
 
     Optional<ConversationMember> findByConversationAndUser(Conversation conversation, User user);
 
@@ -69,6 +69,6 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
                and (cm.last_read_at is null or cm.created_at > cm.last_read_at)
              group by cm.message_conv_id
             """, nativeQuery = true)
-    List<Object[]> countUnreadPerConversation(@Param("userId") UUID userId,
-                                              @Param("convIds") Collection<UUID> convIds);
+    List<Object[]> countUnreadPerConversation(@Param("userId") Long userId,
+                                              @Param("convIds") Collection<Long> convIds);
 }

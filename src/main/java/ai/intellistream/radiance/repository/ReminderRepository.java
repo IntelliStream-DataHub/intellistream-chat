@@ -23,9 +23,9 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.UUID;
 
-public interface ReminderRepository extends JpaRepository<Reminder, UUID> {
+
+public interface ReminderRepository extends JpaRepository<Reminder, Long> {
 
     /**
      * Reminders ready to fire — joins channel/creator/target up front so the scheduler can

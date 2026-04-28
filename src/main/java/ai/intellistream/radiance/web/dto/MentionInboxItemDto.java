@@ -17,7 +17,7 @@
 package ai.intellistream.radiance.web.dto;
 
 import java.time.Instant;
-import java.util.UUID;
+
 
 /**
  * One row in the topbar mention inbox. {@code snippet} is the raw markdown body
@@ -25,8 +25,8 @@ import java.util.UUID;
  * cap the wire size so a long message can't bloat the inbox payload.
  */
 public record MentionInboxItemDto(
-        UUID messageId,
-        UUID channelId,
+        Long messageId,
+        Long channelId,
         String channelSlug,
         String channelName,
         String authorUsername,
@@ -36,7 +36,7 @@ public record MentionInboxItemDto(
 ) {
     private static final int SNIPPET_MAX = 240;
 
-    public static MentionInboxItemDto of(UUID messageId, UUID channelId,
+    public static MentionInboxItemDto of(Long messageId, Long channelId,
                                          String channelSlug, String channelName,
                                          String authorUsername, String authorDisplayName,
                                          String body, Instant createdAt) {

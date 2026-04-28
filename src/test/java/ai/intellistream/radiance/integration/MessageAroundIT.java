@@ -216,7 +216,7 @@ class MessageAroundIT {
         var room = channels.create("Around-404-" + SEQ.incrementAndGet(),
                 null, ChannelType.PUBLIC, alice);
 
-        assertThatThrownBy(() -> messages.around(room, alice, UUID.randomUUID(), 25))
+        assertThatThrownBy(() -> messages.around(room, alice, 999_999_999L, 25))
                 .isInstanceOf(ai.intellistream.radiance.security.ResourceNotFoundException.class)
                 .hasMessageContaining("not found");
     }

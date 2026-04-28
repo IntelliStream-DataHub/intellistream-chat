@@ -39,7 +39,6 @@ import org.springframework.web.bind.annotation.*;
 import java.security.Principal;
 import java.time.Instant;
 import java.util.List;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/channels")
@@ -93,14 +92,14 @@ public class ChannelRestController {
     }
 
     @PostMapping("/{id}/join")
-    public ResponseEntity<Void> join(@PathVariable UUID id, Principal principal) {
+    public ResponseEntity<Void> join(@PathVariable Long id, Principal principal) {
         var me = currentUser.resolve(principal);
         channelService.join(channelService.requireById(id), me);
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/{id}/invite")
-    public ResponseEntity<Void> invite(@PathVariable UUID id,
+    public ResponseEntity<Void> invite(@PathVariable Long id,
                                        @RequestBody @Valid InviteRequest body,
                                        Principal principal) {
         var me = currentUser.resolve(principal);
@@ -116,7 +115,7 @@ public class ChannelRestController {
      * this endpoint when an admin clicks the role-toggle button next to a name.
      */
     @PutMapping("/{id}/members/{username}/role")
-    public ResponseEntity<Void> setMemberRole(@PathVariable UUID id,
+    public ResponseEntity<Void> setMemberRole(@PathVariable Long id,
                                               @PathVariable String username,
                                               @RequestBody @Valid SetMemberRoleRequest body,
                                               Principal principal) {
@@ -137,7 +136,7 @@ public class ChannelRestController {
      * dropdown next to the channel search box.
      */
     @GetMapping("/{id}/members")
-    public List<ChannelMemberDto> members(@PathVariable UUID id, Principal principal) {
+    public List<ChannelMemberDto> members(@PathVariable Long id, Principal principal) {
         var me = currentUser.resolve(principal);
         var channel = channelService.requireById(id);
         // requireMember short-circuits true for PUBLIC channels, throws for non-member of PRIVATE.
@@ -148,7 +147,7 @@ public class ChannelRestController {
     }
 
     @GetMapping("/{id}/messages")
-    public List<MessageDto> messages(@PathVariable UUID id,
+    public List<MessageDto> messages(@PathVariable Long id,
                                      @RequestParam(required = false) Instant before,
                                      @RequestParam(required = false) Instant after,
                                      @RequestParam(defaultValue = "50") int limit,
@@ -191,8 +190,8 @@ public class ChannelRestController {
      * scrolling up 50-at-a-time. Same authz rules as {@link #messages}.
      */
     @GetMapping("/{id}/messages/around")
-    public List<MessageDto> messagesAround(@PathVariable UUID id,
-                                           @RequestParam("messageId") UUID messageId,
+    public List<MessageDto> messagesAround(@PathVariable Long id,
+                                           @RequestParam("messageId") Long messageId,
                                            @RequestParam(defaultValue = "25") int radius,
                                            Principal principal) {
         var me = currentUser.resolve(principal);
@@ -213,7 +212,7 @@ public class ChannelRestController {
     }
 
     @PostMapping("/{id}/messages")
-    public MessageDto post(@PathVariable UUID id,
+    public MessageDto post(@PathVariable Long id,
                            @RequestBody @Valid SendMessageRequest body,
                            Principal principal) {
         var me = currentUser.resolve(principal);
@@ -223,7 +222,7 @@ public class ChannelRestController {
     }
 
     @PostMapping("/{id}/read")
-    public ResponseEntity<Void> markRead(@PathVariable UUID id, Principal principal) {
+    public ResponseEntity<Void> markRead(@PathVariable Long id, Principal principal) {
         var me = currentUser.resolve(principal);
         var channel = channelService.requireById(id);
         if (channelService.isMember(channel, me)) {

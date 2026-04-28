@@ -29,7 +29,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.UUID;
 
 import static ai.intellistream.radiance.domain.ChannelRole.ADMIN;
 import static ai.intellistream.radiance.domain.ChannelType.PUBLIC;
@@ -58,7 +57,7 @@ public class SidebarService {
         var publicChannels = channelRepository.findAllByTypeOrderByNameAsc(PUBLIC);
         var memberships = memberRepository.findAllByUser(user);
 
-        LinkedHashMap<UUID, ChannelSidebarDto> byId = new LinkedHashMap<>();
+        LinkedHashMap<Long, ChannelSidebarDto> byId = new LinkedHashMap<>();
         for (var m : memberships) {
             var c = m.getChannel();
             byId.put(c.getId(), ChannelSidebarDto.of(c, true, m.getRole() == ADMIN));
@@ -95,7 +94,7 @@ public class SidebarService {
     }
 
     /** Tiny helper used by templates to highlight the active channel. */
-    public Channel resolve(UUID id) {
+    public Channel resolve(Long id) {
         return channelRepository.findById(id).orElse(null);
     }
 }

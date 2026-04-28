@@ -28,7 +28,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.UUID;
 
 @Service
 public class ChannelService {
@@ -54,7 +53,7 @@ public class ChannelService {
     }
 
     @Transactional(readOnly = true)
-    public Channel requireById(UUID id) {
+    public Channel requireById(Long id) {
         return channelRepository.findById(id)
                 .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Channel not found: " + id));
     }

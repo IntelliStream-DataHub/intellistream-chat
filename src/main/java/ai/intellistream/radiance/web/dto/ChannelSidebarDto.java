@@ -19,10 +19,10 @@ package ai.intellistream.radiance.web.dto;
 import ai.intellistream.radiance.domain.Channel;
 import ai.intellistream.radiance.domain.ChannelType;
 
-import java.util.UUID;
+
 
 public record ChannelSidebarDto(
-        UUID id,
+        Long id,
         String slug,
         String name,
         ChannelType type,

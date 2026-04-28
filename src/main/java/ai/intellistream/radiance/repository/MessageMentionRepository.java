@@ -24,10 +24,10 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
 import java.util.List;
-import java.util.UUID;
 
 
-public interface MessageMentionRepository extends JpaRepository<MessageMention, UUID> {
+
+public interface MessageMentionRepository extends JpaRepository<MessageMention, Long> {
 
     void deleteAllByMessage(Message message);
 
@@ -49,8 +49,8 @@ public interface MessageMentionRepository extends JpaRepository<MessageMention, 
                and (cr.last_read_at is null or msg.created_at > cr.last_read_at)
              group by msg.channel_id
             """, nativeQuery = true)
-    List<Object[]> countMentionsPerChannel(@Param("userId") UUID userId,
-                                           @Param("channelIds") Collection<UUID> channelIds);
+    List<Object[]> countMentionsPerChannel(@Param("userId") Long userId,
+                                           @Param("channelIds") Collection<Long> channelIds);
 
     /**
      * Total unread mentions across every channel — drives the topbar bell badge.
@@ -67,7 +67,7 @@ public interface MessageMentionRepository extends JpaRepository<MessageMention, 
              where mn.user_id = :userId
                and (cr.last_read_at is null or msg.created_at > cr.last_read_at)
             """, nativeQuery = true)
-    long countUnreadFor(@Param("userId") UUID userId);
+    long countUnreadFor(@Param("userId") Long userId);
 
     /**
      * Recent unread-mention rows joined with channel + author for the inbox dropdown.
@@ -89,5 +89,5 @@ public interface MessageMentionRepository extends JpaRepository<MessageMention, 
              order by msg.created_at desc
              limit :limit
             """, nativeQuery = true)
-    List<Object[]> findUnreadInbox(@Param("userId") UUID userId, @Param("limit") int limit);
+    List<Object[]> findUnreadInbox(@Param("userId") Long userId, @Param("limit") int limit);
 }

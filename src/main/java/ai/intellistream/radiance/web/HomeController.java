@@ -38,7 +38,6 @@ import org.springframework.web.bind.annotation.PathVariable;
 
 import java.security.Principal;
 import java.util.List;
-import java.util.UUID;
 
 @Controller
 public class HomeController {
@@ -103,8 +102,8 @@ public class HomeController {
     }
 
     @GetMapping("/channels/{id}")
-    public String channel(@PathVariable UUID id,
-                          @org.springframework.web.bind.annotation.RequestParam(name = "m", required = false) UUID anchorMessageId,
+    public String channel(@PathVariable Long id,
+                          @org.springframework.web.bind.annotation.RequestParam(name = "m", required = false) Long anchorMessageId,
                           Principal principal, Model model) {
         var me = currentUser.resolve(principal);
         var channel = channelService.requireById(id);
@@ -178,7 +177,7 @@ public class HomeController {
     private java.util.List<ai.intellistream.radiance.domain.Message> safeAround(
             ai.intellistream.radiance.domain.Channel channel,
             ai.intellistream.radiance.domain.User me,
-            UUID anchorId) {
+            Long anchorId) {
         try {
             return messageService.around(channel, me, anchorId, 25);
         } catch (IllegalArgumentException unknownAnchor) {
@@ -187,7 +186,7 @@ public class HomeController {
     }
 
     @GetMapping("/conversations/{id}")
-    public String conversation(@PathVariable UUID id, Principal principal, Model model) {
+    public String conversation(@PathVariable Long id, Principal principal, Model model) {
         var me = currentUser.resolve(principal);
         var conversation = conversationService.requireById(id);
         // Membership enforced inside recent(); throws AccessDeniedException if the viewer

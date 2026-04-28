@@ -145,7 +145,7 @@ public class ConversationAttachmentService {
      * never disclosing whether the attachment exists at all to a non-member.
      */
     @Transactional(readOnly = true)
-    public ConversationAttachment requireForDownload(UUID conversationId, UUID attachmentId, User viewer) {
+    public ConversationAttachment requireForDownload(Long conversationId, Long attachmentId, User viewer) {
         var attachment = repo.findById(attachmentId).orElseThrow(NoSuchElementException::new);
         var owningConversation = attachment.getMessage().getConversation();
         if (!owningConversation.getId().equals(conversationId)) {
@@ -171,7 +171,7 @@ public class ConversationAttachmentService {
     }
 
     @Transactional(readOnly = true)
-    public Map<UUID, List<ConversationAttachment>> findForMessages(Collection<ConversationMessage> messages) {
+    public Map<Long, List<ConversationAttachment>> findForMessages(Collection<ConversationMessage> messages) {
         if (messages.isEmpty()) return Map.of();
         return repo.findByMessageInOrderByCreatedAtAsc(messages).stream()
                 .collect(Collectors.groupingBy(a -> a.getMessage().getId()));

@@ -31,7 +31,6 @@ import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
@@ -112,7 +111,7 @@ public class MentionService {
         for (var r : rows) {
             var ts = r[7] instanceof Instant i ? i : ((java.sql.Timestamp) r[7]).toInstant();
             out.add(MentionInboxItemDto.of(
-                    (UUID) r[0], (UUID) r[1], (String) r[2], (String) r[3],
+                    (Long) r[0], (Long) r[1], (String) r[2], (String) r[3],
                     (String) r[4], (String) r[5], (String) r[6], ts));
         }
         return out;

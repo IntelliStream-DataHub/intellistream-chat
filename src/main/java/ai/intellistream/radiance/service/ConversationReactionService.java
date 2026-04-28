@@ -16,7 +16,6 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * Per-message emoji reactions for direct/group conversations. Mirrors
@@ -41,7 +40,7 @@ public class ConversationReactionService {
     }
 
     @Transactional
-    public ConversationMessage addReaction(UUID messageId, User actor, String emoji) {
+    public ConversationMessage addReaction(Long messageId, User actor, String emoji) {
         var message = requireMessage(messageId);
         conversationService.requireMember(message.getConversation(), actor);
         if (message.getAuthor() != null && actor.getId().equals(message.getAuthor().getId())) {
@@ -54,7 +53,7 @@ public class ConversationReactionService {
     }
 
     @Transactional
-    public ConversationMessage removeReaction(UUID messageId, User actor, String emoji) {
+    public ConversationMessage removeReaction(Long messageId, User actor, String emoji) {
         var message = requireMessage(messageId);
         conversationService.requireMember(message.getConversation(), actor);
         var trimmed = sanitize(emoji);
@@ -68,14 +67,14 @@ public class ConversationReactionService {
     }
 
     @Transactional(readOnly = true)
-    public Map<UUID, List<ReactionGroupDto>> groupingsFor(Collection<ConversationMessage> messages, User viewer) {
+    public Map<Long, List<ReactionGroupDto>> groupingsFor(Collection<ConversationMessage> messages, User viewer) {
         if (messages.isEmpty()) return Map.of();
         var rows = reactionRepository.findByMessageInOrderByCreatedAtAsc(messages);
-        var byMsg = new LinkedHashMap<UUID, List<ConversationReaction>>();
+        var byMsg = new LinkedHashMap<Long, List<ConversationReaction>>();
         for (var r : rows) {
             byMsg.computeIfAbsent(r.getMessage().getId(), k -> new ArrayList<>()).add(r);
         }
-        var out = new HashMap<UUID, List<ReactionGroupDto>>();
+        var out = new HashMap<Long, List<ReactionGroupDto>>();
         for (var entry : byMsg.entrySet()) {
             out.put(entry.getKey(), collapse(entry.getValue(), viewer));
         }
@@ -102,7 +101,7 @@ public class ConversationReactionService {
         return out;
     }
 
-    private ConversationMessage requireMessage(UUID messageId) {
+    private ConversationMessage requireMessage(Long messageId) {
         return messageRepository.findByIdWithAuthor(messageId)
                 .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Message not found: " + messageId));
     }

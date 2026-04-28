@@ -179,7 +179,7 @@ class ChannelMembersListIT {
         var alice = newUser("alice");
         when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
 
-        assertThatThrownBy(() -> controller.members(java.util.UUID.randomUUID(), mock(Principal.class)))
+        assertThatThrownBy(() -> controller.members(999_999_999L, mock(Principal.class)))
                 .isInstanceOf(ai.intellistream.radiance.security.ResourceNotFoundException.class);
     }
 

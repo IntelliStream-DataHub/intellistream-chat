@@ -400,7 +400,7 @@ class HovercardAndDmFlowIT {
 
         when(currentUser.resolve((Principal) any())).thenReturn(alice);
         var resp = conversationController.downloadAttachment(
-                conv.getId(), java.util.UUID.randomUUID(), null, mock(Principal.class));
+                conv.getId(), 999_999_999L, null, mock(Principal.class));
 
         assertThat(resp.getStatusCode().value()).isEqualTo(404);
     }

@@ -16,7 +16,7 @@
 
 package ai.intellistream.radiance.web.dto;
 
-import java.util.UUID;
+
 
 /**
  * Envelope broadcast on {@code /topic/channels/{id}} so clients can distinguish
@@ -34,9 +34,9 @@ import java.util.UUID;
  */
 public record MessageEvent(
         String type,
-        UUID id,
-        UUID channelId,
-        UUID parentId,
+        Long id,
+        Long channelId,
+        Long parentId,
         MessageDto message,
         PollDto poll
 ) {
@@ -48,11 +48,11 @@ public record MessageEvent(
         return new MessageEvent("updated", m.id(), m.channelId(), m.parentId(), m, null);
     }
 
-    public static MessageEvent deleted(UUID id, UUID channelId, UUID parentId) {
+    public static MessageEvent deleted(Long id, Long channelId, Long parentId) {
         return new MessageEvent("deleted", id, channelId, parentId, null, null);
     }
 
-    public static MessageEvent pollVote(UUID messageId, UUID channelId, PollDto poll) {
+    public static MessageEvent pollVote(Long messageId, Long channelId, PollDto poll) {
         return new MessageEvent("poll-vote", messageId, channelId, null, null, poll);
     }
 }

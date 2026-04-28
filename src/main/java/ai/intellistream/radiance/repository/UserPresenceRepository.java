@@ -23,9 +23,9 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
 import java.util.List;
-import java.util.UUID;
 
-public interface UserPresenceRepository extends JpaRepository<UserPresence, UUID> {
+
+public interface UserPresenceRepository extends JpaRepository<UserPresence, Long> {
 
     @Query("select p from UserPresence p join fetch p.user u where lower(u.username) in (:usernames)")
     List<UserPresence> findByUsernames(@Param("usernames") Collection<String> lowercaseUsernames);

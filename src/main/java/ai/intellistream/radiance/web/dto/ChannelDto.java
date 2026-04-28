@@ -20,10 +20,10 @@ import ai.intellistream.radiance.domain.Channel;
 import ai.intellistream.radiance.domain.ChannelType;
 
 import java.time.Instant;
-import java.util.UUID;
+
 
 public record ChannelDto(
-        UUID id,
+        Long id,
         String slug,
         String name,
         String description,

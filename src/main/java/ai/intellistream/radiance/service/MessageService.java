@@ -35,7 +35,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.UUID;
 
 @Service
 public class MessageService {
@@ -124,7 +123,7 @@ public class MessageService {
      * to {@code channel}; thread replies aren't supported here.
      */
     @Transactional(readOnly = true)
-    public List<Message> around(Channel channel, User viewer, UUID anchorId, int radius) {
+    public List<Message> around(Channel channel, User viewer, Long anchorId, int radius) {
         channelService.requireMember(channel, viewer);
         var anchor = messageRepository.findByIdWithChannelAndAuthor(anchorId)
                 .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Message not found: " + anchorId));
@@ -151,7 +150,7 @@ public class MessageService {
     }
 
     @Transactional
-    public Message pin(UUID messageId, User actor) {
+    public Message pin(Long messageId, User actor) {
         var message = messageRepository.findById(messageId)
                 .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Message not found: " + messageId));
         channelService.requireAdmin(message.getChannel(), actor);
@@ -160,7 +159,7 @@ public class MessageService {
     }
 
     @Transactional
-    public Message unpin(UUID messageId, User actor) {
+    public Message unpin(Long messageId, User actor) {
         var message = messageRepository.findById(messageId)
                 .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Message not found: " + messageId));
         channelService.requireAdmin(message.getChannel(), actor);
@@ -175,7 +174,7 @@ public class MessageService {
     }
 
     @Transactional
-    public Message replyInThread(UUID parentId, User author, String body) {
+    public Message replyInThread(Long parentId, User author, String body) {
         var parent = messageRepository.findById(parentId)
                 .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Message not found: " + parentId));
         if (parent.isThreadReply()) {
@@ -196,7 +195,7 @@ public class MessageService {
     }
 
     @Transactional(readOnly = true)
-    public List<Message> threadReplies(UUID parentId, User viewer) {
+    public List<Message> threadReplies(Long parentId, User viewer) {
         var parent = messageRepository.findById(parentId)
                 .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Message not found: " + parentId));
         channelService.requireMember(parent.getChannel(), viewer);
@@ -210,19 +209,19 @@ public class MessageService {
 
     /** Reply-count map for a batch of top-level messages — parents with 0 replies are absent. */
     @Transactional(readOnly = true)
-    public java.util.Map<UUID, Long> threadReplyCounts(java.util.Collection<Message> parents) {
+    public java.util.Map<Long, Long> threadReplyCounts(java.util.Collection<Message> parents) {
         if (parents.isEmpty()) return java.util.Map.of();
         var ids = parents.stream().map(Message::getId).toList();
         var rows = messageRepository.countRepliesByParentIds(ids);
-        var out = new java.util.HashMap<UUID, Long>(rows.size());
+        var out = new java.util.HashMap<Long, Long>(rows.size());
         for (var row : rows) {
-            out.put((UUID) row[0], (Long) row[1]);
+            out.put((Long) row[0], (Long) row[1]);
         }
         return out;
     }
 
     @Transactional(readOnly = true)
-    public Message requireById(UUID id) {
+    public Message requireById(Long id) {
         // Join-fetch author + channel so the controller can serialize the message and call
         // channelService.requireMember(...) after this transaction closes (open-in-view is off).
         return messageRepository.findByIdWithChannelAndAuthor(id)
@@ -231,7 +230,7 @@ public class MessageService {
 
     /** Author-only edit. Updates body and bumps {@code editedAt}. */
     @Transactional
-    public Message edit(UUID messageId, User actor, String newBody) {
+    public Message edit(Long messageId, User actor, String newBody) {
         var message = messageRepository.findByIdWithAuthor(messageId)
                 .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Message not found: " + messageId));
         // Membership re-check: defends against the case where the channel's type was
@@ -266,7 +265,7 @@ public class MessageService {
      * Orphaned files on disk are best-effort cleaned up after the DB delete commits.
      */
     @Transactional
-    public DeletedMessage delete(UUID messageId, User actor) {
+    public DeletedMessage delete(Long messageId, User actor) {
         var message = messageRepository.findById(messageId)
                 .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Message not found: " + messageId));
 
@@ -280,7 +279,7 @@ public class MessageService {
         var parentId = message.getParent() == null ? null : message.getParent().getId();
 
         var fileKeys = new ArrayList<String>();
-        var indexedIds = new ArrayList<UUID>();
+        var indexedIds = new ArrayList<Long>();
 
         // Replies first — gather attachments + reactions, delete dependents, then the replies.
         var replies = messageRepository.findByParentOrderByCreatedAtAsc(message);
@@ -327,7 +326,7 @@ public class MessageService {
      * call {@link Tx#commit()} between the action and the assertion to flush the inner
      * tx so its hooks fire.
      */
-    private void indexNow(UUID messageId, UUID channelId, String author, String body) {
+    private void indexNow(Long messageId, Long channelId, String author, String body) {
         afterCommit(() -> messageIndex.index(messageId, channelId, author, body));
     }
 
@@ -345,5 +344,5 @@ public class MessageService {
         }
     }
 
-    public record DeletedMessage(UUID id, UUID channelId, UUID parentId) {}
+    public record DeletedMessage(Long id, Long channelId, Long parentId) {}
 }

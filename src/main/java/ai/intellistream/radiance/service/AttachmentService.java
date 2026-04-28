@@ -145,7 +145,7 @@ public class AttachmentService {
     }
 
     @Transactional(readOnly = true)
-    public Attachment requireForDownload(UUID attachmentId, User viewer) {
+    public Attachment requireForDownload(Long attachmentId, User viewer) {
         var attachment = attachmentRepository.findById(attachmentId)
                 .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Attachment not found: " + attachmentId));
         var channel = attachment.getMessage().getChannel();
@@ -167,7 +167,7 @@ public class AttachmentService {
     }
 
     @Transactional(readOnly = true)
-    public Map<UUID, List<Attachment>> findForMessages(Collection<Message> messages) {
+    public Map<Long, List<Attachment>> findForMessages(Collection<Message> messages) {
         if (messages.isEmpty()) {
             return Map.of();
         }

@@ -19,10 +19,10 @@ package ai.intellistream.radiance.web.dto;
 import ai.intellistream.radiance.domain.Attachment;
 
 import java.time.Instant;
-import java.util.UUID;
+
 
 public record AttachmentDto(
-        UUID id,
+        Long id,
         String filename,
         String contentType,
         long sizeBytes,

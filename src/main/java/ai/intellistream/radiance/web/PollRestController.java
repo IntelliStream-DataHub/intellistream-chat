@@ -35,7 +35,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.security.Principal;
-import java.util.UUID;
 
 /**
  * Vote / unvote endpoints for the poll widget. Membership in the host channel is enforced
@@ -69,7 +68,7 @@ public class PollRestController {
     }
 
     @GetMapping("/{pollId}")
-    public PollDto get(@PathVariable UUID pollId, Principal principal) {
+    public PollDto get(@PathVariable Long pollId, Principal principal) {
         var me = currentUser.resolve(principal);
         requireMembership(pollId, me);
         // findByIdWithOptions join-fetches message + channel; plain findById returns a poll
@@ -80,7 +79,7 @@ public class PollRestController {
     }
 
     @PostMapping("/{pollId}/vote")
-    public PollDto castVote(@PathVariable UUID pollId,
+    public PollDto castVote(@PathVariable Long pollId,
                             @Valid @RequestBody CastVoteRequest body,
                             Principal principal) {
         var me = currentUser.resolve(principal);
@@ -96,7 +95,7 @@ public class PollRestController {
     }
 
     @DeleteMapping("/{pollId}/vote")
-    public PollDto removeVote(@PathVariable UUID pollId, Principal principal) {
+    public PollDto removeVote(@PathVariable Long pollId, Principal principal) {
         var me = currentUser.resolve(principal);
         if (!rateLimiter.tryAcquire(me.getUsername(), "poll-vote", 30, java.time.Duration.ofMinutes(1))) {
             throw new ai.intellistream.radiance.security.RateLimitExceededException("vote rate exceeded");
@@ -114,7 +113,7 @@ public class PollRestController {
      * private channels require membership. The query join-fetches the host message and channel
      * so the lazy proxies don't blow up after the implicit-tx repo call returns.
      */
-    private UUID requireMembership(UUID pollId, ai.intellistream.radiance.domain.User me) {
+    private Long requireMembership(Long pollId, ai.intellistream.radiance.domain.User me) {
         var poll = pollRepository.findByIdWithOptions(pollId)
                 .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Poll not found: " + pollId));
         var channel = poll.getMessage().getChannel();
@@ -122,7 +121,7 @@ public class PollRestController {
         return channel.getId();
     }
 
-    private UUID messageIdOf(UUID pollId) {
+    private Long messageIdOf(Long pollId) {
         return pollRepository.findByIdWithOptions(pollId)
                 .map(p -> p.getMessage().getId())
                 .orElseThrow();

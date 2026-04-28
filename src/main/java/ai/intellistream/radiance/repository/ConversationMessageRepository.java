@@ -24,9 +24,9 @@ import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
-public interface ConversationMessageRepository extends JpaRepository<ConversationMessage, UUID> {
+
+public interface ConversationMessageRepository extends JpaRepository<ConversationMessage, Long> {
 
     @Query("""
             select m from ConversationMessage m
@@ -49,5 +49,5 @@ public interface ConversationMessageRepository extends JpaRepository<Conversatio
             join fetch m.conversation
             where m.id = :id
             """)
-    Optional<ConversationMessage> findByIdWithAuthor(UUID id);
+    Optional<ConversationMessage> findByIdWithAuthor(Long id);
 }

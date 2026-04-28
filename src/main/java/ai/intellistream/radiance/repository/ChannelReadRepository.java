@@ -27,9 +27,9 @@ import org.springframework.data.repository.query.Param;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
-public interface ChannelReadRepository extends JpaRepository<ChannelRead, UUID> {
+
+public interface ChannelReadRepository extends JpaRepository<ChannelRead, Long> {
 
     Optional<ChannelRead> findByChannelAndUser(Channel channel, User user);
 
@@ -55,6 +55,6 @@ public interface ChannelReadRepository extends JpaRepository<ChannelRead, UUID> 
             on conflict (channel_id, user_id)
               do update set last_read_at = excluded.last_read_at
             """, nativeQuery = true)
-    int markAllChannelsWithUnreadMentionsRead(@Param("userId") UUID userId,
+    int markAllChannelsWithUnreadMentionsRead(@Param("userId") Long userId,
                                               @Param("now") Instant now);
 }

@@ -60,7 +60,6 @@ import java.nio.file.Files;
 import java.security.Principal;
 import java.util.List;
 import java.util.NoSuchElementException;
-import java.util.UUID;
 
 /**
  * REST surface for direct messages. Membership checks live in the service layer
@@ -159,7 +158,7 @@ public class ConversationRestController {
      * you can only see who's in a conversation if you're in it yourself.
      */
     @GetMapping("/{id}/members")
-    public List<ConversationMemberDto> members(@PathVariable UUID id, Principal principal) {
+    public List<ConversationMemberDto> members(@PathVariable Long id, Principal principal) {
         var me = currentUser.resolve(principal);
         var conv = conversations.requireById(id);
         conversations.requireMember(conv, me);
@@ -174,7 +173,7 @@ public class ConversationRestController {
      * two participants).
      */
     @PostMapping("/{id}/members")
-    public ConversationMemberDto addMember(@PathVariable UUID id,
+    public ConversationMemberDto addMember(@PathVariable Long id,
                                            @Valid @RequestBody AddGroupMemberRequest request,
                                            Principal principal) {
         var me = currentUser.resolve(principal);
@@ -189,7 +188,7 @@ public class ConversationRestController {
     }
 
     @GetMapping("/{id}/messages")
-    public List<ConversationMessageDto> messages(@PathVariable UUID id, Principal principal) {
+    public List<ConversationMessageDto> messages(@PathVariable Long id, Principal principal) {
         var me = currentUser.resolve(principal);
         var conv = conversations.requireById(id);
         var rows = conversations.recent(conv, me, 50);
@@ -204,7 +203,7 @@ public class ConversationRestController {
     }
 
     @PatchMapping("/messages/{messageId}")
-    public ConversationMessageDto editMessage(@PathVariable UUID messageId,
+    public ConversationMessageDto editMessage(@PathVariable Long messageId,
                                               @Valid @RequestBody EditMessageRequest body,
                                               Principal principal) {
         var me = currentUser.resolve(principal);
@@ -213,7 +212,7 @@ public class ConversationRestController {
     }
 
     @DeleteMapping("/messages/{messageId}")
-    public ResponseEntity<Void> deleteMessage(@PathVariable UUID messageId, Principal principal) {
+    public ResponseEntity<Void> deleteMessage(@PathVariable Long messageId, Principal principal) {
         var me = currentUser.resolve(principal);
         var deleted = conversations.deleteMessage(messageId, me);
         broker.convertAndSend("/topic/conversations/" + deleted.getConversation().getId(),
@@ -222,7 +221,7 @@ public class ConversationRestController {
     }
 
     @PostMapping("/messages/{messageId}/reactions")
-    public ConversationMessageDto addReaction(@PathVariable UUID messageId,
+    public ConversationMessageDto addReaction(@PathVariable Long messageId,
                                               @Valid @RequestBody ReactionRequest body,
                                               Principal principal) {
         var me = currentUser.resolve(principal);
@@ -231,7 +230,7 @@ public class ConversationRestController {
     }
 
     @DeleteMapping("/messages/{messageId}/reactions/{emoji}")
-    public ResponseEntity<Void> removeReaction(@PathVariable UUID messageId,
+    public ResponseEntity<Void> removeReaction(@PathVariable Long messageId,
                                                @PathVariable String emoji,
                                                Principal principal) {
         var me = currentUser.resolve(principal);
@@ -263,7 +262,7 @@ public class ConversationRestController {
      * so other connected members receive it through the live channel they're subscribed to.
      */
     @PostMapping("/{id}/messages")
-    public ConversationMessageDto sendMessage(@PathVariable UUID id,
+    public ConversationMessageDto sendMessage(@PathVariable Long id,
                                               @Valid @RequestBody ai.intellistream.radiance.web.dto.SendMessageRequest body,
                                               Principal principal) {
         var me = currentUser.resolve(principal);
@@ -278,7 +277,7 @@ public class ConversationRestController {
     }
 
     @PostMapping("/{conversationId}/attachments")
-    public ConversationMessageDto uploadAttachment(@PathVariable UUID conversationId,
+    public ConversationMessageDto uploadAttachment(@PathVariable Long conversationId,
                                                    HttpServletRequest request,
                                                    Principal principal) throws IOException {
         if (!JakartaServletFileUpload.isMultipartContent(request)) {
@@ -341,8 +340,8 @@ public class ConversationRestController {
      * attachment lives in a DM they don't belong to.
      */
     @GetMapping("/{conversationId}/attachments/{attachmentId}/download")
-    public ResponseEntity<Resource> downloadAttachment(@PathVariable UUID conversationId,
-                                                       @PathVariable UUID attachmentId,
+    public ResponseEntity<Resource> downloadAttachment(@PathVariable Long conversationId,
+                                                       @PathVariable Long attachmentId,
                                                        @RequestParam(value = "disposition", required = false) String dispositionParam,
                                                        Principal principal) throws IOException {
         var me = currentUser.resolve(principal);

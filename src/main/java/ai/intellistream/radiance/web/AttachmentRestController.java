@@ -43,7 +43,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.security.Principal;
 import java.util.List;
-import java.util.UUID;
 
 @RestController
 public class AttachmentRestController {
@@ -75,7 +74,7 @@ public class AttachmentRestController {
      * Apache Commons FileUpload and pipe the file part directly to disk.
      */
     @PostMapping("/api/channels/{channelId}/attachments")
-    public MessageDto upload(@PathVariable UUID channelId,
+    public MessageDto upload(@PathVariable Long channelId,
                              HttpServletRequest request,
                              Principal principal) throws IOException {
         if (!JakartaServletFileUpload.isMultipartContent(request)) {
@@ -144,7 +143,7 @@ public class AttachmentRestController {
     }
 
     @GetMapping("/api/attachments/{id}/download")
-    public ResponseEntity<Resource> download(@PathVariable UUID id,
+    public ResponseEntity<Resource> download(@PathVariable Long id,
                                              @RequestParam(value = "disposition", required = false) String dispositionParam,
                                              Principal principal) throws IOException {
         var me = currentUser.resolve(principal);

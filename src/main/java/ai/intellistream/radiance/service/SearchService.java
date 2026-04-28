@@ -32,7 +32,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -84,7 +83,7 @@ public class SearchService {
     public List<Message> searchAllJoined(User viewer, String query, int limit) {
         var p = parsed(query);
         if (p == null) return List.of();
-        List<UUID> channelIds = memberRepository.findChannelsForUser(viewer).stream()
+        List<Long> channelIds = memberRepository.findChannelsForUser(viewer).stream()
                 .map(Channel::getId)
                 .toList();
         if (channelIds.isEmpty()) {
@@ -113,14 +112,14 @@ public class SearchService {
      * Resolve Lucene hit IDs to {@link Message} entities while preserving Lucene's relevance order.
      * Drops any IDs the DB no longer has (defensive — should be rare).
      */
-    private List<Message> resolve(List<UUID> orderedIds) {
+    private List<Message> resolve(List<Long> orderedIds) {
         if (orderedIds.isEmpty()) {
             return List.of();
         }
         // Join-fetch the author so MessageDto.from(...) in the controller doesn't trip
         // a LazyInitializationException once this @Transactional scope closes
         // (open-in-view is off).
-        Map<UUID, Message> byId = messageRepository.findAllByIdWithAuthor(orderedIds).stream()
+        Map<Long, Message> byId = messageRepository.findAllByIdWithAuthor(orderedIds).stream()
                 .collect(Collectors.toMap(Message::getId, Function.identity()));
         return orderedIds.stream()
                 .map(byId::get)

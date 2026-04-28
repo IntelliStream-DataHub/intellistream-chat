@@ -19,7 +19,7 @@ package ai.intellistream.radiance.web.dto;
 import ai.intellistream.radiance.domain.ConversationAttachment;
 
 import java.time.Instant;
-import java.util.UUID;
+
 
 /**
  * Wire format for files attached to a {@link ai.intellistream.radiance.domain.ConversationMessage}.
@@ -27,7 +27,7 @@ import java.util.UUID;
  * endpoint can do membership checks against that conversation's roster.
  */
 public record ConversationAttachmentDto(
-        UUID id,
+        Long id,
         String filename,
         String contentType,
         long sizeBytes,

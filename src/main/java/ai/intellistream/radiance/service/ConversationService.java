@@ -36,7 +36,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
@@ -90,7 +89,7 @@ public class ConversationService {
             throw new IllegalArgumentException("Group must include at least one other user");
         }
         var conv = conversations.save(new Conversation(ConversationType.GROUP, title.trim(), null, creator));
-        Set<UUID> seen = new LinkedHashSet<>();
+        Set<Long> seen = new LinkedHashSet<>();
         seen.add(creator.getId());
         members.save(new ConversationMember(conv, creator));
         for (var u : otherMembers) {
@@ -124,14 +123,14 @@ public class ConversationService {
     }
 
     @Transactional
-    public ConversationMessage requireMessageById(UUID id) {
+    public ConversationMessage requireMessageById(Long id) {
         return messages.findByIdWithAuthor(id)
                 .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Message not found: " + id));
     }
 
     /** Edit own message body. Author-only; admins do not edit other users' DMs. */
     @Transactional
-    public ConversationMessage editMessage(UUID messageId, User actor, String newBody) {
+    public ConversationMessage editMessage(Long messageId, User actor, String newBody) {
         var message = requireMessageById(messageId);
         requireMember(message.getConversation(), actor);
         if (!message.getAuthor().getId().equals(actor.getId())) {
@@ -149,7 +148,7 @@ public class ConversationService {
 
     /** Delete own message. Workspace admins can also delete anyone's DM (parity with channel delete). */
     @Transactional
-    public ConversationMessage deleteMessage(UUID messageId, User actor) {
+    public ConversationMessage deleteMessage(Long messageId, User actor) {
         var message = requireMessageById(messageId);
         requireMember(message.getConversation(), actor);
         boolean isAuthor = message.getAuthor().getId().equals(actor.getId());
@@ -180,7 +179,7 @@ public class ConversationService {
     }
 
     @Transactional(readOnly = true)
-    public Conversation requireById(UUID id) {
+    public Conversation requireById(Long id) {
         return conversations.findById(id)
                 .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Conversation not found: " + id));
     }
@@ -209,20 +208,20 @@ public class ConversationService {
 
     /** {@code conversationId -> count of messages from someone else after viewer's last_read_at.} */
     @Transactional(readOnly = true)
-    public Map<UUID, Long> unreadCounts(User viewer, java.util.Collection<UUID> convIds) {
+    public Map<Long, Long> unreadCounts(User viewer, java.util.Collection<Long> convIds) {
         if (convIds == null || convIds.isEmpty()) return Map.of();
         var rows = members.countUnreadPerConversation(viewer.getId(), convIds);
-        var out = new HashMap<UUID, Long>(rows.size());
+        var out = new HashMap<Long, Long>(rows.size());
         for (var row : rows) {
-            out.put((UUID) row[0], ((Number) row[1]).longValue());
+            out.put((Long) row[0], ((Number) row[1]).longValue());
         }
         return out;
     }
 
     private static String directKey(User a, User b) {
         return java.util.stream.Stream.of(a.getId(), b.getId())
-                .map(UUID::toString)
                 .sorted()
+                .map(String::valueOf)
                 .collect(Collectors.joining(":"));
     }
 }

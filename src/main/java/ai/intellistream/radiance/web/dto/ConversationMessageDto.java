@@ -21,7 +21,7 @@ import ai.intellistream.radiance.domain.ConversationMessage;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.UUID;
+
 
 /**
  * Wire format for messages inside a {@link ai.intellistream.radiance.domain.Conversation}.
@@ -30,8 +30,8 @@ import java.util.UUID;
  * the same UI affordances as channel messages.
  */
 public record ConversationMessageDto(
-        UUID id,
-        UUID conversationId,
+        Long id,
+        Long conversationId,
         String authorUsername,
         String authorDisplayName,
         boolean authorHasAvatar,

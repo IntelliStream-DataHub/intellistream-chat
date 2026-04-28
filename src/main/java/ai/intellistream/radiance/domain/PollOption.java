@@ -21,8 +21,6 @@ import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.util.UUID;
-
 @Entity
 @Table(name = "poll_options", uniqueConstraints = {
         @UniqueConstraint(name = "uk_poll_options_position", columnNames = {"poll_id", "position"})
@@ -32,8 +30,8 @@ import java.util.UUID;
 public class PollOption {
 
     @Id
-    @GeneratedValue
-    private UUID id;
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "poll_id", nullable = false)

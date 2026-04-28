@@ -29,7 +29,6 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * Tracks per-user read markers per channel and answers unread / mention counts.
@@ -66,11 +65,11 @@ public class ReadStateService {
      *         Channels with zero unread are not in the map.
      */
     @Transactional(readOnly = true)
-    public Map<UUID, Long> unreadCounts(User viewer, Collection<UUID> channelIds) {
+    public Map<Long, Long> unreadCounts(User viewer, Collection<Long> channelIds) {
         if (channelIds.isEmpty()) return Map.of();
-        var result = new HashMap<UUID, Long>();
+        var result = new HashMap<Long, Long>();
         for (var row : messageRepo.countUnreadPerChannel(viewer.getId(), channelIds)) {
-            result.put((UUID) row[0], ((Number) row[1]).longValue());
+            result.put((Long) row[0], ((Number) row[1]).longValue());
         }
         return result;
     }
@@ -80,11 +79,11 @@ public class ReadStateService {
      *         mentions are not in the map.
      */
     @Transactional(readOnly = true)
-    public Map<UUID, Long> mentionCounts(User viewer, Collection<UUID> channelIds) {
+    public Map<Long, Long> mentionCounts(User viewer, Collection<Long> channelIds) {
         if (channelIds.isEmpty()) return Map.of();
-        var result = new HashMap<UUID, Long>();
+        var result = new HashMap<Long, Long>();
         for (var row : mentionRepo.countMentionsPerChannel(viewer.getId(), channelIds)) {
-            result.put((UUID) row[0], ((Number) row[1]).longValue());
+            result.put((Long) row[0], ((Number) row[1]).longValue());
         }
         return result;
     }

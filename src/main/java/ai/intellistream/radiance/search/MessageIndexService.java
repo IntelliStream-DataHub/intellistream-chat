@@ -56,14 +56,13 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
-import java.util.UUID;
 
 /**
  * Embedded Lucene index over message bodies.
  *
  * <p>Index layout (all per-message):
  * <ul>
- *   <li>{@code id} — StringField, stored. Message UUID, the document key.</li>
+ *   <li>{@code id} — StringField, stored. Message id (long), the document key.</li>
  *   <li>{@code channelId} — StringField. Used to scope searches.</li>
  *   <li>{@code body} — TextField. Tokenised + analysed Markdown body.</li>
  * </ul>
@@ -99,7 +98,7 @@ public class MessageIndexService {
     }
 
     /** Add or replace the document for a single message. Refreshes the searcher view. */
-    public void index(UUID messageId, UUID channelId, String author, String body) {
+    public void index(Long messageId, Long channelId, String author, String body) {
         var doc = new Document();
         doc.add(new StringField(F_ID, messageId.toString(), Field.Store.YES));
         doc.add(new StringField(F_CHANNEL, channelId.toString(), Field.Store.NO));
@@ -119,7 +118,7 @@ public class MessageIndexService {
     }
 
     /** Remove a single message from the index. */
-    public void delete(UUID messageId) {
+    public void delete(Long messageId) {
         try {
             writer.deleteDocuments(new Term(F_ID, messageId.toString()));
             writer.commit();
@@ -130,7 +129,7 @@ public class MessageIndexService {
     }
 
     /** Remove a batch of messages from the index in one commit. */
-    public void deleteAll(Collection<UUID> messageIds) {
+    public void deleteAll(Collection<Long> messageIds) {
         if (messageIds.isEmpty()) {
             return;
         }
@@ -147,7 +146,7 @@ public class MessageIndexService {
     }
 
     /** Search a single channel's messages, returning message IDs in relevance order. */
-    public List<UUID> searchInChannel(UUID channelId, String query, Collection<String> authors, int limit) {
+    public List<Long> searchInChannel(Long channelId, String query, Collection<String> authors, int limit) {
         var main = mainQuery(query, authors);
         if (main == null) return List.of();
         var scoped = new BooleanQuery.Builder()
@@ -158,7 +157,7 @@ public class MessageIndexService {
     }
 
     /** Search across multiple channels, returning message IDs in relevance order. */
-    public List<UUID> searchInChannels(Collection<UUID> channelIds, String query,
+    public List<Long> searchInChannels(Collection<Long> channelIds, String query,
                                        Collection<String> authors, int limit) {
         if (channelIds.isEmpty()) return List.of();
         var main = mainQuery(query, authors);
@@ -173,7 +172,7 @@ public class MessageIndexService {
     }
 
     /** Search every indexed message across every channel. Caller is responsible for authorization. */
-    public List<UUID> searchEverywhere(String query, Collection<String> authors, int limit) {
+    public List<Long> searchEverywhere(String query, Collection<String> authors, int limit) {
         var main = mainQuery(query, authors);
         if (main == null) return List.of();
         return runSearch(main, limit);
@@ -323,19 +322,19 @@ public class MessageIndexService {
         @Override protected Query getRegexpQuery(String field, String termStr)   { return null; }
     }
 
-    private List<UUID> runSearch(Query query, int limit) {
+    private List<Long> runSearch(Query query, int limit) {
         try {
             searcherManager.maybeRefresh();
             IndexSearcher searcher = searcherManager.acquire();
             try {
                 var top = searcher.search(query, Math.max(limit, 1));
-                var ids = new ArrayList<UUID>(top.scoreDocs.length);
+                var ids = new ArrayList<Long>(top.scoreDocs.length);
                 var storedFields = searcher.storedFields();
                 for (var hit : top.scoreDocs) {
                     var doc = storedFields.document(hit.doc);
                     var idStr = doc.get(F_ID);
                     if (idStr != null) {
-                        ids.add(UUID.fromString(idStr));
+                        ids.add(Long.parseLong(idStr));
                     }
                 }
                 return Collections.unmodifiableList(ids);
@@ -380,5 +379,5 @@ public class MessageIndexService {
     }
 
     /** Minimal projection used by {@link #rebuild(Iterable)}. */
-    public record IndexedMessage(UUID id, UUID channelId, String author, String body) {}
+    public record IndexedMessage(Long id, Long channelId, String author, String body) {}
 }

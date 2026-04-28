@@ -27,16 +27,16 @@ import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
-public interface MessageRepository extends JpaRepository<Message, UUID> {
+
+public interface MessageRepository extends JpaRepository<Message, Long> {
 
     @Query("""
             select m from Message m
             join fetch m.author
             where m.id = :id
             """)
-    Optional<Message> findByIdWithAuthor(UUID id);
+    Optional<Message> findByIdWithAuthor(Long id);
 
     @Query("""
             select m from Message m
@@ -44,14 +44,14 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
             join fetch m.channel
             where m.id = :id
             """)
-    Optional<Message> findByIdWithChannelAndAuthor(UUID id);
+    Optional<Message> findByIdWithChannelAndAuthor(Long id);
 
     @Query("""
             select m from Message m
             join fetch m.author
             where m.id in :ids
             """)
-    List<Message> findAllByIdWithAuthor(@Param("ids") Collection<UUID> ids);
+    List<Message> findAllByIdWithAuthor(@Param("ids") Collection<Long> ids);
 
     @Query("""
             select m from Message m
@@ -113,7 +113,7 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
             where m.parent.id in :parentIds
             group by m.parent.id
             """)
-    List<Object[]> countRepliesByParentIds(@Param("parentIds") Collection<UUID> parentIds);
+    List<Object[]> countRepliesByParentIds(@Param("parentIds") Collection<Long> parentIds);
 
     /**
      * For each channel id, count top-level messages that arrived after the viewer's last_read_at
@@ -131,6 +131,6 @@ public interface MessageRepository extends JpaRepository<Message, UUID> {
                and (cr.last_read_at is null or msg.created_at > cr.last_read_at)
              group by msg.channel_id
             """, nativeQuery = true)
-    List<Object[]> countUnreadPerChannel(@Param("userId") UUID userId,
-                                         @Param("channelIds") Collection<UUID> channelIds);
+    List<Object[]> countUnreadPerChannel(@Param("userId") Long userId,
+                                         @Param("channelIds") Collection<Long> channelIds);
 }

@@ -18,7 +18,7 @@ package ai.intellistream.radiance.web.dto;
 
 import jakarta.validation.constraints.NotNull;
 
-import java.util.UUID;
+
 
 /** Body for {@code POST /api/polls/{pollId}/vote}. */
-public record CastVoteRequest(@NotNull UUID optionId) {}
+public record CastVoteRequest(@NotNull Long optionId) {}

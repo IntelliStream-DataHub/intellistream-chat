@@ -31,7 +31,6 @@ import org.springframework.stereotype.Controller;
 
 import java.security.Principal;
 import java.time.Duration;
-import java.util.UUID;
 
 /**
  * STOMP send for direct messages. Mirrors {@link ChatWebSocketController#send} but
@@ -60,7 +59,7 @@ public class ConversationWebSocketController {
     }
 
     @MessageMapping("/conversations/{conversationId}/send")
-    public void send(@DestinationVariable UUID conversationId,
+    public void send(@DestinationVariable Long conversationId,
                      @Valid SendMessageRequest payload,
                      Principal principal) {
         var user = currentUser.resolve(principal);

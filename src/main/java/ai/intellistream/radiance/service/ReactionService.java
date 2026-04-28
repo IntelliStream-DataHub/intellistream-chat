@@ -16,7 +16,6 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * Per-message emoji reactions. Authorization mirrors message read/post —
@@ -40,7 +39,7 @@ public class ReactionService {
     }
 
     @Transactional
-    public Message addReaction(UUID messageId, User actor, String emoji) {
+    public Message addReaction(Long messageId, User actor, String emoji) {
         var message = requireMessage(messageId);
         channelService.requireWriteAccess(message.getChannel(), actor);
         // Authors can't react to their own messages — matches Slack/Mattermost.
@@ -54,7 +53,7 @@ public class ReactionService {
     }
 
     @Transactional
-    public Message removeReaction(UUID messageId, User actor, String emoji) {
+    public Message removeReaction(Long messageId, User actor, String emoji) {
         var message = requireMessage(messageId);
         channelService.requireWriteAccess(message.getChannel(), actor);
         var trimmed = sanitize(emoji);
@@ -68,14 +67,14 @@ public class ReactionService {
     }
 
     @Transactional(readOnly = true)
-    public Map<UUID, List<ReactionGroupDto>> groupingsFor(Collection<Message> messages, User viewer) {
+    public Map<Long, List<ReactionGroupDto>> groupingsFor(Collection<Message> messages, User viewer) {
         if (messages.isEmpty()) return Map.of();
         var rows = reactionRepository.findByMessageInOrderByCreatedAtAsc(messages);
-        var byMsg = new LinkedHashMap<UUID, List<MessageReaction>>();
+        var byMsg = new LinkedHashMap<Long, List<MessageReaction>>();
         for (var r : rows) {
             byMsg.computeIfAbsent(r.getMessage().getId(), k -> new ArrayList<>()).add(r);
         }
-        var out = new HashMap<UUID, List<ReactionGroupDto>>();
+        var out = new HashMap<Long, List<ReactionGroupDto>>();
         for (var entry : byMsg.entrySet()) {
             out.put(entry.getKey(), collapse(entry.getValue(), viewer));
         }
@@ -103,7 +102,7 @@ public class ReactionService {
         return out;
     }
 
-    private Message requireMessage(UUID messageId) {
+    private Message requireMessage(Long messageId) {
         // Join-fetch author + channel so the controller can hand the returned Message to
         // MessageDto.from(...) after this @Transactional closes — open-in-view is off, so
         // a bare findById leaves both as lazy proxies that LazyInitialize when the DTO is

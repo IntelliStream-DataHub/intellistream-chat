@@ -17,7 +17,7 @@
 package ai.intellistream.radiance.web.dto;
 
 import java.util.List;
-import java.util.UUID;
+
 
 /**
  * Wire shape for a poll attached to a {@link MessageDto}. {@code myVoteOptionId} is null
@@ -26,11 +26,11 @@ import java.util.UUID;
  * since the voter→option mapping is unique).
  */
 public record PollDto(
-        UUID id,
+        Long id,
         String question,
         List<PollOptionDto> options,
-        UUID myVoteOptionId,
+        Long myVoteOptionId,
         int totalVoters
 ) {
-    public record PollOptionDto(UUID id, int position, String label, int voteCount) {}
+    public record PollOptionDto(Long id, int position, String label, int voteCount) {}
 }

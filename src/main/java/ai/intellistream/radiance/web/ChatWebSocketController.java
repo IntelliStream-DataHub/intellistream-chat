@@ -37,7 +37,6 @@ import org.springframework.stereotype.Controller;
 
 import java.security.Principal;
 import java.util.List;
-import java.util.UUID;
 
 @Controller
 public class ChatWebSocketController {
@@ -73,7 +72,7 @@ public class ChatWebSocketController {
     }
 
     @MessageMapping("/channels/{channelId}/send")
-    public void send(@DestinationVariable UUID channelId,
+    public void send(@DestinationVariable Long channelId,
                      @Valid SendMessageRequest payload,
                      Principal principal) {
         var user = currentUser.resolve(principal);
@@ -116,7 +115,7 @@ public class ChatWebSocketController {
     }
 
     @MessageMapping("/channels/{channelId}/typing")
-    public void typing(@DestinationVariable UUID channelId, Principal principal) {
+    public void typing(@DestinationVariable Long channelId, Principal principal) {
         var user = currentUser.resolve(principal);
         // Typing pings are throttled client-side to 1 per 2s; cap at 60/min server-side as a safety net.
         if (!rateLimiter.tryAcquire(user.getUsername(), "ws-typing", 60, java.time.Duration.ofMinutes(1))) {

@@ -18,7 +18,6 @@ import org.springframework.messaging.simp.config.ChannelRegistration;
 
 import java.security.Principal;
 import java.util.Map;
-import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
@@ -87,16 +86,16 @@ public class StompAuthorizationConfig implements WebSocketMessageBrokerConfigure
                 var user = resolveCached(accessor.getSessionAttributes(), accessor.getUser());
 
                 if (channelMatch.matches()) {
-                    UUID channelId;
-                    try { channelId = UUID.fromString(channelMatch.group(1)); }
+                    Long channelId;
+                    try { channelId = Long.parseLong(channelMatch.group(1)); }
                     catch (IllegalArgumentException ex) { return message; }
                     var ch = channelService.requireById(channelId);
                     // Subscribe = read; reuses the read-access semantic so PUBLIC channels
                     // remain subscribable by any authenticated user.
                     channelService.requireMember(ch, user);
                 } else {
-                    UUID conversationId;
-                    try { conversationId = UUID.fromString(convMatch.group(1)); }
+                    Long conversationId;
+                    try { conversationId = Long.parseLong(convMatch.group(1)); }
                     catch (IllegalArgumentException ex) { return message; }
                     var conv = conversationService.requireById(conversationId);
                     // DMs are private to their participants — no PUBLIC analogue.

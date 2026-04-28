@@ -16,7 +16,7 @@
 
 package ai.intellistream.radiance.web.dto;
 
-import java.util.UUID;
+
 
 /**
  * Lightweight envelope broadcast on {@code /topic/conversations/{id}} for events
@@ -24,11 +24,11 @@ import java.util.UUID;
  * The conversation client distinguishes by the {@code type} discriminator.
  */
 public record ConversationEvent(String type,
-                                UUID conversationId,
+                                Long conversationId,
                                 String username,
-                                UUID messageId,
+                                Long messageId,
                                 ConversationMessageDto message) {
-    public static ConversationEvent memberAdded(UUID conversationId, String username) {
+    public static ConversationEvent memberAdded(Long conversationId, String username) {
         return new ConversationEvent("member-added", conversationId, username, null, null);
     }
 
@@ -36,7 +36,7 @@ public record ConversationEvent(String type,
         return new ConversationEvent("message-updated", dto.conversationId(), null, dto.id(), dto);
     }
 
-    public static ConversationEvent messageDeleted(UUID conversationId, UUID messageId) {
+    public static ConversationEvent messageDeleted(Long conversationId, Long messageId) {
         return new ConversationEvent("message-deleted", conversationId, null, messageId, null);
     }
 }

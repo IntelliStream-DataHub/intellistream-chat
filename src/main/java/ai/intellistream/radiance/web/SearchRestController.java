@@ -33,7 +33,6 @@ import org.springframework.web.bind.annotation.RestController;
 import java.security.Principal;
 import java.time.Duration;
 import java.util.List;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/search")
@@ -62,7 +61,7 @@ public class SearchRestController {
 
     @GetMapping
     public List<MessageDto> search(@RequestParam("q") String q,
-                                   @RequestParam(value = "channelId", required = false) UUID channelId,
+                                   @RequestParam(value = "channelId", required = false) Long channelId,
                                    @RequestParam(value = "scope", required = false) String scope,
                                    @RequestParam(defaultValue = "50") int limit,
                                    Principal principal) {

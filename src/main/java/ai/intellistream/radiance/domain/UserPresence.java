@@ -22,7 +22,6 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.Instant;
-import java.util.UUID;
 
 /**
  * Persisted custom-status row for a user. The {@code online} side of presence is in-memory
@@ -38,7 +37,7 @@ public class UserPresence {
 
     @Id
     @Column(name = "user_id")
-    private UUID userId;
+    private Long userId;
 
     @MapsId
     @OneToOne(fetch = FetchType.LAZY, optional = false)

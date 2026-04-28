@@ -130,7 +130,7 @@ class PollFlowIT {
      * row without tripping lazy-init proxies on {@code poll.message.channel}. Returns the
      * captured envelope for any extra assertions the caller wants to make.
      */
-    private MessageEvent slashPoll(java.util.UUID channelId, String body) {
+    private MessageEvent slashPoll(Long channelId, String body) {
         wsController.send(channelId, new SendMessageRequest(body), mock(Principal.class));
         var captor = ArgumentCaptor.forClass(MessageEvent.class);
         verify(broker, org.mockito.Mockito.atLeastOnce())

@@ -32,7 +32,6 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * Owns the {@code polls} / {@code poll_options} / {@code poll_votes} side of the chat. The
@@ -93,7 +92,7 @@ public class PollService {
      * a call with the same option is a no-op (idempotent on retries).
      */
     @Transactional
-    public PollDto castVote(UUID pollId, UUID optionId, User voter) {
+    public PollDto castVote(Long pollId, Long optionId, User voter) {
         var poll = pollRepo.findByIdWithOptions(pollId)
                 .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Poll not found: " + pollId));
         var option = poll.getOptions().stream()
@@ -116,7 +115,7 @@ public class PollService {
 
     /** Withdraw the voter's pick, if any. */
     @Transactional
-    public PollDto removeVote(UUID pollId, User voter) {
+    public PollDto removeVote(Long pollId, User voter) {
         var poll = pollRepo.findByIdWithOptions(pollId)
                 .orElseThrow(() -> new ai.intellistream.radiance.security.ResourceNotFoundException("Poll not found: " + pollId));
         voteRepo.deleteByPollAndVoter(poll, voter);
@@ -136,26 +135,26 @@ public class PollService {
      * messages. Two queries total: one for tallies, one for the viewer's votes.
      */
     @Transactional(readOnly = true)
-    public Map<UUID, PollDto> pollsForMessages(Collection<Message> messages, User viewer) {
+    public Map<Long, PollDto> pollsForMessages(Collection<Message> messages, User viewer) {
         if (messages.isEmpty()) return Map.of();
         var messageIds = messages.stream().map(Message::getId).toList();
         var polls = pollRepo.findByMessageIdsWithOptions(messageIds);
         if (polls.isEmpty()) return Map.of();
         var pollIds = polls.stream().map(Poll::getId).toList();
 
-        var tally = new HashMap<UUID, Map<UUID, Integer>>();
+        var tally = new HashMap<Long, Map<Long, Integer>>();
         for (var row : voteRepo.tallyByPollIds(pollIds)) {
-            var pollId = (UUID) row[0];
-            var optionId = (UUID) row[1];
+            var pollId = (Long) row[0];
+            var optionId = (Long) row[1];
             var count = ((Number) row[2]).intValue();
             tally.computeIfAbsent(pollId, k -> new HashMap<>()).put(optionId, count);
         }
-        var myVotes = new HashMap<UUID, UUID>();
+        var myVotes = new HashMap<Long, Long>();
         for (var row : voteRepo.myVotesByPollIds(viewer, pollIds)) {
-            myVotes.put((UUID) row[0], (UUID) row[1]);
+            myVotes.put((Long) row[0], (Long) row[1]);
         }
 
-        var out = new HashMap<UUID, PollDto>(polls.size());
+        var out = new HashMap<Long, PollDto>(polls.size());
         for (var p : polls) {
             out.put(p.getMessage().getId(),
                     buildDto(p, tally.getOrDefault(p.getId(), Map.of()), myVotes.get(p.getId())));
@@ -167,9 +166,9 @@ public class PollService {
 
     private PollDto toDto(Poll poll, User viewer) {
         var tallyRows = voteRepo.tallyByPollIds(List.of(poll.getId()));
-        var optionCounts = new HashMap<UUID, Integer>();
+        var optionCounts = new HashMap<Long, Integer>();
         for (var row : tallyRows) {
-            optionCounts.put((UUID) row[1], ((Number) row[2]).intValue());
+            optionCounts.put((Long) row[1], ((Number) row[2]).intValue());
         }
         var mine = voteRepo.findByPollAndVoter(poll, viewer)
                 .map(v -> v.getOption().getId())
@@ -177,7 +176,7 @@ public class PollService {
         return buildDto(poll, optionCounts, mine);
     }
 
-    private static PollDto buildDto(Poll poll, Map<UUID, Integer> optionCounts, UUID myVoteOptionId) {
+    private static PollDto buildDto(Poll poll, Map<Long, Integer> optionCounts, Long myVoteOptionId) {
         var options = new ArrayList<PollDto.PollOptionDto>(poll.getOptions().size());
         int total = 0;
         for (PollOption o : poll.getOptions()) {
