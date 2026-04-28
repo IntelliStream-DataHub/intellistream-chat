@@ -38,6 +38,11 @@ import org.apache.lucene.search.Query;
 import org.apache.lucene.search.SearcherManager;
 import org.apache.lucene.search.TermInSetQuery;
 import org.apache.lucene.search.TermQuery;
+import org.apache.lucene.search.highlight.Highlighter;
+import org.apache.lucene.search.highlight.QueryScorer;
+import org.apache.lucene.search.highlight.SimpleHTMLEncoder;
+import org.apache.lucene.search.highlight.SimpleHTMLFormatter;
+import org.apache.lucene.search.highlight.SimpleSpanFragmenter;
 import org.apache.lucene.store.FSDirectory;
 import org.apache.lucene.util.BytesRef;
 import org.slf4j.Logger;
@@ -339,6 +344,38 @@ public class MessageIndexService {
             }
         } catch (IOException e) {
             throw new UncheckedIOException("Search failed", e);
+        }
+    }
+
+    /**
+     * Build a snippet for a message body that bolds the matched terms (wrapped in
+     * {@code <mark>} tags). Used by the search dropdown to show the user where their
+     * query hit in each result. Returns {@code null} when the query yields no parser
+     * tree or the highlighter can't find a fragment — the caller falls back to the
+     * unhighlighted body.
+     *
+     * <p>Output is HTML-safe: {@link SimpleHTMLEncoder} HTML-escapes the source body
+     * before the formatter wraps tokens, so a body that literally contains
+     * {@code <script>} comes out as {@code &lt;script&gt;} with the matched word
+     * (if any) wrapped in {@code <mark>}. Frontend can render via {@code innerHTML}.
+     *
+     * @param query  user-supplied query string (already trimmed by caller)
+     * @param body   message body (Markdown source, untrusted text)
+     * @param maxLen approximate snippet length in characters
+     */
+    public String highlight(String query, String body, int maxLen) {
+        if (body == null || body.isBlank()) return null;
+        Query q = parse(query);
+        if (q == null) return null;
+        var formatter = new SimpleHTMLFormatter("<mark>", "</mark>");
+        var encoder = new SimpleHTMLEncoder();
+        var scorer = new QueryScorer(q, F_BODY);
+        var highlighter = new Highlighter(formatter, encoder, scorer);
+        highlighter.setTextFragmenter(new SimpleSpanFragmenter(scorer, Math.max(40, maxLen)));
+        try (var stream = analyzer.tokenStream(F_BODY, new java.io.StringReader(body))) {
+            return highlighter.getBestFragment(stream, body);
+        } catch (IOException | org.apache.lucene.search.highlight.InvalidTokenOffsetsException e) {
+            return null;
         }
     }
 

@@ -387,9 +387,10 @@ presenceMenu.init();
           row.querySelector('.search-dropdown-author').textContent = m.authorDisplayName || m.authorUsername;
           row.querySelector('.search-dropdown-channel').textContent = channelName ? '#' + channelName : '';
           row.querySelector('.search-dropdown-time').textContent = new Date(m.createdAt).toLocaleString();
-          // bodyHtml is server-rendered + jsoup-sanitized, so innerHTML here is safe and
-          // matches the formatting the user sees in the message list. CSS line-clamps it.
-          row.querySelector('.search-dropdown-snippet').innerHTML = m.bodyHtml || '';
+          // bodySnippet is the Lucene-highlighted excerpt with <mark>-wrapped match terms
+          // (HTML-escaped before highlighting, so innerHTML is safe). Falls back to bodyHtml
+          // — the server-rendered + jsoup-sanitized full body — when no snippet is available.
+          row.querySelector('.search-dropdown-snippet').innerHTML = m.bodySnippet || m.bodyHtml || '';
           // mousedown so the input doesn't blur (and close us) before the click fires.
           row.addEventListener('mousedown', (ev) => {
             ev.preventDefault();

@@ -481,4 +481,45 @@ class SearchFlowIT {
 
         assertThat(search.searchChannel(room, alice, "@nobody-here-123", 10)).isEmpty();
     }
+
+    // ---------- Snippet highlighting ----------
+
+    @Autowired ai.intellistream.radiance.search.MessageIndexService messageIndex;
+
+    @Test
+    void highlightWrapsMatchedTermInMark() {
+        // The search dropdown shows a snippet of each result with the matched term wrapped
+        // in <mark>. Highlighter is part of the index service so the same Analyzer that
+        // indexed the message is used to find matching offsets.
+        var snippet = messageIndex.highlight("postgres", "running postgres in production", 200);
+        assertThat(snippet).contains("<mark>postgres</mark>");
+    }
+
+    @Test
+    void highlightHtmlEscapesMatchSurroundings() {
+        // Untrusted body content (e.g. literal <script>) must come back HTML-escaped so the
+        // search dropdown's innerHTML render can't be a script-injection vector.
+        var snippet = messageIndex.highlight("hello", "hello <script>alert(1)</script>", 200);
+        assertThat(snippet).contains("<mark>hello</mark>");
+        assertThat(snippet).contains("&lt;script&gt;");
+        assertThat(snippet).doesNotContain("<script>");
+    }
+
+    @Test
+    void highlightReturnsNullForMissingMatch() {
+        // No match → null; the JS falls back to bodyHtml.
+        assertThat(messageIndex.highlight("zzzzzzzz", "hello world", 200)).isNull();
+    }
+
+    @Test
+    void highlightReturnsNullForBlankBody() {
+        assertThat(messageIndex.highlight("anything", "", 200)).isNull();
+        assertThat(messageIndex.highlight("anything", null, 200)).isNull();
+    }
+
+    @Test
+    void highlightReturnsNullForUnparseableQuery() {
+        // Two-character minimum on the parser; an empty string yields no Query and no snippet.
+        assertThat(messageIndex.highlight("", "hello world", 200)).isNull();
+    }
 }

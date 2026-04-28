@@ -1446,6 +1446,15 @@ button.icon-btn > .icon {
 .search-dropdown-snippet blockquote { margin: 0; padding: 0; }
 .search-dropdown-snippet pre { white-space: pre-wrap; }
 .search-dropdown-snippet code { font-size: 0.8rem; }
+/* Lucene Highlighter wraps matched terms in <mark>. The browser default is a heavy
+   yellow background; tone it down so the snippet stays readable in both themes. */
+.search-dropdown-snippet mark {
+  background: rgba(255, 193, 7, 0.35);
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
+  font-weight: 600;
+}
 
 /* ===========================================================
    Themes — override CSS variables on the body[data-theme=...]
