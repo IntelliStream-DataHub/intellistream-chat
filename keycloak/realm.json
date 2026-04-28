@@ -16,18 +16,18 @@
       "publicClient": false,
       "secret": "DAJpMxDkLxHidawHQXu8MMlmjEiKQRZzWRiLzFBQ",
       "redirectUris": [
-        "http://192.168.100.98:8080/*",
+        "http://localhost:8080/*",
         "http://localhost:8080/*"
       ],
       "webOrigins": [
-        "http://192.168.100.98:8080",
+        "http://localhost:8080",
         "http://localhost:8080"
       ],
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": true,
       "protocol": "openid-connect",
       "attributes": {
-        "post.logout.redirect.uris": "http://192.168.100.98:8080/*##http://localhost:8080/*"
+        "post.logout.redirect.uris": "http://localhost:8080/*##http://localhost:8080/*"
       },
       "protocolMappers": [
         {

@@ -347,8 +347,10 @@
     </a>
     <nav>
       <a href="#why">Why</a>
+      <a href="#foundation">Extend</a>
       <a href="#features">Features</a>
       <a href="#stack">Stack</a>
+      <a href="#install">Install</a>
       <a href="#quickstart">Quick start</a>
       <!-- TODO: replace href with the real GitHub URL -->
       <a class="gh" href="https://github.com/" rel="noopener">
@@ -399,24 +401,111 @@
   <div class="wrap">
     <h2><span class="marker"></span>Why this exists</h2>
     <p>
-      Workplace chat is important infrastructure. We should stop handing
-      the keys to a vendor whose interests do not include making sure you
-      can still read your own conversations next year. The ability to
-      self-host isn't a feature &mdash; it's a right.
+      This was built by me and Claude in a few hours. I wrote the
+      specification and gave Claude Code free rein on a virtual machine.
+      An application like Slack/Mattermost is actually very simple. Most
+      of the work is plumbing. I trust Claude to get most things right,
+      and will spend time reviewing this code later. But I trust it for
+      now, and we are already running it in production in a local
+      isolated environment. Keep in mind, this is still considered
+      AI-slop, and there are bugs, even serious bugs. But finding these
+      bugs can only be done by either reviewing the code or using the
+      application. Just using it in the current state is a quick way to
+      verify that basic functionality works. Backups also matter. Highly
+      recommend ZFS snapshots every 15 minutes plus a daily <code>pg_dump</code>.
     </p>
     <p>
-      <b>Slack</b> is mostly good but proprietary, cloud-only, and your
-      archive is governed by the vendor's pricing tiers and retention rules.
-      <b>Mattermost</b> sold itself as the open-source alternative, then
-      paywalled SAML and OAuth2 logins and capped free history at 10,000
-      messages. <b>Microsoft Teams</b> updates and restarts every time you
-      open it, and the UI freezes for seconds.
+      Workplace chat is important infrastructure. We should stop handing
+      the keys to a vendor whose interests do not include making sure you
+      can still read your own conversations next year. For me, the
+      ability to self-host isn't a feature &mdash; it's a right.
+    </p>
+    <p>
+      <b>Slack</b> is mostly good. The UI is slow, and the product is
+      proprietary, cloud-only, and your archive is governed by the
+      vendor's pricing tiers and retention rules. The cost-per-seat and
+      the visibility horizon are theirs to set. That's a workable trade
+      for plenty of teams. It isn't workable for regulated industries,
+      security-conscious orgs, or anyone who'd rather not have their
+      internal knowledge graph held off-premises.
+    </p>
+    <p>
+      <b>Mattermost</b> sold itself as the open-source Slack alternative,
+      and for a while it was. Then the free edition started taking things
+      back. SAML and OAuth2 logins are paywalled now. Team message history
+      is capped at 10,000 on the free plan. You can still self-host the
+      binary. The open-core playbook is at work here: the things that
+      separate a real chat app from a demo keep migrating into the
+      licence you have to pay for. &ldquo;Open source&rdquo; stops
+      meaning much when the table stakes aren't. Mattermost has a very
+      slick and responsive UI, so it's a shame that the company is going
+      open-core for a short-term win.
+    </p>
+    <p>
+      <b>Microsoft Teams</b> is the worst team-collaboration application
+      I've used. Loved by enterprises that hate their employees. I'm
+      always late to MS Teams meetings, because whenever I start it, it
+      has to update and restart and yadda yadda yadda. The UI is so slow
+      that it freezes for seconds.
     </p>
     <blockquote>
-      For me, a chat app is something I deploy on a box I control. Fast UI.
-      No message cap. No SSO paywall. No telemetry. No vendor able to change
-      the terms a year from now because the funding round demanded it.
+      For me it's important that a chat/team collaboration application is
+      something I can deploy on a box I control. Fast UI. No message cap.
+      No SSO paywall. No telemetry. No vendor able to change the terms a
+      year from now because the funding round demanded it. It won't have
+      Slack's polish or Mattermost's feature breadth. It will still be
+      readable in five years, on a server you own, running code you can
+      audit, under a licence that can't be retroactively narrowed.
     </blockquote>
+  </div>
+</section>
+
+<section id="foundation">
+  <div class="wrap">
+    <h2><span class="marker"></span>Use it as a starting point</h2>
+    <p class="intro">
+      If you want a team-chat / collaboration tool that doesn't quite
+      match Slack or Mattermost &mdash; internal-only, compliance-locked,
+      embedded inside another product, an unusual channel taxonomy, a
+      domain-specific slash-command surface &mdash; Radiance is small
+      enough to fork and extend with <a href="https://www.claude.com/product/claude-code" rel="noopener">Claude Code</a>
+      rather than build from scratch. The codebase was itself built this
+      way; that's the workflow it was designed for.
+    </p>
+
+    <div class="qs-step">
+      <h3><span class="num">1</span>Fork and rename</h3>
+      <p class="qs-note">Package is <code>ai.intellistream.radiance</code>; the slug <code>radiance</code> appears in <code>application.yml</code>, <code>keycloak/realm.json</code>, <code>docker-compose.yml</code>, the Flyway migrations and a few CSS / SVG files. One search-and-replace pass plus a fresh <code>V1__init.sql</code> usually covers it.</p>
+    </div>
+
+    <div class="qs-step">
+      <h3><span class="num">2</span>Read (and own) <code>CLAUDE.md</code></h3>
+      <p class="qs-note">Claude Code reads it on every invocation. It codifies the conventions that aren't obvious from the code &mdash; the two filter chains, read-vs-write access checks, server-side Markdown render, the strict CSP, embedded Lucene, Testcontainers + real Postgres. Keep it in sync as your fork diverges; Claude follows whatever's in there.</p>
+    </div>
+
+    <div class="qs-step">
+      <h3><span class="num">3</span>Write a spec file</h3>
+      <p class="qs-note">A markdown file in the repo, even rough, drives much better Claude Code sessions than chat-style prompts. Acceptance criteria help: <em>&ldquo;polls auto-close after 7 days; closed polls show the winner above the option list; admins can re-open a closed poll within 24 hours.&rdquo;</em></p>
+    </div>
+
+    <div class="qs-step">
+      <h3><span class="num">4</span>Run <code>claude</code> and ask for changes</h3>
+      <p class="qs-note">Good prompts name files and reference existing patterns: <em>&ldquo;Add a slash command <code>/announce</code> modelled on <code>PollCommand</code>, with a Flyway migration for the new <code>announcements</code> table and an IT under <code>integration/AnnounceFlowIT.java</code>.&rdquo;</em> The codebase is small enough that whole-feature changes fit in a single Claude Code session.</p>
+    </div>
+
+    <div class="qs-step">
+      <h3><span class="num">5</span>Keep the test suite green</h3>
+      <p class="qs-note"><code>./gradlew test</code> runs in 1&ndash;2 minutes against Testcontainers Postgres. Make Claude Code add a unit test <em>and</em> an IT for every feature it ships &mdash; the existing ~190 tests across 21 classes are the floor, not the ceiling.</p>
+    </div>
+
+    <p class="intro" style="margin-top: 36px;">
+      Pieces deliberately kept simple so a fork can swap them without a
+      rewrite: the in-memory rate limiter (&rarr; Bucket4j / Redis for
+      multi-replica), embedded Lucene (&rarr; Elasticsearch for
+      &gt;10M messages), in-memory STOMP broker (&rarr; RabbitMQ STOMP
+      plugin for multi-replica WebSocket), and local-disk attachments
+      (&rarr; S3 SDK behind <code>AttachmentService</code>).
+    </p>
   </div>
 </section>
 
@@ -530,6 +619,27 @@
   </div>
 </section>
 
+<section id="install">
+  <div class="wrap">
+    <h2><span class="marker"></span>Install prerequisites</h2>
+    <p class="intro">Java 25 and Podman. Gradle is not required &mdash; <code>./gradlew</code> downloads it on first use. Skip Podman if you intend to point at an external Postgres + Keycloak (see step 5 of Quick start).</p>
+
+    <div class="qs-step">
+      <h3>Fedora 40+ / RHEL 10+ / AlmaLinux 10+ / Rocky 10+</h3>
+<pre><code>sudo dnf install -y java-25-openjdk-devel podman podman-compose
+java -version    # should report "openjdk 25"</code></pre>
+      <p class="qs-note">On RHEL 9 / AlmaLinux 9 / Rocky 9, OpenJDK 25 is not packaged yet &mdash; install via <a href="https://sdkman.io/" rel="noopener">sdkman</a> (<code>sdk install java 25-zulu</code>) and use the system's Podman.</p>
+    </div>
+
+    <div class="qs-step">
+      <h3>Ubuntu 24.10+ / Debian trixie</h3>
+<pre><code>sudo apt install -y openjdk-25-jdk podman podman-compose
+java -version</code></pre>
+      <p class="qs-note">On Ubuntu 24.04 LTS or older Debian releases OpenJDK 25 isn't in the default archives yet &mdash; either upgrade to a newer release or install Java 25 via <a href="https://sdkman.io/" rel="noopener">sdkman</a> (<code>sdk install java 25-zulu</code>).</p>
+    </div>
+  </div>
+</section>
+
 <section id="quickstart">
   <div class="wrap">
     <h2><span class="marker"></span>Quick start</h2>
@@ -553,6 +663,29 @@
 export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock
 ./gradlew test</code></pre>
       <p class="qs-note">Testcontainers needs a Docker-compatible socket; the lines above expose Podman's. The first run pulls <code>postgres:18-alpine</code>; subsequent runs finish in 1&ndash;2 minutes.</p>
+    </div>
+
+    <div class="qs-step">
+      <h3><span class="num">4</span>Optional: boot with the prod profile</h3>
+<pre><code>export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="radiance") | .secret' keycloak/realm.json)
+SPRING_PROFILES_ACTIVE=prod ./gradlew bootRun</code></pre>
+      <p class="qs-note">Verifies the production configuration locally. The containers from step 1 must still be running, and <code>KEYCLOAK_CLIENT_SECRET</code> has no default outside the dev profile &mdash; a missing prod secret fails fast at boot instead of silently using a baked-in dev value.</p>
+    </div>
+
+    <div class="qs-step">
+      <h3><span class="num">5</span>Optional: skip Podman, use external Postgres + Keycloak</h3>
+<pre><code>export RADIANCE_DB_URL=jdbc:postgresql://db.example.com:5432/radiance_chat
+export RADIANCE_DB_USERNAME=radiance
+export RADIANCE_DB_PASSWORD=...
+export KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/radiance
+export KEYCLOAK_CLIENT_SECRET=...
+./gradlew bootRun</code></pre>
+      <p class="qs-note">Already running Postgres 18 and Keycloak 26 elsewhere? Point the app at them and skip step 1. Import <code>keycloak/realm.json</code> via the Keycloak admin console (<strong>Realms &rarr; Import</strong>) and regenerate the client secret. Flyway runs the schema on first boot &mdash; no manual SQL beyond <code>CREATE DATABASE radiance_chat OWNER radiance</code>.</p>
+<pre><code>export RADIANCE_VAULT_ENABLED=true
+export RADIANCE_VAULT_URI=https://vault.example.com:8200
+export RADIANCE_VAULT_TOKEN=...
+./gradlew bootRun</code></pre>
+      <p class="qs-note">To pull the DB password and OIDC client secret from Vault / OpenBao instead, enable the KV-v2 backend. Expected keys: <code>db.username</code>, <code>db.password</code>, <code>keycloak.client-id</code>, <code>keycloak.client-secret</code>, <code>keycloak.issuer-uri</code>. The bundled <code>docker-compose.yml</code> has a profile-gated OpenBao dev container for trying this locally.</p>
     </div>
   </div>
 </section>

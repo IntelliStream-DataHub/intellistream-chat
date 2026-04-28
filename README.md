@@ -16,6 +16,41 @@ Workplace chat is important infrastructure. We should stop handing the keys to a
 
 For me it's important that a chat/team collaboration application is something I can deploy on a box I control. Fast UI. No message cap. No SSO paywall. No telemetry. No vendor able to change the terms a year from now because the funding round demanded it. It won't have Slack's polish or Mattermost's feature breadth. It will still be readable in five years, on a server you own, running code you can audit, under a licence that can't be retroactively narrowed.
 
+## Use as a starting point
+
+If you want a team-chat / collaboration tool that doesn't quite match Slack or Mattermost — internal-only, compliance-locked, embedded inside another product, an unusual channel taxonomy, a domain-specific slash-command surface — Radiance is small enough to fork and extend with Claude Code rather than build from scratch. The codebase was itself built this way; that's the workflow it was designed for.
+
+Recommended workflow:
+
+1. **Fork the repo and rename.** The package is `ai.intellistream.radiance` and the slug `radiance` appears in `application.yml`, `keycloak/realm.json`, `docker-compose.yml`, the Flyway migrations and a few CSS / SVG files. One search-and-replace pass plus a fresh `V1__init.sql` usually covers it.
+2. **Read (and own) `CLAUDE.md`.** Claude Code reads it on every invocation. It codifies the conventions that aren't obvious from the code alone — the two filter chains, `requireMember` vs `requireWriteAccess`, server-side Markdown render, the strict CSP, embedded Lucene, Testcontainers + real Postgres. Keep it in sync as your fork diverges; Claude follows whatever's in there.
+3. **Write a spec file.** A markdown file in the repo, even rough, drives much better Claude Code sessions than chat-style prompts. Acceptance criteria help: *"polls auto-close after 7 days; closed polls show the winner above the option list; admins can re-open a closed poll within 24 hours."*
+4. **Run `claude` and ask for incremental changes.** Good prompts name files and reference existing patterns: *"Add a slash command `/announce` modelled on `PollCommand`, with a Flyway migration for the new `announcements` table and an IT under `integration/AnnounceFlowIT.java`."* The codebase is small enough that whole-feature changes fit in a single Claude Code session.
+5. **Keep the test suite green.** `./gradlew test` runs in 1–2 minutes against Testcontainers Postgres. Make Claude Code add a unit test *and* an IT for every feature it ships — the existing ~190 tests across 21 classes are the floor, not the ceiling.
+
+### What's intentionally under-engineered (so a fork can swap it)
+
+These pieces are deliberately simple so a fork can replace them without a rewrite:
+
+| Today | Swap to, when |
+|---|---|
+| In-memory `RateLimiter` | Bucket4j-with-Hazelcast or Redis-backed (multi-replica deploy) |
+| Embedded Lucene at `./data/lucene` | Elasticsearch / OpenSearch behind `MessageIndexService` (>10M messages or distributed search) |
+| In-memory STOMP broker (`SimpleBrokerMessageHandler`) | RabbitMQ / ActiveMQ STOMP plugin (multi-replica WebSocket) |
+| Local-disk attachments under `./data/attachments` | S3 SDK behind `AttachmentService` (cloud deploy / object storage) |
+| Per-process slash-command registry | Plug-in loader (custom internal commands without a fork-of-the-fork) |
+
+### Conventions to keep when extending
+
+- **Two filter chains** in `SecurityConfig`. Browser pages and `/api/**` / `/ws/**` have very different auth postures (CSRF on/off, stateful/stateless). Merging them re-introduces classic CSRF-via-XHR bugs.
+- **`CurrentUser` indirection.** Don't read JWT / `OidcUser` claims in controllers — go through `currentUser.resolve(principal)`. Provisioning the domain `User` row from the OIDC subject is the *only* place that should happen.
+- **`requireMember` for read, `requireWriteAccess` for write.** PUBLIC channels are world-readable but never world-writeable; mix the two checks up and you've quietly broken that.
+- **Strict CSP — no inline `<script>`, no SockJS.** Inline blocks and SockJS's `iframe` / `htmlfile` / `jsonp-polling` transports both require relaxing the CSP. Extract to `static/js/` instead.
+- **`ddl-auto=validate` + Flyway.** Schema changes are migrations under `db/migration/V*.sql`, not `ddl-auto=update`. Don't flip the switch.
+- **Testcontainers + real Postgres, no H2.** The schema uses Postgres-only features (`gen_random_uuid()`, generated columns, partial indexes). H2 silently accepts invalid SQL and lies to you.
+
+If your fork ends up generally useful, send a PR back — generic improvements (distributed rate limiter, S3 attachment backend, pluggable slash-command loader) are welcome upstream.
+
 ## Prerequisites
 
 Before the Quick start you need a Java 25 JDK and (for the container path) Podman. Gradle itself is not required — `./gradlew` downloads it on first use.
@@ -57,6 +92,42 @@ podman compose up -d   # Postgres 18 + Keycloak 26, with the 'chat' realm pre-im
 Open http://localhost:8080 and sign in as `alice` / `alice` or `bob` / `bob`. Keycloak admin console is at http://localhost:8081 (`admin` / `admin`).
 
 If `podman compose` can't find a socket, run once: `systemctl --user enable --now podman.socket && export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock`.
+
+To boot with the production profile locally (for verification — the build wires `bootRun` to `--spring.profiles.active=dev` only when `SPRING_PROFILES_ACTIVE` is unset), keep the containers from above running, then:
+
+```bash
+export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="radiance") | .secret' keycloak/realm.json)
+SPRING_PROFILES_ACTIVE=prod ./gradlew bootRun
+```
+
+`KEYCLOAK_CLIENT_SECRET` has no default outside the dev profile (`application.yml` deliberately leaves it empty so a missing prod secret fails fast instead of silently using a baked-in dev value), so it must be set explicitly.
+
+### Quick start — without Podman (external Postgres + Keycloak)
+
+Already running Postgres 18 and Keycloak 26 elsewhere (managed cloud, a host install, a shared dev environment)? Skip `podman compose` and point the app at them via env vars:
+
+```bash
+export RADIANCE_DB_URL=jdbc:postgresql://db.example.com:5432/radiance_chat
+export RADIANCE_DB_USERNAME=radiance
+export RADIANCE_DB_PASSWORD=...
+export KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/radiance
+export KEYCLOAK_CLIENT_SECRET=...
+./gradlew bootRun
+```
+
+The Keycloak realm definition you'll need is in `keycloak/realm.json` — import it via the admin console (**Realms → Import**) or `bin/kcadm.sh create realms -f keycloak/realm.json`. Once imported, regenerate the client secret (the bundled one is in this public repo) and use the new value for `KEYCLOAK_CLIENT_SECRET`. Flyway runs the schema on first boot — no manual SQL setup beyond `CREATE DATABASE radiance_chat OWNER radiance`. See [Without containers (native install)](#without-containers-native-install) for a step-by-step host install of both, and [Keycloak realm](#keycloak-realm) for the realm/client knobs.
+
+To pull `RADIANCE_DB_PASSWORD` and `KEYCLOAK_CLIENT_SECRET` from a Vault / OpenBao KV-v2 record instead of plain env vars:
+
+```bash
+export RADIANCE_VAULT_ENABLED=true
+export RADIANCE_VAULT_URI=https://vault.example.com:8200
+export RADIANCE_VAULT_TOKEN=...
+export RADIANCE_VAULT_PATH=radiance     # default; maps to secret/data/radiance
+./gradlew bootRun
+```
+
+The five expected keys (`db.username`, `db.password`, `keycloak.client-id`, `keycloak.client-secret`, `keycloak.issuer-uri`) and a try-it-locally OpenBao recipe are in [Optional: Vault / OpenBao secret backend](#optional-vault--openbao-secret-backend).
 
 For container-free setup, see [Without containers (native install)](#without-containers-native-install) below.
 

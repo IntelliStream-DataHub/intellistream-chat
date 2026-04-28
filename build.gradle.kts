@@ -100,5 +100,7 @@ tasks.withType<Test> {
 // allowed-origins). Tests and `java -jar build/libs/...` are unaffected — the dev
 // profile only activates here.
 tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
-    args("--spring.profiles.active=dev")
+    if (System.getenv("SPRING_PROFILES_ACTIVE").isNullOrBlank()) {
+        args("--spring.profiles.active=dev")
+    }
 }
