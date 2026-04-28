@@ -20,10 +20,13 @@ import ai.intellistream.radiance.domain.PresenceKind;
 import ai.intellistream.radiance.domain.User;
 import ai.intellistream.radiance.domain.UserPresence;
 import ai.intellistream.radiance.repository.UserPresenceRepository;
+import ai.intellistream.radiance.repository.UserRepository;
 import ai.intellistream.radiance.web.dto.PresenceDto;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -47,11 +50,23 @@ public class PresenceService {
     private static final int MAX_TEXT_LEN = 120;
 
     private final UserPresenceRepository repo;
+    private final UserRepository users;
     private final PresenceTracker tracker;
+    private final Duration awayThreshold;
 
-    public PresenceService(UserPresenceRepository repo, PresenceTracker tracker) {
+    public PresenceService(UserPresenceRepository repo,
+                           UserRepository users,
+                           PresenceTracker tracker,
+                           @Value("${radiance.presence.away-after-minutes:10}") int awayAfterMinutes) {
         this.repo = repo;
+        this.users = users;
         this.tracker = tracker;
+        this.awayThreshold = Duration.ofMinutes(Math.max(1, awayAfterMinutes));
+    }
+
+    /** Visible-for-tests: the configured idle threshold before auto-AWAY kicks in. */
+    public Duration awayThreshold() {
+        return awayThreshold;
     }
 
     /** Persist (or update) the custom status row for {@code user}. Returns the resulting DTO. */
@@ -73,7 +88,8 @@ public class PresenceService {
         var row = repo.findById(user.getId()).orElseGet(() -> new UserPresence(user));
         row.setStatus(emptyToNull(trimmedEmoji), emptyToNull(trimmedText), clearAt);
         var saved = repo.save(row);
-        return toDto(user.getUsername(), saved, tracker.isOnline(user.getUsername()), Instant.now());
+        return toDto(user.getUsername(), saved, tracker.isOnline(user.getUsername()),
+                user.getLastActiveAt(), Instant.now());
     }
 
     @Transactional
@@ -86,7 +102,8 @@ public class PresenceService {
         // Custom-status emoji is gone but the manual KIND override (Away/DND/Offline)
         // stays — those are independent. Recompute the effective DTO so a user who's
         // marked themselves Away keeps the yellow dot after clearing their lunch emoji.
-        return toDto(user.getUsername(), row, tracker.isOnline(user.getUsername()), Instant.now());
+        return toDto(user.getUsername(), row, tracker.isOnline(user.getUsername()),
+                user.getLastActiveAt(), Instant.now());
     }
 
     /**
@@ -99,7 +116,8 @@ public class PresenceService {
         var row = repo.findById(user.getId()).orElseGet(() -> new UserPresence(user));
         row.setManualKind(kind);
         var saved = repo.save(row);
-        return toDto(user.getUsername(), saved, tracker.isOnline(user.getUsername()), Instant.now());
+        return toDto(user.getUsername(), saved, tracker.isOnline(user.getUsername()),
+                user.getLastActiveAt(), Instant.now());
     }
 
     /** Clear the manual override; equivalent to {@code setKind(user, ACTIVE)}. */
@@ -114,7 +132,7 @@ public class PresenceService {
         var now = Instant.now();
         var online = tracker.isOnline(user.getUsername());
         var row = repo.findById(user.getId()).orElse(null);
-        return toDto(user.getUsername(), row, online, now);
+        return toDto(user.getUsername(), row, online, user.getLastActiveAt(), now);
     }
 
     /**
@@ -133,24 +151,44 @@ public class PresenceService {
         for (var r : rows) {
             byUsername.put(r.getUser().getUsername().toLowerCase(), r);
         }
+        // lastActiveAt isn't on user_presence — it lives on the users table. Fetch the
+        // matching User rows in one query so the auto-AWAY check has data even for users
+        // who have no user_presence row yet (they still have a User row).
+        var lastActiveByUsername = new HashMap<String, Instant>(lc.size());
+        for (var u : users.findAllByUsernameLowerIn(lc)) {
+            lastActiveByUsername.put(u.getUsername().toLowerCase(), u.getLastActiveAt());
+        }
         var now = Instant.now();
         var out = new ArrayList<PresenceDto>(lc.size());
         for (var username : usernames) {
             if (username == null || username.isBlank()) continue;
-            var row = byUsername.get(username.toLowerCase());
+            var key = username.toLowerCase();
+            var row = byUsername.get(key);
             var online = tracker.isOnline(username);
-            out.add(toDto(username, row, online, now));
+            var lastActive = lastActiveByUsername.get(key);
+            out.add(toDto(username, row, online, lastActive, now));
         }
         return out;
     }
 
-    private static PresenceDto toDto(String username, UserPresence row, boolean online, Instant now) {
+    private PresenceDto toDto(String username, UserPresence row, boolean online,
+                              Instant lastActiveAt, Instant now) {
         var manual = row == null ? null : row.getManualKind();
-        // Effective kind: manual override beats auto state. ACTIVE is reserved for the
-        // auto state (connected + no override); the override is one of AWAY/DND/OFFLINE.
-        var kind = manual != null ? manual
-                : online ? PresenceKind.ACTIVE : PresenceKind.OFFLINE;
-        // Backwards-compat boolean: only true when truly active (auto, no manual override).
+        // Effective kind: manual override beats auto state. With no override, the auto
+        // state is ACTIVE if connected + recently active; AWAY if connected but idle past
+        // the away threshold; OFFLINE if the tracker says disconnected.
+        PresenceKind kind;
+        if (manual != null) {
+            kind = manual;
+        } else if (!online) {
+            kind = PresenceKind.OFFLINE;
+        } else if (lastActiveAt != null
+                && Duration.between(lastActiveAt, now).compareTo(awayThreshold) >= 0) {
+            kind = PresenceKind.AWAY;
+        } else {
+            kind = PresenceKind.ACTIVE;
+        }
+        // Backwards-compat boolean: only true when truly active (auto, no override, recent).
         var onlineFlag = kind == PresenceKind.ACTIVE;
         if (row == null || !row.hasActiveStatus(now)) {
             return new PresenceDto(username, onlineFlag, kind, null, null, null);

@@ -381,6 +381,87 @@ class PresenceFlowIT {
     }
 
     @Test
+    void recentlyActiveConnectedUserStaysActive() {
+        // Sanity: a freshly-created user (lastActiveAt = now) on a live tracker session
+        // shouldn't trip the auto-AWAY check even though the threshold is short.
+        var alice = newUser("alice");
+        alice.touchActive(java.time.Instant.now());
+        users.save(alice);
+        tracker.connect(alice.getUsername());
+
+        var dto = presenceService.presenceFor(alice);
+
+        assertThat(dto.kind()).isEqualTo(ai.intellistream.radiance.domain.PresenceKind.ACTIVE);
+    }
+
+    @Test
+    void idleConnectedUserAutoFlipsToAway() {
+        // User is connected via STOMP but their last_active_at is older than the away
+        // threshold — the auto-AWAY rule fires without anyone setting a manual override.
+        var alice = newUser("alice");
+        alice.touchActive(java.time.Instant.now()
+                .minus(presenceService.awayThreshold().plusMinutes(1)));
+        users.save(alice);
+        tracker.connect(alice.getUsername());
+
+        var dto = presenceService.presenceFor(alice);
+
+        assertThat(dto.kind()).isEqualTo(ai.intellistream.radiance.domain.PresenceKind.AWAY);
+        assertThat(dto.online()).isFalse(); // backwards-compat boolean: only true for ACTIVE
+    }
+
+    @Test
+    void manualOverrideBeatsAutoAway() {
+        // User is genuinely idle (would auto-AWAY) AND they've set themselves DND.
+        // Manual override always wins — we should see DND, not AWAY.
+        var alice = newUser("alice");
+        alice.touchActive(java.time.Instant.now()
+                .minus(presenceService.awayThreshold().plusMinutes(1)));
+        users.save(alice);
+        tracker.connect(alice.getUsername());
+        presenceService.setKind(alice, ai.intellistream.radiance.domain.PresenceKind.DND);
+
+        var dto = presenceService.presenceFor(alice);
+
+        assertThat(dto.kind()).isEqualTo(ai.intellistream.radiance.domain.PresenceKind.DND);
+    }
+
+    @Test
+    void disconnectedIdleUserStillReportsOffline() {
+        // Auto-AWAY is for connected idle users. If they're disconnected, OFFLINE wins
+        // regardless of how stale lastActiveAt is.
+        var alice = newUser("alice");
+        alice.touchActive(java.time.Instant.now()
+                .minus(presenceService.awayThreshold().plusMinutes(1)));
+        users.save(alice);
+
+        var dto = presenceService.presenceFor(alice);
+
+        assertThat(dto.kind()).isEqualTo(ai.intellistream.radiance.domain.PresenceKind.OFFLINE);
+    }
+
+    @Test
+    void batchPresenceLookupComputesAutoAway() {
+        // Same auto-AWAY logic must apply to the batch endpoint that the topbar /
+        // sidebar avatars hit. Two users: one fresh-active, one idle-but-connected.
+        var fresh = newUser("fresh");
+        var idle = newUser("idle");
+        idle.touchActive(java.time.Instant.now()
+                .minus(presenceService.awayThreshold().plusMinutes(1)));
+        users.save(idle);
+        tracker.connect(fresh.getUsername());
+        tracker.connect(idle.getUsername());
+
+        var result = presenceService.presenceFor(
+                java.util.List.of(fresh.getUsername(), idle.getUsername()));
+
+        var byUsername = result.stream().collect(java.util.stream.Collectors.toMap(
+                p -> p.username(), p -> p.kind()));
+        assertThat(byUsername.get(fresh.getUsername())).isEqualTo(ai.intellistream.radiance.domain.PresenceKind.ACTIVE);
+        assertThat(byUsername.get(idle.getUsername())).isEqualTo(ai.intellistream.radiance.domain.PresenceKind.AWAY);
+    }
+
+    @Test
     void manualOverridePersistsAcrossDisconnect() {
         // Simulate reconnect: connect → set Away → disconnect → reconnect → still Away.
         // The override survives because it lives in the DB row, not the in-memory tracker.
