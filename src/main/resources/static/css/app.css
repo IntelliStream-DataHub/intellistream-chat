@@ -948,7 +948,24 @@ button.icon-btn > .icon {
   color: inherit;
   font: inherit;
 }
-.presence-menu-item:hover { background: var(--bg); }
+.presence-menu-item:hover,
+.presence-menu-item:focus {
+  background: var(--bg);
+  outline: none;
+}
+/* The "View profile" / "Set a status" items are <a> tags; reset link styling so they
+   render identically to the kind-picker buttons above them. */
+.presence-menu-link {
+  text-decoration: none;
+  /* Single-line items — they don't carry a separate hint row, so collapse the second grid track. */
+  grid-template-rows: auto;
+}
+.presence-menu-link .presence-menu-label { grid-column: 1 / -1; }
+.presence-menu-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}
 .presence-menu-dot {
   width: 10px;
   height: 10px;

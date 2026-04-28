@@ -35,12 +35,27 @@ const KINDS = [
 ];
 
 let menuEl = null;
+/** Index of the currently keyboard-focused item; -1 means nothing focused. */
+let focusedIdx = -1;
 
 function closeMenu() {
     if (menuEl) {
         menuEl.remove();
         menuEl = null;
+        focusedIdx = -1;
     }
+}
+
+/** All focusable menu items in DOM order. Used by the arrow-key nav. */
+function items() {
+    return menuEl ? [...menuEl.querySelectorAll('[role="menuitem"]')] : [];
+}
+
+function focusItem(idx) {
+    const list = items();
+    if (!list.length) return;
+    focusedIdx = (idx + list.length) % list.length;
+    list[focusedIdx].focus();
 }
 
 function openMenu(anchor) {
@@ -48,6 +63,7 @@ function openMenu(anchor) {
     menuEl = document.createElement('div');
     menuEl.className = 'presence-menu';
     menuEl.setAttribute('role', 'menu');
+
     KINDS.forEach((k) => {
         const item = document.createElement('button');
         item.type = 'button';
@@ -64,12 +80,59 @@ function openMenu(anchor) {
         });
         menuEl.appendChild(item);
     });
+
+    // Divider then "View profile" / "Set a status" — match Slack's avatar dropdown shape.
+    const divider = document.createElement('div');
+    divider.className = 'presence-menu-divider';
+    menuEl.appendChild(divider);
+
+    const profileLink = document.createElement('a');
+    profileLink.className = 'presence-menu-item presence-menu-link';
+    profileLink.setAttribute('role', 'menuitem');
+    profileLink.href = '/profile';
+    profileLink.innerHTML = '<span class="presence-menu-label">View profile</span>';
+    menuEl.appendChild(profileLink);
+
+    const statusLink = document.createElement('a');
+    statusLink.className = 'presence-menu-item presence-menu-link';
+    statusLink.setAttribute('role', 'menuitem');
+    // Profile page hosts the status emoji + clear-at editor; deep-link to its anchor.
+    statusLink.href = '/profile#status-section';
+    statusLink.innerHTML = '<span class="presence-menu-label">Set a status</span>';
+    menuEl.appendChild(statusLink);
+
     // Anchor below the avatar; constrained to the viewport via simple right-edge clamp.
     const r = anchor.getBoundingClientRect();
     menuEl.style.position = 'fixed';
     menuEl.style.top = (r.bottom + 6) + 'px';
     menuEl.style.right = Math.max(8, window.innerWidth - r.right) + 'px';
     document.body.appendChild(menuEl);
+
+    // Keyboard nav: focus the first item so the user can tab/arrow without a mouse.
+    focusItem(0);
+}
+
+function handleKeyNav(e) {
+    if (!menuEl) return;
+    if (e.key === 'Escape') {
+        e.preventDefault();
+        closeMenu();
+        return;
+    }
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        focusItem(focusedIdx + 1);
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        focusItem(focusedIdx - 1);
+    } else if (e.key === 'Home') {
+        e.preventDefault();
+        focusItem(0);
+    } else if (e.key === 'End') {
+        e.preventDefault();
+        focusItem(items().length - 1);
+    }
+    // Enter/Space on a focused item is the browser default for <button>/<a>; nothing to do.
 }
 
 async function applyKind(kind) {
@@ -97,10 +160,6 @@ function dismissOnOutsideClick(e) {
     closeMenu();
 }
 
-function dismissOnEsc(e) {
-    if (e.key === 'Escape' && menuEl) closeMenu();
-}
-
 export function init() {
     const meLink = document.querySelector('a.me');
     if (!meLink) return;
@@ -116,7 +175,17 @@ export function init() {
         if (menuEl) closeMenu();
         else openMenu(avatar);
     });
+    // Keyboard equivalent: Enter/Space on the avatar with focus toggles the menu.
+    avatar.setAttribute('tabindex', '0');
+    avatar.setAttribute('role', 'button');
+    avatar.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            if (menuEl) closeMenu();
+            else openMenu(avatar);
+        }
+    });
 
     document.addEventListener('click', dismissOnOutsideClick);
-    document.addEventListener('keydown', dismissOnEsc);
+    document.addEventListener('keydown', handleKeyNav);
 }
