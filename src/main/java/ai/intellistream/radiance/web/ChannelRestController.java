@@ -31,6 +31,7 @@ import ai.intellistream.radiance.web.dto.CreateChannelRequest;
 import ai.intellistream.radiance.web.dto.InviteRequest;
 import ai.intellistream.radiance.web.dto.MessageDto;
 import ai.intellistream.radiance.web.dto.SendMessageRequest;
+import ai.intellistream.radiance.web.dto.SetMemberRoleRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -106,6 +107,26 @@ public class ChannelRestController {
         var channel = channelService.requireById(id);
         var invitee = userService.requireByUsername(body.username());
         channelService.invite(channel, invitee, me);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Promote / demote a member's role. Admin-only — the service double-checks. Role
+     * change won't strip the last admin (service throws). The members panel polls
+     * this endpoint when an admin clicks the role-toggle button next to a name.
+     */
+    @PutMapping("/{id}/members/{username}/role")
+    public ResponseEntity<Void> setMemberRole(@PathVariable UUID id,
+                                              @PathVariable String username,
+                                              @RequestBody @Valid SetMemberRoleRequest body,
+                                              Principal principal) {
+        var me = currentUser.resolve(principal);
+        var channel = channelService.requireById(id);
+        var target = userService.requireByUsername(username);
+        switch (body.role()) {
+            case ADMIN  -> channelService.promote(channel, target, me);
+            case MEMBER -> channelService.demote(channel, target, me);
+        }
         return ResponseEntity.noContent().build();
     }
 

@@ -170,4 +170,73 @@ class ChannelFlowIT {
         assertThatThrownBy(() -> messages.post(room, alice, "x".repeat(8001)))
                 .isInstanceOf(IllegalArgumentException.class);
     }
+
+    // ---------- Promote / demote ----------
+
+    @Test
+    void adminCanPromoteAnotherMemberToAdmin() {
+        var alice = users.save(new User("kc-cf-alice5", "cf-alice5", "alice5@example.com", "Alice"));
+        var bob   = users.save(new User("kc-cf-bob5",   "cf-bob5",   "bob5@example.com",   "Bob"));
+        var room = channels.create("Promo " + System.nanoTime(), null, ChannelType.PUBLIC, alice);
+        channels.join(room, bob);
+        assertThat(channels.isAdmin(room, bob)).isFalse();
+
+        channels.promote(room, bob, alice);
+
+        assertThat(channels.isAdmin(room, bob)).isTrue();
+    }
+
+    @Test
+    void demoteRemovesAdminRoleButRefusesLastAdmin() {
+        // alice creates the channel (becomes the first/only admin) and promotes bob.
+        // Now there are two admins; bob can be demoted. After that, alice is the last
+        // admin again — demoting her must fail to keep the channel manageable.
+        var alice = users.save(new User("kc-cf-alice6", "cf-alice6", "alice6@example.com", "Alice"));
+        var bob   = users.save(new User("kc-cf-bob6",   "cf-bob6",   "bob6@example.com",   "Bob"));
+        var room = channels.create("Demote " + System.nanoTime(), null, ChannelType.PUBLIC, alice);
+        channels.join(room, bob);
+        channels.promote(room, bob, alice);
+
+        // bob → MEMBER (one admin remaining: alice)
+        channels.demote(room, bob, alice);
+        assertThat(channels.isAdmin(room, bob)).isFalse();
+        assertThat(channels.isAdmin(room, alice)).isTrue();
+
+        // demoting the last admin must throw, leaving alice still admin.
+        assertThatThrownBy(() -> channels.demote(room, alice, alice))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("last admin");
+        assertThat(channels.isAdmin(room, alice)).isTrue();
+    }
+
+    @Test
+    void nonAdminCannotPromoteOrDemote() {
+        var alice = users.save(new User("kc-cf-alice7", "cf-alice7", "alice7@example.com", "Alice"));
+        var bob   = users.save(new User("kc-cf-bob7",   "cf-bob7",   "bob7@example.com",   "Bob"));
+        var carol = users.save(new User("kc-cf-carol7", "cf-carol7", "carol7@example.com", "Carol"));
+        var room = channels.create("Auth " + System.nanoTime(), null, ChannelType.PUBLIC, alice);
+        channels.join(room, bob);
+        channels.join(room, carol);
+
+        // bob is a plain member — neither promote nor demote should work for him.
+        assertThatThrownBy(() -> channels.promote(room, carol, bob))
+                .isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(() -> channels.demote(room, alice, bob))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    @Test
+    void demotingPlainMemberIsANoOp() {
+        // Demoting someone who's already a plain member shouldn't throw — it's the
+        // idempotent path the UI hits when an admin clicks "Demote" on a row that
+        // happens to no longer be ADMIN by the time the request lands.
+        var alice = users.save(new User("kc-cf-alice8", "cf-alice8", "alice8@example.com", "Alice"));
+        var bob   = users.save(new User("kc-cf-bob8",   "cf-bob8",   "bob8@example.com",   "Bob"));
+        var room = channels.create("Idem " + System.nanoTime(), null, ChannelType.PUBLIC, alice);
+        channels.join(room, bob);
+
+        // Should not throw.
+        channels.demote(room, bob, alice);
+        assertThat(channels.isAdmin(room, bob)).isFalse();
+    }
 }
