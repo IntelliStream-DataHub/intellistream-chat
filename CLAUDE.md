@@ -65,7 +65,7 @@ src/main/java/ai/intellistream/radiance/
 
 src/main/resources/
 ├── application.yml
-├── db/migration/V1__…V13__…sql           Flyway migrations (channels → DMs → attachments → reactions → ...)
+├── db/migration/V1__init.sql             Flyway — consolidated initial schema; add V2+ for future changes
 ├── META-INF/spring.factories             registers VaultEnvironmentPostProcessor
 ├── templates/                            landing, channels, conversation, profile, admin
 └── static/{css/app.css, js/, img/}       chat/{index,shared,chrome,presence-menu}.js (ES modules),
