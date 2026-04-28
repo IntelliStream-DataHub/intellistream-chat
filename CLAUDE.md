@@ -68,7 +68,8 @@ src/main/resources/
 ├── db/migration/V1__…V13__…sql           Flyway migrations (channels → DMs → attachments → reactions → ...)
 ├── META-INF/spring.factories             registers VaultEnvironmentPostProcessor
 ├── templates/                            landing, channels, conversation, profile, admin
-└── static/{css/app.css, js/, img/}       chat.js, conversation.js, profile.js + shared modules
+└── static/{css/app.css, js/, img/}       chat/{index,shared,chrome,presence-menu}.js (ES modules),
+                                          conversation.js, profile.js, presence.js + shared
 ```
 
 ## Spring Boot 4 module split — gotchas

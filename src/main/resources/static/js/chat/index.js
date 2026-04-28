@@ -202,6 +202,8 @@ presenceMenu.init();
           return span;
         });
 
+    const myUsername = meta('me-username');
+
     const renderMembers = (members) => {
       membersCountEl.textContent = String(members.length);
       membersList.innerHTML = '';
@@ -212,6 +214,11 @@ presenceMenu.init();
         membersList.appendChild(empty);
         return;
       }
+      // The viewer's promote/demote affordance only shows when they're an admin of THIS
+      // channel. Server still gates the actual mutation, but rendering the buttons
+      // unconditionally would clutter the panel for plain members.
+      const viewerIsAdmin = members.some(
+          (m) => m.username === myUsername && m.role === 'ADMIN');
       for (const m of members) {
         const li = document.createElement('li');
         const name = m.displayName || m.username;
@@ -239,6 +246,43 @@ presenceMenu.init();
           ws.title = 'Workspace administrator';
           ws.textContent = 'admin';
           li.appendChild(ws);
+        }
+        // Promote/demote toggle. Only the channel-admin viewer sees it, never on their
+        // own row (no self-demote — also blocks the "last admin" footgun before it can
+        // even reach the server, which itself refuses the demote).
+        if (viewerIsAdmin && m.username !== myUsername) {
+          const toggle = document.createElement('button');
+          toggle.type = 'button';
+          toggle.className = 'channel-role-toggle';
+          const targetRole = m.role === 'ADMIN' ? 'MEMBER' : 'ADMIN';
+          toggle.textContent = targetRole === 'ADMIN' ? 'Make admin' : 'Demote';
+          toggle.title = targetRole === 'ADMIN'
+              ? 'Promote to channel admin'
+              : 'Demote to plain member';
+          toggle.addEventListener('click', async (ev) => {
+            ev.stopPropagation();
+            toggle.disabled = true;
+            try {
+              const res = await fetch('/api/channels/' + activeChannelId
+                  + '/members/' + encodeURIComponent(m.username) + '/role', {
+                method: 'PUT',
+                headers: headers(),
+                body: JSON.stringify({ role: targetRole }),
+              });
+              if (!res.ok && res.status !== 204) {
+                const err = await res.json().catch(() => ({}));
+                alert('Role change failed: ' + (err.message || res.statusText));
+                toggle.disabled = false;
+                return;
+              }
+              // Reload to reflect the new state — also re-derives viewerIsAdmin.
+              await loadMembers();
+            } catch (e) {
+              alert('Role change failed: ' + e.message);
+              toggle.disabled = false;
+            }
+          });
+          li.appendChild(toggle);
         }
         membersList.appendChild(li);
       }
@@ -387,9 +431,10 @@ presenceMenu.init();
           row.querySelector('.search-dropdown-author').textContent = m.authorDisplayName || m.authorUsername;
           row.querySelector('.search-dropdown-channel').textContent = channelName ? '#' + channelName : '';
           row.querySelector('.search-dropdown-time').textContent = new Date(m.createdAt).toLocaleString();
-          // bodyHtml is server-rendered + jsoup-sanitized, so innerHTML here is safe and
-          // matches the formatting the user sees in the message list. CSS line-clamps it.
-          row.querySelector('.search-dropdown-snippet').innerHTML = m.bodyHtml || '';
+          // bodySnippet is the Lucene-highlighted excerpt with <mark>-wrapped match terms
+          // (HTML-escaped before highlighting, so innerHTML is safe). Falls back to bodyHtml
+          // — the server-rendered + jsoup-sanitized full body — when no snippet is available.
+          row.querySelector('.search-dropdown-snippet').innerHTML = m.bodySnippet || m.bodyHtml || '';
           // mousedown so the input doesn't blur (and close us) before the click fires.
           row.addEventListener('mousedown', (ev) => {
             ev.preventDefault();

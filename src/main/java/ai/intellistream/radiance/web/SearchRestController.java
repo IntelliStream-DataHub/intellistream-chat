@@ -17,6 +17,7 @@
 package ai.intellistream.radiance.web;
 
 import ai.intellistream.radiance.domain.Message;
+import ai.intellistream.radiance.search.MessageIndexService;
 import ai.intellistream.radiance.security.CurrentUser;
 import ai.intellistream.radiance.security.RateLimitExceededException;
 import ai.intellistream.radiance.security.RateLimiter;
@@ -42,17 +43,20 @@ public class SearchRestController {
     private final ChannelService channelService;
     private final CurrentUser currentUser;
     private final MarkdownRenderer markdown;
+    private final MessageIndexService messageIndex;
     private final RateLimiter rateLimiter;
 
     public SearchRestController(SearchService searchService,
                                 ChannelService channelService,
                                 CurrentUser currentUser,
                                 MarkdownRenderer markdown,
+                                MessageIndexService messageIndex,
                                 RateLimiter rateLimiter) {
         this.searchService = searchService;
         this.channelService = channelService;
         this.currentUser = currentUser;
         this.markdown = markdown;
+        this.messageIndex = messageIndex;
         this.rateLimiter = rateLimiter;
     }
 
@@ -79,7 +83,13 @@ public class SearchRestController {
             rows = searchService.searchAllJoined(me, q, limit);
         }
         return rows.stream()
-                .map(m -> MessageDto.from(m, markdown.render(m.getBodyMarkdown())))
+                .map(m -> {
+                    var html = markdown.render(m.getBodyMarkdown());
+                    // Snippet is computed against the raw Markdown body (the same text the
+                    // index sees), so the highlighter agrees with the search query's tokens.
+                    var snippet = messageIndex.highlight(q, m.getBodyMarkdown(), 200);
+                    return MessageDto.fromSearchHit(m, html, snippet);
+                })
                 .toList();
     }
 }

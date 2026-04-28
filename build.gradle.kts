@@ -54,6 +54,7 @@ dependencies {
     implementation("org.apache.lucene:lucene-core:$luceneVersion")
     implementation("org.apache.lucene:lucene-analysis-common:$luceneVersion")
     implementation("org.apache.lucene:lucene-queryparser:$luceneVersion")
+    implementation("org.apache.lucene:lucene-highlighter:$luceneVersion")
 
     // Streaming multipart parser (used for attachment uploads; bypasses Spring's MultipartResolver
     // for the upload endpoint so we never buffer the file).

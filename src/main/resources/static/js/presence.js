@@ -147,4 +147,12 @@
   // Prime the state on page load — even if the STOMP client never attaches (e.g. profile
   // page), we still want the dots painted from the latest server snapshot.
   refreshAll();
+
+  // Auto-AWAY tick: a user goes AWAY when their last_active_at on the server is older
+  // than the configured threshold (radiance.presence.away-after-minutes, default 10 min).
+  // Server has no scheduled scanner; we poll periodically so the yellow dot appears
+  // client-side a minute or so after the user actually goes idle. setStatus / setKind
+  // events still fire instantly via /topic/presence — this is just the lazy-transition
+  // backstop.
+  setInterval(refreshAll, 60_000);
 })();

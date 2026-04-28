@@ -108,6 +108,28 @@ public class ChannelService {
         membership.setRole(ChannelRole.ADMIN);
     }
 
+    /**
+     * Strip the ADMIN role from a member, leaving them a plain MEMBER. Refuses to demote
+     * the last admin — every channel must keep at least one — so the actor can't paint
+     * themselves into a corner where the channel has no one who can manage it.
+     */
+    @Transactional
+    public void demote(Channel channel, User target, User actor) {
+        requireAdmin(channel, actor);
+        var membership = memberRepository.findByChannelAndUser(channel, target)
+                .orElseThrow(() -> new IllegalArgumentException("User is not a member"));
+        if (membership.getRole() != ChannelRole.ADMIN) return;
+        long otherAdmins = memberRepository.findAllByChannelOrderByJoinedAtAsc(channel).stream()
+                .filter(m -> m.getRole() == ChannelRole.ADMIN)
+                .filter(m -> !m.getUser().getId().equals(target.getId()))
+                .count();
+        if (otherAdmins == 0) {
+            throw new IllegalStateException(
+                    "Cannot demote the last admin — promote someone else first");
+        }
+        membership.setRole(ChannelRole.MEMBER);
+    }
+
     @Transactional
     public void destroy(Channel channel, User actor) {
         requireAdmin(channel, actor);
