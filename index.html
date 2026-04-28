@@ -1,0 +1,574 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Radiance — self-hosted Slack/Mattermost-style chat</title>
+<meta name="description" content="A small, fast, self-hostable workspace chat built with Spring Boot 4, Java 25, PostgreSQL, Keycloak, STOMP-over-WebSocket, Thymeleaf and vanilla JS.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><circle cx='32' cy='32' r='8' fill='%23f59e0b'/><g stroke='%23f59e0b' stroke-width='4' stroke-linecap='round'><line x1='32' y1='10' x2='32' y2='18'/><line x1='32' y1='46' x2='32' y2='54'/><line x1='10' y1='32' x2='18' y2='32'/><line x1='46' y1='32' x2='54' y2='32'/></g><g stroke='%23ea580c' stroke-width='4' stroke-linecap='round'><line x1='16' y1='16' x2='22' y2='22'/><line x1='42' y1='42' x2='48' y2='48'/><line x1='48' y1='16' x2='42' y2='22'/><line x1='22' y1='42' x2='16' y2='48'/></g></svg>">
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg-elev: #161b22;
+    --bg-code: #0a0d12;
+    --border: #30363d;
+    --text: #e6edf3;
+    --muted: #8b949e;
+    --brand: #f59e0b;
+    --brand-deep: #ea580c;
+    --brand-soft: rgba(245, 158, 11, 0.12);
+    --link: #fbbf24;
+    --max-w: 980px;
+  }
+
+  * { box-sizing: border-box; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  a { color: var(--link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  code, pre, kbd {
+    font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.9em;
+  }
+
+  code {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    color: #fde68a;
+  }
+
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 18px;
+    overflow-x: auto;
+    margin: 0;
+    line-height: 1.5;
+  }
+  pre code { background: none; border: 0; padding: 0; color: var(--text); }
+
+  /* ---------- Layout ---------- */
+
+  .wrap {
+    max-width: var(--max-w);
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  header.site {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: rgba(13, 17, 23, 0.85);
+    backdrop-filter: saturate(180%) blur(8px);
+    -webkit-backdrop-filter: saturate(180%) blur(8px);
+    border-bottom: 1px solid var(--border);
+  }
+  header.site .wrap {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding-top: 14px;
+    padding-bottom: 14px;
+  }
+  header.site .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  header.site .brand:hover { text-decoration: none; }
+  header.site nav {
+    margin-left: auto;
+    display: flex;
+    gap: 22px;
+    font-size: 0.95em;
+  }
+  header.site nav a { color: var(--muted); }
+  header.site nav a:hover { color: var(--text); text-decoration: none; }
+
+  @media (max-width: 640px) {
+    header.site nav a:not(.gh) { display: none; }
+  }
+
+  .gh {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    color: var(--text) !important;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-weight: 500;
+  }
+  .gh:hover { border-color: var(--brand); text-decoration: none; }
+  .gh svg { width: 16px; height: 16px; fill: currentColor; }
+
+  /* ---------- Hero ---------- */
+
+  .hero {
+    padding: 88px 0 64px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+    background:
+      radial-gradient(ellipse 60% 50% at 50% 0%, rgba(245, 158, 11, 0.10), transparent 70%),
+      radial-gradient(ellipse 80% 50% at 50% 30%, rgba(234, 88, 12, 0.06), transparent 70%);
+  }
+  .hero .logo {
+    width: 72px;
+    height: 72px;
+    margin-bottom: 20px;
+  }
+  .hero h1 {
+    font-size: clamp(2.2rem, 5vw, 3.4rem);
+    line-height: 1.15;
+    margin: 0 0 18px;
+    letter-spacing: -0.02em;
+    font-weight: 700;
+  }
+  .hero h1 .accent {
+    background: linear-gradient(90deg, var(--brand), var(--brand-deep));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .hero p.lede {
+    font-size: 1.18rem;
+    color: var(--muted);
+    max-width: 640px;
+    margin: 0 auto 32px;
+  }
+  .hero .cta {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    justify-content: center;
+  }
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 11px 22px;
+    border-radius: 8px;
+    font-weight: 600;
+    border: 1px solid var(--border);
+    transition: transform 80ms ease, border-color 120ms ease, background 120ms ease;
+  }
+  .btn:hover { text-decoration: none; transform: translateY(-1px); }
+  .btn-primary {
+    background: linear-gradient(180deg, var(--brand), var(--brand-deep));
+    color: #1a1a1a !important;
+    border-color: transparent;
+  }
+  .btn-primary:hover { filter: brightness(1.08); }
+  .btn-ghost {
+    background: var(--bg-elev);
+    color: var(--text) !important;
+  }
+  .btn-ghost:hover { border-color: var(--brand); }
+
+  /* ---------- Sections ---------- */
+
+  section {
+    padding: 72px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  section:last-of-type { border-bottom: 0; }
+
+  section h2 {
+    font-size: 1.85rem;
+    margin: 0 0 12px;
+    letter-spacing: -0.01em;
+  }
+  section h2 .marker {
+    display: inline-block;
+    width: 4px;
+    height: 1em;
+    background: var(--brand);
+    border-radius: 2px;
+    margin-right: 12px;
+    vertical-align: -0.12em;
+  }
+  section .intro {
+    color: var(--muted);
+    margin: 0 0 36px;
+    max-width: 720px;
+  }
+
+  /* ---------- Why ---------- */
+
+  .why p {
+    color: var(--text);
+  }
+  .why p + p { margin-top: 14px; }
+  .why blockquote {
+    margin: 28px 0 0;
+    padding: 16px 22px;
+    background: var(--brand-soft);
+    border-left: 3px solid var(--brand);
+    border-radius: 6px;
+    color: var(--text);
+  }
+
+  /* ---------- Features ---------- */
+
+  .features {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 18px;
+  }
+  .feature {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px 22px;
+    transition: border-color 120ms ease, transform 120ms ease;
+  }
+  .feature:hover {
+    border-color: var(--brand);
+    transform: translateY(-2px);
+  }
+  .feature h3 {
+    margin: 0 0 8px;
+    font-size: 1.05rem;
+    color: var(--text);
+  }
+  .feature p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.95em;
+  }
+
+  /* ---------- Stack ---------- */
+
+  .stack-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 24px;
+  }
+  .stack-col h3 {
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--brand);
+    margin: 0 0 12px;
+  }
+  .stack-col ul { padding: 0; margin: 0; list-style: none; }
+  .stack-col li {
+    padding: 6px 0;
+    color: var(--text);
+    border-bottom: 1px dashed var(--border);
+    font-size: 0.95em;
+  }
+  .stack-col li:last-child { border-bottom: 0; }
+  .stack-col li b { color: var(--text); font-weight: 600; }
+  .stack-col li span { color: var(--muted); }
+
+  /* ---------- Quickstart ---------- */
+
+  .qs-step {
+    margin-bottom: 22px;
+  }
+  .qs-step h3 {
+    margin: 0 0 8px;
+    font-size: 1rem;
+    color: var(--text);
+  }
+  .qs-step h3 .num {
+    display: inline-block;
+    background: var(--brand-soft);
+    color: var(--brand);
+    width: 24px;
+    height: 24px;
+    line-height: 24px;
+    text-align: center;
+    border-radius: 50%;
+    font-size: 0.85rem;
+    margin-right: 8px;
+    vertical-align: -0.1em;
+  }
+  .qs-note {
+    color: var(--muted);
+    font-size: 0.92em;
+    margin: 8px 0 0;
+  }
+
+  /* ---------- Footer ---------- */
+
+  footer {
+    padding: 36px 0 48px;
+    color: var(--muted);
+    font-size: 0.92em;
+    text-align: center;
+    border-top: 1px solid var(--border);
+  }
+  footer a { color: var(--muted); }
+  footer a:hover { color: var(--text); }
+  footer .sep { margin: 0 10px; opacity: 0.4; }
+</style>
+</head>
+<body>
+
+<header class="site">
+  <div class="wrap">
+    <a href="#top" class="brand">
+      <svg width="28" height="28" viewBox="0 0 64 64" aria-hidden="true">
+        <circle cx="32" cy="32" r="8" fill="#f59e0b"/>
+        <g stroke="#f59e0b" stroke-width="4" stroke-linecap="round">
+          <line x1="32" y1="10" x2="32" y2="18"/>
+          <line x1="32" y1="46" x2="32" y2="54"/>
+          <line x1="10" y1="32" x2="18" y2="32"/>
+          <line x1="46" y1="32" x2="54" y2="32"/>
+        </g>
+        <g stroke="#ea580c" stroke-width="4" stroke-linecap="round">
+          <line x1="16" y1="16" x2="22" y2="22"/>
+          <line x1="42" y1="42" x2="48" y2="48"/>
+          <line x1="48" y1="16" x2="42" y2="22"/>
+          <line x1="22" y1="42" x2="16" y2="48"/>
+        </g>
+      </svg>
+      Radiance
+    </a>
+    <nav>
+      <a href="#why">Why</a>
+      <a href="#features">Features</a>
+      <a href="#stack">Stack</a>
+      <a href="#quickstart">Quick start</a>
+      <!-- TODO: replace href with the real GitHub URL -->
+      <a class="gh" href="https://github.com/" rel="noopener">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </nav>
+  </div>
+</header>
+
+<a id="top"></a>
+<section class="hero">
+  <div class="wrap">
+    <svg class="logo" viewBox="0 0 64 64" aria-hidden="true">
+      <circle cx="32" cy="32" r="10" fill="#f59e0b"/>
+      <g stroke="#f59e0b" stroke-width="4.5" stroke-linecap="round">
+        <line x1="32" y1="8"  x2="32" y2="17"/>
+        <line x1="32" y1="47" x2="32" y2="56"/>
+        <line x1="8"  y1="32" x2="17" y2="32"/>
+        <line x1="47" y1="32" x2="56" y2="32"/>
+      </g>
+      <g stroke="#ea580c" stroke-width="4.5" stroke-linecap="round">
+        <line x1="14" y1="14" x2="20" y2="20"/>
+        <line x1="44" y1="44" x2="50" y2="50"/>
+        <line x1="50" y1="14" x2="44" y2="20"/>
+        <line x1="20" y1="44" x2="14" y2="50"/>
+      </g>
+    </svg>
+    <h1>Workplace chat <span class="accent">you actually own</span></h1>
+    <p class="lede">
+      Radiance is a small, fast, self-hostable Slack/Mattermost-style chat
+      app. Built with Spring Boot 4, Java 25, PostgreSQL, Keycloak,
+      STOMP-over-WebSocket, Thymeleaf and vanilla JS &mdash; no SPA framework,
+      no telemetry, no SSO paywall.
+    </p>
+    <div class="cta">
+      <!-- TODO: replace href with the real GitHub URL -->
+      <a class="btn btn-primary" href="https://github.com/" rel="noopener">
+        <svg width="18" height="18" viewBox="0 0 16 16" aria-hidden="true" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        View on GitHub
+      </a>
+      <a class="btn btn-ghost" href="#quickstart">Quick start</a>
+    </div>
+  </div>
+</section>
+
+<section id="why" class="why">
+  <div class="wrap">
+    <h2><span class="marker"></span>Why this exists</h2>
+    <p>
+      Workplace chat is important infrastructure. We should stop handing
+      the keys to a vendor whose interests do not include making sure you
+      can still read your own conversations next year. The ability to
+      self-host isn't a feature &mdash; it's a right.
+    </p>
+    <p>
+      <b>Slack</b> is mostly good but proprietary, cloud-only, and your
+      archive is governed by the vendor's pricing tiers and retention rules.
+      <b>Mattermost</b> sold itself as the open-source alternative, then
+      paywalled SAML and OAuth2 logins and capped free history at 10,000
+      messages. <b>Microsoft Teams</b> updates and restarts every time you
+      open it, and the UI freezes for seconds.
+    </p>
+    <blockquote>
+      For me, a chat app is something I deploy on a box I control. Fast UI.
+      No message cap. No SSO paywall. No telemetry. No vendor able to change
+      the terms a year from now because the funding round demanded it.
+    </blockquote>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <h2><span class="marker"></span>Features</h2>
+    <p class="intro">Everything you'd expect from a real team chat &mdash; channels, DMs, threads, attachments, search &mdash; with no parts behind a paywall.</p>
+    <div class="features">
+      <div class="feature">
+        <h3>Channels &amp; DMs</h3>
+        <p>Public and private channels with admin promotion. 1:1 and group direct messages, sharing the sidebar with channels.</p>
+      </div>
+      <div class="feature">
+        <h3>Real-time over STOMP</h3>
+        <p>Messages, edits, deletes and avatar updates fan out live over native STOMP-over-WebSocket. No SockJS, no polling.</p>
+      </div>
+      <div class="feature">
+        <h3>Threads, reactions, mentions</h3>
+        <p>Threaded replies, emoji reactions, <code>@username</code> mentions with per-channel unread + mention badges, typing indicators and message permalinks.</p>
+      </div>
+      <div class="feature">
+        <h3>Markdown messages</h3>
+        <p>CommonMark + GFM tables + autolinks, sanitized server-side with jsoup. Fenced-code syntax highlighting and YouTube embeds.</p>
+      </div>
+      <div class="feature">
+        <h3>Full-text search</h3>
+        <p>Embedded Apache Lucene index with three scopes: per-channel, across joined channels, and (admin-only) everywhere.</p>
+      </div>
+      <div class="feature">
+        <h3>Attachments &amp; avatars</h3>
+        <p>Streamed multipart uploads (no buffering), images open in a lightbox, profile pictures resized server-side and broadcast on change.</p>
+      </div>
+      <div class="feature">
+        <h3>Notifications</h3>
+        <p>In-tab toast plus opportunistic OS notification (Notification API) on <code>@</code>-mentions when permission is granted.</p>
+      </div>
+      <div class="feature">
+        <h3>Keycloak OIDC</h3>
+        <p>OAuth2/OIDC sign-in via Keycloak. Two filter chains: stateless bearer JWT for the API, stateful OIDC session for pages.</p>
+      </div>
+      <div class="feature">
+        <h3>Self-hostable</h3>
+        <p>One JVM, three external dependencies (Keycloak, Postgres, a data directory). Apache 2.0 licensed &mdash; fork it, run it, ship it.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="stack">
+  <div class="wrap">
+    <h2><span class="marker"></span>Stack</h2>
+    <p class="intro">Boring, well-understood pieces. No npm bundler, no SPA framework, no Spring Cloud, no reactive layer.</p>
+    <div class="stack-grid">
+      <div class="stack-col">
+        <h3>Runtime</h3>
+        <ul>
+          <li><b>Java 25</b> <span>&mdash; toolchain</span></li>
+          <li><b>Spring Boot 4.0.5</b> <span>&mdash; Gradle Kotlin DSL</span></li>
+          <li><b>Tomcat 11</b> <span>&mdash; virtual threads on</span></li>
+          <li><b>PostgreSQL 18</b> <span>&mdash; <code>gen_random_uuid()</code></span></li>
+          <li><b>Keycloak 26</b> <span>&mdash; OIDC issuer</span></li>
+        </ul>
+      </div>
+      <div class="stack-col">
+        <h3>Storage &amp; search</h3>
+        <ul>
+          <li><b>Hibernate ORM 7.2</b> <span>&mdash; <code>ddl-auto=validate</code></span></li>
+          <li><b>Flyway 11</b> <span>&mdash; migrations under <code>db/migration/</code></span></li>
+          <li><b>Apache Lucene 10.4</b> <span>&mdash; embedded index at <code>./data/lucene</code></span></li>
+          <li><b>HikariCP</b> <span>&mdash; default connection pool</span></li>
+        </ul>
+      </div>
+      <div class="stack-col">
+        <h3>Domain libraries</h3>
+        <ul>
+          <li><b>CommonMark 0.22</b> <span>&mdash; GFM tables + autolink</span></li>
+          <li><b>jsoup 1.18</b> <span>&mdash; HTML sanitization</span></li>
+          <li><b>Apache Tika</b> <span>&mdash; MIME sniffing on upload</span></li>
+          <li><b>Commons FileUpload 2.0</b> <span>&mdash; streaming multipart</span></li>
+        </ul>
+      </div>
+      <div class="stack-col">
+        <h3>Frontend</h3>
+        <ul>
+          <li><b>Thymeleaf</b> <span>&mdash; server-side templates</span></li>
+          <li><b>Vanilla JS</b> <span>&mdash; ES modules, no bundler</span></li>
+          <li><b>StompJS</b> <span>&mdash; vendored, native WS only</span></li>
+          <li><b>highlight.js</b> <span>&mdash; vendored</span></li>
+        </ul>
+      </div>
+      <div class="stack-col">
+        <h3>Tests</h3>
+        <ul>
+          <li><b>JUnit 5 + AssertJ + Mockito</b></li>
+          <li><b>Testcontainers</b> <span>&mdash; real Postgres, no H2</span></li>
+          <li><b>spring-security-test</b></li>
+          <li><span>190+ tests across 21 classes</span></li>
+        </ul>
+      </div>
+      <div class="stack-col">
+        <h3>Notably absent</h3>
+        <ul>
+          <li>No React / Vue / Svelte</li>
+          <li>No npm bundler</li>
+          <li>No reactive stack</li>
+          <li>No Spring Cloud, no external broker</li>
+          <li>No H2 / HSQLDB</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="quickstart">
+  <div class="wrap">
+    <h2><span class="marker"></span>Quick start</h2>
+    <p class="intro">Two commands once you have Java 25 and Podman installed.</p>
+
+    <div class="qs-step">
+      <h3><span class="num">1</span>Start Postgres + Keycloak</h3>
+<pre><code>podman compose up -d</code></pre>
+      <p class="qs-note">Brings up Postgres 18 and Keycloak 26 with the <code>chat</code> realm pre-imported (users <code>alice</code> / <code>alice</code> and <code>bob</code> / <code>bob</code>).</p>
+    </div>
+
+    <div class="qs-step">
+      <h3><span class="num">2</span>Run the app</h3>
+<pre><code>./gradlew bootRun</code></pre>
+      <p class="qs-note">Boots on port 8080. Open <a href="http://localhost:8080">http://localhost:8080</a> and sign in. Keycloak admin console: <a href="http://localhost:8081">http://localhost:8081</a> (<code>admin</code> / <code>admin</code>).</p>
+    </div>
+
+    <div class="qs-step">
+      <h3><span class="num">3</span>Run the tests</h3>
+<pre><code>systemctl --user enable --now podman.socket
+export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock
+./gradlew test</code></pre>
+      <p class="qs-note">Testcontainers needs a Docker-compatible socket; the lines above expose Podman's. The first run pulls <code>postgres:18-alpine</code>; subsequent runs finish in 1&ndash;2 minutes.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    Apache 2.0 licensed. Self-hostable. Auditable.
+    <span class="sep">&bull;</span>
+    <!-- TODO: replace href with the real GitHub URL -->
+    <a href="https://github.com/" rel="noopener">GitHub</a>
+    <span class="sep">&bull;</span>
+    <a href="https://github.com/" rel="noopener">Issues</a>
+    <span class="sep">&bull;</span>
+    Built with Spring Boot 4 + Java 25
+  </div>
+</footer>
+
+</body>
+</html>
