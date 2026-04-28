@@ -629,18 +629,18 @@ Then make sure new self-registered accounts get the `user` realm role automatica
 
 ## Configuration
 
-Every override is plain Spring Boot env-var substitution against `application.yml` — no profiles, no surprises. A [Vault / OpenBao secret backend](#optional-vault--openbao-secret-backend) is available as an opt-in for production; off by default so the env-var path Just Works.
+Every override is plain Spring Boot env-var substitution against `application.yml`. The `dev` Spring profile (auto-active on `./gradlew bootRun`, see `application-dev.properties`) overrides the maintainer-specific LAN values; production deploys leave the profile off and supply the env vars below. A [Vault / OpenBao secret backend](#optional-vault--openbao-secret-backend) is available as an opt-in for production; off by default so the env-var path Just Works.
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `RADIANCE_DB_URL` | `jdbc:postgresql://localhost:5432/radiance_chat` | JDBC URL for the Postgres instance |
 | `RADIANCE_DB_USERNAME` | `radiance` | Postgres user |
 | `RADIANCE_DB_PASSWORD` | `radiance` — **rotate in production** | Postgres password — **set this in production** |
-| `KEYCLOAK_ISSUER_URI` | `http://192.168.100.98:8081/realms/radiance` | Keycloak realm issuer (used by both OIDC client and resource server) |
+| `KEYCLOAK_ISSUER_URI` | `http://localhost:8081/realms/radiance` | Keycloak realm issuer (used by both OIDC client and resource server). Must match the OIDC issuer in `keycloak/realm.json`'s redirect-URI list — change one and the other will reject the redirect with `400 invalid_redirect_uri`. |
 | `KEYCLOAK_CLIENT_ID` | `radiance` | OIDC client id |
 | `KEYCLOAK_CLIENT_SECRET` | `(generated; rotate in production)` | OIDC client secret — **set this in production** |
 | `SERVER_PORT` | `8080` | HTTP port the Boot app binds to |
-| `SERVER_ADDRESS` | `192.168.100.98` | Network interface to bind (`0.0.0.0` to listen on all) |
+| `SERVER_ADDRESS` | `127.0.0.1` | Network interface to bind. The dev profile overrides this to a LAN IP for cross-device testing; prod typically keeps `127.0.0.1` and fronts the JVM with nginx. |
 | `RADIANCE_ATTACHMENTS_DIR` | `./data/attachments` | Where uploaded message attachments are stored |
 | `RADIANCE_AVATARS_DIR` | `./data/avatars` | Where uploaded avatars are stored |
 | `RADIANCE_BRANDING_DIR` | `./data/branding` | Where the admin-uploaded logo is stored |
