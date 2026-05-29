@@ -17,6 +17,8 @@
 package ai.intellistream.radiance.web;
 
 import ai.intellistream.radiance.security.CurrentUser;
+import ai.intellistream.radiance.security.RateLimitExceededException;
+import ai.intellistream.radiance.security.RateLimiter;
 import ai.intellistream.radiance.service.AttachmentService;
 import ai.intellistream.radiance.service.ChannelService;
 import ai.intellistream.radiance.service.MarkdownRenderer;
@@ -40,6 +42,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.security.Principal;
+import java.time.Duration;
 import java.util.List;
 
 @RestController
@@ -53,6 +56,7 @@ public class MessageRestController {
     private final MarkdownRenderer markdown;
     private final CurrentUser currentUser;
     private final SimpMessagingTemplate broker;
+    private final RateLimiter rateLimiter;
 
     public MessageRestController(MessageService messageService,
                                  AttachmentService attachmentService,
@@ -60,7 +64,8 @@ public class MessageRestController {
                                  ReactionService reactionService,
                                  MarkdownRenderer markdown,
                                  CurrentUser currentUser,
-                                 SimpMessagingTemplate broker) {
+                                 SimpMessagingTemplate broker,
+                                 RateLimiter rateLimiter) {
         this.messageService = messageService;
         this.attachmentService = attachmentService;
         this.channelService = channelService;
@@ -68,6 +73,7 @@ public class MessageRestController {
         this.markdown = markdown;
         this.currentUser = currentUser;
         this.broker = broker;
+        this.rateLimiter = rateLimiter;
     }
 
     @PostMapping("/{id}/reactions")
@@ -75,6 +81,9 @@ public class MessageRestController {
                                   @RequestBody @Valid ReactionRequest body,
                                   Principal principal) {
         var me = currentUser.resolve(principal);
+        if (!rateLimiter.tryAcquire(me.getUsername(), "reaction-toggle", 60, Duration.ofMinutes(1))) {
+            throw new RateLimitExceededException("reaction rate exceeded");
+        }
         var message = reactionService.addReaction(id, me, body.emoji());
         return broadcastUpdate(message, me);
     }
@@ -84,6 +93,9 @@ public class MessageRestController {
                                                @PathVariable String emoji,
                                                Principal principal) {
         var me = currentUser.resolve(principal);
+        if (!rateLimiter.tryAcquire(me.getUsername(), "reaction-toggle", 60, Duration.ofMinutes(1))) {
+            throw new RateLimitExceededException("reaction rate exceeded");
+        }
         var message = reactionService.removeReaction(id, me, emoji);
         broadcastUpdate(message, me);
         return ResponseEntity.noContent().build();
@@ -102,6 +114,10 @@ public class MessageRestController {
                            @RequestBody @Valid EditMessageRequest body,
                            Principal principal) {
         var me = currentUser.resolve(principal);
+        // Each edit rewrites the Lucene index entry too; cap to keep that work bounded.
+        if (!rateLimiter.tryAcquire(me.getUsername(), "msg-edit", 30, Duration.ofMinutes(1))) {
+            throw new RateLimitExceededException("edit rate exceeded");
+        }
         var updated = messageService.edit(id, me, body.body());
         var attachments = attachmentService.findForMessage(updated);
         var reactions = reactionService.groupingsFor(updated, me);
@@ -113,6 +129,9 @@ public class MessageRestController {
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> delete(@PathVariable Long id, Principal principal) {
         var me = currentUser.resolve(principal);
+        if (!rateLimiter.tryAcquire(me.getUsername(), "msg-delete", 30, Duration.ofMinutes(1))) {
+            throw new RateLimitExceededException("delete rate exceeded");
+        }
         var deleted = messageService.delete(id, me);
         broker.convertAndSend("/topic/channels/" + deleted.channelId(),
                 MessageEvent.deleted(deleted.id(), deleted.channelId(), deleted.parentId()));
@@ -146,6 +165,10 @@ public class MessageRestController {
                             @RequestBody @Valid SendMessageRequest body,
                             Principal principal) {
         var me = currentUser.resolve(principal);
+        // Thread replies share the WS-send budget conceptually; use the same 30/min cap.
+        if (!rateLimiter.tryAcquire(me.getUsername(), "http-send", 30, Duration.ofMinutes(1))) {
+            throw new RateLimitExceededException("reply rate exceeded");
+        }
         var saved = messageService.replyInThread(id, me, body.body());
         var dto = MessageDto.from(saved, markdown.render(saved.getBodyMarkdown()));
         broker.convertAndSend("/topic/channels/" + dto.channelId(), MessageEvent.created(dto));

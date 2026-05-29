@@ -17,6 +17,8 @@
 package ai.intellistream.radiance.web;
 
 import ai.intellistream.radiance.security.CurrentUser;
+import ai.intellistream.radiance.security.RateLimitExceededException;
+import ai.intellistream.radiance.security.RateLimiter;
 import ai.intellistream.radiance.service.AttachmentService;
 import ai.intellistream.radiance.service.ChannelService;
 import ai.intellistream.radiance.service.MarkdownRenderer;
@@ -37,6 +39,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 
@@ -53,6 +56,7 @@ public class ChannelRestController {
     private final PollService pollService;
     private final MarkdownRenderer markdown;
     private final CurrentUser currentUser;
+    private final RateLimiter rateLimiter;
 
     public ChannelRestController(ChannelService channelService,
                                  MessageService messageService,
@@ -62,7 +66,8 @@ public class ChannelRestController {
                                  UserService userService,
                                  PollService pollService,
                                  MarkdownRenderer markdown,
-                                 CurrentUser currentUser) {
+                                 CurrentUser currentUser,
+                                 RateLimiter rateLimiter) {
         this.channelService = channelService;
         this.messageService = messageService;
         this.attachmentService = attachmentService;
@@ -72,6 +77,7 @@ public class ChannelRestController {
         this.pollService = pollService;
         this.markdown = markdown;
         this.currentUser = currentUser;
+        this.rateLimiter = rateLimiter;
     }
 
     @GetMapping
@@ -195,6 +201,11 @@ public class ChannelRestController {
                                            @RequestParam(defaultValue = "25") int radius,
                                            Principal principal) {
         var me = currentUser.resolve(principal);
+        // Permalink fan-out: 60/min is generous for a human clicking around but caps a hostile
+        // loop that would otherwise spike DB on a hot channel.
+        if (!rateLimiter.tryAcquire(me.getUsername(), "msg-around", 60, Duration.ofMinutes(1))) {
+            throw new RateLimitExceededException("around rate exceeded");
+        }
         var channel = channelService.requireById(id);
         var rows = messageService.around(channel, me, messageId, radius);
         var attachments = attachmentService.findForMessages(rows);
@@ -216,6 +227,11 @@ public class ChannelRestController {
                            @RequestBody @Valid SendMessageRequest body,
                            Principal principal) {
         var me = currentUser.resolve(principal);
+        // Mirror the WS limiter — without this, a client can trivially bypass the 30/min cap
+        // on /app/channels/{id}/send by switching transports to HTTP.
+        if (!rateLimiter.tryAcquire(me.getUsername(), "http-send", 30, Duration.ofMinutes(1))) {
+            throw new RateLimitExceededException("send rate exceeded");
+        }
         var channel = channelService.requireById(id);
         var saved = messageService.post(channel, me, body.body());
         return MessageDto.from(saved, markdown.render(saved.getBodyMarkdown()));

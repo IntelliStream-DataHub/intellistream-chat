@@ -21,6 +21,7 @@ import ai.intellistream.radiance.domain.ChannelType;
 import ai.intellistream.radiance.domain.User;
 import ai.intellistream.radiance.repository.UserRepository;
 import ai.intellistream.radiance.security.CurrentUser;
+import ai.intellistream.radiance.security.RateLimiter;
 import ai.intellistream.radiance.service.AttachmentService;
 import ai.intellistream.radiance.service.ChannelService;
 import ai.intellistream.radiance.service.MarkdownRenderer;
@@ -99,7 +100,7 @@ class ChannelMembersListIT {
     void wire() {
         currentUser = mock(CurrentUser.class);
         controller = new ChannelRestController(channels, messages, attachments, reactions,
-                reads, userService, pollService, markdown, currentUser);
+                reads, userService, pollService, markdown, currentUser, new RateLimiter());
     }
 
     private User newUser(String prefix) {
