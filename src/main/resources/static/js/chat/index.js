@@ -1769,7 +1769,9 @@ presenceMenu.init();
     // Remove from thread panel if present, and close if the parent itself got deleted.
     document.querySelectorAll('#thread-replies li[data-id="' + CSS.escape(id) + '"]').forEach(el => el.remove());
     const tp = document.querySelector('#thread-parent [data-id]');
-    if (tp && tp.dataset.id === id) closeThread();
+    // dataset.id is always a string; id may arrive as a JSON number via the STOMP 'deleted'
+    // frame. Coerce so the strict-equal doesn't silently miss the remote-delete case.
+    if (tp && tp.dataset.id === String(id)) closeThread();
     positionDayDividers();
   };
 

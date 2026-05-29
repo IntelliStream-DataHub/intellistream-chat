@@ -46,7 +46,7 @@ import java.util.stream.Collectors;
  * on-disk storage root; access control is the conversation's membership set, looked up
  * via the parent {@link ConversationMessage}.
  *
- * <p>{@link #requireForDownload(UUID, UUID, User)} intentionally throws
+ * <p>{@link #requireForDownload(Long, Long, User)} intentionally throws
  * {@link NoSuchElementException} for both "doesn't exist" and "viewer isn't a member" so
  * callers can render a 404 in either case — preventing existence leaks across DMs.
  */

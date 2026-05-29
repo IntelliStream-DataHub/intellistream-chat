@@ -25,6 +25,7 @@ import ai.intellistream.radiance.service.MessageService;
 import ai.intellistream.radiance.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -92,6 +93,7 @@ public class RemindCommand implements SlashCommand {
     }
 
     @Override
+    @Transactional
     public Message execute(Channel channel, User author, String args) {
         var parsed = parse(args, author);
         // Reuse the parent's @-mention infrastructure: when there's a target user, the message
@@ -100,6 +102,8 @@ public class RemindCommand implements SlashCommand {
         var reminder = new Reminder(channel, author, parsed.target, parsed.fireAt, parsed.body);
         reminderRepo.save(reminder);
         // Confirm back into the channel as the requester so they see the queue actually took it.
+        // The post() call enforces requireWriteAccess — under @Transactional, an AccessDenied
+        // throw rolls back the just-saved Reminder so non-members can't queue work via /remind.
         var confirmation = "⏰ Reminder set for " + describeWhen(parsed.fireAt)
                 + (parsed.target == null ? "" : " (will tag @" + parsed.target.getUsername() + ")")
                 + ": _" + parsed.body + "_";

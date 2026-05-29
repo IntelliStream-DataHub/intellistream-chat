@@ -23,7 +23,7 @@ import java.util.regex.Pattern;
 /**
  * Authorize STOMP {@code SUBSCRIBE} frames so a connected user can only subscribe to channels
  * they're allowed to read. Without this, anyone with a valid handshake could
- * {@code SUBSCRIBE /topic/channels/{any-uuid}} and silently observe private channels.
+ * {@code SUBSCRIBE /topic/channels/{any-id}} and silently observe private channels.
  *
  * <p>The resolved {@link User} is cached on the STOMP session attributes on the {@code CONNECT}
  * frame; subsequent {@code SUBSCRIBE} frames read from the cache instead of going back through
@@ -35,9 +35,9 @@ import java.util.regex.Pattern;
 public class StompAuthorizationConfig implements WebSocketMessageBrokerConfigurer {
 
     static final Pattern CHANNEL_TOPIC =
-            Pattern.compile("^/topic/channels/([0-9a-fA-F-]{36})(?:/[a-zA-Z0-9_-]+)?$");
+            Pattern.compile("^/topic/channels/(\\d+)(?:/[a-zA-Z0-9_-]+)?$");
     static final Pattern CONVERSATION_TOPIC =
-            Pattern.compile("^/topic/conversations/([0-9a-fA-F-]{36})(?:/[a-zA-Z0-9_-]+)?$");
+            Pattern.compile("^/topic/conversations/(\\d+)(?:/[a-zA-Z0-9_-]+)?$");
     static final String SESSION_USER_KEY = "radiance.chatUser";
 
     private final ChannelService channelService;
