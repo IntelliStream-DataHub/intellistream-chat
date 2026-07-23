@@ -2038,11 +2038,17 @@ presenceMenu.init();
     if (e.key === 'Escape' && threadPanel && !threadPanel.hidden) closeThread();
   });
 
+  let threadReq = 0;
   async function openThread(parentId) {
     if (!threadPanel) return;
+    // Monotonic request id (like the search/preview paths): if the user clicks a different thread
+    // before this fetch lands, drop the stale response so the panel always shows the last click.
+    const myReq = ++threadReq;
     const res = await fetch('/api/messages/' + parentId + '/thread');
+    if (myReq !== threadReq) return; // superseded by a newer openThread
     if (!res.ok) { alert('Could not load thread'); return; }
     const data = await res.json();
+    if (myReq !== threadReq) return; // superseded while awaiting the body
     openThreadId = parentId;
     threadParentEl.innerHTML = '';
     threadRepliesEl.innerHTML = '';
