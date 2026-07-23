@@ -2,6 +2,7 @@ package ai.intellistream.threadorbit.config;
 
 import ai.intellistream.threadorbit.domain.User;
 import ai.intellistream.threadorbit.security.CurrentUser;
+import ai.intellistream.threadorbit.security.RateLimiter;
 import ai.intellistream.threadorbit.service.ChannelService;
 import ai.intellistream.threadorbit.service.ConversationService;
 import org.springframework.context.annotation.Configuration;
@@ -43,13 +44,16 @@ public class StompAuthorizationConfig implements WebSocketMessageBrokerConfigure
     private final ChannelService channelService;
     private final ConversationService conversationService;
     private final CurrentUser currentUser;
+    private final RateLimiter rateLimiter;
 
     public StompAuthorizationConfig(ChannelService channelService,
                                     ConversationService conversationService,
-                                    CurrentUser currentUser) {
+                                    CurrentUser currentUser,
+                                    RateLimiter rateLimiter) {
         this.channelService = channelService;
         this.conversationService = conversationService;
         this.currentUser = currentUser;
+        this.rateLimiter = rateLimiter;
     }
 
     @Override
@@ -82,6 +86,17 @@ public class StompAuthorizationConfig implements WebSocketMessageBrokerConfigure
                 var channelMatch = CHANNEL_TOPIC.matcher(dest);
                 var convMatch = CONVERSATION_TOPIC.matcher(dest);
                 if (!channelMatch.matches() && !convMatch.matches()) return message;
+
+                // Each channel/conversation SUBSCRIBE runs 1-2 DB queries (requireById +
+                // requireMember). Cap per session so a client can't flood SUBSCRIBE frames to
+                // amplify DB load. 200/min comfortably covers the initial burst of subscribing to
+                // every sidebar channel on connect; excess frames are dropped (return null) rather
+                // than throwing, so the connection isn't torn down.
+                var sessionId = accessor.getSessionId();
+                if (sessionId != null
+                        && !rateLimiter.tryAcquire(sessionId, "ws-subscribe", 200, java.time.Duration.ofMinutes(1))) {
+                    return null;
+                }
 
                 var user = resolveCached(accessor.getSessionAttributes(), accessor.getUser());
 
