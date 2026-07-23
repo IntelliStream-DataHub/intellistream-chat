@@ -107,7 +107,8 @@ class PresenceFlowIT {
         tracker.resetForTests();
         currentUser = mock(CurrentUser.class);
         broker = mock(SimpMessagingTemplate.class);
-        controller = new PresenceRestController(presenceService, currentUser, broker);
+        controller = new PresenceRestController(presenceService, currentUser, broker,
+                new ai.intellistream.threadorbit.security.RateLimiter());
         listener = new PresenceEventListener(tracker, presenceService, users, broker);
     }
 

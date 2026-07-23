@@ -200,6 +200,7 @@ class PollFlowIT {
         var bob = newUser("bob");
         var room = channels.create("Vote-" + SEQ.incrementAndGet(),
                 null, ChannelType.PUBLIC, alice);
+        channels.join(room, bob); // voting requires membership (SEC-4)
         when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
         var event = slashPoll(room.getId(), "/poll Lunch? | Pizza | Burger");
         var pollId = event.message().poll().id();
@@ -231,6 +232,7 @@ class PollFlowIT {
         var bob = newUser("bob");
         var room = channels.create("Move-" + SEQ.incrementAndGet(),
                 null, ChannelType.PUBLIC, alice);
+        channels.join(room, bob); // voting requires membership (SEC-4)
         when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
         var event = slashPoll(room.getId(), "/poll Lunch? | Pizza | Burger");
         var pollId = event.message().poll().id();
@@ -255,6 +257,7 @@ class PollFlowIT {
         var bob = newUser("bob");
         var room = channels.create("Idem-" + SEQ.incrementAndGet(),
                 null, ChannelType.PUBLIC, alice);
+        channels.join(room, bob); // voting requires membership (SEC-4)
         when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
         var event = slashPoll(room.getId(), "/poll Lunch? | Pizza | Burger");
         var pollId = event.message().poll().id();
@@ -274,6 +277,7 @@ class PollFlowIT {
         var bob = newUser("bob");
         var room = channels.create("Rm-" + SEQ.incrementAndGet(),
                 null, ChannelType.PUBLIC, alice);
+        channels.join(room, bob); // voting requires membership (SEC-4)
         when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
         var event = slashPoll(room.getId(), "/poll Lunch? | Pizza | Burger");
         var pollId = event.message().poll().id();
@@ -298,6 +302,7 @@ class PollFlowIT {
         var dan = newUser("dan");
         var room = channels.create("Tally-" + SEQ.incrementAndGet(),
                 null, ChannelType.PUBLIC, alice);
+        channels.join(room, bob); channels.join(room, carol); channels.join(room, dan); // voting requires membership (SEC-4)
         when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
         var event = slashPoll(room.getId(), "/poll Lunch? | Pizza | Burger | Salad");
         var pollId = event.message().poll().id();
@@ -349,6 +354,7 @@ class PollFlowIT {
         var bob = newUser("bob");
         var room = channels.create("X-" + SEQ.incrementAndGet(),
                 null, ChannelType.PUBLIC, alice);
+        channels.join(room, bob); // voting requires membership (SEC-4)
         when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
         var eventA = slashPoll(room.getId(), "/poll A? | a1 | a2");
         // Reset to capture the next "created" cleanly without picking up A's poll-vote events.

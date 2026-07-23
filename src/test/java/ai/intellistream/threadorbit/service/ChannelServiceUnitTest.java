@@ -41,7 +41,11 @@ class ChannelServiceUnitTest {
         when(channelRepo.findBySlug(any())).thenReturn(Optional.empty());
         when(channelRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        var service = new ChannelService(channelRepo, memberRepo);
+        var service = new ChannelService(channelRepo, memberRepo,
+                mock(ai.intellistream.threadorbit.repository.MessageRepository.class),
+                mock(ai.intellistream.threadorbit.repository.AttachmentRepository.class),
+                mock(ai.intellistream.threadorbit.search.MessageIndexService.class),
+                mock(ai.intellistream.threadorbit.service.AttachmentService.class));
         var creator = new User("sub", "alice", "a@e", "Alice");
 
         var channel = service.create("  Hello, World!  ", "description", ChannelType.PUBLIC, creator);
@@ -58,7 +62,11 @@ class ChannelServiceUnitTest {
         var memberRepo = mock(ChannelMemberRepository.class);
         when(channelRepo.findBySlug(any())).thenReturn(Optional.empty());
 
-        var service = new ChannelService(channelRepo, memberRepo);
+        var service = new ChannelService(channelRepo, memberRepo,
+                mock(ai.intellistream.threadorbit.repository.MessageRepository.class),
+                mock(ai.intellistream.threadorbit.repository.AttachmentRepository.class),
+                mock(ai.intellistream.threadorbit.search.MessageIndexService.class),
+                mock(ai.intellistream.threadorbit.service.AttachmentService.class));
         var creator = new User("sub", "alice", "a@e", "Alice");
 
         assertThatThrownBy(() -> service.create("!!!", null, ChannelType.PUBLIC, creator))
