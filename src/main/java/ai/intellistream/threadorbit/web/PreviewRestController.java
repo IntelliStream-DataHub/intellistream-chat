@@ -16,12 +16,17 @@
 
 package ai.intellistream.threadorbit.web;
 
+import ai.intellistream.threadorbit.security.CurrentUser;
+import ai.intellistream.threadorbit.security.RateLimitExceededException;
+import ai.intellistream.threadorbit.security.RateLimiter;
 import ai.intellistream.threadorbit.service.MarkdownRenderer;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.security.Principal;
+import java.time.Duration;
 import java.util.Map;
 
 /**
@@ -33,13 +38,24 @@ import java.util.Map;
 public class PreviewRestController {
 
     private final MarkdownRenderer markdown;
+    private final CurrentUser currentUser;
+    private final RateLimiter rateLimiter;
 
-    public PreviewRestController(MarkdownRenderer markdown) {
+    public PreviewRestController(MarkdownRenderer markdown, CurrentUser currentUser, RateLimiter rateLimiter) {
         this.markdown = markdown;
+        this.currentUser = currentUser;
+        this.rateLimiter = rateLimiter;
     }
 
     @PostMapping
-    public Map<String, String> preview(@RequestBody PreviewRequest body) {
+    public Map<String, String> preview(@RequestBody PreviewRequest body, Principal principal) {
+        // The render pipeline (CommonMark parse + several jsoup passes + mention DB lookups) is
+        // non-trivial per call; cap it so a scripted loop can't spin CPU/DB. 60/min per user is
+        // well above live-preview typing cadence.
+        var me = currentUser.resolve(principal);
+        if (!rateLimiter.tryAcquire(me.getUsername(), "preview", 60, Duration.ofMinutes(1))) {
+            throw new RateLimitExceededException("preview rate exceeded");
+        }
         var text = body == null || body.body() == null ? "" : body.body();
         if (text.length() > 8000) {
             throw new IllegalArgumentException("Body too long (max 8000 chars)");
