@@ -110,6 +110,7 @@ public class ConversationRestController {
     public ConversationDto startDirect(@Valid @RequestBody StartDirectRequest request,
                                        Principal principal) {
         var me = currentUser.resolve(principal);
+        requireRate(me, "user-lookup", 20);
         var other = userService.requireByUsername(request.username());
         var conv = conversations.directBetween(me, other);
         return ConversationDto.of(conv, other);
@@ -117,14 +118,15 @@ public class ConversationRestController {
 
     /**
      * Create a named group conversation. The caller is added as a member automatically;
-     * {@code request.members()} is the list of *other* usernames to seed. Unknown
-     * usernames are collected and reported back as a single error so the client knows
-     * exactly which name(s) didn't resolve, rather than failing on the first one.
+     * {@code request.members()} is the list of *other* usernames to seed. Unresolved names are
+     * reported back generically ("one or more could not be found") — never listed individually,
+     * so this endpoint can't be used as a username-existence oracle.
      */
     @PostMapping("/group")
     public ConversationDto createGroup(@Valid @RequestBody CreateGroupRequest request,
                                        Principal principal) {
         var me = currentUser.resolve(principal);
+        requireRate(me, "user-lookup", 20);
         var memberNames = request.members().stream()
                 .filter(u -> u != null && !u.isBlank())
                 .map(String::trim)
@@ -135,18 +137,23 @@ public class ConversationRestController {
             throw new ai.intellistream.threadorbit.security.PublicBadRequestException(
                     "A group needs at least one other member besides yourself.");
         }
-        var unknown = new java.util.ArrayList<String>();
+        // Cap the batch so one request can't probe a large candidate list at once.
+        if (memberNames.size() > 50) {
+            throw new ai.intellistream.threadorbit.security.PublicBadRequestException(
+                    "A group can be seeded with at most 50 members at once.");
+        }
         var seed = new java.util.ArrayList<User>();
+        boolean anyUnknown = false;
         for (var name : memberNames) {
             try {
                 seed.add(userService.requireByUsername(name));
             } catch (IllegalArgumentException ex) {
-                unknown.add(name);
+                anyUnknown = true;
             }
         }
-        if (!unknown.isEmpty()) {
+        if (anyUnknown) {
             throw new ai.intellistream.threadorbit.security.PublicBadRequestException(
-                    "Unknown user" + (unknown.size() == 1 ? ": " : "s: ") + String.join(", ", unknown));
+                    "One or more of those members could not be found.");
         }
         var conv = conversations.createGroup(request.title(), me, seed);
         // Group conversations carry the title as the surfaced name; no "other" participant.
@@ -177,6 +184,7 @@ public class ConversationRestController {
                                            @Valid @RequestBody AddGroupMemberRequest request,
                                            Principal principal) {
         var me = currentUser.resolve(principal);
+        requireRate(me, "user-lookup", 20);
         var conv = conversations.requireById(id);
         var invitee = userService.requireByUsername(request.username());
         var membership = conversations.addToGroup(conv, invitee, me);
