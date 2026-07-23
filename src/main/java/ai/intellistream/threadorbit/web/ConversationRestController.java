@@ -224,7 +224,12 @@ public class ConversationRestController {
     public ResponseEntity<Void> deleteMessage(@PathVariable Long messageId, Principal principal) {
         var me = currentUser.resolve(principal);
         requireRate(me, "dm-msg-delete", 30);
+        // Capture attachment storage keys BEFORE the delete cascades the rows away, then reap the
+        // files after deleteMessage's tx commits (it's @Transactional, so it has committed once it
+        // returns). deleteMessage does the authz — on failure it throws and no files are touched.
+        var keys = attachments.storageKeysForMessage(messageId);
         var deleted = conversations.deleteMessage(messageId, me);
+        attachments.deleteFiles(keys);
         broker.convertAndSend("/topic/conversations/" + deleted.getConversation().getId(),
                 ConversationEvent.messageDeleted(deleted.getConversation().getId(), deleted.getId()));
         return ResponseEntity.noContent().build();

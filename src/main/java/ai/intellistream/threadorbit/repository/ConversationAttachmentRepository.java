@@ -29,4 +29,9 @@ public interface ConversationAttachmentRepository extends JpaRepository<Conversa
     List<ConversationAttachment> findByMessageOrderByCreatedAtAsc(ConversationMessage message);
 
     List<ConversationAttachment> findByMessageInOrderByCreatedAtAsc(Collection<ConversationMessage> messages);
+
+    /** Storage keys for a message's attachments — captured before a delete so the files can be reaped. */
+    @org.springframework.data.jpa.repository.Query(
+            "select a.storageKey from ConversationAttachment a where a.message.id = :messageId")
+    List<String> findStorageKeysByMessageId(Long messageId);
 }

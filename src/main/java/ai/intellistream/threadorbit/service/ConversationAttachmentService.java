@@ -74,6 +74,28 @@ public class ConversationAttachmentService {
         return storageRoot;
     }
 
+    /** Storage keys of a message's attachments — call BEFORE deleting the message (the FK cascade
+     *  removes the rows). Pair with {@link #deleteFiles} after the delete commits. */
+    @Transactional(readOnly = true)
+    public List<String> storageKeysForMessage(Long messageId) {
+        return repo.findStorageKeysByMessageId(messageId);
+    }
+
+    /** Best-effort delete of attachment files by storage key (used after a message/DM is removed). */
+    public void deleteFiles(java.util.Collection<String> storageKeys) {
+        if (storageKeys == null) return;
+        for (var key : storageKeys) {
+            if (key == null || key.isBlank()) continue;
+            var p = storageRoot.resolve(key).normalize();
+            if (!p.startsWith(storageRoot)) continue; // never delete outside the store
+            try {
+                Files.deleteIfExists(p);
+            } catch (IOException ignored) {
+                // Orphan on disk; a future orphan-sweep (CLEAN-*) reaps it. Don't fail the request.
+            }
+        }
+    }
+
     /**
      * Stream the upload to disk, then create a conversation message + attachment row.
      * Same shape as {@code AttachmentService.upload}: {@code maxBytes} is the per-user
