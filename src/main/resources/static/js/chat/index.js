@@ -1109,6 +1109,23 @@ presenceMenu.init();
     positionDayDividers();
   };
 
+  // Server-rendered messages carry data-day and <time> formatted in the SERVER's timezone, but
+  // live-appended messages use the BROWSER's zone (dayKey/formatTime). For a viewer in a different
+  // zone that mismatch gives wrong day dividers/grouping at boundaries and timestamps that disagree
+  // between old and new messages. Re-key every server-rendered message from its data-created-at in
+  // the browser zone once on load, then rebuild dividers so everything is consistently client-zone.
+  const hydrateServerTimestamps = () => {
+    if (!messagesEl) return;
+    messagesEl.querySelectorAll('li.message').forEach((li) => {
+      if (!li.dataset.createdAt) return;
+      const created = new Date(li.dataset.createdAt);
+      li.dataset.day = dayKey(created);
+      const timeEl = li.querySelector('.message-meta time');
+      if (timeEl) timeEl.textContent = formatTime(created);
+    });
+    refreshDayDividers();
+  };
+
   // ---------- Infinite scroll for older messages ----------
   // The initial Thymeleaf-rendered batch is the latest 50 (DEFAULT_PAGE_SIZE in MessageService).
   // When the user scrolls up to that batch's top, we fetch the prior 50 via the existing
@@ -1372,6 +1389,8 @@ presenceMenu.init();
   };
   messagesEl?.addEventListener('scroll', positionDayDividers, { passive: true });
   window.addEventListener('resize', positionDayDividers);
+  // Re-key server-rendered timestamps into the browser's timezone before the first layout.
+  hydrateServerTimestamps();
   // Re-measure after the page settles (fonts/images may shift offsets).
   setTimeout(positionDayDividers, 50);
   setTimeout(positionDayDividers, 300);
