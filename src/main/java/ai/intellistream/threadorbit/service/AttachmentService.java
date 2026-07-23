@@ -51,13 +51,18 @@ public class AttachmentService {
     private final ChannelService channelService;
     private final Path storageRoot;
 
+    private final MessageService messageService;
+
     public AttachmentService(AttachmentRepository attachmentRepository,
                              MessageRepository messageRepository,
                              ChannelService channelService,
+                             // @Lazy breaks the AttachmentService <-> MessageService construction cycle.
+                             @org.springframework.context.annotation.Lazy MessageService messageService,
                              @Value("${threadorbit.attachments.dir:./data/attachments}") String storageDir) {
         this.attachmentRepository = attachmentRepository;
         this.messageRepository = messageRepository;
         this.channelService = channelService;
+        this.messageService = messageService;
         this.storageRoot = Path.of(storageDir).toAbsolutePath().normalize();
     }
 
@@ -125,7 +130,14 @@ public class AttachmentService {
         // forever. Wire a rollback-only cleanup hook before any further DB activity.
         deleteOnRollback(target);
 
-        var message = messageRepository.save(new Message(channel, uploader, captionText));
+        // A non-empty caption goes through MessageService.post so it gets the SAME treatment as a
+        // normal message: @mention rows synced (so mentions in a caption actually notify) and the
+        // body indexed for search. A blank caption (file only) skips that — nothing to mention or
+        // index — and keeps the bare save. (post re-checks write access, harmless; it doesn't
+        // broadcast, so no double-send.)
+        Message message = (captionText == null || captionText.isBlank())
+                ? messageRepository.save(new Message(channel, uploader, captionText))
+                : messageService.post(channel, uploader, captionText);
         return attachmentRepository.save(
                 new Attachment(message, safeName, resolvedType, bytesWritten, storageKey));
     }
