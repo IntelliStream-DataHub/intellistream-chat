@@ -174,17 +174,27 @@ public class ChannelService {
         afterCommit(() -> attachmentService.deleteFiles(fileKeys));
     }
 
-    /** Run after a successful commit; if no tx is active, run now. */
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ChannelService.class);
+
+    /** Run after a successful commit; if no tx is active, run now. Body guarded so a failing index
+     *  purge doesn't skip the file-cleanup hook registered after it (BUG-21). */
     private static void afterCommit(Runnable action) {
+        Runnable guarded = () -> {
+            try {
+                action.run();
+            } catch (RuntimeException e) {
+                log.warn("Post-commit channel cleanup (index / files) failed", e);
+            }
+        };
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    action.run();
+                    guarded.run();
                 }
             });
         } else {
-            action.run();
+            guarded.run();
         }
     }
 

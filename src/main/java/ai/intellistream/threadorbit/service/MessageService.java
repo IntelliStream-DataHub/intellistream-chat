@@ -330,17 +330,33 @@ public class MessageService {
         afterCommit(() -> messageIndex.index(messageId, channelId, author, body));
     }
 
-    /** Register an action to run after a successful commit; if no tx is active, run it now. */
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(MessageService.class);
+
+    /**
+     * Register an action to run after a successful commit; if no tx is active, run it now. The
+     * body is wrapped in try/catch-log: Spring's afterCommit dispatch stops at the first throwing
+     * synchronization, so an unguarded index-write failure would skip the file-cleanup hook
+     * registered after it (BUG-21). Logged rather than swallowed silently so the desync is visible
+     * (a periodic reconcile — CLEAN-3 — is the backstop for what's lost here).
+     */
     private static void afterCommit(Runnable action) {
+        Runnable guarded = () -> {
+            try {
+                action.run();
+            } catch (RuntimeException e) {
+                log.warn("Post-commit side effect (index / file cleanup) failed; state may be "
+                        + "temporarily inconsistent until the next reconcile", e);
+            }
+        };
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    action.run();
+                    guarded.run();
                 }
             });
         } else {
-            action.run();
+            guarded.run();
         }
     }
 
