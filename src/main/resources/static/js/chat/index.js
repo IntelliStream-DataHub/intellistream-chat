@@ -575,7 +575,10 @@ presenceMenu.init();
       author,
       channel: channelName,
       snippet,
-      url: '/channels/' + channelId + '#m-' + message.id,
+      // Match permalinkFor: ?m= makes the server render context around an older message
+      // (it may be outside the latest page), #m= is what scrollToPermalinkTarget matches.
+      // The old '#m-<id>' matched neither, landing the user at the tail with no highlight.
+      url: '/channels/' + channelId + '?m=' + encodeURIComponent(message.id) + '#m=' + message.id,
     });
   };
 

@@ -69,7 +69,10 @@
       li.className = 'topbar-bell-item';
 
       const link = document.createElement('a');
-      link.href = '/channels/' + encodeURIComponent(it.channelId) + '#m-' + encodeURIComponent(it.messageId);
+      // ?m= renders server-side context around an older message; #m= is what the permalink
+      // scroller matches. The old '#m-' matched neither and lost the highlight.
+      link.href = '/channels/' + encodeURIComponent(it.channelId)
+          + '?m=' + encodeURIComponent(it.messageId) + '#m=' + encodeURIComponent(it.messageId);
 
       const head = document.createElement('div');
       head.className = 'topbar-bell-item-head';
