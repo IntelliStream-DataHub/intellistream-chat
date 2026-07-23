@@ -57,7 +57,16 @@ public class ReadStateService {
             row.setLastReadAt(Instant.now());
             return row;
         }
-        return readRepo.save(new ChannelRead(channel, user, Instant.now()));
+        try {
+            // saveAndFlush so a uk_channel_reads violation surfaces here (inside the catch) rather
+            // than at tx commit. markRead fires on every live message in the active channel, so
+            // two frames racing the first read is realistic — the loser re-reads and stamps.
+            return readRepo.saveAndFlush(new ChannelRead(channel, user, Instant.now()));
+        } catch (org.springframework.dao.DataIntegrityViolationException race) {
+            var row = readRepo.findByChannelAndUser(channel, user).orElseThrow(() -> race);
+            row.setLastReadAt(Instant.now());
+            return row;
+        }
     }
 
     /**

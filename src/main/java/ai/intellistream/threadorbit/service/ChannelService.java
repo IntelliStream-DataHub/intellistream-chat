@@ -103,8 +103,14 @@ public class ChannelService {
         if (channel.getType() != ChannelType.PUBLIC) {
             throw new AccessDeniedException("Channel is private; ask an admin to invite you.");
         }
-        return memberRepository.findByChannelAndUser(channel, user)
-                .orElseGet(() -> memberRepository.save(new ChannelMember(channel, user, ChannelRole.MEMBER)));
+        var existing = memberRepository.findByChannelAndUser(channel, user);
+        if (existing.isPresent()) return existing.get();
+        try {
+            return memberRepository.saveAndFlush(new ChannelMember(channel, user, ChannelRole.MEMBER));
+        } catch (org.springframework.dao.DataIntegrityViolationException race) {
+            // Concurrent double-join — the loser re-reads the winner's membership row.
+            return memberRepository.findByChannelAndUser(channel, user).orElseThrow(() -> race);
+        }
     }
 
     @Transactional
@@ -114,8 +120,14 @@ public class ChannelService {
         // Writes require actual membership — using requireMember here would let any
         // authenticated user force-join others into PUBLIC channels.
         requireWriteAccess(channel, actor);
-        return memberRepository.findByChannelAndUser(channel, invitee)
-                .orElseGet(() -> memberRepository.save(new ChannelMember(channel, invitee, ChannelRole.MEMBER)));
+        var existing = memberRepository.findByChannelAndUser(channel, invitee);
+        if (existing.isPresent()) return existing.get();
+        try {
+            return memberRepository.saveAndFlush(new ChannelMember(channel, invitee, ChannelRole.MEMBER));
+        } catch (org.springframework.dao.DataIntegrityViolationException race) {
+            // Concurrent invite / self-join — re-read the winner's row.
+            return memberRepository.findByChannelAndUser(channel, invitee).orElseThrow(() -> race);
+        }
     }
 
     @Transactional

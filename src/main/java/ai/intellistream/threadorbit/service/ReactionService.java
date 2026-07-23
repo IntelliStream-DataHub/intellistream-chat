@@ -47,8 +47,16 @@ public class ReactionService {
             throw new AccessDeniedException("You cannot react to your own message.");
         }
         var trimmed = sanitize(emoji);
-        reactionRepository.findByMessageAndUserAndEmoji(message, actor, trimmed)
-                .orElseGet(() -> reactionRepository.save(new MessageReaction(message, actor, trimmed)));
+        if (reactionRepository.findByMessageAndUserAndEmoji(message, actor, trimmed).isEmpty()) {
+            try {
+                reactionRepository.saveAndFlush(new MessageReaction(message, actor, trimmed));
+            } catch (org.springframework.dao.DataIntegrityViolationException race) {
+                // Concurrent identical reaction — the row already exists; idempotent, ignore.
+                if (reactionRepository.findByMessageAndUserAndEmoji(message, actor, trimmed).isEmpty()) {
+                    throw race;
+                }
+            }
+        }
         return message;
     }
 
