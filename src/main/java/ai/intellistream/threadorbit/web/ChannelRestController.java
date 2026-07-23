@@ -94,6 +94,11 @@ public class ChannelRestController {
     @PostMapping
     public ChannelDto create(@RequestBody @Valid CreateChannelRequest body, Principal principal) {
         var me = currentUser.resolve(principal);
+        // 20 new channels per minute per user — far above legitimate use; each reserves a unique
+        // slug + a membership row, so a tight create loop is otherwise unbounded DB churn.
+        if (!rateLimiter.tryAcquire(me.getUsername(), "channel-create", 20, java.time.Duration.ofMinutes(1))) {
+            throw new ai.intellistream.threadorbit.security.RateLimitExceededException("channel create rate exceeded");
+        }
         return ChannelDto.from(channelService.create(body.name(), body.description(), body.type(), me));
     }
 
