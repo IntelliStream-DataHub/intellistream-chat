@@ -597,7 +597,24 @@ presenceMenu.init();
     });
 
     const myUsername = meta('me-username');
+    let stompConnectedBefore = false;
     stomp.onConnect = () => {
+      // On a RECONNECT (not the first connect), the simple broker replayed nothing, so any
+      // message posted during the outage is missing. Backfill via the same ?after= endpoint
+      // infinite-scroll uses; appendMessage de-dupes by id, so overlap is harmless. Only while
+      // live-tailing — an anchored/historical view backfills when the user jumps to latest.
+      if (stompConnectedBefore && activeChannelId && infiniteScrollDownDone) {
+        const last = lastMessageEl();
+        const after = last ? last.dataset.createdAt : null;
+        if (after) {
+          fetch('/api/channels/' + activeChannelId + '/messages?after='
+                + encodeURIComponent(after) + '&limit=200', { headers: headers() })
+            .then((r) => (r.ok ? r.json() : []))
+            .then((rows) => { (rows || []).forEach(appendMessage); })
+            .catch(() => {});
+        }
+      }
+      stompConnectedBefore = true;
       stomp.subscribe('/topic/channels/' + activeChannelId, (frame) => {
         const event = JSON.parse(frame.body);
         handleMessageEvent(event);
