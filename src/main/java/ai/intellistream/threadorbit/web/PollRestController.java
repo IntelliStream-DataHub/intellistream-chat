@@ -87,7 +87,7 @@ public class PollRestController {
         if (!rateLimiter.tryAcquire(me.getUsername(), "poll-vote", 30, java.time.Duration.ofMinutes(1))) {
             throw new ai.intellistream.threadorbit.security.RateLimitExceededException("vote rate exceeded");
         }
-        var hostChannelId = requireMembership(pollId, me);
+        var hostChannelId = requireVoteAccess(pollId, me);
         var dto = pollService.castVote(pollId, body.optionId(), me);
         broker.convertAndSend("/topic/channels/" + hostChannelId,
                 MessageEvent.pollVote(messageIdOf(pollId), hostChannelId, dto));
@@ -100,7 +100,7 @@ public class PollRestController {
         if (!rateLimiter.tryAcquire(me.getUsername(), "poll-vote", 30, java.time.Duration.ofMinutes(1))) {
             throw new ai.intellistream.threadorbit.security.RateLimitExceededException("vote rate exceeded");
         }
-        var hostChannelId = requireMembership(pollId, me);
+        var hostChannelId = requireVoteAccess(pollId, me);
         var dto = pollService.removeVote(pollId, me);
         broker.convertAndSend("/topic/channels/" + hostChannelId,
                 MessageEvent.pollVote(messageIdOf(pollId), hostChannelId, dto));
@@ -108,17 +108,31 @@ public class PollRestController {
     }
 
     /**
-     * Look up the host channel and enforce read access via the standard channel rules. Anyone
-     * authenticated can read+vote in {@code PUBLIC} channels (matches existing reaction posture);
-     * private channels require membership. The query join-fetches the host message and channel
-     * so the lazy proxies don't blow up after the implicit-tx repo call returns.
+     * Read access to the host channel (for {@code GET}): short-circuits for PUBLIC channels so
+     * anyone authenticated can view a poll; PRIVATE requires membership. The query join-fetches
+     * the host message + channel so the lazy proxies don't blow up after the repo call returns.
      */
     private Long requireMembership(Long pollId, ai.intellistream.threadorbit.domain.User me) {
-        var poll = pollRepository.findByIdWithOptions(pollId)
-                .orElseThrow(() -> new ai.intellistream.threadorbit.security.ResourceNotFoundException("Poll not found: " + pollId));
-        var channel = poll.getMessage().getChannel();
+        var channel = hostChannel(pollId);
         channelService.requireMember(channel, me);
         return channel.getId();
+    }
+
+    /**
+     * Write access to the host channel (for casting/withdrawing a vote — both persist rows).
+     * Unlike {@link #requireMembership}, this always requires actual membership, so a non-member
+     * cannot mutate poll tallies in a PUBLIC channel. Mirrors ReactionService.addReaction.
+     */
+    private Long requireVoteAccess(Long pollId, ai.intellistream.threadorbit.domain.User me) {
+        var channel = hostChannel(pollId);
+        channelService.requireWriteAccess(channel, me);
+        return channel.getId();
+    }
+
+    private ai.intellistream.threadorbit.domain.Channel hostChannel(Long pollId) {
+        var poll = pollRepository.findByIdWithOptions(pollId)
+                .orElseThrow(() -> new ai.intellistream.threadorbit.security.ResourceNotFoundException("Poll not found: " + pollId));
+        return poll.getMessage().getChannel();
     }
 
     private Long messageIdOf(Long pollId) {
