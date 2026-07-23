@@ -637,6 +637,19 @@ presenceMenu.init();
       if (window.Presence) window.Presence.attachStomp(stomp);
     };
 
+    // Catch-up read when the tab returns to the foreground: while backgrounded we deliberately
+    // don't mark live traffic read (see handleMessageEvent), so on refocus advance the marker
+    // once for the channel the user is actually looking at now.
+    const catchUpRead = () => {
+      if (!activeChannelId) return;
+      if (document.visibilityState !== 'visible' || !document.hasFocus()) return;
+      fetch('/api/channels/' + activeChannelId + '/read', { method: 'POST', headers: headers() })
+        .then(() => { if (window.MentionInbox) window.MentionInbox.refresh(); })
+        .catch(() => {});
+    };
+    document.addEventListener('visibilitychange', catchUpRead);
+    window.addEventListener('focus', catchUpRead);
+
     /**
      * Drop a transient banner above the composer for a few seconds. Reuses the
      * #composer-notice element if it's there, otherwise injects one. Errors get a
@@ -702,13 +715,18 @@ presenceMenu.init();
           if (!infiniteScrollDownDone) return;
           appendMessage(event.message);
           // Active channel is being read live — advance the read marker so navigating away
-          // doesn't leave these messages counted as unread on next page load.
+          // doesn't leave these messages counted as unread on next page load. Only when the
+          // tab is actually in the foreground: a channel left open in a background tab must NOT
+          // silently mark incoming traffic read (that would wipe sidebar badges, the bell, and
+          // unseen mention rows the user never looked at). The catch-up read fires on refocus.
           if (event.message?.authorUsername !== myUsername) {
-            fetch('/api/channels/' + activeChannelId + '/read', {
-              method: 'POST', headers: headers(),
-            })
-              .then(() => { if (window.MentionInbox) window.MentionInbox.refresh(); })
-              .catch(() => {});
+            if (document.visibilityState === 'visible' && document.hasFocus()) {
+              fetch('/api/channels/' + activeChannelId + '/read', {
+                method: 'POST', headers: headers(),
+              })
+                .then(() => { if (window.MentionInbox) window.MentionInbox.refresh(); })
+                .catch(() => {});
+            }
             const mentioned = !!(event.message?.mentions || []).includes(myUsername);
             if (mentioned) maybeNotifyMention(event.message, activeChannelId, /* isActiveChannel */ true);
           }
