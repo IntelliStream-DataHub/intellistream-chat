@@ -207,6 +207,7 @@ public class ConversationRestController {
                                               @Valid @RequestBody EditMessageRequest body,
                                               Principal principal) {
         var me = currentUser.resolve(principal);
+        requireRate(me, "dm-msg-edit", 30);
         var updated = conversations.editMessage(messageId, me, body.body());
         return broadcastUpdate(updated, me);
     }
@@ -214,6 +215,7 @@ public class ConversationRestController {
     @DeleteMapping("/messages/{messageId}")
     public ResponseEntity<Void> deleteMessage(@PathVariable Long messageId, Principal principal) {
         var me = currentUser.resolve(principal);
+        requireRate(me, "dm-msg-delete", 30);
         var deleted = conversations.deleteMessage(messageId, me);
         broker.convertAndSend("/topic/conversations/" + deleted.getConversation().getId(),
                 ConversationEvent.messageDeleted(deleted.getConversation().getId(), deleted.getId()));
@@ -225,6 +227,7 @@ public class ConversationRestController {
                                               @Valid @RequestBody ReactionRequest body,
                                               Principal principal) {
         var me = currentUser.resolve(principal);
+        requireRate(me, "dm-reaction-toggle", 60);
         var message = reactions.addReaction(messageId, me, body.emoji());
         return broadcastUpdate(message, me);
     }
@@ -234,9 +237,17 @@ public class ConversationRestController {
                                                @PathVariable String emoji,
                                                Principal principal) {
         var me = currentUser.resolve(principal);
+        requireRate(me, "dm-reaction-toggle", 60);
         var message = reactions.removeReaction(messageId, me, emoji);
         broadcastUpdate(message, me);
         return ResponseEntity.noContent().build();
+    }
+
+    /** Per-(user,action) sliding-window guard; throws RateLimitExceededException on breach. */
+    private void requireRate(User me, String action, int perMinute) {
+        if (!rateLimiter.tryAcquire(me.getUsername(), action, perMinute, java.time.Duration.ofMinutes(1))) {
+            throw new ai.intellistream.threadorbit.security.RateLimitExceededException(action + " rate exceeded");
+        }
     }
 
     /** Broadcast an updated DTO over the conversation topic and return it to the caller. */
