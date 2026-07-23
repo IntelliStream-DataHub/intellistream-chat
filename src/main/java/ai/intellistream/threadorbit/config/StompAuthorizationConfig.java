@@ -30,6 +30,14 @@ import java.util.regex.Pattern;
  * frame; subsequent {@code SUBSCRIBE} frames read from the cache instead of going back through
  * {@link CurrentUser#resolve} (which provisions on first sight and writes a per-request
  * last-active stamp). Without the cache, a chatty client triggers a DB upsert per frame.
+ *
+ * <p><b>Presence visibility (SEC-15) is intentionally workspace-wide.</b> Only
+ * {@code /topic/channels/{id}} and {@code /topic/conversations/{id}} are membership-gated here;
+ * {@code /topic/presence} and {@code /topic/users} are deliberately NOT — any authenticated user
+ * may observe every user's online/offline transitions and custom status, matching the
+ * Slack/Mattermost model this app follows. If a deployment needs presence scoped to shared
+ * channels, gate those destinations and scope the broadcasts in PresenceEventListener /
+ * PresenceRestController.
  */
 @Configuration
 @EnableWebSocketMessageBroker
