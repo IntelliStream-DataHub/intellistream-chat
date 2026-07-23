@@ -126,6 +126,13 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     @org.springframework.data.jpa.repository.Query("select m.id from Message m where m.channel = :channel")
     java.util.List<Long> findIdsByChannel(Channel channel);
 
+    /** Flat (id, channelId, authorUsername, bodyMarkdown) projection, keyset-paged by id — used by
+     *  the Lucene bootstrap to stream the whole table without materialising entities (BUG-24). */
+    @org.springframework.data.jpa.repository.Query(
+            "select m.id, m.channel.id, m.author.username, m.bodyMarkdown from Message m "
+            + "where m.id > :afterId order by m.id asc")
+    java.util.List<Object[]> findIndexRowsAfter(Long afterId, Pageable pageable);
+
     /**
      * For each given parent id, count its top-level replies. Parents with zero replies are
      * absent from the result. Used to render the "N replies" thread indicator on a feed
