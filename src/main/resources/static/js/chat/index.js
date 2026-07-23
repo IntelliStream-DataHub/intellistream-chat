@@ -1770,9 +1770,20 @@ presenceMenu.init();
     const prevBody = li.dataset.bodyMarkdown || '';
     const newBody = msg.bodyMarkdown || '';
     const isEdit = newBody !== prevBody;
-    li.dataset.bodyMarkdown = newBody;
     const right = li.querySelector(':scope > div');
     if (!right) return;
+    // If the author has an edit form open and this update is only a reaction/attachment/poll
+    // change (not a body change), refresh just those trays — blowing away .message-edit here
+    // would destroy their unsaved draft the moment anyone reacts.
+    if (right.querySelector('.message-edit') && !isEdit) {
+      right.querySelectorAll('.message-attachments, .message-reactions, .poll-widget').forEach(n => n.remove());
+      if (msg.poll) right.appendChild(renderPollWidget(msg.poll));
+      if (msg.attachments && msg.attachments.length) right.appendChild(renderAttachmentTray(msg.attachments));
+      if (msg.reactions && msg.reactions.length) right.appendChild(renderReactionTray(msg.reactions));
+      positionDayDividers();
+      return;
+    }
+    li.dataset.bodyMarkdown = newBody;
     right.querySelectorAll('.message-body, .message-attachments, .message-reactions, .message-edit, .edited-tag, .poll-widget').forEach(n => n.remove());
     const meta = right.querySelector('.message-meta');
     if (msg.bodyMarkdown) {
