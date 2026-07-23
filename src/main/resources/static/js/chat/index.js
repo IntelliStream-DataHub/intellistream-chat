@@ -951,6 +951,10 @@ presenceMenu.init();
     li.dataset.createdAt = msg.createdAt;
     li.dataset.author = msg.authorUsername;
     li.dataset.day = curDay;
+    // Server-rendered LIs carry this from Thymeleaf; live-appended/paged ones must too, or
+    // attachActions (Edit button), startEdit (edit seed), and the reaction-vs-edit detection
+    // in replaceMessageDom all misfire. (conversation.js already sets this.)
+    li.dataset.bodyMarkdown = msg.bodyMarkdown || '';
 
     const name = msg.authorDisplayName || msg.authorUsername;
     const avatar = buildAvatarEl({
@@ -1004,6 +1008,10 @@ presenceMenu.init();
   };
 
   const appendMessage = (msg) => {
+    // De-dupe: a live broadcast can race the final infinite-scroll page (which flips
+    // infiniteScrollDownDone) and arrive for a message already rendered — without this
+    // guard it would append a duplicate <li> and a duplicate day-divider anchor.
+    if (messagesEl.querySelector('li.message[data-id="' + CSS.escape(String(msg.id)) + '"]')) return;
     const created = new Date(msg.createdAt);
     const curDay = dayKey(created);
     const prev = lastMessageEl();
@@ -1020,10 +1028,16 @@ presenceMenu.init();
     if (sameAuthor) li.classList.add('grouped');
     if (isFirstOfDay) li.classList.add('first-of-day');
 
+    // Only follow the tail if the reader is already near the bottom; otherwise a live
+    // message would yank someone reading history straight down. (The prepend/history path
+    // preserves the viewport separately.) Measure BEFORE appending.
+    const nearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 120;
     messagesEl.append(li);
     attachActions(li);
     flagAsAppearing(li);
-    messagesEl.scrollTop = messagesEl.scrollHeight;
+    if (nearBottom || msg.authorUsername === myUsernameMeta) {
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
     positionDayDividers();
   };
 
