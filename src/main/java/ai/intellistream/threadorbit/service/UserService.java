@@ -115,19 +115,47 @@ public class UserService {
         return upsert(subject, username, email, displayName, false);
     }
 
+    /**
+     * Return {@code desired} if it's free or already owned by {@code subject}; otherwise append a
+     * subject-derived suffix so distinct principals never collapse to the same handle (which the
+     * new {@code uk_users_username_lower} index now forbids, and which would otherwise mis-route
+     * username-keyed private notices / mentions / presence).
+     */
+    private String uniqueUsername(String desired, String subject) {
+        var holder = userRepository.findByUsernameIgnoreCase(desired);
+        if (holder.isEmpty() || java.util.Objects.equals(holder.get().getSubject(), subject)) {
+            return desired;
+        }
+        var suffix = subject == null ? "x" : subject.replaceAll("[^A-Za-z0-9]", "");
+        if (suffix.length() > 6) suffix = suffix.substring(0, 6);
+        if (suffix.isEmpty()) suffix = "x";
+        var candidate = desired + "-" + suffix;
+        int n = 2;
+        while (takenByOther(candidate, subject)) {
+            candidate = desired + "-" + suffix + n++;
+        }
+        return candidate;
+    }
+
+    private boolean takenByOther(String username, String subject) {
+        return userRepository.findByUsernameIgnoreCase(username)
+                .filter(u -> !java.util.Objects.equals(u.getSubject(), subject))
+                .isPresent();
+    }
+
     @Transactional
     public User upsert(String subject, String username, String email, String displayName, boolean admin) {
         var existing = userRepository.findBySubject(subject);
         if (existing.isPresent()) {
             var u = existing.get();
-            u.setUsername(username);
+            u.setUsername(uniqueUsername(username, subject));
             u.setEmail(email);
             u.setDisplayName(displayName);
             u.setAdmin(admin);
             return u;
         }
         try {
-            var fresh = new User(subject, username, email, displayName);
+            var fresh = new User(subject, uniqueUsername(username, subject), email, displayName);
             fresh.setAdmin(admin);
             return userRepository.saveAndFlush(fresh);
         } catch (org.springframework.dao.DataIntegrityViolationException race) {
