@@ -17,11 +17,14 @@
 package ai.intellistream.threadorbit.config;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.messaging.simp.config.MessageBrokerRegistry;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.web.socket.config.annotation.EnableWebSocketMessageBroker;
 import org.springframework.web.socket.config.annotation.StompEndpointRegistry;
 import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerConfigurer;
+import org.springframework.web.socket.server.standard.ServletServerContainerFactoryBean;
 
 import java.util.Arrays;
 
@@ -55,7 +58,13 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
     @Override
     public void configureMessageBroker(MessageBrokerRegistry config) {
-        config.enableSimpleBroker("/topic", "/queue");
+        // Heartbeats (10s each way) let the server detect a silently-dead client — a half-open
+        // TCP after a laptop sleep or dropped wifi sends no FIN, so without this the STOMP session
+        // never ends, SessionDisconnectEvent never fires, and the user shows "online" forever
+        // (and PresenceTracker's cleanup never runs). Requires a TaskScheduler.
+        config.enableSimpleBroker("/topic", "/queue")
+                .setHeartbeatValue(new long[]{10_000, 10_000})
+                .setTaskScheduler(heartbeatScheduler());
         config.setApplicationDestinationPrefixes("/app");
         config.setUserDestinationPrefix("/user");
     }
@@ -66,5 +75,27 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         // transports inject inline <script>, which collides with the strict CSP (script-src 'self')
         // configured in SecurityConfig.
         registry.addEndpoint("/ws").setAllowedOriginPatterns(allowedOrigins);
+    }
+
+    /** Drives the STOMP heartbeats configured above. */
+    @Bean
+    public ThreadPoolTaskScheduler heartbeatScheduler() {
+        var scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setPoolSize(1);
+        scheduler.setThreadNamePrefix("ws-heartbeat-");
+        scheduler.initialize();
+        return scheduler;
+    }
+
+    /**
+     * Container-level backstop to the STOMP heartbeats: force-close any WebSocket session idle
+     * past 60s (heartbeats are traffic, so a live client never trips this — only a truly dead
+     * one whose heartbeats have stopped). 60s > the 10s heartbeat interval by design.
+     */
+    @Bean
+    public ServletServerContainerFactoryBean createWebSocketContainer() {
+        var container = new ServletServerContainerFactoryBean();
+        container.setMaxSessionIdleTimeout(60_000L);
+        return container;
     }
 }
