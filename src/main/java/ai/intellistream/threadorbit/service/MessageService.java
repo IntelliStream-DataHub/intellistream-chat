@@ -137,11 +137,14 @@ public class MessageService {
         }
         var capped = Math.min(Math.max(radius, 1), DEFAULT_PAGE_SIZE);
         var page = PageRequest.of(0, capped);
-        var beforeRows = messageRepository.findByChannelAndParentIsNullAndCreatedAtBeforeOrderByCreatedAtDesc(
-                channel, anchor.getCreatedAt(), page);
-        var afterRows = messageRepository.findByChannelAndParentIsNullAndCreatedAtAfterOrderByCreatedAtAsc(
-                channel, anchor.getCreatedAt(), page);
-        beforeRows.sort(Comparator.comparing(Message::getCreatedAt));
+        // Composite (createdAt, id) keyset around the anchor so a message sharing the anchor's
+        // exact timestamp lands on the correct side by id instead of being omitted from both the
+        // before and after sets (BUG-20).
+        var beforeRows = messageRepository.findTopLevelBeforeKeyset(
+                channel, anchor.getCreatedAt(), anchor.getId(), page);
+        var afterRows = messageRepository.findTopLevelAfterKeyset(
+                channel, anchor.getCreatedAt(), anchor.getId(), page);
+        beforeRows.sort(Comparator.comparing(Message::getCreatedAt).thenComparing(Message::getId));
         var combined = new ArrayList<Message>(beforeRows.size() + 1 + afterRows.size());
         combined.addAll(beforeRows);
         combined.add(anchor);

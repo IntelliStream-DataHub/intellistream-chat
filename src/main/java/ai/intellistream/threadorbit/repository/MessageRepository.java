@@ -57,7 +57,7 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             select m from Message m
             join fetch m.author
             where m.channel = :channel and m.parent is null
-            order by m.createdAt desc
+            order by m.createdAt desc, m.id desc
             """)
     List<Message> findByChannelAndParentIsNullOrderByCreatedAtDesc(Channel channel, Pageable pageable);
 
@@ -65,22 +65,43 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             select m from Message m
             join fetch m.author
             where m.channel = :channel and m.parent is null and m.createdAt < :before
-            order by m.createdAt desc
+            order by m.createdAt desc, m.id desc
             """)
     List<Message> findByChannelAndParentIsNullAndCreatedAtBeforeOrderByCreatedAtDesc(
             Channel channel, Instant before, Pageable pageable);
 
     /** Mirror of {@link #findByChannelAndParentIsNullAndCreatedAtBeforeOrderByCreatedAtDesc} but
-     * paging FORWARD from a timestamp; used by {@code around()} to pull the N messages immediately
-     * after the anchor message. */
+     * paging FORWARD from a timestamp. */
     @Query("""
             select m from Message m
             join fetch m.author
             where m.channel = :channel and m.parent is null and m.createdAt > :after
-            order by m.createdAt asc
+            order by m.createdAt asc, m.id asc
             """)
     List<Message> findByChannelAndParentIsNullAndCreatedAtAfterOrderByCreatedAtAsc(
             Channel channel, Instant after, Pageable pageable);
+
+    /** Composite-keyset "before the anchor": messages strictly before (createdAt, id), so a
+     *  message sharing the anchor's exact timestamp is ordered by id rather than dropped. Used by
+     *  {@code around()} — see BUG-20. */
+    @Query("""
+            select m from Message m
+            join fetch m.author
+            where m.channel = :channel and m.parent is null
+              and (m.createdAt < :ts or (m.createdAt = :ts and m.id < :id))
+            order by m.createdAt desc, m.id desc
+            """)
+    List<Message> findTopLevelBeforeKeyset(Channel channel, Instant ts, Long id, Pageable pageable);
+
+    /** Composite-keyset "after the anchor": mirror of {@link #findTopLevelBeforeKeyset}. */
+    @Query("""
+            select m from Message m
+            join fetch m.author
+            where m.channel = :channel and m.parent is null
+              and (m.createdAt > :ts or (m.createdAt = :ts and m.id > :id))
+            order by m.createdAt asc, m.id asc
+            """)
+    List<Message> findTopLevelAfterKeyset(Channel channel, Instant ts, Long id, Pageable pageable);
 
     @Query("""
             select m from Message m
