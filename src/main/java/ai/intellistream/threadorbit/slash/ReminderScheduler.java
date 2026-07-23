@@ -96,40 +96,48 @@ public class ReminderScheduler {
         if (due.isEmpty()) return 0;
         int fired = 0;
         for (var r : due) {
-            if (self.fireOne(r.getId(), now)) fired++;
+            Long id = r.getId();
+            try {
+                if (self.fireOne(id, now)) fired++;
+            } catch (RuntimeException e) {
+                // fireOne's REQUIRES_NEW tx rolled back cleanly (the exception propagated
+                // instead of being swallowed-then-committed, which used to throw
+                // UnexpectedRollbackException and abort the WHOLE batch). Flag the bad row in
+                // a separate tx so it isn't re-selected forever, and carry on with the rest.
+                log.warn("Reminder {} failed to fire and will be skipped", id, e);
+                try {
+                    self.markFiredInNewTx(id, now);
+                } catch (RuntimeException markEx) {
+                    log.warn("Also failed to mark reminder {} fired; will retry next cycle", id, markEx);
+                }
+            }
         }
         return fired;
     }
 
     /**
-     * Fire a single reminder in a fresh transaction. Returns {@code true} when the message
-     * was posted; on failure, marks the reminder fired anyway (in another fresh tx) so a
-     * single bad row doesn't block the schedule forever.
+     * Fire a single reminder in a fresh transaction. Returns {@code true} when the message was
+     * posted. On failure it THROWS (its own {@code REQUIRES_NEW} tx rolls back cleanly) — the
+     * caller in {@link #runOnce} catches it per-row. It must not swallow-then-return: the inner
+     * {@code messageService.post} marks this tx rollback-only on failure, so returning normally
+     * would make the commit throw {@code UnexpectedRollbackException} and abort the batch.
      */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public boolean fireOne(Long reminderId, Instant now) {
         var r = repo.findById(reminderId).orElse(null);
         if (r == null || r.getFiredAt() != null) return false;
-        try {
-            var saved = messageService.post(r.getChannel(), r.getCreator(), r.getBody());
-            r.markFired(now);
-            repo.save(r);
-            // Same shape as a normal channel post — clients render it via the existing
-            // /topic/channels/{id} subscription. Mentions list is left empty here because
-            // the body's @-mention (if any) is parsed by the renderer; the WS-side caller
-            // refresh path handles the badge bump.
-            var dto = MessageDto.from(saved, markdown.render(saved.getBodyMarkdown()),
-                    List.of(), List.of(), 0L, List.of());
-            broker.convertAndSend("/topic/channels/" + r.getChannel().getId(),
-                    MessageEvent.created(dto));
-            return true;
-        } catch (RuntimeException e) {
-            log.warn("Reminder {} failed to fire and will be skipped", reminderId, e);
-            // The current tx is rollback-only after the failed post; flag the row in a
-            // separate tx so the next runOnce() doesn't pick it up again forever.
-            self.markFiredInNewTx(reminderId, now);
-            return false;
-        }
+        var saved = messageService.post(r.getChannel(), r.getCreator(), r.getBody());
+        r.markFired(now);
+        repo.save(r);
+        // Same shape as a normal channel post — clients render it via the existing
+        // /topic/channels/{id} subscription. Mentions list is left empty here because
+        // the body's @-mention (if any) is parsed by the renderer; the WS-side caller
+        // refresh path handles the badge bump.
+        var dto = MessageDto.from(saved, markdown.render(saved.getBodyMarkdown()),
+                List.of(), List.of(), 0L, List.of());
+        broker.convertAndSend("/topic/channels/" + r.getChannel().getId(),
+                MessageEvent.created(dto));
+        return true;
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
