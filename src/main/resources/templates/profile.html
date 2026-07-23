@@ -9,6 +9,10 @@
     <th:block th:replace="~{fragments/assets :: css('app')}"/>
     <meta name="_csrf" th:content="${_csrf != null ? _csrf.token : ''}"/>
     <meta name="_csrf_header" th:content="${_csrf != null ? _csrf.headerName : ''}"/>
+    <!-- Workspace-admin flag (realm role chat-admin -> ROLE_ADMIN); read by the avatar
+         dropdown to decide whether to offer the Admin console item. Distinct from the
+         channel-scoped me-is-admin meta on the chat pages. -->
+    <meta name="me-is-workspace-admin" sec:authorize="hasRole('ADMIN')" content="true"/>
 </head>
 <body class="app profile-page" th:attr="data-theme=${me.theme}">
 
@@ -17,8 +21,8 @@
 <header class="topbar">
     <div class="topbar-left">
         <a th:href="@{/channels}" class="logo">
-            <span class="logo-text" th:text="${appTitle}">ThreadOrbit</span>
             <th:block th:replace="~{fragments/logo :: mark('logo-mark')}"/>
+            <span class="logo-text" th:text="${appTitle}">ThreadOrbit</span>
         </a>
     </div>
     <div class="topbar-center"></div>
@@ -33,13 +37,8 @@
             </span>
             <span th:text="${me.displayName ?: me.username}">user</span>
         </span>
-        <a sec:authorize="hasRole('ADMIN')" th:href="@{/admin}" class="topbar-cog"
-           title="Admin console" aria-label="Admin console">
-            <svg class="icon"><use href="#icon-cog"/></svg>
-        </a>
-        <form th:action="@{/logout}" method="post" style="display:inline">
-            <button type="submit" class="link-btn">Sign out</button>
-        </form>
+        <!-- Submitted by the avatar dropdown's "Sign out" item (presence-menu.js). -->
+        <form id="logout-form" th:action="@{/logout}" method="post" hidden></form>
     </div>
 </header>
 
@@ -111,11 +110,10 @@
         <section class="profile-section">
             <h2>Theme</h2>
             <p class="profile-help">
-                Click a theme to preview it. The change is only persisted when you save —
-                leave the page without saving and it reverts to your current theme.
+                Click a theme to apply it — your choice is saved automatically.
             </p>
             <form th:action="@{/profile/theme}" method="post" class="theme-picker"
-                  id="theme-form" th:data-saved-theme="${me.theme}">
+                  id="theme-form">
                 <div class="theme-grid">
                     <label th:each="t : ${themes}" class="theme-option"
                            th:classappend="${t == me.theme ? 'selected' : ''}"
@@ -130,7 +128,7 @@
                         <span class="theme-name" th:text="${#strings.capitalize(t)}">Theme</span>
                     </label>
                 </div>
-                <button type="submit">Save theme</button>
+                <p id="theme-feedback" class="profile-help" hidden></p>
             </form>
         </section>
     </div>
@@ -138,6 +136,8 @@
 
 <!-- Bundled page scripts (assets.gradle); dev serves the source files. See ASSETS.md. -->
 <th:block th:replace="~{fragments/assets :: js('profile')}"/>
+<!-- Avatar dropdown (presence + sign out); ES module, outside the Closure bundle. -->
+<script type="module" th:src="@{/js/chat/presence-menu-boot.js}" defer></script>
 
 </body>
 </html>

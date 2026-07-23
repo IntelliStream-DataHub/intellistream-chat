@@ -218,15 +218,17 @@ input:focus, textarea:focus, select:focus {
   font-size: 3.4rem;
   margin: 0 0 1rem;
   display: inline-flex;
-  /* Hero layout: the (animated) logo sits large above the wordmark. column-reverse because
-     the markup order is text-then-image. */
-  flex-direction: column-reverse;
+  /* Hero layout: the (animated) logo sits large above the wordmark. */
+  flex-direction: column;
   align-items: center;
   gap: 1.4rem;
 }
 .landing h1 .landing-logo {
-  width: 8rem;
+  /* Height-only, like the topbar mark — a wide custom logo keeps its proportions. */
   height: 8rem;
+  width: auto;
+  max-width: min(80vw, 24rem);
+  object-fit: contain;
   display: block;
 }
 .landing p {
@@ -259,7 +261,9 @@ input:focus, textarea:focus, select:focus {
 
 .topbar {
   display: grid;
-  grid-template-columns: var(--sidebar-w) 1fr auto;
+  /* The brand column tracks the sidebar width but may GROW with a long admin title
+     (the wordmark itself caps at 500px before ellipsizing). */
+  grid-template-columns: minmax(var(--sidebar-w), max-content) 1fr auto;
   align-items: center;
   background: var(--sb-bg);
   color: var(--sb-text);
@@ -285,11 +289,19 @@ input:focus, textarea:focus, select:focus {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
+  /* Let the wordmark shrink-and-ellipsize instead of overflowing the column. */
+  min-width: 0;
 }
 .topbar-left .logo .logo-mark {
-  width: 32px;
+  /* Height-only sizing: width follows the image's aspect ratio, so an uploaded
+     wide wordmark-style logo renders at its natural proportions. max-width guards
+     the bar against extreme banners; object-fit keeps a capped <img> undistorted. */
   height: 32px;
+  width: auto;
+  max-width: 180px;
+  object-fit: contain;
   display: block;
+  flex: 0 0 auto;
 }
 /* Brand wordmark — solid, with a soft depth shadow lifting it off the dark bar.
    Applied to the topbar wordmark and the landing hero. */
@@ -305,6 +317,12 @@ input:focus, textarea:focus, select:focus {
      tracked out. The landing hero keeps tight tracking instead (display sizes
      want the opposite). */
   letter-spacing: 0.045em;
+  /* Admin-configurable titles must stay on one line — the wordmark gets up to
+     500px of room, then truncates rather than wraps. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 500px;
 }
 .landing h1 > span {
   letter-spacing: -0.01em;
@@ -379,24 +397,6 @@ input:focus, textarea:focus, select:focus {
 }
 a.me { color: var(--sb-text); }
 a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
-.topbar-cog {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 2.6rem;
-  height: 2.6rem;
-  padding: 0;
-  border-radius: var(--radius-sm);
-  color: var(--sb-muted);
-  font-size: 2.1rem;
-  line-height: 1;
-  text-decoration: none;
-}
-.topbar-cog:hover {
-  color: var(--sb-text);
-  background: var(--sb-bg-2);
-  text-decoration: none;
-}
 .me .avatar { width: 24px; height: 24px; font-size: var(--fs-xs); border-radius: 50%; }
 
 /* ---------- Topbar mention bell ---------- */
@@ -1145,10 +1145,20 @@ button.icon-btn > .icon {
   color: inherit;
   font: inherit;
 }
+/* Hover/focus tint — var(--hover), not var(--bg): in the light theme --bg equals the
+   menu panel's white, which made the old hover invisible. */
+.presence-menu-item {
+  transition: background-color 0.1s;
+}
 .presence-menu-item:hover,
 .presence-menu-item:focus {
-  background: var(--bg);
+  background: var(--hover);
   outline: none;
+}
+/* The destructive item hovers red-tinted, matching its label. */
+.presence-menu-signout:hover,
+.presence-menu-signout:focus {
+  background: var(--danger-soft);
 }
 /* The "View profile" / "Set a status" items are <a> tags; reset link styling so they
    render identically to the kind-picker buttons above them. */
@@ -1176,6 +1186,7 @@ button.icon-btn > .icon {
 .presence-menu-dot[data-presence-kind="OFFLINE"] { background: #888; }
 .presence-menu-label { font-weight: 500; }
 .presence-menu-hint { font-size: 0.75em; color: var(--muted); grid-column: 2; }
+.presence-menu-signout .presence-menu-label { color: var(--danger); }
 
 
 /* When the user has uploaded a profile picture the renderer adds an <img.avatar-image>
@@ -1773,7 +1784,10 @@ button.icon-btn > .icon {
 /* ===========================================================
    Profile page
    =========================================================== */
-.profile-page { background: var(--bg); }
+/* Profile + admin share the chat pages' "sheet on chrome" treatment: dark body,
+   the same --chrome-gap strip under the topbar, and a rounded content sheet — so
+   the dark header region is the same height on every page. */
+.profile-page, .admin-page { background: var(--sb-bg); }
 .profile-page .topbar-left,
 .profile-page .topbar-center,
 .profile-page .topbar-right { padding: 0 1rem; }
@@ -1783,8 +1797,10 @@ button.icon-btn > .icon {
   overflow-y: auto;
   padding: 2rem 1.5rem;
   background: var(--panel-2);
-  height: calc(100vh - var(--topbar-h));
-  height: calc(100dvh - var(--topbar-h));
+  margin-top: var(--chrome-gap);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  height: calc(100vh - var(--topbar-h) - var(--chrome-gap));
+  height: calc(100dvh - var(--topbar-h) - var(--chrome-gap));
 }
 .profile-card {
   max-width: 720px;
@@ -1844,8 +1860,10 @@ button.icon-btn > .icon {
   overflow-y: auto;
   padding: 2rem 1.5rem;
   background: var(--panel-2);
-  height: calc(100vh - var(--topbar-h));
-  height: calc(100dvh - var(--topbar-h));
+  margin-top: var(--chrome-gap);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  height: calc(100vh - var(--topbar-h) - var(--chrome-gap));
+  height: calc(100dvh - var(--topbar-h) - var(--chrome-gap));
 }
 .admin-wrap {
   max-width: 960px;
@@ -1895,7 +1913,16 @@ button.icon-btn > .icon {
   color: var(--muted);
   font-size: var(--fs-md);
 }
-.admin-current-logo .logo-mark { width: 32px; height: 32px; }
+.admin-current-logo .logo-mark {
+  height: 32px;
+  width: auto;
+  max-width: 180px;
+  object-fit: contain;
+}
+.admin-logo-note { color: var(--muted); }
+.admin-logo-note.error { color: var(--danger); font-weight: 600; }
+/* Authored display beats the UA's [hidden] rule — restore it for the preview slot. */
+.admin-current-logo[hidden] { display: none; }
 .admin-flash, .admin-error {
   padding: 0.55rem 0.8rem;
   border-radius: var(--radius-md);
@@ -1942,6 +1969,9 @@ button.icon-btn > .icon {
   cursor: pointer;
   background: var(--panel);
   transition: border-color 0.1s, transform 0.1s;
+  /* Containing block for the visually-hidden radio below — without this the
+     absolute input anchors to the document and adds phantom page scroll. */
+  position: relative;
 }
 .theme-option:hover { border-color: var(--border-strong); }
 .theme-option.selected { border-color: var(--accent); }
@@ -2001,9 +2031,7 @@ button.icon-btn > .icon {
 .theme-swatch[data-theme="cyan"] .sw-accent  { background: #5fdde6; }
 .theme-swatch[data-theme="cyan"] .sw-content { background: #ffffff; }
 
-.theme-picker button[type="submit"] {
-  background: var(--accent);
-}
+.theme-picker #theme-feedback { margin: 0.2rem 0 0; }
 
 /* ===========================================================
    Message attachments
@@ -2965,7 +2993,13 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
   /* Reaction bubbles slightly bigger for fingertips. */
   .reaction { padding: 2px 0.55rem; min-height: 26px; }
 
-  /* Profile / forms padding tighten. */
+  /* Profile / forms padding tighten; sheets go full-bleed on phones like .content. */
+  .profile-content, .admin-content {
+    margin-top: 0;
+    border-radius: 0;
+    height: calc(100vh - var(--topbar-h));
+    height: calc(100dvh - var(--topbar-h));
+  }
   .profile-content { padding: 1rem 0.75rem; }
   .profile-card { padding: 1rem 1rem 1.2rem; }
   .profile-fields { grid-template-columns: 1fr; gap: 0.1rem 0; }

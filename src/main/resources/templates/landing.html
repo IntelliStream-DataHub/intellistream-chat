@@ -11,8 +11,8 @@
 <body class="landing">
 <main>
     <h1>
-        <span th:text="${appTitle}">ThreadOrbit</span>
         <th:block th:replace="~{fragments/logo :: mark('landing-logo')}"/>
+        <span th:text="${appTitle}">ThreadOrbit</span>
     </h1>
     <p>A Slack/Mattermost-style workspace.</p>
     <p>

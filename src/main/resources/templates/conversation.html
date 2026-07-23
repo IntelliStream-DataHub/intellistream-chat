@@ -9,6 +9,10 @@
     <th:block th:replace="~{fragments/assets :: css('app')}"/>
     <meta name="_csrf" th:content="${_csrf != null ? _csrf.token : ''}"/>
     <meta name="_csrf_header" th:content="${_csrf != null ? _csrf.headerName : ''}"/>
+    <!-- Workspace-admin flag (realm role chat-admin -> ROLE_ADMIN); read by the avatar
+         dropdown to decide whether to offer the Admin console item. Distinct from the
+         channel-scoped me-is-admin meta on the chat pages. -->
+    <meta name="me-is-workspace-admin" sec:authorize="hasRole('ADMIN')" content="true"/>
     <meta name="me-username" th:content="${me.username}"/>
     <meta name="me-display" th:content="${me.displayName}"/>
     <meta name="active-conversation-id" th:content="${activeConversationId}"/>
@@ -27,8 +31,8 @@
             <span class="sidebar-toggle-bar"></span>
         </button>
         <a th:href="@{/channels}" class="logo">
-            <span class="logo-text" th:text="${appTitle}">ThreadOrbit</span>
             <th:block th:replace="~{fragments/logo :: mark('logo-mark')}"/>
+            <span class="logo-text" th:text="${appTitle}">ThreadOrbit</span>
         </a>
     </div>
     <div class="topbar-center"></div>
@@ -60,13 +64,9 @@
             </span>
             <span th:text="${me.displayName ?: me.username}">user</span>
         </a>
-        <a sec:authorize="hasRole('ADMIN')" th:href="@{/admin}" class="topbar-cog"
-           title="Admin console" aria-label="Admin console">
-            <svg class="icon"><use href="#icon-cog"/></svg>
-        </a>
-        <form th:action="@{/logout}" method="post" style="display:inline">
-            <button type="submit" class="link-btn">Sign out</button>
-        </form>
+        <!-- Submitted by the avatar dropdown's "Sign out" item (presence-menu.js);
+             kept as a hidden form so the POST carries the Thymeleaf CSRF token. -->
+        <form id="logout-form" th:action="@{/logout}" method="post" hidden></form>
     </div>
 </header>
 
@@ -283,6 +283,9 @@
 <script th:src="@{/js/vendor/stomp.umd.min.js}"></script>
 <!-- Bundled page scripts (assets.gradle); dev serves the source files. See ASSETS.md. -->
 <th:block th:replace="~{fragments/assets :: js('conversation')}"/>
+<!-- Avatar dropdown (presence + sign out). ES module, so it loads its own graph;
+     not part of the Closure bundle (like the rest of js/chat/). -->
+<script type="module" th:src="@{/js/chat/presence-menu-boot.js}" defer></script>
 
 </body>
 </html>

@@ -17,6 +17,7 @@
 package ai.intellistream.threadorbit.config;
 
 import ai.intellistream.threadorbit.security.KeycloakRolesConverter;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.server.servlet.CookieSameSiteSupplier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -88,7 +89,9 @@ public class SecurityConfig {
     @Bean
     @Order(2)
     public SecurityFilterChain webFilterChain(HttpSecurity http,
-                                              ClientRegistrationRepository clientRegistrationRepository) throws Exception {
+                                              ClientRegistrationRepository clientRegistrationRepository,
+                                              @Value("${spring.security.oauth2.client.provider.keycloak.issuer-uri}")
+                                              String keycloakIssuerUri) throws Exception {
         var csrfHandler = new CsrfTokenRequestAttributeHandler();
         csrfHandler.setCsrfRequestAttributeName("_csrf");
 
@@ -113,7 +116,13 @@ public class SecurityConfig {
                 + "frame-src https://www.youtube.com https://www.youtube-nocookie.com https://player.vimeo.com; "
                 + "frame-ancestors 'none'; "
                 + "base-uri 'self'; "
-                + "form-action 'self'";
+                // form-action must include the Keycloak origin: Chromium enforces this
+                // directive against the REDIRECT that follows a form submission, and the
+                // logout POST 302s to Keycloak's end-session endpoint (RP-initiated
+                // logout). With 'self' alone, Chrome aborts that redirect and sign-out
+                // silently does nothing. Firefox doesn't check redirects, which is why
+                // this went unnoticed.
+                + "form-action 'self' " + originOf(keycloakIssuerUri);
 
         http
                 .authorizeHttpRequests(auth -> auth
@@ -152,6 +161,12 @@ public class SecurityConfig {
     @Bean
     public CookieSameSiteSupplier sessionCookieSameSite() {
         return CookieSameSiteSupplier.ofStrict().whenHasName("JSESSIONID");
+    }
+
+    /** Scheme://host[:port] of a URI — the CSP source form of the Keycloak issuer. */
+    private static String originOf(String uri) {
+        var u = java.net.URI.create(uri);
+        return u.getScheme() + "://" + u.getHost() + (u.getPort() > 0 ? ":" + u.getPort() : "");
     }
 
     private static LogoutSuccessHandler oidcLogoutSuccessHandler(ClientRegistrationRepository repo) {

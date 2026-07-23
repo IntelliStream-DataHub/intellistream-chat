@@ -37,8 +37,22 @@ const KINDS = [
 let menuEl = null;
 /** Index of the currently keyboard-focused item; -1 means nothing focused. */
 let focusedIdx = -1;
+/** Pending hover-out close; cancelled when the pointer re-enters the trigger or menu. */
+let closeTimer = null;
+
+function cancelClose() {
+    clearTimeout(closeTimer);
+    closeTimer = null;
+}
+
+function scheduleClose() {
+    cancelClose();
+    // Grace period long enough to travel across the 6px gap into the menu.
+    closeTimer = setTimeout(closeMenu, 220);
+}
 
 function closeMenu() {
+    cancelClose();
     if (menuEl) {
         menuEl.remove();
         menuEl = null;
@@ -58,11 +72,14 @@ function focusItem(idx) {
     list[focusedIdx].focus();
 }
 
-function openMenu(anchor) {
+function openMenu(anchor, opts = {}) {
     closeMenu();
     menuEl = document.createElement('div');
     menuEl.className = 'presence-menu';
     menuEl.setAttribute('role', 'menu');
+    // Keep the menu open while the pointer is inside it (hover-open pairing).
+    menuEl.addEventListener('mouseenter', cancelClose);
+    menuEl.addEventListener('mouseleave', scheduleClose);
 
     KINDS.forEach((k) => {
         const item = document.createElement('button');
@@ -101,6 +118,34 @@ function openMenu(anchor) {
     statusLink.innerHTML = '<span class="presence-menu-label">Set a status</span>';
     menuEl.appendChild(statusLink);
 
+    // Admin console — only for workspace admins (realm role chat-admin → ROLE_ADMIN;
+    // the me-is-workspace-admin meta is emitted via sec:authorize on every page).
+    if (document.querySelector('meta[name="me-is-workspace-admin"]')?.content === 'true') {
+        const adminLink = document.createElement('a');
+        adminLink.className = 'presence-menu-item presence-menu-link';
+        adminLink.setAttribute('role', 'menuitem');
+        adminLink.href = '/admin';
+        adminLink.innerHTML = '<span class="presence-menu-label">Admin console</span>';
+        menuEl.appendChild(adminLink);
+    }
+
+    // Sign out — submits the hidden #logout-form so the POST keeps the
+    // Thymeleaf-injected CSRF token (a plain fetch would have to re-plumb it).
+    const divider2 = document.createElement('div');
+    divider2.className = 'presence-menu-divider';
+    menuEl.appendChild(divider2);
+
+    const signOut = document.createElement('button');
+    signOut.type = 'button';
+    signOut.className = 'presence-menu-item presence-menu-link presence-menu-signout';
+    signOut.setAttribute('role', 'menuitem');
+    signOut.innerHTML = '<span class="presence-menu-label">Sign out</span>';
+    signOut.addEventListener('click', () => {
+        closeMenu();
+        document.getElementById('logout-form')?.submit();
+    });
+    menuEl.appendChild(signOut);
+
     // Anchor below the avatar; constrained to the viewport via simple right-edge clamp.
     const r = anchor.getBoundingClientRect();
     menuEl.style.position = 'fixed';
@@ -108,8 +153,9 @@ function openMenu(anchor) {
     menuEl.style.right = Math.max(8, window.innerWidth - r.right) + 'px';
     document.body.appendChild(menuEl);
 
-    // Keyboard nav: focus the first item so the user can tab/arrow without a mouse.
-    focusItem(0);
+    // Focus the first item only for keyboard opens — a hover-open must not steal
+    // focus from whatever the user is typing in. Arrow keys still work either way.
+    if (opts.focusFirst) focusItem(0);
 }
 
 function handleKeyNav(e) {
@@ -164,7 +210,9 @@ function dismissOnOutsideClick(e) {
 }
 
 export function init() {
-    const meLink = document.querySelector('a.me');
+    // <a class="me"> on the chat pages, <span class="me"> on profile/admin — the menu
+    // works on both (preventDefault on the avatar is a no-op for the span).
+    const meLink = document.querySelector('.topbar .me');
     if (!meLink) return;
     const avatar = meLink.querySelector('.avatar');
     if (!avatar) return;
@@ -185,9 +233,19 @@ export function init() {
         if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
             if (menuEl) closeMenu();
-            else openMenu(avatar);
+            else openMenu(avatar, { focusFirst: true });
         }
     });
+
+    // Hover-open on pointer devices only: touch synthesizes mouseenter right before
+    // click, which would open the menu and have the click instantly toggle it shut.
+    if (window.matchMedia('(hover: hover)').matches) {
+        meLink.addEventListener('mouseenter', () => {
+            cancelClose();
+            if (!menuEl) openMenu(avatar);
+        });
+        meLink.addEventListener('mouseleave', scheduleClose);
+    }
 
     document.addEventListener('click', dismissOnOutsideClick);
     document.addEventListener('keydown', handleKeyNav);

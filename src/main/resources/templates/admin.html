@@ -9,6 +9,10 @@
     <th:block th:replace="~{fragments/assets :: css('app')}"/>
     <meta name="_csrf" th:content="${_csrf != null ? _csrf.token : ''}"/>
     <meta name="_csrf_header" th:content="${_csrf != null ? _csrf.headerName : ''}"/>
+    <!-- Workspace-admin flag (realm role chat-admin -> ROLE_ADMIN); read by the avatar
+         dropdown to decide whether to offer the Admin console item. Distinct from the
+         channel-scoped me-is-admin meta on the chat pages. -->
+    <meta name="me-is-workspace-admin" sec:authorize="hasRole('ADMIN')" content="true"/>
 </head>
 <body class="app admin-page" th:attr="data-theme=${me.theme}">
 
@@ -17,8 +21,8 @@
 <header class="topbar">
     <div class="topbar-left">
         <a th:href="@{/channels}" class="logo">
-            <span class="logo-text" th:text="${appTitle}">ThreadOrbit</span>
             <th:block th:replace="~{fragments/logo :: mark('logo-mark')}"/>
+            <span class="logo-text" th:text="${appTitle}">ThreadOrbit</span>
         </a>
     </div>
     <div class="topbar-center"></div>
@@ -29,13 +33,8 @@
                   th:text="${#strings.toUpperCase(#strings.substring(me.displayName ?: me.username, 0, 1))}">U</span>
             <span th:text="${me.displayName ?: me.username}">user</span>
         </span>
-        <a sec:authorize="hasRole('ADMIN')" th:href="@{/admin}" class="topbar-cog"
-           title="Admin console" aria-label="Admin console">
-            <svg class="icon"><use href="#icon-cog"/></svg>
-        </a>
-        <form th:action="@{/logout}" method="post" style="display:inline">
-            <button type="submit" class="link-btn">Sign out</button>
-        </form>
+        <!-- Submitted by the avatar dropdown's "Sign out" item (presence-menu.js). -->
+        <form id="logout-form" th:action="@{/logout}" method="post" hidden></form>
     </div>
 </header>
 
@@ -67,6 +66,12 @@
                 </label>
                 <div class="admin-form-row">
                     <button type="submit">Upload logo</button>
+                    <!-- Filled by admin.js with a blob: URL when a file is picked; rendered at
+                         topbar height so the preview matches how it will actually appear. -->
+                    <span class="admin-current-logo" id="logo-preview-wrap" hidden>
+                        Preview: <img id="logo-preview" alt="" class="logo-mark"/>
+                        <small id="logo-preview-note"></small>
+                    </span>
                     <span class="admin-current-logo">
                         Current: <th:block th:replace="~{fragments/logo :: mark('logo-mark')}"/>
                     </span>
@@ -147,6 +152,8 @@
 
 <!-- Bundled page scripts (assets.gradle); dev serves the source files. See ASSETS.md. -->
 <th:block th:replace="~{fragments/assets :: js('admin')}"/>
+<!-- Avatar dropdown (presence + sign out); ES module, outside the Closure bundle. -->
+<script type="module" th:src="@{/js/chat/presence-menu-boot.js}" defer></script>
 
 </body>
 </html>

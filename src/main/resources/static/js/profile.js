@@ -6,6 +6,32 @@
   const form = document.getElementById('theme-form');
   if (!form) return;
   const body = document.body;
+  const feedback = document.getElementById('theme-feedback');
+  let feedbackTimer = null;
+
+  function showFeedback(text, isError) {
+    if (!feedback) return;
+    clearTimeout(feedbackTimer);
+    feedback.textContent = text;
+    feedback.className = 'profile-help' + (isError ? ' error' : '');
+    feedback.hidden = false;
+    if (!isError) feedbackTimer = setTimeout(() => { feedback.hidden = true; }, 2000);
+  }
+
+  // Selecting a theme IS the save — there is no Save button. URLSearchParams over the
+  // form serializes both the theme radio and the Thymeleaf-injected _csrf field.
+  async function saveTheme() {
+    try {
+      const res = await fetch(form.action, {
+        method: 'POST',
+        body: new URLSearchParams(new FormData(form)),
+      });
+      if (res.ok || res.redirected) showFeedback('Theme saved.');
+      else showFeedback('Could not save the theme (' + res.status + ').', true);
+    } catch (err) {
+      showFeedback('Could not save the theme: ' + (err?.message || err), true);
+    }
+  }
 
   form.addEventListener('change', (e) => {
     const target = e.target;
@@ -14,6 +40,7 @@
       form.querySelectorAll('.theme-option').forEach((opt) => {
         opt.classList.toggle('selected', opt.dataset.themeValue === target.value);
       });
+      saveTheme();
     }
   });
 
