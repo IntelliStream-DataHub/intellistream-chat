@@ -104,7 +104,7 @@ public class RemindCommand implements SlashCommand {
         // Confirm back into the channel as the requester so they see the queue actually took it.
         // The post() call enforces requireWriteAccess — under @Transactional, an AccessDenied
         // throw rolls back the just-saved Reminder so non-members can't queue work via /remind.
-        var confirmation = "⏰ Reminder set for " + describeWhen(parsed.fireAt)
+        var confirmation = "⏰ Reminder set for " + describeWhen(parsed.fireAt, clock.getZone())
                 + (parsed.target == null ? "" : " (will tag @" + parsed.target.getUsername() + ")")
                 + ": _" + parsed.body + "_";
         return messageService.post(channel, author, confirmation);
@@ -134,12 +134,28 @@ public class RemindCommand implements SlashCommand {
         var dm = DURATION.matcher(input);
         var am = AT_TIME.matcher(input);
         if (dm.find()) {
-            var amount = Long.parseLong(dm.group(1));
+            long amount;
+            try {
+                amount = Long.parseLong(dm.group(1));
+            } catch (NumberFormatException overflow) {
+                throw new IllegalArgumentException("That's too far in the future. " + help());
+            }
+            // Cap the amount so toDuration's second-multiplication can't overflow into an
+            // ArithmeticException (which would surface as a raw 500). ~366 days is plenty.
+            if (amount < 1 || amount > 100L * 366 * 24 * 60 * 60) {
+                throw new IllegalArgumentException("Pick a time within about a year. " + help());
+            }
             var unit = dm.group(2).toLowerCase();
-            fireAt = clock.instant().plus(toDuration(amount, unit));
+            Duration d;
+            try {
+                d = toDuration(amount, unit);
+            } catch (ArithmeticException overflow) {
+                throw new IllegalArgumentException("That's too far in the future. " + help());
+            }
+            fireAt = clock.instant().plus(d);
             input = input.substring(dm.end()).stripLeading();
         } else if (am.find()) {
-            fireAt = parseAt(am, clock.instant().atZone(ZoneId.systemDefault()));
+            fireAt = parseAt(am, clock.instant().atZone(clock.getZone()));
             input = input.substring(am.end()).stripLeading();
         } else {
             throw new IllegalArgumentException(
@@ -188,9 +204,9 @@ public class RemindCommand implements SlashCommand {
         return target.toInstant();
     }
 
-    private static String describeWhen(Instant when) {
-        var z = when.atZone(ZoneId.systemDefault());
-        var today = LocalDate.now(ZoneId.systemDefault());
+    private static String describeWhen(Instant when, ZoneId zone) {
+        var z = when.atZone(zone);
+        var today = LocalDate.now(zone);
         var on = z.toLocalDate().equals(today) ? "today"
                 : z.toLocalDate().equals(today.plusDays(1)) ? "tomorrow"
                 : z.toLocalDate().toString();
