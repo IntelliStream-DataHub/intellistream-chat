@@ -34,4 +34,8 @@ public interface ConversationAttachmentRepository extends JpaRepository<Conversa
     @org.springframework.data.jpa.repository.Query(
             "select a.storageKey from ConversationAttachment a where a.message.id = :messageId")
     List<String> findStorageKeysByMessageId(Long messageId);
+
+    /** Every DM attachment storage key — part of the live set for the orphan sweep (CLEAN-1). */
+    @org.springframework.data.jpa.repository.Query("select a.storageKey from ConversationAttachment a")
+    java.util.List<String> findAllStorageKeys();
 }

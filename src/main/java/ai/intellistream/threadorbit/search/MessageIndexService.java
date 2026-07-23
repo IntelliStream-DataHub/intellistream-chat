@@ -211,6 +211,35 @@ public class MessageIndexService {
         return terms.isEmpty() ? null : new TermInSetQuery(F_AUTHOR, terms);
     }
 
+    /**
+     * Every message id currently in the index (the stored {@code F_ID} of each live doc). Used by
+     * the Lucene↔DB reconcile sweep (CLEAN-3) to diff the index against the {@code messages} table.
+     */
+    public java.util.Set<Long> allIndexedIds() {
+        try {
+            searcherManager.maybeRefresh();
+            var searcher = searcherManager.acquire();
+            try {
+                var reader = searcher.getIndexReader();
+                var ids = new java.util.HashSet<Long>(Math.max(16, reader.numDocs()));
+                var liveDocs = org.apache.lucene.index.MultiBits.getLiveDocs(reader);
+                for (int i = 0; i < reader.maxDoc(); i++) {
+                    if (liveDocs != null && !liveDocs.get(i)) continue; // skip deleted docs
+                    var doc = searcher.storedFields().document(i, java.util.Set.of(F_ID));
+                    var v = doc.get(F_ID);
+                    if (v != null) {
+                        try { ids.add(Long.parseLong(v)); } catch (NumberFormatException ignored) { }
+                    }
+                }
+                return ids;
+            } finally {
+                searcherManager.release(searcher);
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to enumerate Lucene index ids", e);
+        }
+    }
+
     /** True if no documents are indexed yet. Used by the bootstrap reindex. */
     public boolean isEmpty() {
         try {

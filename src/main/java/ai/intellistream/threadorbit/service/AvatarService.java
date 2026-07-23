@@ -71,6 +71,11 @@ public class AvatarService {
         Files.createDirectories(storageRoot);
     }
 
+    /** On-disk root of the avatar store — used by the orphan-avatar sweep (CLEAN-2). */
+    public Path storageRoot() {
+        return storageRoot;
+    }
+
     /**
      * Replace {@code user}'s avatar with the bytes in {@code in}. The stream is read in 8 KiB
      * chunks into a memory buffer (capped at {@link #MAX_BYTES} — anything bigger throws

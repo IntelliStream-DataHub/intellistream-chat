@@ -164,4 +164,8 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             """, nativeQuery = true)
     List<Object[]> countUnreadPerChannel(@Param("userId") Long userId,
                                          @Param("channelIds") Collection<Long> channelIds);
+
+    /** Every message id — the DB side of the Lucene↔DB reconcile (CLEAN-3). */
+    @org.springframework.data.jpa.repository.Query("select m.id from Message m")
+    java.util.List<Long> findAllMessageIds();
 }

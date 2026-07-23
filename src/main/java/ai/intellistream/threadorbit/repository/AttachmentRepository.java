@@ -33,4 +33,8 @@ public interface AttachmentRepository extends JpaRepository<Attachment, Long> {
     /** Storage keys of every attachment in a channel — captured before channel deletion to reap files. */
     @org.springframework.data.jpa.repository.Query("select a.storageKey from Attachment a where a.message.channel = :channel")
     java.util.List<String> findStorageKeysByChannel(ai.intellistream.threadorbit.domain.Channel channel);
+
+    /** Every attachment storage key — the live set for the orphan-attachment sweep (CLEAN-1). */
+    @org.springframework.data.jpa.repository.Query("select a.storageKey from Attachment a")
+    java.util.List<String> findAllStorageKeys();
 }

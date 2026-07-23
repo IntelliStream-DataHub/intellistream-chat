@@ -38,4 +38,8 @@ public interface UserRepository extends JpaRepository<User, Long> {
      */
     @Query("select u from User u where lower(u.username) in :usernames")
     List<User> findAllByUsernameLowerIn(@Param("usernames") Collection<String> lowercaseUsernames);
+
+    /** Every non-null avatar storage key — the live set for the orphan-avatar sweep (CLEAN-2). */
+    @org.springframework.data.jpa.repository.Query("select u.avatarStorageKey from User u where u.avatarStorageKey is not null")
+    java.util.List<String> findAllAvatarStorageKeys();
 }
