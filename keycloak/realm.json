@@ -22,7 +22,7 @@
         "http://localhost:8080"
       ],
       "standardFlowEnabled": true,
-      "directAccessGrantsEnabled": true,
+      "directAccessGrantsEnabled": false,
       "protocol": "openid-connect",
       "attributes": {
         "post.logout.redirect.uris": "http://localhost:8080/*"
