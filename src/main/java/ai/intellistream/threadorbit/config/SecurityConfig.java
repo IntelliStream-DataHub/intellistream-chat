@@ -48,10 +48,20 @@ public class SecurityConfig {
     /*
      * Cookie {@code Secure} flag is auto-detected per request: both the JSESSIONID and
      * the CSRF cookie inherit {@code request.isSecure()}, which is set to {@code true}
-     * by Tomcat's RemoteIpValve whenever the inbound request carried
-     * {@code X-Forwarded-Proto: https} (enabled by {@code forward-headers-strategy: framework}
-     * in application.yml). On plain-HTTP local dev the cookies are written without Secure
-     * so they round-trip; behind a TLS-terminating proxy they're marked Secure automatically.
+     * whenever the inbound request carried {@code X-Forwarded-Proto: https}. This is wired by
+     * {@code forward-headers-strategy: framework} in application.yml, which registers Spring's
+     * {@code ForwardedHeaderFilter} (NOT Tomcat's RemoteIpValve — that's the {@code native}
+     * strategy). On plain-HTTP local dev the cookies are written without Secure so they
+     * round-trip; behind a TLS-terminating proxy they're marked Secure automatically.
+     *
+     * SECURITY NOTE: {@code ForwardedHeaderFilter} trusts {@code X-Forwarded-*} from ANY
+     * upstream — it has no internal-proxy allowlist (unlike {@code native} + RemoteIpValve's
+     * {@code internal-proxies}). This is safe only because the app binds to loopback
+     * ({@code server.address=127.0.0.1} by default) behind the TLS proxy, so no untrusted client
+     * can reach it directly to spoof those headers. If you ever widen the bind address, switch to
+     * {@code forward-headers-strategy: native} and set {@code server.tomcat.remoteip.internal-proxies}
+     * to your proxy's CIDR — otherwise a spoofed X-Forwarded-Host could poison {baseUrl} expansion
+     * (redirect/logout URIs) and the per-request cookie Secure decision.
      *
      * Tomcat session cookie: see {@code Request#configureSessionCookie}, which ORs
      * {@code SessionCookieConfig.isSecure()} with {@code request.isSecure()}. We don't set
