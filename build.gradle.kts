@@ -91,6 +91,11 @@ dependencies {
     testAnnotationProcessor("org.projectlombok:lombok:1.18.38")
 }
 
+// JS/CSS bundling (Closure Compiler / Closure Stylesheets) — declarative bundles built from
+// manifest files; see assets.gradle and ASSETS.md. Kept in Groovy so it stays line-for-line
+// comparable with the datahub-console original it was ported from.
+apply(from = "assets.gradle")
+
 tasks.withType<Test> {
     useJUnitPlatform()
 }

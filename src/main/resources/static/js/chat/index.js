@@ -1450,6 +1450,8 @@ presenceMenu.init();
     }
     // WS broadcast triggers replaceMessageDom to refresh the bubble row.
   }
+  // Lets the mobile long-press action sheet's emoji strip toggle reactions.
+  ChatKit.setQuickReaction(toggleReaction);
 
   // Markdown toolbar / caret-insert helpers come from window.ChatKit (see chat-kit.js).
   // Wire all toolbars on the page (main composer + thread reply composer share the

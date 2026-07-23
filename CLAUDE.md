@@ -1,6 +1,8 @@
-# Chat — Claude Code project guide
+# ThreadOrbit — Claude Code project guide
 
-Spring Boot 4 chat application (Slack/Mattermost-style). Read this before making changes; it captures conventions that aren't obvious from the code.
+ThreadOrbit — Spring Boot 4 chat application (Slack/Mattermost-style). Read this before making changes; it captures conventions that aren't obvious from the code.
+
+Quick starts: `QUICKSTART-COMPOSE.md` (containers) · `QUICKSTART-MANUAL.md` (native + systemd).
 
 ## Stack
 
@@ -10,6 +12,7 @@ Spring Boot 4 chat application (Slack/Mattermost-style). Read this before making
 - **Container runtime: Podman.** Docker is **not** installed. Use `podman compose` (or `podman-compose`) for the local stack. Testcontainers needs `DOCKER_HOST=unix:///run/user/$UID/podman/podman.sock` (start the user socket with `systemctl --user enable --now podman.socket`).
 - **STOMP over native WebSocket** (`/ws`) for real-time messages. No SockJS fallback — its `iframe`/`htmlfile`/`jsonp-polling` transports inject inline `<script>` and break the strict CSP.
 - **Thymeleaf + vanilla JS only.** No React/Vue/Svelte, no npm bundler. StompJS and highlight.js are vendored under `static/js/vendor/`; everything else is hand-written.
+- **UI font: Figtree** (SIL OFL), self-hosted as variable woff2 under `static/fonts/` — the CSP (`font-src 'self'`) bans font CDNs, so never link fonts.googleapis.com; vendor new fonts the same way.
 - **CommonMark + jsoup** for Markdown rendering and sanitization.
 - **Embedded Apache Lucene** for full-text search, on disk at `./data/lucene`. No ILIKE, no Postgres `tsvector`.
 
@@ -21,10 +24,11 @@ podman compose up -d
 podman compose down
 
 # Build / run
-./gradlew assemble           # compile + bootJar
+./gradlew assemble           # compile + bootJar (also builds the JS/CSS bundles)
 ./gradlew bootRun            # run the app on :8080
+./gradlew buildAssets        # JS/CSS bundles + registry only (see ASSETS.md)
 ./gradlew test               # all tests (needs Docker for ITs)
-./gradlew test --tests 'ai.intellistream.radiance.service.*'   # unit tests only
+./gradlew test --tests 'ai.intellistream.threadorbit.service.*'   # unit tests only
 
 # Wrapper bootstrap (one time, if gradlew is missing)
 gradle wrapper --gradle-version 9.0.0
@@ -38,7 +42,7 @@ The tree below is a sketch — `service/` and `web/dto/` keep growing; treat the
 as authoritative and CLAUDE.md as a starting orientation.
 
 ```
-src/main/java/ai/intellistream/radiance/
+src/main/java/ai/intellistream/threadorbit/
 ├── ChatApplication.java
 ├── attachments/   AttachmentBytes (per-user upload cap resolution)
 ├── config/        SecurityConfig (two filter chains), WebSocketConfig,
@@ -91,6 +95,7 @@ Several autoconfigurations that lived inside `spring-boot-autoconfigure` in 3.x 
 - **`CurrentUser`** is the single bridge between Spring Security principals and the domain `User`. It provisions/upserts a `User` row from the OIDC subject the first time it sees a principal. Always go through it; don't read JWT/OidcUser claims in controllers.
 - **Channel types.** `PUBLIC` channels are joinable by anyone via `ChannelService.join`. `PRIVATE` channels require `ChannelService.invite` by an admin. The creator becomes the first `ADMIN` member automatically.
 - **Slug rule.** `Channel.slug` is generated from the name in `ChannelService.create`: lowercased, non-alphanumerics collapsed to `-`, trimmed to 80 chars. A name with no alphanumerics is rejected.
+- **JS/CSS ship as build-time bundles** (Closure Compiler for JS; see `assets.gradle` + `ASSETS.md`). Templates include them via `~{fragments/assets :: js('<name>')}` / `css('app')` — never raw `<script>`/`<link>` tags for bundled files. Prod URLs are content-versioned (`?v=<hash>`); the dev profile (`threadorbit.assets.unbundled=true`) serves the original sources so edits show on refresh. The `js/chat/` ES-module graph and `js/vendor/*` are deliberately not bundled.
 - **Markdown is rendered server-side** (`MarkdownRenderer`) and sanitized with jsoup `Safelist.basic` plus a small allowlist for headings/tables/code. Clients receive both `bodyMarkdown` and `bodyHtml` — render `bodyHtml` directly with `innerHTML`.
 - **Search runs against an embedded Lucene index** at `./data/lucene` (`MessageIndexService`). Writes are pushed by `MessageService` after the surrounding JPA transaction commits, so the index never holds rolled-back data. On startup, `LuceneBootstrap` rebuilds the index from `messages` if the directory is empty (fresh deploy / wiped data dir / cutover from `tsvector`). Queries shorter than 2 chars are treated as empty. The configurable property is `chat.search.lucene-dir`.
 - **Search authorization tiers.** `SearchService.searchChannel` requires the standard channel read rules. `searchAllJoined` only spans the viewer's joined channels. `searchEverywhere` (HTTP: `GET /api/search?scope=all`) reads every channel and is gated on Spring authority `ROLE_ADMIN` (Keycloak realm role `admin`).

@@ -4,9 +4,9 @@
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
     <meta name="theme-color" content="#1e325c"/>
-    <title th:text="'Admin · ' + ${appTitle}">Admin · Radiance</title>
-    <link rel="icon" th:href="${appLogoUrl}"/>
-    <link rel="stylesheet" th:href="@{/css/app.css}"/>
+    <title th:text="'Admin · ' + ${appTitle}">Admin · ThreadOrbit</title>
+    <link rel="icon" th:href="${appFaviconUrl}"/>
+    <th:block th:replace="~{fragments/assets :: css('app')}"/>
     <meta name="_csrf" th:content="${_csrf != null ? _csrf.token : ''}"/>
     <meta name="_csrf_header" th:content="${_csrf != null ? _csrf.headerName : ''}"/>
 </head>
@@ -17,8 +17,8 @@
 <header class="topbar">
     <div class="topbar-left">
         <a th:href="@{/channels}" class="logo">
-            <span class="logo-text" th:text="${appTitle}">Radiance</span>
-            <img th:src="${appLogoUrl}" alt="" class="logo-mark"/>
+            <span class="logo-text" th:text="${appTitle}">ThreadOrbit</span>
+            <th:block th:replace="~{fragments/logo :: mark('logo-mark')}"/>
         </a>
     </div>
     <div class="topbar-center"></div>
@@ -68,7 +68,7 @@
                 <div class="admin-form-row">
                     <button type="submit">Upload logo</button>
                     <span class="admin-current-logo">
-                        Current: <img th:src="${appLogoUrl}" alt="" class="logo-mark"/>
+                        Current: <th:block th:replace="~{fragments/logo :: mark('logo-mark')}"/>
                     </span>
                 </div>
             </form>
@@ -80,6 +80,7 @@
 
         <section class="admin-section">
             <h2>Channels <small th:text="'(' + ${#lists.size(channelRows)} + ')'">(0)</small></h2>
+            <div class="admin-table-wrap">
             <table class="admin-table">
                 <thead>
                 <tr><th>Name</th><th>Type</th><th>Members</th><th>Messages</th><th>Created</th></tr>
@@ -99,6 +100,7 @@
                 </tr>
                 </tbody>
             </table>
+            </div>
         </section>
 
         <section class="admin-section">
@@ -120,6 +122,7 @@
 
         <section class="admin-section">
             <h2>Users <small th:text="'(' + ${#lists.size(userRows)} + ')'">(0)</small></h2>
+            <div class="admin-table-wrap">
             <table class="admin-table">
                 <thead>
                 <tr><th>Username</th><th>Display name</th><th>Email</th><th>Last active</th><th>Joined</th></tr>
@@ -137,11 +140,13 @@
                 </tr>
                 </tbody>
             </table>
+            </div>
         </section>
     </div>
 </main>
 
-<script th:src="@{/js/idle-logout.js}"></script>
+<!-- Bundled page scripts (assets.gradle); dev serves the source files. See ASSETS.md. -->
+<th:block th:replace="~{fragments/assets :: js('admin')}"/>
 
 </body>
 </html>

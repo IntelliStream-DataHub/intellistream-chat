@@ -1,4 +1,4 @@
--- Radiance — initial schema (consolidated 2026-04-28).
+-- ThreadOrbit — initial schema (consolidated 2026-04-28).
 -- Squashed at v0.1.0; future schema changes go in fresh V2+ files. Never edit
 -- this one in place once it has shipped.
 --
@@ -257,7 +257,7 @@ create index ix_reminders_due on reminders (fire_at) where fired_at is null;
 
 create table app_settings (
     id                  smallint     primary key default 1 check (id = 1),
-    title               varchar(120) not null default 'Radiance',
+    title               varchar(120) not null default 'ThreadOrbit',
     logo_path           varchar(255),
     logo_content_type   varchar(64),
     logo_updated_at     timestamptz,
@@ -268,4 +268,4 @@ create table app_settings (
     updated_at          timestamptz  not null default now()
 );
 
-insert into app_settings (id, title) values (1, 'Radiance');
+insert into app_settings (id, title) values (1, 'ThreadOrbit');

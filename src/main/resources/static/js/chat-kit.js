@@ -402,7 +402,9 @@
     const desiredLeft = rect.left - picker.offsetWidth + rect.width;
     picker.style.left = Math.max(8, Math.min(desiredLeft, window.innerWidth - picker.offsetWidth - 8)) + 'px';
     emojiPickerEl = picker;
-    setTimeout(() => search.focus());
+    // Autofocus the search on desktop only — on touch devices it would pop the
+    // software keyboard over the picker the moment it opens.
+    if (!touchOnly.matches) setTimeout(() => search.focus());
     setTimeout(() => document.addEventListener('mousedown', onPickerOutside, { capture: true }));
   };
 
@@ -420,6 +422,177 @@
     handle.textContent = '@' + username;
     metaEl.append(handle);
   };
+
+  // ---------- Touch long-press → message action sheet ----------
+  // Touch devices have no hover, so message actions are reached Slack-style:
+  // press and hold for ~500ms (the platform long-press convention — ~400ms
+  // Android, ~500ms iOS) and a bottom sheet slides up with a quick-reaction
+  // emoji strip plus one large row per action. The rows are built from the
+  // message's own hidden .message-actions buttons, so whatever actions a page
+  // grants for that message (edit/delete/reply/…) appear with no duplicated
+  // logic — tapping a row forwards the click to the original button. Pointer
+  // Events carry the input type, so mouse and pen keep CSS :hover behaviour.
+  const LONG_PRESS_MS = 500;
+  const LONG_PRESS_SLOP_PX = 10; // finger drift beyond this is a scroll, not a press
+  const touchOnly = window.matchMedia('(hover: none) and (pointer: coarse)');
+
+  // Pages register their reaction toggler (channels and DMs hit different
+  // endpoints); the sheet's emoji strip is hidden until one is registered.
+  let quickReactionFn = null;
+  const setQuickReaction = (fn) => { quickReactionFn = fn; };
+
+  let sheetEl = null;
+  let sheetBackdropEl = null;
+  let sheetCloseTimer = null;
+
+  const closeMessageSheet = () => {
+    if (!sheetEl || sheetEl.hidden) return;
+    sheetEl.classList.remove('open');
+    sheetBackdropEl.classList.remove('open');
+    clearTimeout(sheetCloseTimer);
+    // Keep display until the slide-down transition ends.
+    sheetCloseTimer = setTimeout(() => {
+      sheetEl.hidden = true;
+      sheetBackdropEl.hidden = true;
+    }, 240);
+  };
+
+  const ensureSheet = () => {
+    if (sheetEl) return;
+    sheetBackdropEl = document.createElement('div');
+    sheetBackdropEl.className = 'action-sheet-backdrop';
+    sheetBackdropEl.hidden = true;
+    sheetEl = document.createElement('div');
+    sheetEl.className = 'action-sheet';
+    sheetEl.hidden = true;
+    sheetEl.setAttribute('role', 'dialog');
+    sheetEl.setAttribute('aria-modal', 'true');
+    sheetEl.setAttribute('aria-label', 'Message actions');
+    document.body.append(sheetBackdropEl, sheetEl);
+    sheetBackdropEl.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      closeMessageSheet();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeMessageSheet();
+    });
+  };
+
+  const openMessageSheet = (li) => {
+    ensureSheet();
+    sheetEl.textContent = '';
+    const handle = document.createElement('div');
+    handle.className = 'action-sheet-handle';
+    sheetEl.append(handle);
+
+    // Quick-reaction strip — only when this message is reactable (the page adds
+    // a react button; own messages don't get one) and a toggler is registered.
+    if (quickReactionFn && li.dataset.id
+        && li.querySelector('.msg-action[data-action="react"]')) {
+      const strip = document.createElement('div');
+      strip.className = 'action-sheet-reactions';
+      for (const emoji of REACTION_PICKER_EMOJI) {
+        const mine = !!li.querySelector(
+            '.reaction[data-emoji="' + emoji + '"][data-mine="true"]');
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'action-sheet-reaction' + (mine ? ' mine' : '');
+        btn.textContent = emoji;
+        btn.title = (mine ? 'Remove ' : 'React with ') + emoji;
+        btn.addEventListener('click', () => {
+          closeMessageSheet();
+          quickReactionFn(li.dataset.id, emoji, mine);
+        });
+        strip.append(btn);
+      }
+      sheetEl.append(strip);
+    }
+
+    const list = document.createElement('div');
+    list.className = 'action-sheet-items';
+    li.querySelectorAll('.msg-action:not([data-action="react"])').forEach((orig) => {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'action-sheet-item';
+      row.dataset.action = orig.dataset.action || '';
+      const icon = document.createElement('span');
+      icon.className = 'action-sheet-icon';
+      icon.textContent = orig.textContent;
+      const label = document.createElement('span');
+      label.textContent = orig.title || orig.textContent;
+      row.append(icon, label);
+      row.addEventListener('click', () => {
+        closeMessageSheet();
+        orig.click(); // the page's existing delegated handler does the rest
+      });
+      list.append(row);
+    });
+    sheetEl.append(list);
+    if (!list.children.length && sheetEl.children.length < 3) return; // nothing to offer
+
+    clearTimeout(sheetCloseTimer);
+    sheetEl.hidden = false;
+    sheetBackdropEl.hidden = false;
+    requestAnimationFrame(() => {
+      sheetEl.classList.add('open');
+      sheetBackdropEl.classList.add('open');
+    });
+  };
+
+  // Releasing a long-press can still synthesize a click on whatever is under the
+  // finger (worst case: a link in the message body navigates away). Swallow the
+  // first click after the sheet opens unless it lands on the sheet itself.
+  const swallowNextClick = () => {
+    const swallow = (e) => {
+      document.removeEventListener('click', swallow, true);
+      if (!(e.target instanceof Element) || !e.target.closest('.action-sheet')) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    document.addEventListener('click', swallow, true);
+    setTimeout(() => document.removeEventListener('click', swallow, true), 600);
+  };
+
+  (function initLongPressActions() {
+    let timer = null;
+    let startX = 0;
+    let startY = 0;
+    const cancel = () => {
+      clearTimeout(timer);
+      timer = null;
+    };
+    document.addEventListener('pointerdown', (e) => {
+      if (e.pointerType !== 'touch' || !touchOnly.matches) return;
+      if (!(e.target instanceof Element)) return;
+      const msg = e.target.closest('.message');
+      if (!msg || !msg.querySelector('.message-actions')) return;
+      startX = e.clientX;
+      startY = e.clientY;
+      timer = setTimeout(() => {
+        timer = null;
+        openMessageSheet(msg);
+        swallowNextClick();
+        navigator.vibrate?.(10); // subtle haptic on Android; no-op elsewhere
+      }, LONG_PRESS_MS);
+    });
+    document.addEventListener('pointermove', (e) => {
+      if (timer !== null
+          && Math.hypot(e.clientX - startX, e.clientY - startY) > LONG_PRESS_SLOP_PX) {
+        cancel();
+      }
+    });
+    document.addEventListener('pointerup', cancel);
+    document.addEventListener('pointercancel', cancel); // browser took over (scroll)
+    // Android fires contextmenu (the text-selection sheet) at its own long-press
+    // threshold; suppress it inside messages so it doesn't fight the action sheet.
+    // Desktop right-click is unaffected because touchOnly never matches there.
+    document.addEventListener('contextmenu', (e) => {
+      if (touchOnly.matches && e.target instanceof Element && e.target.closest('.message')) {
+        e.preventDefault();
+      }
+    });
+  })();
 
   // ---------- Public surface ----------
   window.ChatKit = {
@@ -440,5 +613,6 @@
     closeEmojiPicker,
     REACTION_PICKER_EMOJI,
     appendAuthorHandle,
+    setQuickReaction,
   };
 })();

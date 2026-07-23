@@ -155,8 +155,11 @@ async function applyKind(kind) {
 
 function dismissOnOutsideClick(e) {
     if (!menuEl) return;
-    if (menuEl.contains(e.target)) return;
-    if (e.target.closest('.me .avatar')) return; // re-clicks on the trigger handled separately
+    // e.target can be the Document itself (e.g. a synthesized event after the node
+    // under the pointer was replaced) — that counts as "outside", but has no closest().
+    const t = e.target instanceof Element ? e.target : null;
+    if (t && menuEl.contains(t)) return;
+    if (t && t.closest('.me .avatar')) return; // re-clicks on the trigger handled separately
     closeMenu();
 }
 

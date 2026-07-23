@@ -1,0 +1,174 @@
+// =============================================================================================
+// Asset pipeline (JVM only — no Node). Ported from datahub-console's assets.gradle.
+//
+// Declarative JS/CSS bundles whose contents come from *manifest* files using Sprockets-style
+// require directives. Each declared bundle is compiled by a Gradle task: JS via Closure
+// Compiler; CSS via a built-in concatenate-and-strip minifier. (Closure Stylesheets — the
+// datahub-console css branch — was tried first and hard-fails parsing modern CSS: its GSS
+// grammar predates color-mix()/custom-property values and the project is unmaintained, so CSS
+// gets comment/whitespace stripping only, which is safe for any future syntax.)
+//
+// Output lands in build/generated/assets/static/... which is added as a resource root, so
+// bundles ship in the jar and are served from the site root (this app serves
+// classpath:/static/** at /, not under a /static/ URL prefix).
+//
+// Prod bundle URLs are content-versioned: the registry stores them as
+// /js/foo.bundle.min.js?v=<sha256-prefix-of-the-built-bundle>, so a changed bundle gets a new
+// URL and the browser HTTP cache can hold the old one indefinitely without serving stale code.
+//
+// Developer guide: ASSETS.md
+// =============================================================================================
+
+import java.security.MessageDigest
+
+configurations {
+	closureCompiler      // build-only classpath for the JS compiler
+}
+
+dependencies {
+	closureCompiler 'com.google.javascript:closure-compiler:v20260607'
+}
+
+def staticSrcDir = file('src/main/resources/static')
+def generatedAssetsDir = layout.buildDirectory.dir('generated/assets')
+
+// ---- Declared bundles -----------------------------------------------------------------------
+// `manifest` and `output` are paths relative to the static dir. Add bundles here; no other
+// changes are needed (a task is generated per bundle). Names must be unique across types.
+// The chat/ ES-module graph (index.js + shared/chrome/presence-menu) is NOT bundled — it loads
+// as a native <script type="module"> tag; see ASSETS.md.
+def assetBundles = [
+		// Channels page — every classic (non-module, non-vendor) script it loads, in tag order.
+		[name: 'chat',         type: 'js',  manifest: 'js/chat.manifest.js',         output: 'js/chat.bundle.min.js'],
+		// DM / conversation page.
+		[name: 'conversation', type: 'js',  manifest: 'js/conversation.manifest.js', output: 'js/conversation.bundle.min.js'],
+		// Profile page.
+		[name: 'profile',      type: 'js',  manifest: 'js/profile.manifest.js',      output: 'js/profile.bundle.min.js'],
+		// Admin console.
+		[name: 'admin',        type: 'js',  manifest: 'js/admin.manifest.js',        output: 'js/admin.bundle.min.js'],
+		// Site stylesheet (vendor highlight.js themes stay separate — theme-loader.js picks one
+		// at runtime per user theme).
+		[name: 'app',          type: 'css', manifest: 'css/app.manifest.css',        output: 'css/app.bundle.min.css'],
+]
+
+// Parse Sprockets-style require directives from a manifest, preserving order and de-duping.
+//   //= require path/to/file.js        (JS manifests)
+//   /*= require path/to/file.css */    (CSS manifests)
+// Paths resolve relative to the manifest's own directory.
+def parseManifest = { File manifest ->
+	if (!manifest.exists()) {
+		throw new GradleException("Asset manifest not found: ${manifest}")
+	}
+	def dir = manifest.parentFile
+	def sources = []
+	manifest.eachLine { line ->
+		def m = (line =~ /^\s*(?:\/\/|\/\*)=\s*require\s+(.+?)\s*(?:\*\/)?\s*$/)
+		if (m.find()) {
+			def f = new File(dir, m.group(1).trim())
+			if (!f.exists()) {
+				throw new GradleException("Manifest '${manifest.name}' requires missing file: ${f}")
+			}
+			if (!sources.contains(f)) {
+				sources << f
+			}
+		}
+	}
+	if (sources.isEmpty()) {
+		throw new GradleException("Manifest '${manifest}' declares no 'require' directives")
+	}
+	return sources
+}
+
+def assetTasks = assetBundles.collect { bundle ->
+	def manifestFile = new File(staticSrcDir, bundle.manifest)
+	def sources = parseManifest(manifestFile)
+	def outFile = generatedAssetsDir.get().file("static/${bundle.output}").asFile
+	def taskName = 'asset_' + bundle.output.replaceAll('[^A-Za-z0-9]', '_')
+
+	if (bundle.type == 'js') {
+		tasks.register(taskName, JavaExec) {
+			group = 'build'
+			description = "Bundle JS asset '${bundle.output}' from ${bundle.manifest}"
+			inputs.file(manifestFile)
+			inputs.files(sources)
+			outputs.file(outFile)
+			doFirst { outFile.parentFile.mkdirs() }
+			classpath = configurations.closureCompiler
+			mainClass = 'com.google.javascript.jscomp.CommandLineRunner'
+			// SIMPLE only: the scripts publish globals (window.ChatKit, window.EMOJI_DATA, …)
+			// that later scripts and the ES-module graph reference by name — ADVANCED renames
+			// and would break them.
+			def a = ['--compilation_level', 'SIMPLE',
+					 '--language_in', 'ECMASCRIPT_NEXT',
+					 '--language_out', 'ECMASCRIPT_2021',
+					 '--warning_level', 'QUIET',
+					 '--js_output_file', outFile.absolutePath]
+			sources.each { a += ['--js', it.absolutePath] }
+			args = a
+		}
+	} else if (bundle.type == 'css') {
+		tasks.register(taskName) {
+			group = 'build'
+			description = "Bundle CSS asset '${bundle.output}' from ${bundle.manifest}"
+			inputs.file(manifestFile)
+			inputs.files(sources)
+			outputs.file(outFile)
+			doLast {
+				// Concatenate, then strip comments / indentation / blank lines. Deliberately
+				// conservative — no value rewriting — so modern syntax (color-mix, dvh,
+				// custom properties) passes through untouched. See the header comment for
+				// why Closure Stylesheets can't be used here.
+				def css = sources.collect { it.getText('UTF-8') }.join('\n')
+				css = css.replaceAll(/(?s)\/\*.*?\*\//, '')
+				css = css.readLines()*.trim().findAll { it }.join('\n')
+				outFile.parentFile.mkdirs()
+				outFile.setText(css, 'UTF-8')
+			}
+		}
+	} else {
+		throw new GradleException("Unknown asset bundle type '${bundle.type}' for ${bundle.output}")
+	}
+}
+
+// Single source of truth for the runtime: emit a registry derived from the SAME declaration and
+// the SAME manifest parser used above, so AssetService never re-declares or re-parses anything.
+// For each bundle it records the prod bundle URL (content-versioned with ?v=<hash>) and the
+// ordered dev source URLs. Runs after the bundle tasks because the hash covers the BUILT output
+// (a compiler upgrade alone also changes the URL, not just source edits).
+def registryFile = generatedAssetsDir.get().file('asset-bundles.properties').asFile
+tasks.register('generateAssetRegistry') {
+	group = 'build'
+	description = 'Generate asset-bundles.properties (read by AssetService) from the declared bundles.'
+	dependsOn assetTasks
+	def declared = assetBundles
+	inputs.property('bundles', declared.toString())
+	declared.each { inputs.file(new File(staticSrcDir, it.manifest)) }
+	declared.each { inputs.file(generatedAssetsDir.get().file("static/${it.output}").asFile) }
+	outputs.file(registryFile)
+	doLast {
+		registryFile.parentFile.mkdirs()
+		def sb = new StringBuilder('# Generated by assets.gradle - do not edit. Read by AssetService.\n')
+		declared.each { b ->
+			def bundleFile = generatedAssetsDir.get().file("static/${b.output}").asFile
+			def digest = MessageDigest.getInstance('SHA-256').digest(bundleFile.bytes)
+			def v = digest.encodeHex().toString().take(10)
+			def urls = parseManifest(new File(staticSrcDir, b.manifest)).collect {
+				'/' + staticSrcDir.toPath().relativize(it.toPath()).toString().replace('\\', '/')
+			}
+			sb << "${b.name}.bundle=/${b.output}?v=${v}\n"
+			sb << "${b.name}.sources=${urls.join(',')}\n"
+		}
+		registryFile.text = sb.toString()
+	}
+}
+
+tasks.register('buildAssets') {
+	group = 'build'
+	description = 'Build all declared JS/CSS asset bundles + the runtime registry.'
+	dependsOn assetTasks, 'generateAssetRegistry'
+}
+
+// Ship generated bundles + registry in the jar (bundles served at /js/... and /css/...) and
+// build them before resources.
+sourceSets.main.resources.srcDir(generatedAssetsDir)
+tasks.named('processResources') { dependsOn 'buildAssets' }

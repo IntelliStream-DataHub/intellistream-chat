@@ -16,7 +16,7 @@
 
 /** REST round-trips: known endpoints respond 200 with the JSON shape we expect. */
 
-import { add } from './index.js';
+import { add } from './registry.js';
 
 async function expectJson(path, predicate) {
     const res = await fetch(path, { credentials: 'same-origin' });

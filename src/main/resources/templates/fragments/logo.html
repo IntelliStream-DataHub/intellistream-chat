@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+<!--/*
+  The app logo mark. When an admin has uploaded a custom logo it renders as a plain <img>.
+  Otherwise the bundled "Reply Orbit" mark is INLINED so its fills can ride the active
+  theme's CSS variables (an SVG loaded via <img> is an isolated document and can't see
+  them) — each theme recolors the mark. Styling + the orbit animation live in app.css
+  (.to-logo-* / .to-orbit).
+  Usage: <th:block th:replace="~{fragments/logo :: mark('logo-mark')}"/>
+*/-->
+<th:block th:fragment="mark(cls)">
+    <img th:if="${appHasCustomLogo}" th:src="${appLogoUrl}" th:class="${cls}" alt=""/>
+    <svg th:unless="${appHasCustomLogo}" th:class="${cls}" viewBox="0 0 64 64" role="img"
+         aria-label="Logo" xmlns="http://www.w3.org/2000/svg">
+        <title th:text="${appTitle}">ThreadOrbit</title>
+        <circle class="to-logo-ring" cx="32" cy="32" r="26" fill="none" stroke-width="1.7"/>
+        <rect class="to-logo-bubble" x="18" y="21.5" width="28" height="20" rx="7"/>
+        <path class="to-logo-bubble" d="M25.5 40.5 L21 48.5 L31 41.5 Z"/>
+        <circle class="to-logo-dot" cx="25.5" cy="31.5" r="2.1"/>
+        <circle class="to-logo-dot" cx="32" cy="31.5" r="2.1"/>
+        <circle class="to-logo-dot" cx="38.5" cy="31.5" r="2.1"/>
+        <g class="to-orbit">
+            <rect class="to-logo-sat" x="27" y="2.5" width="10" height="7.5" rx="3"/>
+            <circle class="to-logo-sat-2" cx="32" cy="58" r="3"/>
+        </g>
+    </svg>
+</th:block>
+</body>
+</html>

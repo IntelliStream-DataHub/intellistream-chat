@@ -204,6 +204,8 @@
       alert('Reaction failed: ' + (err.error || err.message || res.statusText));
     }
   }
+  // Lets the mobile long-press action sheet's emoji strip toggle reactions.
+  window.ChatKit?.setQuickReaction(toggleReaction);
 
   async function deleteMessage(id) {
     if (!confirm('Delete this message?')) return;
@@ -520,18 +522,25 @@
     });
   }
 
-  // Sidebar mobile toggle (mirrors chat.js minimal subset).
+  // Sidebar mobile toggle (mirrors chat/index.js). The CSS slide-in keys off
+  // body.sidebar-open — the earlier `.sidebar.open` class had no CSS behind it,
+  // so the hamburger silently did nothing on this page.
   const sidebarToggle = document.getElementById('sidebar-toggle');
-  const sidebar = document.getElementById('app-sidebar');
   const backdrop = document.getElementById('sidebar-backdrop');
-  if (sidebarToggle && sidebar && backdrop) {
+  if (sidebarToggle) {
     const setOpen = (open) => {
-      sidebar.classList.toggle('open', open);
-      backdrop.hidden = !open;
+      document.body.classList.toggle('sidebar-open', open);
       sidebarToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (backdrop) backdrop.hidden = !open;
     };
-    sidebarToggle.addEventListener('click', () => setOpen(!sidebar.classList.contains('open')));
-    backdrop.addEventListener('click', () => setOpen(false));
+    sidebarToggle.addEventListener('click', () => setOpen(!document.body.classList.contains('sidebar-open')));
+    backdrop?.addEventListener('click', () => setOpen(false));
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && document.body.classList.contains('sidebar-open')) setOpen(false);
+    });
+    window.addEventListener('resize', () => {
+      if (window.innerWidth > 768 && document.body.classList.contains('sidebar-open')) setOpen(false);
+    });
   }
 
   // Group-create form in the sidebar — mirrors chat.js. Kept inline rather than in a

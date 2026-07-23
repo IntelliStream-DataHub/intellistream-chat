@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+<!--/*
+  Emits the <script>/<link> tags for an asset bundle. In production this is the single minified,
+  hash-versioned bundle; in development (threadorbit.assets.unbundled=true) it is the original
+  source files parsed from the bundle's manifest, so edits show on refresh with no rebuild.
+  See ASSETS.md.
+  Usage:  <th:block th:replace="~{fragments/assets :: js('chat')}"></th:block>
+          <th:block th:replace="~{fragments/assets :: css('app')}"></th:block>
+*/-->
+<th:block th:fragment="js(bundle)">
+    <!-- defer: bundles download in parallel and run after HTML parse, in document order, before
+         DOMContentLoaded — so they don't block first paint. Relative order against the pages'
+         type="module" scripts is also preserved (modules are deferred by spec). -->
+    <script th:each="src : ${@assetService.urls(bundle)}"
+            type="text/javascript" th:src="${src}" defer></script>
+</th:block>
+<th:block th:fragment="css(bundle)">
+    <link th:each="src : ${@assetService.urls(bundle)}" rel="stylesheet" th:href="${src}"/>
+</th:block>
+</body>
+</html>

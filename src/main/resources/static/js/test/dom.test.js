@@ -16,7 +16,7 @@
 
 /** DOM-contract checks: selectors and meta tags chat.js needs to find at boot. */
 
-import { add } from './index.js';
+import { add } from './registry.js';
 
 function require(selector, why) {
     const el = document.querySelector(selector);

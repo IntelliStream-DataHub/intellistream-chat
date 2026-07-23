@@ -1,2 +1,2 @@
 org.springframework.boot.EnvironmentPostProcessor=\
-  ai.intellistream.radiance.config.VaultEnvironmentPostProcessor
+  ai.intellistream.threadorbit.config.VaultEnvironmentPostProcessor

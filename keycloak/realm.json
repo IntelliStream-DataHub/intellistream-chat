@@ -1,7 +1,7 @@
 {
-  "realm": "radiance",
-  "displayName": "Radiance Chat",
-  "displayNameHtml": "<strong>Radiance</strong> Chat",
+  "realm": "threadorbit",
+  "displayName": "ThreadOrbit Chat",
+  "displayNameHtml": "<strong>ThreadOrbit</strong> Chat",
   "enabled": true,
   "registrationAllowed": true,
   "loginWithEmailAllowed": true,
@@ -11,23 +11,23 @@
   "ssoSessionMaxLifespanRememberMe": 28800,
   "clients": [
     {
-      "clientId": "radiance",
+      "clientId": "threadorbit",
       "enabled": true,
       "publicClient": false,
       "secret": "DAJpMxDkLxHidawHQXu8MMlmjEiKQRZzWRiLzFBQ",
       "redirectUris": [
-        "http://localhost:8080/*",
+        "http://192.168.100.98:8080/*",
         "http://localhost:8080/*"
       ],
       "webOrigins": [
-        "http://localhost:8080",
+        "http://192.168.100.98:8080",
         "http://localhost:8080"
       ],
       "standardFlowEnabled": true,
       "directAccessGrantsEnabled": true,
       "protocol": "openid-connect",
       "attributes": {
-        "post.logout.redirect.uris": "http://localhost:8080/*##http://localhost:8080/*"
+        "post.logout.redirect.uris": "http://192.168.100.98:8080/*##http://localhost:8080/*"
       },
       "protocolMappers": [
         {

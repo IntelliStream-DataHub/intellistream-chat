@@ -4,15 +4,15 @@
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
     <meta name="theme-color" content="#1e325c"/>
-    <title th:text="${appTitle}">Radiance</title>
-    <link rel="icon" th:href="${appLogoUrl}"/>
-    <link rel="stylesheet" th:href="@{/css/app.css}"/>
+    <title th:text="${appTitle}">ThreadOrbit</title>
+    <link rel="icon" th:href="${appFaviconUrl}"/>
+    <th:block th:replace="~{fragments/assets :: css('app')}"/>
 </head>
 <body class="landing">
 <main>
     <h1>
-        <span th:text="${appTitle}">Radiance</span>
-        <img th:src="${appLogoUrl}" alt="" class="landing-logo"/>
+        <span th:text="${appTitle}">ThreadOrbit</span>
+        <th:block th:replace="~{fragments/logo :: mark('landing-logo')}"/>
     </h1>
     <p>A Slack/Mattermost-style workspace.</p>
     <p>

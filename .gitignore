@@ -43,6 +43,7 @@ podman-data/
 !.env.example
 application-local.yml
 application-local.properties
+application-dev.properties
 application-secret.yml
 application-secret.properties
 *.pem

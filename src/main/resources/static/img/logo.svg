@@ -1,16 +1,43 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Radiance">
-  <title>Radiance</title>
-  <circle cx="32" cy="32" r="10" fill="#f59e0b"/>
-  <g stroke="#f59e0b" stroke-width="4.5" stroke-linecap="round">
-    <line x1="32" y1="8"  x2="32" y2="17"/>
-    <line x1="32" y1="47" x2="32" y2="56"/>
-    <line x1="8"  y1="32" x2="17" y2="32"/>
-    <line x1="47" y1="32" x2="56" y2="32"/>
-  </g>
-  <g stroke="#ea580c" stroke-width="4.5" stroke-linecap="round">
-    <line x1="14" y1="14" x2="20" y2="20"/>
-    <line x1="44" y1="44" x2="50" y2="50"/>
-    <line x1="50" y1="14" x2="44" y2="20"/>
-    <line x1="20" y1="44" x2="14" y2="50"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ThreadOrbit">
+  <title>ThreadOrbit</title>
+  <!-- "Reply Orbit": a root chat bubble with replies in orbit around it — the thread data
+       model drawn literally. Animated via CSS inside the SVG so it works from an <img> tag,
+       needs no scripts (CSP), and honours reduced-motion. The ring color is pinned (not
+       currentColor) because an SVG loaded via <img> can't inherit page colors; #8aa8e0 reads
+       on both the dark topbar/landing and light panels. -->
+  <style>
+    .orbit {
+      transform-origin: 32px 32px;
+      transform-box: view-box;
+      animation: to-spin 10s linear infinite;
+    }
+    @keyframes to-spin {
+      to { transform: rotate(360deg); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .orbit { animation: none; }
+    }
+  </style>
+  <defs>
+    <linearGradient id="to-core" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5d8eff"/>
+      <stop offset="1" stop-color="#1c58d9"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Orbit ring -->
+  <circle cx="32" cy="32" r="26" fill="none" stroke="#8aa8e0" stroke-width="1.7" opacity="0.5"/>
+
+  <!-- Root message bubble -->
+  <rect x="18" y="21.5" width="28" height="20" rx="7" fill="url(#to-core)"/>
+  <path d="M25.5 40.5 L21 48.5 L31 41.5 Z" fill="#1c58d9"/>
+  <circle cx="25.5" cy="31.5" r="2.1" fill="#ffffff"/>
+  <circle cx="32"   cy="31.5" r="2.1" fill="#ffffff"/>
+  <circle cx="38.5" cy="31.5" r="2.1" fill="#ffffff"/>
+
+  <!-- Replies in orbit: an amber message card and a smaller reply dot -->
+  <g class="orbit">
+    <rect x="27" y="2.5" width="10" height="7.5" rx="3" fill="#f59e0b"/>
+    <circle cx="32" cy="58" r="3" fill="#5d8eff"/>
   </g>
 </svg>

@@ -217,6 +217,7 @@
       '.avatar[data-author], .author[data-author], .author-handle[data-author]';
 
   const onEnter = (e) => {
+    if (!(e.target instanceof Element)) return; // synthesized events can target the Document
     const target = e.target.closest(TRIGGER_SELECTOR);
     if (!target) return;
     const username = target.dataset.author;
@@ -228,6 +229,7 @@
   };
 
   const onLeave = (e) => {
+    if (!(e.target instanceof Element)) return; // synthesized events can target the Document
     const trigger = e.target.closest(TRIGGER_SELECTOR);
     if (!trigger) return;
     // If the cursor is moving to another element still inside the same trigger

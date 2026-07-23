@@ -15,7 +15,7 @@
  */
 
 /**
- * In-browser smoke runner. Loaded only when radiance.dev-tools.enabled=true (auto in
+ * In-browser smoke runner. Loaded only when threadorbit.dev-tools.enabled=true (auto in
  * the dev Spring profile, never in prod). Type `runTests()` in the browser console
  * to execute every registered check against the LIVE page and deployment.
  *
@@ -33,13 +33,12 @@
  * is for "is the JS layer alive in this browser, against this deployment".
  */
 
-const tests = [];
+// The registry lives in its own dependency-free module (registry.js). It must
+// not live here: static imports are hoisted, so the test files would run their
+// add() calls before this module's body initialised the array (TDZ crash).
+import { tests } from './registry.js';
 
-function add(name, fn) {
-    tests.push({ name, fn });
-}
-
-// Each .test.js file imports `add` from this module and calls it on import.
+// Each .test.js file imports `add` from registry.js and calls it on import.
 import './dom.test.js';
 import './api.test.js';
 import './stomp.test.js';
@@ -49,7 +48,7 @@ window.runTests = async function runTests() {
     let fail = 0;
     const failures = [];
     console.group(
-        '%cRadiance smoke tests · ' + tests.length + ' checks',
+        '%cThreadOrbit smoke tests · ' + tests.length + ' checks',
         'font-weight:bold;color:#4af;font-size:14px'
     );
     for (const t of tests) {
@@ -82,9 +81,10 @@ window.runTests = async function runTests() {
 };
 
 console.log(
-    '%cRadiance dev-tools loaded · type runTests() to run ' + tests.length + ' smoke tests',
+    '%cThreadOrbit dev-tools loaded · type runTests() to run ' + tests.length + ' smoke tests',
     'color:#4af'
 );
 
-// Re-export `add` so test.test.js files can register via a relative import.
-export { add };
+// Re-export `add` for compatibility — test files themselves now import it
+// straight from registry.js to keep the module graph acyclic.
+export { add } from './registry.js';

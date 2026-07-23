@@ -16,7 +16,7 @@
 
 /** STOMP / WebSocket health: the page-owned STOMP client is connected. */
 
-import { add } from './index.js';
+import { add } from './registry.js';
 
 add('StompJs library loaded', () => {
     if (typeof window.StompJs === 'undefined' || typeof window.StompJs.Client !== 'function') {

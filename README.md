@@ -1,4 +1,4 @@
-# Radiance — Spring Boot 4 Slack/Mattermost-style chat app
+# ThreadOrbit — Spring Boot 4 Slack/Mattermost-style chat app
 
 A small workspace chat built with Spring Boot 4, Java 25, PostgreSQL, Keycloak OIDC, STOMP-over-WebSocket, Thymeleaf and vanilla JS.
 
@@ -18,11 +18,11 @@ For me it's important that a chat/team collaboration application is something I 
 
 ## Use as a starting point
 
-If you want a team-chat / collaboration tool that doesn't quite match Slack or Mattermost — internal-only, compliance-locked, embedded inside another product, an unusual channel taxonomy, a domain-specific slash-command surface — Radiance is small enough to fork and extend with Claude Code rather than build from scratch. The codebase was itself built this way; that's the workflow it was designed for.
+If you want a team-chat / collaboration tool that doesn't quite match Slack or Mattermost — internal-only, compliance-locked, embedded inside another product, an unusual channel taxonomy, a domain-specific slash-command surface — ThreadOrbit is small enough to fork and extend with Claude Code rather than build from scratch. The codebase was itself built this way; that's the workflow it was designed for.
 
 Recommended workflow:
 
-1. **Fork the repo and rename.** The package is `ai.intellistream.radiance` and the slug `radiance` appears in `application.yml`, `keycloak/realm.json`, `docker-compose.yml`, the Flyway migrations and a few CSS / SVG files. One search-and-replace pass plus a fresh `V1__init.sql` usually covers it.
+1. **Fork the repo and rename.** The package is `ai.intellistream.threadorbit` and the slug `threadorbit` appears in `application.yml`, `keycloak/realm.json`, `docker-compose.yml`, the Flyway migrations and a few CSS / SVG files. One search-and-replace pass plus a fresh `V1__init.sql` usually covers it.
 2. **Read (and own) `CLAUDE.md`.** Claude Code reads it on every invocation. It codifies the conventions that aren't obvious from the code alone — the two filter chains, `requireMember` vs `requireWriteAccess`, server-side Markdown render, the strict CSP, embedded Lucene, Testcontainers + real Postgres. Keep it in sync as your fork diverges; Claude follows whatever's in there.
 3. **Write a spec file.** A markdown file in the repo, even rough, drives much better Claude Code sessions than chat-style prompts. Acceptance criteria help: *"polls auto-close after 7 days; closed polls show the winner above the option list; admins can re-open a closed poll within 24 hours."*
 4. **Run `claude` and ask for incremental changes.** Good prompts name files and reference existing patterns: *"Add a slash command `/announce` modelled on `PollCommand`, with a Flyway migration for the new `announcements` table and an IT under `integration/AnnounceFlowIT.java`."* The codebase is small enough that whole-feature changes fit in a single Claude Code session.
@@ -96,7 +96,7 @@ If `podman compose` can't find a socket, run once: `systemctl --user enable --no
 To boot with the production profile locally (for verification — the build wires `bootRun` to `--spring.profiles.active=dev` only when `SPRING_PROFILES_ACTIVE` is unset), keep the containers from above running, then:
 
 ```bash
-export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="radiance") | .secret' keycloak/realm.json)
+export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="threadorbit") | .secret' keycloak/realm.json)
 SPRING_PROFILES_ACTIVE=prod ./gradlew bootRun
 ```
 
@@ -107,23 +107,23 @@ SPRING_PROFILES_ACTIVE=prod ./gradlew bootRun
 Already running Postgres 18 and Keycloak 26 elsewhere (managed cloud, a host install, a shared dev environment)? Skip `podman compose` and point the app at them via env vars:
 
 ```bash
-export RADIANCE_DB_URL=jdbc:postgresql://db.example.com:5432/radiance_chat
-export RADIANCE_DB_USERNAME=radiance
-export RADIANCE_DB_PASSWORD=...
-export KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/radiance
+export THREADORBIT_DB_URL=jdbc:postgresql://db.example.com:5432/threadorbit_chat
+export THREADORBIT_DB_USERNAME=threadorbit
+export THREADORBIT_DB_PASSWORD=...
+export KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/threadorbit
 export KEYCLOAK_CLIENT_SECRET=...
 ./gradlew bootRun
 ```
 
-The Keycloak realm definition you'll need is in `keycloak/realm.json` — import it via the admin console (**Realms → Import**) or `bin/kcadm.sh create realms -f keycloak/realm.json`. Once imported, regenerate the client secret (the bundled one is in this public repo) and use the new value for `KEYCLOAK_CLIENT_SECRET`. Flyway runs the schema on first boot — no manual SQL setup beyond `CREATE DATABASE radiance_chat OWNER radiance`. See [Without containers (native install)](#without-containers-native-install) for a step-by-step host install of both, and [Keycloak realm](#keycloak-realm) for the realm/client knobs.
+The Keycloak realm definition you'll need is in `keycloak/realm.json` — import it via the admin console (**Realms → Import**) or `bin/kcadm.sh create realms -f keycloak/realm.json`. Once imported, regenerate the client secret (the bundled one is in this public repo) and use the new value for `KEYCLOAK_CLIENT_SECRET`. Flyway runs the schema on first boot — no manual SQL setup beyond `CREATE DATABASE threadorbit_chat OWNER threadorbit`. See [Without containers (native install)](#without-containers-native-install) for a step-by-step host install of both, and [Keycloak realm](#keycloak-realm) for the realm/client knobs.
 
-To pull `RADIANCE_DB_PASSWORD` and `KEYCLOAK_CLIENT_SECRET` from a Vault / OpenBao KV-v2 record instead of plain env vars:
+To pull `THREADORBIT_DB_PASSWORD` and `KEYCLOAK_CLIENT_SECRET` from a Vault / OpenBao KV-v2 record instead of plain env vars:
 
 ```bash
-export RADIANCE_VAULT_ENABLED=true
-export RADIANCE_VAULT_URI=https://vault.example.com:8200
-export RADIANCE_VAULT_TOKEN=...
-export RADIANCE_VAULT_PATH=radiance     # default; maps to secret/data/radiance
+export THREADORBIT_VAULT_ENABLED=true
+export THREADORBIT_VAULT_URI=https://vault.example.com:8200
+export THREADORBIT_VAULT_TOKEN=...
+export THREADORBIT_VAULT_PATH=threadorbit     # default; maps to secret/data/threadorbit
 ./gradlew bootRun
 ```
 
@@ -143,14 +143,14 @@ For a real internet-facing deployment. **Do not skip the hardening steps**: the 
 #    or your managed equivalents. Point the app at them via env vars.
 
 # 3. Configure the production env. Each line below is required.
-export RADIANCE_DB_URL=jdbc:postgresql://db.internal:5432/radiance_chat
-export RADIANCE_DB_USERNAME=radiance
-export RADIANCE_DB_PASSWORD=$(openssl rand -base64 32)
-export KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/radiance
+export THREADORBIT_DB_URL=jdbc:postgresql://db.internal:5432/threadorbit_chat
+export THREADORBIT_DB_USERNAME=threadorbit
+export THREADORBIT_DB_PASSWORD=$(openssl rand -base64 32)
+export KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/threadorbit
 export KEYCLOAK_CLIENT_SECRET=$(openssl rand -base64 32)   # rotate from the dev default
 export SERVER_ADDRESS=127.0.0.1                            # bind localhost only; nginx fronts it
 # Cookie Secure flag auto-detects from X-Forwarded-Proto via forward-headers-strategy:
-# framework (already set in application.yml), so no explicit RADIANCE_SECURITY_COOKIE_SECURE
+# framework (already set in application.yml), so no explicit THREADORBIT_SECURITY_COOKIE_SECURE
 # is needed when nginx forwards X-Forwarded-Proto: https.
 
 # 4. Run behind a TLS-terminating reverse proxy (see nginx_example.conf in this repo):
@@ -165,26 +165,26 @@ The bare `java -jar …` line above gets you running once. For an actual deploym
 
 ### systemd unit
 
-Drop this at `/etc/systemd/system/radiance.service`:
+Drop this at `/etc/systemd/system/threadorbit.service`:
 
 Every directive is annotated below — read top to bottom and you'll see exactly what each line buys you. Tested as-is on AlmaLinux 10.1 with SELinux enforcing; `systemd-analyze security` reports an exposure score of **4.7 OK** with this configuration.
 
 ```ini
 [Unit]
-Description=Radiance chat server
+Description=ThreadOrbit chat server
 Wants=network-online.target
 After=network-online.target postgresql.service
 
 [Service]
 Type=simple
-User=radiance
-Group=radiance
-WorkingDirectory=/opt/radiance
-EnvironmentFile=/etc/radiance/env
+User=threadorbit
+Group=threadorbit
+WorkingDirectory=/opt/threadorbit
+EnvironmentFile=/etc/threadorbit/env
 # New files default to mode 0750/0640 — no "other" read.
 UMask=0027
 
-ExecStart=/usr/lib/jvm/java-25-openjdk/bin/java $JAVA_OPTS -jar /opt/radiance/chat.jar
+ExecStart=/usr/lib/jvm/java-25-openjdk/bin/java $JAVA_OPTS -jar /opt/threadorbit/chat.jar
 
 Restart=on-failure
 RestartSec=5s
@@ -212,7 +212,7 @@ RestrictSUIDSGID=true
 # below closes the read leaks that matter.
 ProtectSystem=strict
 # The only writable location: attachments, avatars, lucene index, heap dumps.
-ReadWritePaths=/opt/radiance/data
+ReadWritePaths=/opt/threadorbit/data
 # /home, /root, /run/user/* become inaccessible (mounted over with empty bind).
 ProtectHome=true
 # Service gets a private /tmp and /var/tmp. Can't see other services' temp files,
@@ -266,20 +266,20 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 WantedBy=multi-user.target
 ```
 
-The companion env file at `/etc/radiance/env` (chmod 600, owned by `radiance`):
+The companion env file at `/etc/threadorbit/env` (chmod 600, owned by `threadorbit`):
 
 ```bash
 # JVM tuning — see the table below for what each flag does.
-JAVA_OPTS=-Xms1g -Xmx1g -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/opt/radiance/data/heapdumps -XX:+UseStringDeduplication -XX:+AlwaysPreTouch -Duser.timezone=UTC
+JAVA_OPTS=-Xms1g -Xmx1g -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/opt/threadorbit/data/heapdumps -XX:+UseStringDeduplication -XX:+AlwaysPreTouch -Duser.timezone=UTC
 
 # App config (see "Quick start — production" for the full list)
-RADIANCE_DB_URL=jdbc:postgresql://db.internal:5432/radiance_chat
-RADIANCE_DB_USERNAME=radiance
-RADIANCE_DB_PASSWORD=...
-KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/radiance
+THREADORBIT_DB_URL=jdbc:postgresql://db.internal:5432/threadorbit_chat
+THREADORBIT_DB_USERNAME=threadorbit
+THREADORBIT_DB_PASSWORD=...
+KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/threadorbit
 KEYCLOAK_CLIENT_SECRET=...
 SERVER_ADDRESS=127.0.0.1
-# RADIANCE_SECURITY_COOKIE_SECURE is no longer needed — cookies auto-mark Secure based on
+# THREADORBIT_SECURITY_COOKIE_SECURE is no longer needed — cookies auto-mark Secure based on
 # request.isSecure() (which RemoteIpValve sets from X-Forwarded-Proto). Override at the
 # Servlet API level (server.servlet.session.cookie.secure=true) only if you want to force
 # Secure even on non-forwarded requests — e.g. behind a proxy that doesn't set the header.
@@ -288,16 +288,16 @@ SERVER_ADDRESS=127.0.0.1
 Bring it up:
 
 ```bash
-sudo useradd --system --home /opt/radiance --shell /usr/sbin/nologin radiance
-sudo install -d -o radiance -g radiance /opt/radiance /opt/radiance/data /opt/radiance/data/heapdumps
-sudo install -d -o root -g radiance -m 750 /etc/radiance
-sudo install -m 640 -o root -g radiance /path/to/env /etc/radiance/env
-sudo install -m 644 build/libs/chat-*.jar /opt/radiance/chat.jar
-sudo chown radiance:radiance /opt/radiance/chat.jar
+sudo useradd --system --home /opt/threadorbit --shell /usr/sbin/nologin threadorbit
+sudo install -d -o threadorbit -g threadorbit /opt/threadorbit /opt/threadorbit/data /opt/threadorbit/data/heapdumps
+sudo install -d -o root -g threadorbit -m 750 /etc/threadorbit
+sudo install -m 640 -o root -g threadorbit /path/to/env /etc/threadorbit/env
+sudo install -m 644 build/libs/chat-*.jar /opt/threadorbit/chat.jar
+sudo chown threadorbit:threadorbit /opt/threadorbit/chat.jar
 sudo systemctl daemon-reload
-sudo systemctl enable --now radiance
-sudo systemctl status radiance
-sudo journalctl -u radiance -f
+sudo systemctl enable --now threadorbit
+sudo systemctl status threadorbit
+sudo journalctl -u threadorbit -f
 ```
 
 ### JVM options
@@ -327,21 +327,21 @@ The app already enables **virtual threads** via `spring.threads.virtual.enabled=
 G1 is the right default at a 1 GiB heap (10–50 ms pauses, mature, well-understood). **ZGC** and **Shenandoah** trade ~15% RAM and ~10% throughput for sub-millisecond pauses; that's only a win once heap > ~4 GiB **and** GC pauses become user-visible. If you scale up later:
 
 ```bash
-JAVA_OPTS=-XX:+UseZGC -Xms4g -Xmx4g -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/opt/radiance/data/heapdumps -Duser.timezone=UTC
+JAVA_OPTS=-XX:+UseZGC -Xms4g -Xmx4g -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/opt/threadorbit/data/heapdumps -Duser.timezone=UTC
 ```
 
 (Drop `+UseStringDeduplication` and `+AlwaysPreTouch` under ZGC — neither applies.)
 
 ### Verifying the namespace lockdown
 
-After `systemctl restart radiance`, three quick checks:
+After `systemctl restart threadorbit`, three quick checks:
 
 ```bash
 # Exposure score (target: drops into "OK" range, ~4.7 with the unit above).
-sudo systemd-analyze security radiance.service
+sudo systemd-analyze security threadorbit.service
 
 # From inside the service's mount namespace — these should be Permission denied / ENOENT.
-sudo nsenter -t $(systemctl show -p MainPID --value radiance) -m ls /var/log /etc/cron.d
+sudo nsenter -t $(systemctl show -p MainPID --value threadorbit) -m ls /var/log /etc/cron.d
 
 # No SELinux denials.
 sudo ausearch -m AVC -ts recent
@@ -360,10 +360,10 @@ getenforce
 # 1. Make sure the policy management tools are installed (they aren't always pulled in on minimal images).
 sudo dnf install -y policycoreutils-python-utils setools-console
 
-# 2. Label /opt/radiance/data so writes survive a relabel (`restorecon -R /` or a touched .autorelabel).
+# 2. Label /opt/threadorbit/data so writes survive a relabel (`restorecon -R /` or a touched .autorelabel).
 #    var_lib_t is the catch-all label for system services' state directories.
-sudo semanage fcontext -a -t var_lib_t '/opt/radiance/data(/.*)?'
-sudo restorecon -Rv /opt/radiance
+sudo semanage fcontext -a -t var_lib_t '/opt/threadorbit/data(/.*)?'
+sudo restorecon -Rv /opt/threadorbit
 
 # 3. Allow nginx (httpd_t) to make outbound connections to the JVM on localhost:8080.
 sudo setsebool -P httpd_can_network_connect on
@@ -372,34 +372,34 @@ sudo setsebool -P httpd_can_network_connect on
 #    sudo semanage port -a -t http_port_t -p tcp 9090
 ```
 
-The systemd unit's `ReadWritePaths=/opt/radiance/data` and SELinux's file context for the same path are independent layers — both must be correct. The systemd one stops the JVM from writing outside the data dir; the SELinux one stops it from writing inside the data dir if the labels are wrong.
+The systemd unit's `ReadWritePaths=/opt/threadorbit/data` and SELinux's file context for the same path are independent layers — both must be correct. The systemd one stops the JVM from writing outside the data dir; the SELinux one stops it from writing inside the data dir if the labels are wrong.
 
 ### When something gets denied
 
-The JVM will fail to start, attachments will fail to upload, or nginx will return `502` and there will be **nothing useful** in `journalctl -u radiance` — SELinux denials land in the audit log, not the service log. Check both:
+The JVM will fail to start, attachments will fail to upload, or nginx will return `502` and there will be **nothing useful** in `journalctl -u threadorbit` — SELinux denials land in the audit log, not the service log. Check both:
 
 ```bash
 sudo ausearch -m AVC,USER_AVC -ts recent
-sudo journalctl -u radiance -p err --since "10 min ago"
+sudo journalctl -u threadorbit -p err --since "10 min ago"
 ```
 
 Common AVCs and their fixes:
 
 | Symptom | Fix |
 |---|---|
-| `denied { write } ... path="/opt/radiance/data/..."` | The `restorecon` step was skipped, or the directory was created **after** `semanage fcontext`. Re-run `sudo restorecon -Rv /opt/radiance`. |
+| `denied { write } ... path="/opt/threadorbit/data/..."` | The `restorecon` step was skipped, or the directory was created **after** `semanage fcontext`. Re-run `sudo restorecon -Rv /opt/threadorbit`. |
 | `denied { name_connect } ... port=8080` from `httpd_t` | nginx can't reach the upstream — `sudo setsebool -P httpd_can_network_connect on`. |
 | `denied { name_bind } ... port=NNNN` from the JVM | You've bound to a port the policy doesn't recognise as HTTP — `sudo semanage port -a -t http_port_t -p tcp NNNN`. |
-| `denied { read } ... path="/etc/radiance/env"` | Custom env file location with the wrong label. Either keep it under `/etc/` (already `etc_t`) or label it: `sudo semanage fcontext -a -t etc_t '/path/to/env'; sudo restorecon -v /path/to/env`. |
+| `denied { read } ... path="/etc/threadorbit/env"` | Custom env file location with the wrong label. Either keep it under `/etc/` (already `etc_t`) or label it: `sudo semanage fcontext -a -t etc_t '/path/to/env'; sudo restorecon -v /path/to/env`. |
 
 ### Don't reach for `setenforce 0`
 
 If something breaks, capture the denial and write a targeted local module — don't disable enforcement.
 
 ```bash
-sudo ausearch -m AVC -ts recent | audit2allow -a -M radiance-local
-less radiance-local.te                  # review before loading
-sudo semodule -i radiance-local.pp
+sudo ausearch -m AVC -ts recent | audit2allow -a -M threadorbit-local
+less threadorbit-local.te                  # review before loading
+sudo semodule -i threadorbit-local.pp
 ```
 
 `sudo setenforce 0` is OK as a single-session debug hatch (turn it back on with `setenforce 1`), but never persist permissive across reboots and never edit `/etc/selinux/config` to `SELINUX=disabled` — re-enabling later forces a full relabel.
@@ -645,7 +645,7 @@ bin/kc.sh start-dev --import-realm --http-port=8081
 Once Keycloak is up at http://localhost:8081 the `chat` realm exists with users `alice` / `alice` and `bob` / `bob`. Point the chat app at it:
 
 ```bash
-export KEYCLOAK_ISSUER_URI=http://localhost:8081/realms/radiance
+export KEYCLOAK_ISSUER_URI=http://localhost:8081/realms/threadorbit
 export KEYCLOAK_CLIENT_SECRET=<value from realm.json or a fresh one you rotated to>
 ./gradlew bootRun
 ```
@@ -704,33 +704,33 @@ Every override is plain Spring Boot env-var substitution against `application.ym
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `RADIANCE_DB_URL` | `jdbc:postgresql://localhost:5432/radiance_chat` | JDBC URL for the Postgres instance |
-| `RADIANCE_DB_USERNAME` | `radiance` | Postgres user |
-| `RADIANCE_DB_PASSWORD` | `radiance` — **rotate in production** | Postgres password — **set this in production** |
-| `KEYCLOAK_ISSUER_URI` | `http://localhost:8081/realms/radiance` | Keycloak realm issuer (used by both OIDC client and resource server). Must match the OIDC issuer in `keycloak/realm.json`'s redirect-URI list — change one and the other will reject the redirect with `400 invalid_redirect_uri`. |
-| `KEYCLOAK_CLIENT_ID` | `radiance` | OIDC client id |
+| `THREADORBIT_DB_URL` | `jdbc:postgresql://localhost:5432/threadorbit_chat` | JDBC URL for the Postgres instance |
+| `THREADORBIT_DB_USERNAME` | `threadorbit` | Postgres user |
+| `THREADORBIT_DB_PASSWORD` | `threadorbit` — **rotate in production** | Postgres password — **set this in production** |
+| `KEYCLOAK_ISSUER_URI` | `http://localhost:8081/realms/threadorbit` | Keycloak realm issuer (used by both OIDC client and resource server). Must match the OIDC issuer in `keycloak/realm.json`'s redirect-URI list — change one and the other will reject the redirect with `400 invalid_redirect_uri`. |
+| `KEYCLOAK_CLIENT_ID` | `threadorbit` | OIDC client id |
 | `KEYCLOAK_CLIENT_SECRET` | `(generated; rotate in production)` | OIDC client secret — **set this in production** |
 | `SERVER_PORT` | `8080` | HTTP port the Boot app binds to |
 | `SERVER_ADDRESS` | `127.0.0.1` | Network interface to bind. The dev profile overrides this to a LAN IP for cross-device testing; prod typically keeps `127.0.0.1` and fronts the JVM with nginx. |
-| `RADIANCE_ATTACHMENTS_DIR` | `./data/attachments` | Where uploaded message attachments are stored |
-| `RADIANCE_AVATARS_DIR` | `./data/avatars` | Where uploaded avatars are stored |
-| `RADIANCE_BRANDING_DIR` | `./data/branding` | Where the admin-uploaded logo is stored |
+| `THREADORBIT_ATTACHMENTS_DIR` | `./data/attachments` | Where uploaded message attachments are stored |
+| `THREADORBIT_AVATARS_DIR` | `./data/avatars` | Where uploaded avatars are stored |
+| `THREADORBIT_BRANDING_DIR` | `./data/branding` | Where the admin-uploaded logo is stored |
 | _(no env var)_ | _auto_ | The JSESSIONID and CSRF cookies' `Secure` flag is auto-detected from `request.isSecure()` per request. Behind a TLS-terminating proxy with `X-Forwarded-Proto: https`, `forward-headers-strategy: framework` flips request.isSecure() to true and the cookies are marked Secure automatically. To force Secure for every request (e.g. behind a proxy that strips the header), set `server.servlet.session.cookie.secure=true`. |
 
 The Lucene index lives at `./data/lucene` (override with `chat.search.lucene-dir`). Back up the whole `./data/` directory plus the Postgres database and you have everything: messages, attachments, avatars, branding, and the search index.
 
 ### Optional: Vault / OpenBao secret backend
 
-For deployments where shipping `RADIANCE_DB_PASSWORD` and `KEYCLOAK_CLIENT_SECRET` via `EnvironmentFile=` is too coarse, the app can pull them from a [HashiCorp Vault](https://www.vaultproject.io/) / [OpenBao](https://openbao.org/) KV-v2 mount at boot. **Off by default** — `RADIANCE_VAULT_ENABLED=false` skips the integration entirely.
+For deployments where shipping `THREADORBIT_DB_PASSWORD` and `KEYCLOAK_CLIENT_SECRET` via `EnvironmentFile=` is too coarse, the app can pull them from a [HashiCorp Vault](https://www.vaultproject.io/) / [OpenBao](https://openbao.org/) KV-v2 mount at boot. **Off by default** — `THREADORBIT_VAULT_ENABLED=false` skips the integration entirely.
 
 When enabled, a `VaultEnvironmentPostProcessor` runs before Spring autoconfiguration reads `spring.datasource.*` / the OAuth client config, fetches one KV-v2 record, and injects the values as a high-priority `MapPropertySource`.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `RADIANCE_VAULT_ENABLED` | `false` | Master switch. |
-| `RADIANCE_VAULT_URI` | _(empty)_ | Base URL (e.g. `http://127.0.0.1:8200`). Required when enabled. |
-| `RADIANCE_VAULT_TOKEN` | _(empty)_ | Token credential. Required when enabled. |
-| `RADIANCE_VAULT_PATH` | `radiance` | KV-v2 path; default maps to `secret/data/radiance`. |
+| `THREADORBIT_VAULT_ENABLED` | `false` | Master switch. |
+| `THREADORBIT_VAULT_URI` | _(empty)_ | Base URL (e.g. `http://127.0.0.1:8200`). Required when enabled. |
+| `THREADORBIT_VAULT_TOKEN` | _(empty)_ | Token credential. Required when enabled. |
+| `THREADORBIT_VAULT_PATH` | `threadorbit` | KV-v2 path; default maps to `secret/data/threadorbit`. |
 
 If enabled but URI or token is missing, the app **fails fast at boot** with `IllegalStateException` — silently falling back to env-var defaults in a "vault-enabled" deploy would be a security bug.
 
@@ -749,11 +749,11 @@ If enabled but URI or token is missing, the app **fails fast at boot** with `Ill
 ```bash
 podman compose --profile openbao up -d
 KEYCLOAK_CLIENT_SECRET=<value-from-keycloak/realm.json> ./scripts/seed-vault.sh
-RADIANCE_VAULT_ENABLED=true RADIANCE_VAULT_URI=http://127.0.0.1:8200 \
-  RADIANCE_VAULT_TOKEN=radiance-dev-token ./gradlew bootRun
+THREADORBIT_VAULT_ENABLED=true THREADORBIT_VAULT_URI=http://127.0.0.1:8200 \
+  THREADORBIT_VAULT_TOKEN=threadorbit-dev-token ./gradlew bootRun
 ```
 
-Hit `/actuator/env` to verify the `radiance-vault` property source appeared. The OpenBao dev container uses in-memory storage and a root token — for production, switch to sealed deployment + auto-unseal + AppRole or Kubernetes auth.
+Hit `/actuator/env` to verify the `threadorbit-vault` property source appeared. The OpenBao dev container uses in-memory storage and a root token — for production, switch to sealed deployment + auto-unseal + AppRole or Kubernetes auth.
 
 ### Upload size cap
 
@@ -805,7 +805,7 @@ The systemd / SELinux / Quick start sections cover the mechanical setup. This is
 
 | | What | Why |
 |---|---|---|
-| ☐ | Rotate `KEYCLOAK_CLIENT_SECRET` (Keycloak admin → **Clients → radiance → Credentials → Regenerate**) | The bundled secret in `keycloak/realm.json` is in this public repo. |
+| ☐ | Rotate `KEYCLOAK_CLIENT_SECRET` (Keycloak admin → **Clients → threadorbit → Credentials → Regenerate**) | The bundled secret in `keycloak/realm.json` is in this public repo. |
 | ☐ | Restrict the `chat` client's **Valid redirect URIs** + **Web origins** to your real hostname | OIDC redirect-URI matching is your defence against open-redirect token theft. |
 | ☐ | Change `KC_BOOTSTRAP_ADMIN_PASSWORD` from `admin` | Master key to every account in your realm. |
 | ☐ | Enable **Verify email** in Keycloak before opening self-registration | Without it, bots will mass-register. |
@@ -837,11 +837,11 @@ The first run pulls `postgres:18-alpine` (~80 MB); subsequent runs reuse the cac
 
 ```bash
 # Unit tests only — no Docker needed.
-./gradlew test --tests 'ai.intellistream.radiance.service.*' --tests 'ai.intellistream.radiance.security.*'
+./gradlew test --tests 'ai.intellistream.threadorbit.service.*' --tests 'ai.intellistream.threadorbit.security.*'
 
 # Single class / method.
-./gradlew test --tests 'ai.intellistream.radiance.integration.HovercardAndDmFlowIT'
-./gradlew test --tests 'ai.intellistream.radiance.integration.SearchFlowIT.fuzzyMatch_*'
+./gradlew test --tests 'ai.intellistream.threadorbit.integration.HovercardAndDmFlowIT'
+./gradlew test --tests 'ai.intellistream.threadorbit.integration.SearchFlowIT.fuzzyMatch_*'
 ```
 
 ### Test layers
@@ -861,7 +861,7 @@ The first run pulls `postgres:18-alpine` (~80 MB); subsequent runs reuse the cac
 ## Layout
 
 ```
-src/main/java/ai/intellistream/radiance/
+src/main/java/ai/intellistream/threadorbit/
 ├── ChatApplication.java
 ├── config/        # SecurityConfig (two filter chains), WebSocketConfig, StompAuthorizationConfig, MultipartConfig
 ├── domain/        # JPA entities (User, Channel, Message, Conversation, Attachment, Reaction, Mention, ...)
