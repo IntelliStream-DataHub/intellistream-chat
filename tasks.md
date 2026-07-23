@@ -213,55 +213,55 @@ Legend: `[ ]` todo · severity in each heading · `file:line → fix`.
 ## P2 — Hardening & polish (lower severity)
 
 ### Security hardening
-- [ ] **SEC-8 · No rate limit on markdown preview** low — `web/PreviewRestController.java:41`
+- [x] **SEC-8 · No rate limit on markdown preview** low — `web/PreviewRestController.java:41`
   runs the full CommonMark+jsoup+mention pipeline per call, no limiter. → Add ~60/min per user.
-- [ ] **SEC-9 · No rate limit on channel creation** low — `web/ChannelRestController.java:94`.
+- [x] **SEC-9 · No rate limit on channel creation** low — `web/ChannelRestController.java:94`.
   → Modest per-user create limit.
-- [ ] **SEC-10 · Presence mutations & GET batch unbounded** low —
+- [x] **SEC-10 · Presence mutations & GET batch unbounded** low —
   `web/PresenceRestController.java:72-108` broadcast without a limiter; `:66-70` splits an
   uncapped username list into an IN-query. → Rate-limit mutations; cap the batch length.
-- [ ] **SEC-11 · No SUBSCRIBE-frame rate limit** low — `config/StompAuthorizationConfig.java`
+- [x] **SEC-11 · No SUBSCRIBE-frame rate limit** low — `config/StompAuthorizationConfig.java`
   runs 1-2 DB queries per SUBSCRIBE with no per-session limit. → Sliding-window cap on SUBSCRIBE.
-- [ ] **SEC-12 · `forward-headers-strategy: framework` trusts X-Forwarded-* unconditionally**
+- [x] **SEC-12 · `forward-headers-strategy: framework` trusts X-Forwarded-* unconditionally**
   low — `application.yml:64`; safe only while bound to loopback. → Keep loopback bind, or switch
   to `native` with `server.tomcat.remoteip.internal-proxies`; fix the misleading class comment.
-- [ ] **SEC-13 · Realm enables direct-access (ROPC) grant** low — `keycloak/realm.json:27`
+- [x] **SEC-13 · Realm enables direct-access (ROPC) grant** low — `keycloak/realm.json:27`
   `directAccessGrantsEnabled: true` + committed secret = direct token minting. → Disable for the
   confidential client in the shipped realm.
-- [ ] **SEC-14 · nginx example disables body-size cap** low — `nginx_example.conf:58`
+- [x] **SEC-14 · nginx example disables body-size cap** low — `nginx_example.conf:58`
   `client_max_body_size 0` + admin uploads = `UNLIMITED`. → Ship a concrete cap (e.g. `500m`).
-- [ ] **SEC-15 · Presence is globally visible to all authenticated users** low —
+- [x] **SEC-15 · Presence is globally visible to all authenticated users** low —
   `/topic/presence` isn't scoped to shared channels. → Confirm intended; if not, scope broadcasts.
 
 ### Bug polish
-- [ ] **BUG-17 · Check-then-act insert races surface as 500s** low —
+- [x] **BUG-17 · Check-then-act insert races surface as 500s** low —
   `ReadStateService.java:53-61`, `ChannelService.java:83-100` (join/invite),
   `ReactionService.java:50-52`, `PollService.java:103-113`, `ConversationService.java:104-111`:
   concurrent idempotent ops both insert; the loser throws `DataIntegrityViolationException` →
   500. `directBetween`/`upsert` show the correct catch-and-reread. → Wrap in catch-and-reread or
   `on conflict do nothing`.
-- [ ] **BUG-18 · `openThread` has no stale-response guard** low — `chat/index.js:1959-1972`:
+- [x] **BUG-18 · `openThread` has no stale-response guard** low — `chat/index.js:1959-1972`:
   two quick thread clicks race; the last response to land wins regardless of last click. → Use a
   monotonic request id like search/preview already do.
-- [ ] **BUG-19 · Avatar-preview blob leak + optimistic preview** low — `profile.js:87-99,117`:
+- [x] **BUG-19 · Avatar-preview blob leak + optimistic preview** low — `profile.js:87-99,117`:
   `createObjectURL` never revoked, and the preview swaps before server validation (a rejected
   upload shows the new picture beside the error). → Revoke on replace; swap only on 2xx.
-- [ ] **BUG-20 · Keyset pagination lacks an id tie-break** low — `MessageService.java:96-150`
+- [x] **BUG-20 · Keyset pagination lacks an id tie-break** low — `MessageService.java:96-150`
   orders by `createdAt` only; same-timestamp messages straddling a page are skipped and
   `around()` omits the exact-anchor row. → Order by `(createdAt, id)` and paginate the composite.
-- [ ] **BUG-21 · afterCommit index write has an unrecoverable loss window** low —
+- [x] **BUG-21 · afterCommit index write has an unrecoverable loss window** low —
   `MessageService.java:312-345`, `LuceneBootstrap.java:49-64`: a crash between DB commit and the
   index write permanently desyncs the index (rebuild only fires on a fully empty index); a
   throwing `deleteAll` also skips the file cleanup that follows it. → try/catch-log each
   afterCommit body; add a periodic/admin reconciliation by max message id.
-- [ ] **BUG-22 · RateLimiter prune race under-enforces at the sweep** low —
+- [x] **BUG-22 · RateLimiter prune race under-enforces at the sweep** low —
   `security/RateLimiter.java:54-84`: `removeIf` checks emptiness under the deque lock but removes
   from the map outside it, losing a concurrent event. → Verify-and-reinsert after `addLast`, or
   remove via `windows.compute`.
-- [ ] **BUG-23 · `demote` last-admin TOCTOU** low — `ChannelService.java:115-130`: two admins
+- [x] **BUG-23 · `demote` last-admin TOCTOU** low — `ChannelService.java:115-130`: two admins
   demoting each other can both pass the last-admin guard → zero-admin channel. → Pessimistic lock
   on the membership rows before counting.
-- [ ] **BUG-24 · LuceneBootstrap loads the whole messages table into heap** low —
+- [x] **BUG-24 · LuceneBootstrap loads the whole messages table into heap** low —
   `LuceneBootstrap.java:53-58` `findAll()` + lazy per-author init → multi-GB spike on a fresh
   deploy at scale. → Keyset-stream with a flat author-joined projection.
 
@@ -271,25 +271,25 @@ These are backstops for the resource leaks above — orphan sweeps that catch wh
 the write-path crash windows. Model on datahub-cleanup's task family; collapse its
 multi-tenant loops to a single un-routed pass (chat is single-tenant, one data dir each).
 
-- [ ] **CLEAN-1 · Scheduled orphan-attachment sweep** low **[backstop for BUG-9/10]** —
+- [x] **CLEAN-1 · Scheduled orphan-attachment sweep** low **[backstop for BUG-9/10]** —
   even with the write-path fixes, a crash between DB commit and the afterCommit `deleteFiles`
   leaves an orphan. Add a `@Scheduled` task that lists `./data/attachments`, builds the live key
   set = `attachments.storage_key ∪ conversation_attachments.storage_key`, and deletes files not
   in it whose mtime is older than a grace window (~24h, so a mid-upload file pre-commit is
   spared). **Abort the run if either DB query fails** — never delete against a partial live set
   (datahub's `OrphanTenantFolderCleanupTask` refuses to act on an empty/unreadable live set).
-- [ ] **CLEAN-2 · Avatar orphan sweep + fix the replace-path leak** low **[NEW leak]** — the
+- [x] **CLEAN-2 · Avatar orphan sweep + fix the replace-path leak** low **[NEW leak]** — the
   audit's file-leak review of attachments also applies to avatars: `AvatarService`'s
   replace-avatar path only best-effort `deleteIfExists`es the previous key in an afterCommit hook
   (leaks the old file on any crash/IO error between commit and hook), and nothing cleans up when
   a `User` is deleted. → Same sweep family: list `./data/avatars`, live set = non-null
   `users.avatar_storage_key`, delete unreferenced files older than the grace window.
-- [ ] **CLEAN-3 · Periodic Lucene↔DB reconciliation** low **[backstop for BUG-21]** — replace
+- [x] **CLEAN-3 · Periodic Lucene↔DB reconciliation** low **[backstop for BUG-21]** — replace
   rebuild-only-when-empty with a `@Scheduled` reconcile: pull the id set from `messages`, diff
   against the index, `index(...)` the missing and `deleteAll(...)` the stale. Needs a new
   "enumerate all doc ids" on `MessageIndexService` (it has `index`/`deleteAll`/`isEmpty` but no
   id scan). Skip the run if the DB read fails.
-- [ ] **CLEAN-4 · Cleanup observability: dry-run + enabled flags + summary logging** low
+- [x] **CLEAN-4 · Cleanup observability: dry-run + enabled flags + summary logging** low
   **[NEW]** — the app has zero cleanup observability. Bind `chat.cleanup.*`
   `@ConfigurationProperties` (`enabled`, `dry-run`, `grace`), **default `dry-run=true`**, and
   have each sweep log "[dry-run] would delete …" per item plus a per-run count, so an operator
