@@ -64,3 +64,6 @@ application-secret.properties
 # session; project-wide docs that should be shared belong in CLAUDE.md.
 .claude/
 MEMORY.md
+
+# Local compose override (LAN/mobile testing) — see compose.override.yml.example
+compose.override.yml

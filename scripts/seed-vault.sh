@@ -32,7 +32,7 @@ set -euo pipefail
 : "${THREADORBIT_DB_PASSWORD:=threadorbit}"
 : "${KEYCLOAK_CLIENT_ID:=threadorbit}"
 : "${KEYCLOAK_CLIENT_SECRET:?KEYCLOAK_CLIENT_SECRET must be set (no safe default — pull from keycloak/realm.json)}"
-: "${KEYCLOAK_ISSUER_URI:=http://192.168.100.98:8081/realms/threadorbit}"
+: "${KEYCLOAK_ISSUER_URI:=http://localhost:8081/realms/threadorbit}"
 
 # Export so the inline python below can read them via os.environ.
 export BAO_ADDR BAO_TOKEN THREADORBIT_DB_USERNAME THREADORBIT_DB_PASSWORD \

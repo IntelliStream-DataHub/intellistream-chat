@@ -1,0 +1,14 @@
+# Local override for LAN / mobile-device testing (NOT committed — copy to compose.override.yml,
+# which podman/docker compose auto-merges on top of docker-compose.yml).
+#
+# The base compose file binds Keycloak to 127.0.0.1 so the default quickstart works on any
+# host. To reach the app + auth endpoint from other devices on your LAN (e.g. a phone testing
+# the mobile layout), bind Keycloak to your machine's LAN IP here and point KC_HOSTNAME at it.
+# Also set SERVER_ADDRESS + the matching allowed-origins in application-dev.properties, and add
+# the LAN redirect URIs back to your local Keycloak realm.
+services:
+  keycloak:
+    environment:
+      KC_HOSTNAME: http://192.168.1.100:8081   # <-- your machine's LAN IP
+    ports:
+      - "192.168.1.100:8081:8080"              # <-- your machine's LAN IP
