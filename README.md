@@ -85,7 +85,7 @@ If `java` doesn't end up on `PATH`, follow the post-install instructions Homebre
 For exploring the app, hacking on it, or quick local testing. Two commands once the prerequisites above are installed:
 
 ```bash
-podman compose up -d   # Postgres 18 + Keycloak 26, with the 'chat' realm pre-imported
+podman compose up -d   # Postgres 18 + Keycloak 26, with the 'threadorbit' realm pre-imported
 ./gradlew bootRun      # the Spring Boot app on :8080
 ```
 
@@ -618,7 +618,7 @@ GRANT ALL PRIVILEGES ON DATABASE chat TO chat;
 SQL
 ```
 
-That's all the SQL setup you need. Flyway runs the schema migrations on first app start (V1 → V13).
+That's all the SQL setup you need. Flyway runs the schema migration on first app start (a single consolidated V1__init.sql).
 
 #### Keycloak 26
 
@@ -642,7 +642,7 @@ bin/kc.sh start-dev --import-realm --http-port=8081
 
 `start-dev` runs against an embedded H2 — fine for a quick local run. For production, switch to `bin/kc.sh start` and configure a Postgres backend (a separate database from the chat one) per Keycloak's docs.
 
-Once Keycloak is up at http://localhost:8081 the `chat` realm exists with users `alice` / `alice` and `bob` / `bob`. Point the chat app at it:
+Once Keycloak is up at http://localhost:8081 the `threadorbit` realm exists with users `alice` / `alice` and `bob` / `bob`. Point the app at it:
 
 ```bash
 export KEYCLOAK_ISSUER_URI=http://localhost:8081/realms/threadorbit
@@ -658,10 +658,10 @@ The bundled `keycloak/realm.json` defines everything `podman compose` and `kc.sh
 
 | Item | Value |
 |---|---|
-| Realm name | `chat` |
+| Realm name | `threadorbit` |
 | Login with email | enabled |
 | Self-registration | enabled |
-| Client id | `chat` (confidential, Authorization Code + PKCE) |
+| Client id | `threadorbit` (confidential, Authorization Code + PKCE) |
 | Client secret | `(generated; rotate)` (override via `KEYCLOAK_CLIENT_SECRET` in production) |
 | Valid redirect URIs | `http://localhost:8080/*`, `http://192.168.100.98:8080/*` |
 | Web origins | `http://localhost:8080`, `http://192.168.100.98:8080` |
@@ -693,7 +693,7 @@ Self-registration is already on in the bundled realm. To toggle (or enable on a 
 
 Then make sure new self-registered accounts get the `user` realm role automatically:
 
-1. **Realm settings → User registration** sub-tab (or **Realm roles → default-roles-chat**).
+1. **Realm settings → User registration** sub-tab (or **Realm roles → default-roles-threadorbit**).
 2. Assign realm role `user` (and any others you want every account to have).
 
 `chat-admin` is deliberately **not** in the default role set and should never be — promote people one at a time, after you've vetted them.
@@ -874,7 +874,7 @@ src/main/java/ai/intellistream/threadorbit/
 
 src/main/resources/
 ├── application.yml
-├── db/migration/V1__…V13__…sql        # Flyway migrations (channels → DMs → attachments → reactions → ...)
+├── db/migration/V1__init.sql          # Flyway — consolidated initial schema (add V2+ for changes)
 ├── templates/                          # landing, channels, conversation, profile, admin
 └── static/
     ├── css/app.css
@@ -892,4 +892,4 @@ src/main/resources/
 
 ## License
 
-Apache License 2.0. See [`LICENSE`](LICENSE) for the full text. Every source file carries the standard Apache header — fork it, run it, change it, ship it. The licence cannot be retroactively narrowed; that's the point.
+Apache License 2.0. See [`LICENSE`](LICENSE) for the full text. Source files carry the standard Apache header — fork it, run it, change it, ship it. The licence cannot be retroactively narrowed; that's the point.
