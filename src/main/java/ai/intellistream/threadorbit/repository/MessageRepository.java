@@ -101,6 +101,9 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     long countByParent(Message parent);
 
     long countByChannelAndParentIsNull(Channel channel);
+    /** All message ids in a channel — captured before channel deletion to purge the Lucene index. */
+    @org.springframework.data.jpa.repository.Query("select m.id from Message m where m.channel = :channel")
+    java.util.List<Long> findIdsByChannel(Channel channel);
 
     /**
      * For each given parent id, count its top-level replies. Parents with zero replies are

@@ -21,11 +21,17 @@ import ai.intellistream.threadorbit.domain.ChannelMember;
 import ai.intellistream.threadorbit.domain.ChannelRole;
 import ai.intellistream.threadorbit.domain.ChannelType;
 import ai.intellistream.threadorbit.domain.User;
+import ai.intellistream.threadorbit.repository.AttachmentRepository;
 import ai.intellistream.threadorbit.repository.ChannelMemberRepository;
 import ai.intellistream.threadorbit.repository.ChannelRepository;
+import ai.intellistream.threadorbit.repository.MessageRepository;
+import ai.intellistream.threadorbit.search.MessageIndexService;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.util.List;
 
@@ -34,11 +40,24 @@ public class ChannelService {
 
     private final ChannelRepository channelRepository;
     private final ChannelMemberRepository memberRepository;
+    private final MessageRepository messageRepository;
+    private final AttachmentRepository attachmentRepository;
+    private final MessageIndexService messageIndex;
+    private final AttachmentService attachmentService;
 
     public ChannelService(ChannelRepository channelRepository,
-                          ChannelMemberRepository memberRepository) {
+                          ChannelMemberRepository memberRepository,
+                          MessageRepository messageRepository,
+                          AttachmentRepository attachmentRepository,
+                          MessageIndexService messageIndex,
+                          // @Lazy breaks the ChannelService <-> AttachmentService construction cycle.
+                          @Lazy AttachmentService attachmentService) {
         this.channelRepository = channelRepository;
         this.memberRepository = memberRepository;
+        this.messageRepository = messageRepository;
+        this.attachmentRepository = attachmentRepository;
+        this.messageIndex = messageIndex;
+        this.attachmentService = attachmentService;
     }
 
     @Transactional
@@ -132,7 +151,29 @@ public class ChannelService {
     @Transactional
     public void destroy(Channel channel, User actor) {
         requireAdmin(channel, actor);
+        // Capture the channel's message ids + attachment storage keys before the delete cascades
+        // the rows away, then purge the Lucene docs and reap the files after commit — otherwise
+        // both leak forever (the index bloats, disk fills) since rebuildIfEmpty never reconciles
+        // a non-empty index. Mirrors MessageService.delete.
+        var messageIds = messageRepository.findIdsByChannel(channel);
+        var fileKeys = attachmentRepository.findStorageKeysByChannel(channel);
         channelRepository.delete(channel);
+        afterCommit(() -> messageIndex.deleteAll(messageIds));
+        afterCommit(() -> attachmentService.deleteFiles(fileKeys));
+    }
+
+    /** Run after a successful commit; if no tx is active, run now. */
+    private static void afterCommit(Runnable action) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    action.run();
+                }
+            });
+        } else {
+            action.run();
+        }
     }
 
     @Transactional(readOnly = true)

@@ -29,4 +29,8 @@ public interface AttachmentRepository extends JpaRepository<Attachment, Long> {
     List<Attachment> findByMessageOrderByCreatedAtAsc(Message message);
 
     List<Attachment> findByMessageInOrderByCreatedAtAsc(Collection<Message> messages);
+
+    /** Storage keys of every attachment in a channel — captured before channel deletion to reap files. */
+    @org.springframework.data.jpa.repository.Query("select a.storageKey from Attachment a where a.message.channel = :channel")
+    java.util.List<String> findStorageKeysByChannel(ai.intellistream.threadorbit.domain.Channel channel);
 }
