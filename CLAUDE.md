@@ -4,7 +4,7 @@ Spring Boot 4 chat application (Slack/Mattermost-style). Read this before making
 
 ## Stack
 
-- **Java 25** (toolchain), **Spring Boot 4.0.5**, **Gradle Kotlin DSL**.
+- **Java 25** (toolchain), **Spring Boot 4.1.0**, **Gradle Kotlin DSL**.
 - **Postgres 18** for storage, **Flyway** for migrations.
 - **Keycloak 26** for OAuth2/OIDC.
 - **Container runtime: Podman.** Docker is **not** installed. Use `podman compose` (or `podman-compose`) for the local stack. Testcontainers needs `DOCKER_HOST=unix:///run/user/$UID/podman/podman.sock` (start the user socket with `systemctl --user enable --now podman.socket`).
@@ -77,7 +77,7 @@ src/main/resources/
 Several autoconfigurations that lived inside `spring-boot-autoconfigure` in 3.x have moved to dedicated modules in 4.x. **You add them via Boot artifacts, not the underlying library starter.**
 
 - **Flyway:** add `org.springframework.boot:spring-boot-flyway` (in addition to `flyway-core` + `flyway-database-postgresql`). Without it Flyway is silent at startup, JPA's `ddl-auto=validate` then fails with `Schema validation: missing table`.
-- **OAuth2 client / resource server:** autoconfig FQNs are `org.springframework.boot.security.oauth2.{client,server.resource}.autoconfigure.*`. The starters resolve them transitively, but if you exclude autoconfigs in test contexts, use these new FQNs.
+- **OAuth2 client / resource server:** autoconfig FQNs are `org.springframework.boot.security.oauth2.{client,server.resource}.autoconfigure.*`. The starters resolve them transitively, but if you exclude autoconfigs in test contexts, use these new FQNs. As of Boot 4.1, `OAuth2ResourceServerAutoConfiguration` moved up a package (dropped the `.servlet` suffix — it now lives directly under `...resource.autoconfigure`) and its servlet security filter chain wiring split out into a new `OAuth2ResourceServerWebSecurityAutoConfiguration` under `...resource.autoconfigure.web`, mirroring the client side's existing `OAuth2ClientAutoConfiguration` / `OAuth2ClientWebSecurityAutoConfiguration` split. `IntegrationTestApplication` excludes both.
 - **`@EntityScan`:** moved to `org.springframework.boot.persistence.autoconfigure`.
 - **Slice tests:** `@DataJpaTest`, `@AutoConfigureTestDatabase`, etc. were removed. Use `@SpringBootTest(classes = ...)` against a slim test app (see `IntegrationTestApplication`).
 
