@@ -18,8 +18,11 @@ package ai.intellistream.threadorbit.repository;
 
 import ai.intellistream.threadorbit.domain.Channel;
 import ai.intellistream.threadorbit.domain.ChannelMember;
+import ai.intellistream.threadorbit.domain.ChannelRole;
 import ai.intellistream.threadorbit.domain.User;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 
 import java.util.List;
@@ -29,6 +32,12 @@ import java.util.Optional;
 public interface ChannelMemberRepository extends JpaRepository<ChannelMember, Long> {
 
     Optional<ChannelMember> findByChannelAndUser(Channel channel, User user);
+
+    /** Lock a channel's rows of a given role (SELECT … FOR UPDATE) so concurrent role changes on
+     *  the channel serialize — used by demote to enforce the last-admin invariant race-free. */
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select m from ChannelMember m join fetch m.user where m.channel = :channel and m.role = :role")
+    List<ChannelMember> findByChannelAndRoleForUpdate(Channel channel, ChannelRole role);
 
     @Query("""
             select m from ChannelMember m

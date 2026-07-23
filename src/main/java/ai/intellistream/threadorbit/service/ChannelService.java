@@ -149,8 +149,10 @@ public class ChannelService {
         var membership = memberRepository.findByChannelAndUser(channel, target)
                 .orElseThrow(() -> new IllegalArgumentException("User is not a member"));
         if (membership.getRole() != ChannelRole.ADMIN) return;
-        long otherAdmins = memberRepository.findAllByChannelOrderByJoinedAtAsc(channel).stream()
-                .filter(m -> m.getRole() == ChannelRole.ADMIN)
+        // Lock the channel's ADMIN rows (FOR UPDATE) before counting so two admins demoting each
+        // other serialize — otherwise both read otherAdmins >= 1 and both commit, leaving the
+        // channel with zero admins (TOCTOU the last-admin guard exists to prevent).
+        long otherAdmins = memberRepository.findByChannelAndRoleForUpdate(channel, ChannelRole.ADMIN).stream()
                 .filter(m -> !m.getUser().getId().equals(target.getId()))
                 .count();
         if (otherAdmins == 0) {
