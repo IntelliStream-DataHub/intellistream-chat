@@ -111,7 +111,10 @@ public class SecurityConfig {
                 + "style-src 'self' 'unsafe-inline'; "
                 + "img-src 'self' data: blob:; "
                 + "font-src 'self' data:; "
-                + "connect-src 'self' ws: wss:; "
+                // Same-origin only. `'self'` covers the same-origin wss://…/ws STOMP endpoint;
+                // the earlier `ws: wss:` scheme wildcards allowed outbound sockets to any host
+                // (an exfil channel) and contradicted this comment.
+                + "connect-src 'self'; "
                 // YouTube and Vimeo embeds (rendered when a user posts a video URL).
                 + "frame-src https://www.youtube.com https://www.youtube-nocookie.com https://player.vimeo.com; "
                 + "frame-ancestors 'none'; "
