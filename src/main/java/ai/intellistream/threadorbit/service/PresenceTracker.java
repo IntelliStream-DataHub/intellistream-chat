@@ -20,51 +20,63 @@ import org.springframework.stereotype.Component;
 
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * In-memory STOMP-session counter. A user is "online" while at least one of their browser
- * tabs has a live STOMP connection. Two-tab users get a single {@code 0→1} transition on
- * first connect and a single {@code 1→0} transition when the last tab closes — the
- * {@link #connect}/{@link #disconnect} return values let callers fire a broadcast only on
- * those edges, so we don't spam {@code /topic/presence} on every page load.
+ * In-memory STOMP-session tracker. A user is "online" while at least one of their browser tabs
+ * has a live STOMP connection. We track the actual set of STOMP session ids per user (not a bare
+ * counter) so the connect/disconnect edges are idempotent: Spring documents that
+ * {@code SessionDisconnectEvent} may be published more than once for a single session, and a
+ * counter would double-decrement on the duplicate and wrongly drop a still-connected user
+ * offline. Set membership makes a repeat add/remove of the same session id a no-op.
  *
- * <p>State resets on app restart by design; the persisted custom status is the only thing
- * that survives. With a single Spring Boot instance this is fine — switching to multi-node
- * would mean swapping this for a Redis / Hazelcast distributed counter (mirrors the
- * {@code RateLimiter} migration path called out in CLAUDE.md).
+ * <p>All mutations run inside {@link ConcurrentHashMap#compute} so the "did the set transition
+ * empty↔non-empty" edge is computed atomically per user; the inner set is itself concurrent so
+ * {@link #isOnline}/{@link #onlineUsernames} can read it without locking. The map never holds an
+ * empty set (compute returns {@code null} to drop it), so its key set is exactly the online users.
+ *
+ * <p>State resets on app restart by design; the persisted custom status is the only thing that
+ * survives. Single-instance only — multi-node would swap this for shared state (see the
+ * horizontal-scaling notes / CLAUDE.md's RateLimiter migration path).
  */
 @Component
 public class PresenceTracker {
 
-    private final ConcurrentHashMap<String, AtomicInteger> sessions = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, Set<String>> sessions = new ConcurrentHashMap<>();
 
     /** Returns true when this is the first session for {@code username} (i.e. they just came online). */
-    public boolean connect(String username) {
-        if (username == null || username.isBlank()) return false;
-        var counter = sessions.computeIfAbsent(username, k -> new AtomicInteger());
-        return counter.incrementAndGet() == 1;
+    public boolean connect(String username, String sessionId) {
+        if (username == null || username.isBlank() || sessionId == null) return false;
+        boolean[] cameOnline = {false};
+        sessions.compute(username, (k, set) -> {
+            if (set == null) set = ConcurrentHashMap.newKeySet();
+            boolean wasEmpty = set.isEmpty();
+            set.add(sessionId);
+            cameOnline[0] = wasEmpty && !set.isEmpty();
+            return set;
+        });
+        return cameOnline[0];
     }
 
     /** Returns true when this was the last session for {@code username} (i.e. they just went offline). */
-    public boolean disconnect(String username) {
-        if (username == null || username.isBlank()) return false;
-        var counter = sessions.get(username);
-        if (counter == null) return false;
-        var remaining = counter.decrementAndGet();
-        if (remaining <= 0) {
-            // Compute-remove guard: only drop if still <=0 — another connect could have raced
-            // between decrement and remove.
-            sessions.computeIfPresent(username, (k, v) -> v.get() <= 0 ? null : v);
-            return remaining == 0;
-        }
-        return false;
+    public boolean disconnect(String username, String sessionId) {
+        if (username == null || username.isBlank() || sessionId == null) return false;
+        boolean[] wentOffline = {false};
+        sessions.compute(username, (k, set) -> {
+            if (set == null) return null; // already gone — duplicate disconnect, no edge
+            boolean removed = set.remove(sessionId);
+            if (set.isEmpty()) {
+                wentOffline[0] = removed; // only an edge if we actually removed a live session
+                return null;              // drop the empty set so keySet stays == online users
+            }
+            return set;
+        });
+        return wentOffline[0];
     }
 
     public boolean isOnline(String username) {
         if (username == null) return false;
-        var counter = sessions.get(username);
-        return counter != null && counter.get() > 0;
+        var set = sessions.get(username);
+        return set != null && !set.isEmpty();
     }
 
     public Set<String> onlineUsernames() {

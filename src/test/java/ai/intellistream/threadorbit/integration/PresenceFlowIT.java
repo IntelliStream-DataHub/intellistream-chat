@@ -187,10 +187,10 @@ class PresenceFlowIT {
         var alice = newUser("alice");
         assertThat(presenceService.presenceFor(alice).online()).isFalse();
 
-        tracker.connect(alice.getUsername());
+        tracker.connect(alice.getUsername(), "session-solo");
         assertThat(presenceService.presenceFor(alice).online()).isTrue();
 
-        tracker.disconnect(alice.getUsername());
+        tracker.disconnect(alice.getUsername(), "session-solo");
         assertThat(presenceService.presenceFor(alice).online()).isFalse();
     }
 
@@ -198,10 +198,10 @@ class PresenceFlowIT {
     void multiTabConnectsCollapseToASingleOnlineTransition() {
         // First connect flips 0→1 (the broadcast trigger). Second tab re-connecting must NOT
         // re-trigger; only the final disconnect flips 1→0.
-        assertThat(tracker.connect("alice")).isTrue();
-        assertThat(tracker.connect("alice")).isFalse();
-        assertThat(tracker.disconnect("alice")).isFalse();
-        assertThat(tracker.disconnect("alice")).isTrue();
+        assertThat(tracker.connect("alice", "tab-1")).isTrue();
+        assertThat(tracker.connect("alice", "tab-2")).isFalse();
+        assertThat(tracker.disconnect("alice", "tab-1")).isFalse();
+        assertThat(tracker.disconnect("alice", "tab-2")).isTrue();
     }
 
     // ---------- Event listener ----------
@@ -224,8 +224,8 @@ class PresenceFlowIT {
     void secondConnectFromSameUserDoesNotReBroadcast() {
         var alice = newUser("alice");
 
-        listener.onConnect(connectEventFor(alice.getUsername()));
-        listener.onConnect(connectEventFor(alice.getUsername()));
+        listener.onConnect(connectEventFor(alice.getUsername(), "tab-1"));
+        listener.onConnect(connectEventFor(alice.getUsername(), "tab-2"));
 
         verify(broker).convertAndSend(eq("/topic/presence"), any(PresenceDto.class));
     }
@@ -233,13 +233,13 @@ class PresenceFlowIT {
     @Test
     void disconnectEventBroadcastsOfflineOnlyOnLastSession() {
         var alice = newUser("alice");
-        listener.onConnect(connectEventFor(alice.getUsername()));
-        listener.onConnect(connectEventFor(alice.getUsername()));
+        listener.onConnect(connectEventFor(alice.getUsername(), "tab-1"));
+        listener.onConnect(connectEventFor(alice.getUsername(), "tab-2"));
 
         // First disconnect: not the last session yet — no broadcast for offline.
-        listener.onDisconnect(disconnectEventFor(alice.getUsername()));
+        listener.onDisconnect(disconnectEventFor(alice.getUsername(), "tab-1"));
         // Last session out — broadcast offline.
-        listener.onDisconnect(disconnectEventFor(alice.getUsername()));
+        listener.onDisconnect(disconnectEventFor(alice.getUsername(), "tab-2"));
 
         var captor = ArgumentCaptor.forClass(PresenceDto.class);
         verify(broker, org.mockito.Mockito.times(2))
@@ -288,7 +288,7 @@ class PresenceFlowIT {
     void getReturnsPresenceForListedUsernamesPreservingOrder() {
         var alice = newUser("alice");
         var bob = newUser("bob");
-        tracker.connect(alice.getUsername());
+        tracker.connect(alice.getUsername(), "session-solo");
         presenceService.setStatus(bob, "💤", "deep work", null);
 
         var result = controller.get(alice.getUsername() + "," + bob.getUsername());
@@ -311,7 +311,7 @@ class PresenceFlowIT {
     @Test
     void connectedUserDefaultsToActiveKind() {
         var alice = newUser("alice");
-        tracker.connect(alice.getUsername());
+        tracker.connect(alice.getUsername(), "session-solo");
 
         var dto = presenceService.presenceFor(alice);
 
@@ -335,7 +335,7 @@ class PresenceFlowIT {
         // The override wins; the auto green dot is replaced with the yellow Away dot, and
         // the backwards-compat boolean reads as NOT online so old clients dim the avatar.
         var alice = newUser("alice");
-        tracker.connect(alice.getUsername());
+        tracker.connect(alice.getUsername(), "session-solo");
 
         var dto = presenceService.setKind(alice, ai.intellistream.threadorbit.domain.PresenceKind.AWAY);
 
@@ -346,7 +346,7 @@ class PresenceFlowIT {
     @Test
     void manualDndAndOfflineAreAlsoApplied() {
         var alice = newUser("alice");
-        tracker.connect(alice.getUsername());
+        tracker.connect(alice.getUsername(), "session-solo");
 
         assertThat(presenceService.setKind(alice, ai.intellistream.threadorbit.domain.PresenceKind.DND).kind())
                 .isEqualTo(ai.intellistream.threadorbit.domain.PresenceKind.DND);
@@ -357,7 +357,7 @@ class PresenceFlowIT {
     @Test
     void clearKindReturnsToActiveForConnectedUser() {
         var alice = newUser("alice");
-        tracker.connect(alice.getUsername());
+        tracker.connect(alice.getUsername(), "session-solo");
         presenceService.setKind(alice, ai.intellistream.threadorbit.domain.PresenceKind.AWAY);
 
         var dto = presenceService.clearKind(alice);
@@ -371,7 +371,7 @@ class PresenceFlowIT {
         // Treating ACTIVE as "no override" lets a single endpoint (PUT /kind) handle both
         // setting and clearing — UI flips to Active just by sending ACTIVE.
         var alice = newUser("alice");
-        tracker.connect(alice.getUsername());
+        tracker.connect(alice.getUsername(), "session-solo");
         presenceService.setKind(alice, ai.intellistream.threadorbit.domain.PresenceKind.DND);
 
         var dto = presenceService.setKind(alice, ai.intellistream.threadorbit.domain.PresenceKind.ACTIVE);
@@ -387,7 +387,7 @@ class PresenceFlowIT {
         var alice = newUser("alice");
         alice.touchActive(java.time.Instant.now());
         users.save(alice);
-        tracker.connect(alice.getUsername());
+        tracker.connect(alice.getUsername(), "session-solo");
 
         var dto = presenceService.presenceFor(alice);
 
@@ -402,7 +402,7 @@ class PresenceFlowIT {
         alice.touchActive(java.time.Instant.now()
                 .minus(presenceService.awayThreshold().plusMinutes(1)));
         users.save(alice);
-        tracker.connect(alice.getUsername());
+        tracker.connect(alice.getUsername(), "session-solo");
 
         var dto = presenceService.presenceFor(alice);
 
@@ -418,7 +418,7 @@ class PresenceFlowIT {
         alice.touchActive(java.time.Instant.now()
                 .minus(presenceService.awayThreshold().plusMinutes(1)));
         users.save(alice);
-        tracker.connect(alice.getUsername());
+        tracker.connect(alice.getUsername(), "session-solo");
         presenceService.setKind(alice, ai.intellistream.threadorbit.domain.PresenceKind.DND);
 
         var dto = presenceService.presenceFor(alice);
@@ -449,8 +449,8 @@ class PresenceFlowIT {
         idle.touchActive(java.time.Instant.now()
                 .minus(presenceService.awayThreshold().plusMinutes(1)));
         users.save(idle);
-        tracker.connect(fresh.getUsername());
-        tracker.connect(idle.getUsername());
+        tracker.connect(fresh.getUsername(), "session-solo");
+        tracker.connect(idle.getUsername(), "session-solo");
 
         var result = presenceService.presenceFor(
                 java.util.List.of(fresh.getUsername(), idle.getUsername()));
@@ -466,10 +466,10 @@ class PresenceFlowIT {
         // Simulate reconnect: connect → set Away → disconnect → reconnect → still Away.
         // The override survives because it lives in the DB row, not the in-memory tracker.
         var alice = newUser("alice");
-        tracker.connect(alice.getUsername());
+        tracker.connect(alice.getUsername(), "session-solo");
         presenceService.setKind(alice, ai.intellistream.threadorbit.domain.PresenceKind.AWAY);
-        tracker.disconnect(alice.getUsername());
-        tracker.connect(alice.getUsername());
+        tracker.disconnect(alice.getUsername(), "session-solo");
+        tracker.connect(alice.getUsername(), "session-solo");
 
         var dto = presenceService.presenceFor(alice);
         assertThat(dto.kind()).isEqualTo(ai.intellistream.threadorbit.domain.PresenceKind.AWAY);
@@ -480,7 +480,7 @@ class PresenceFlowIT {
         // The lunch emoji and the AWAY override are independent dimensions of presence —
         // the user can be Away with a 🍕 status badge.
         var alice = newUser("alice");
-        tracker.connect(alice.getUsername());
+        tracker.connect(alice.getUsername(), "session-solo");
         presenceService.setStatus(alice, "🍕", "lunch", null);
         presenceService.setKind(alice, ai.intellistream.threadorbit.domain.PresenceKind.AWAY);
 
@@ -495,7 +495,7 @@ class PresenceFlowIT {
     void clearStatusKeepsManualKind() {
         // Clearing the lunch emoji shouldn't accidentally also flip the user back to Active.
         var alice = newUser("alice");
-        tracker.connect(alice.getUsername());
+        tracker.connect(alice.getUsername(), "session-solo");
         presenceService.setStatus(alice, "🍕", "lunch", null);
         presenceService.setKind(alice, ai.intellistream.threadorbit.domain.PresenceKind.AWAY);
 
@@ -508,7 +508,7 @@ class PresenceFlowIT {
     @Test
     void putKindEndpointBroadcasts() {
         var alice = newUser("alice");
-        tracker.connect(alice.getUsername());
+        tracker.connect(alice.getUsername(), "session-solo");
         when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
 
         var dto = controller.setKind(
@@ -523,7 +523,7 @@ class PresenceFlowIT {
     @Test
     void deleteKindEndpointClearsOverrideAndBroadcasts() {
         var alice = newUser("alice");
-        tracker.connect(alice.getUsername());
+        tracker.connect(alice.getUsername(), "session-solo");
         when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
         controller.setKind(new ai.intellistream.threadorbit.web.dto.SetPresenceKindRequest(
                 ai.intellistream.threadorbit.domain.PresenceKind.DND), mock(Principal.class));
@@ -542,13 +542,26 @@ class PresenceFlowIT {
     // KeycloakRolesConverter pins the JWT principal name to the same claim. So the listener
     // resolves users by username, and these helpers feed username strings.
     private static SessionConnectedEvent connectEventFor(String principalName) {
-        Message<byte[]> msg = new GenericMessage<>(new byte[0]);
+        return connectEventFor(principalName, "session-" + principalName);
+    }
+
+    private static SessionConnectedEvent connectEventFor(String principalName, String sessionId) {
+        // The listener reads the STOMP session id off the message headers, so set it there.
+        var accessor = org.springframework.messaging.simp.stomp.StompHeaderAccessor.create(
+                org.springframework.messaging.simp.stomp.StompCommand.CONNECTED);
+        accessor.setSessionId(sessionId);
+        Message<byte[]> msg = org.springframework.messaging.support.MessageBuilder.createMessage(
+                new byte[0], accessor.getMessageHeaders());
         return new SessionConnectedEvent(new Object(), msg, () -> principalName);
     }
 
     private static SessionDisconnectEvent disconnectEventFor(String principalName) {
+        return disconnectEventFor(principalName, "session-" + principalName);
+    }
+
+    private static SessionDisconnectEvent disconnectEventFor(String principalName, String sessionId) {
         Message<byte[]> msg = new GenericMessage<>(new byte[0]);
-        return new SessionDisconnectEvent(new Object(), msg, "session-" + principalName,
+        return new SessionDisconnectEvent(new Object(), msg, sessionId,
                 org.springframework.web.socket.CloseStatus.NORMAL, () -> principalName);
     }
 }

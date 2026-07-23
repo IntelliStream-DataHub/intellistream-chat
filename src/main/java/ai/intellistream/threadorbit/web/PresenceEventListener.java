@@ -24,6 +24,7 @@ import ai.intellistream.threadorbit.web.dto.PresenceDto;
 import org.springframework.context.event.EventListener;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.web.socket.messaging.SessionConnectedEvent;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
@@ -56,8 +57,9 @@ public class PresenceEventListener {
 
     @EventListener
     public void onConnect(SessionConnectedEvent event) {
+        var sessionId = StompHeaderAccessor.wrap(event.getMessage()).getSessionId();
         resolveUser(event.getUser()).ifPresent(user -> {
-            if (!tracker.connect(user.getUsername())) return;
+            if (!tracker.connect(user.getUsername(), sessionId)) return;
             // First session for this user — load their persisted status (if any) and announce.
             broker.convertAndSend("/topic/presence", presenceService.presenceFor(user));
         });
@@ -65,8 +67,11 @@ public class PresenceEventListener {
 
     @EventListener
     public void onDisconnect(SessionDisconnectEvent event) {
+        // event.getSessionId() identifies the exact STOMP session; membership-based tracking
+        // makes a duplicate disconnect for an already-removed session a no-op (see PresenceTracker).
+        var sessionId = event.getSessionId();
         resolveUser(event.getUser()).ifPresent(user -> {
-            if (!tracker.disconnect(user.getUsername())) return;
+            if (!tracker.disconnect(user.getUsername(), sessionId)) return;
             // Last session closed — broadcast offline. Custom status stays in the DB; we strip it
             // from the wire here because clients render online/offline as the primary signal.
             broker.convertAndSend("/topic/presence", PresenceDto.offline(user.getUsername()));
