@@ -55,31 +55,40 @@ public class RateLimiter {
         var bucketKey = key + "|" + action;
         var now = System.nanoTime();
         var floor = now - window.toNanos();
-        var deque = windows.computeIfAbsent(bucketKey, k -> new ArrayDeque<>());
-        synchronized (deque) {
+        var allowed = new boolean[1];
+        // Mutate the deque INSIDE compute (under the map's per-bin lock) rather than via a
+        // separate synchronized(deque): that keeps the trim+add atomic with prune's removal, so a
+        // prune can't drop a bucket in the gap between a concurrent add and the map removal and
+        // silently discard the just-recorded event (BUG-22).
+        windows.compute(bucketKey, (k, deque) -> {
+            if (deque == null) deque = new ArrayDeque<>();
             while (!deque.isEmpty() && deque.peekFirst() < floor) {
                 deque.pollFirst();
             }
             if (deque.size() >= limit) {
-                return false;
+                allowed[0] = false;
+            } else {
+                deque.addLast(now);
+                allowed[0] = true;
             }
-            deque.addLast(now);
-            return true;
-        }
+            return deque;
+        });
+        return allowed[0];
     }
 
     /** Drop buckets whose most-recent entry is older than the prune horizon. Cheap; runs every 5 min. */
     @Scheduled(fixedDelay = 5 * 60 * 1000L)
     void prune() {
         var floor = System.nanoTime() - PRUNE_HORIZON_NANOS;
-        windows.entrySet().removeIf(entry -> {
-            var deque = entry.getValue();
-            synchronized (deque) {
+        // computeIfPresent so the emptiness check and the map removal happen atomically under the
+        // same bin lock that tryAcquire's compute uses — no add-vs-remove race.
+        for (var key : windows.keySet()) {
+            windows.computeIfPresent(key, (k, deque) -> {
                 while (!deque.isEmpty() && deque.peekFirst() < floor) {
                     deque.pollFirst();
                 }
-                return deque.isEmpty();
-            }
-        });
+                return deque.isEmpty() ? null : deque;
+            });
+        }
     }
 }
