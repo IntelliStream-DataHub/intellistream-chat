@@ -84,9 +84,12 @@
     status.className = 'profile-help' + (kind === 'error' ? ' avatar-status-error' : '');
   }
 
+  let previewObjectUrl = null;
+
   function updatePreviewToFile(file) {
-    // Optimistic preview from the local file — no need to wait for the server round-trip.
-    const url = URL.createObjectURL(file);
+    // Revoke the prior blob URL first so we don't leak one per upload attempt.
+    if (previewObjectUrl) { URL.revokeObjectURL(previewObjectUrl); previewObjectUrl = null; }
+    previewObjectUrl = URL.createObjectURL(file);
     let img = preview.querySelector('.avatar-image');
     if (!img) {
       img = document.createElement('img');
@@ -94,12 +97,13 @@
       img.alt = '';
       preview.insertBefore(img, preview.firstChild);
     }
-    img.src = url;
+    img.src = previewObjectUrl;
     if (clearBtn) clearBtn.disabled = false;
   }
 
   function clearPreview() {
     preview.querySelector('.avatar-image')?.remove();
+    if (previewObjectUrl) { URL.revokeObjectURL(previewObjectUrl); previewObjectUrl = null; }
     if (clearBtn) clearBtn.disabled = true;
   }
 
@@ -114,7 +118,8 @@
       return;
     }
     setStatus('Uploading…');
-    updatePreviewToFile(file);
+    // Don't preview optimistically — a rejected upload (bad MIME, 413) would leave the new
+    // picture showing beside the error, misrepresenting the saved state. Swap only on success.
     const fd = new FormData();
     fd.append('file', file);
     try {
@@ -134,6 +139,7 @@
         }
         setStatus(msg, 'error');
       } else {
+        updatePreviewToFile(file); // server accepted it — now reflect the new picture
         setStatus('Saved. New picture will appear across the app on next page load.');
       }
     } catch (e) {
