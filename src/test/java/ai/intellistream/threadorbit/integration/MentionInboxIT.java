@@ -118,7 +118,7 @@ class MentionInboxIT {
         });
 
         var count = controller.count(mock(Principal.class));
-        assertThat(count).containsEntry("unread", 2L);
+        assertThat(count.unread()).isEqualTo(2);
     }
 
     @Test
@@ -139,7 +139,7 @@ class MentionInboxIT {
 
         assertThat(inbox).hasSize(1);
         assertThat(inbox.get(0).channelId()).isEqualTo(room2.getId());
-        assertThat(controller.count(mock(Principal.class))).containsEntry("unread", 1L);
+        assertThat(controller.count(mock(Principal.class)).unread()).isEqualTo(1);
     }
 
     @Test
@@ -152,7 +152,7 @@ class MentionInboxIT {
 
         when(currentUser.resolve(any(Principal.class))).thenReturn(bob);
         assertThat(controller.inbox(20, mock(Principal.class))).isEmpty();
-        assertThat(controller.count(mock(Principal.class))).containsEntry("unread", 0L);
+        assertThat(controller.count(mock(Principal.class)).unread()).isEqualTo(0);
     }
 
     @Test
@@ -167,7 +167,7 @@ class MentionInboxIT {
 
         when(currentUser.resolve(any(Principal.class))).thenReturn(bob);
         assertThat(controller.inbox(20, mock(Principal.class))).isEmpty();
-        assertThat(controller.count(mock(Principal.class))).containsEntry("unread", 0L);
+        assertThat(controller.count(mock(Principal.class)).unread()).isEqualTo(0);
     }
 
     @Test
@@ -183,7 +183,7 @@ class MentionInboxIT {
         var inbox = controller.inbox(20, mock(Principal.class));
         assertThat(inbox).hasSize(1);
         assertThat(inbox.get(0).channelId()).isEqualTo(secret.getId());
-        assertThat(controller.count(mock(Principal.class))).containsEntry("unread", 1L);
+        assertThat(controller.count(mock(Principal.class)).unread()).isEqualTo(1);
     }
 
     @Test
@@ -257,14 +257,14 @@ class MentionInboxIT {
         messages.post(room3, alice, "@" + bob.getUsername() + " ping3");
 
         when(currentUser.resolve(any(Principal.class))).thenReturn(bob);
-        assertThat(controller.count(mock(Principal.class))).containsEntry("unread", 3L);
+        assertThat(controller.count(mock(Principal.class)).unread()).isEqualTo(3);
 
         var result = controller.markAllRead(mock(Principal.class));
         assertThat(result).containsEntry("channelsMarkedRead", 3);
 
         // Inbox is empty post-mark; count is zero.
         assertThat(controller.inbox(20, mock(Principal.class))).isEmpty();
-        assertThat(controller.count(mock(Principal.class))).containsEntry("unread", 0L);
+        assertThat(controller.count(mock(Principal.class)).unread()).isEqualTo(0);
     }
 
     @Test
@@ -274,7 +274,7 @@ class MentionInboxIT {
 
         var result = controller.markAllRead(mock(Principal.class));
         assertThat(result).containsEntry("channelsMarkedRead", 0);
-        assertThat(controller.count(mock(Principal.class))).containsEntry("unread", 0L);
+        assertThat(controller.count(mock(Principal.class)).unread()).isEqualTo(0);
     }
 
     @Test
@@ -290,11 +290,11 @@ class MentionInboxIT {
         // Bob clears his inbox.
         when(currentUser.resolve(any(Principal.class))).thenReturn(bob);
         controller.markAllRead(mock(Principal.class));
-        assertThat(controller.count(mock(Principal.class))).containsEntry("unread", 0L);
+        assertThat(controller.count(mock(Principal.class)).unread()).isEqualTo(0);
 
         // Carol's inbox still shows the mention.
         when(currentUser.resolve(any(Principal.class))).thenReturn(carol);
-        assertThat(controller.count(mock(Principal.class))).containsEntry("unread", 1L);
+        assertThat(controller.count(mock(Principal.class)).unread()).isEqualTo(1);
     }
 
     @Test
@@ -311,10 +311,10 @@ class MentionInboxIT {
 
         when(currentUser.resolve(any(Principal.class))).thenReturn(bob);
         // Inbox has only room2's mention.
-        assertThat(controller.count(mock(Principal.class))).containsEntry("unread", 1L);
+        assertThat(controller.count(mock(Principal.class)).unread()).isEqualTo(1);
         // markAllRead should only touch the still-unread channel (room2), not room1.
         var result = controller.markAllRead(mock(Principal.class));
         assertThat(result).containsEntry("channelsMarkedRead", 1);
-        assertThat(controller.count(mock(Principal.class))).containsEntry("unread", 0L);
+        assertThat(controller.count(mock(Principal.class)).unread()).isEqualTo(0);
     }
 }

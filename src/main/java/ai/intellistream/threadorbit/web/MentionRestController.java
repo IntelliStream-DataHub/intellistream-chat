@@ -61,10 +61,14 @@ public class MentionRestController {
         return mentionService.unreadInbox(me, limit == null ? DEFAULT_LIMIT : limit);
     }
 
+    /** {@code unread} is a primitive {@code long} so it serializes as a JSON number — a
+     *  {@code Map<String,Long>} rendered it as a string via the global id serializer (N9). */
+    public record UnreadCount(long unread) {}
+
     @GetMapping("/count")
-    public Map<String, Long> count(Principal principal) {
+    public UnreadCount count(Principal principal) {
         var me = currentUser.resolve(principal);
-        return Map.of("unread", mentionService.unreadInboxCount(me));
+        return new UnreadCount(mentionService.unreadInboxCount(me));
     }
 
     /**

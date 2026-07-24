@@ -86,16 +86,20 @@ public class ApiExceptionHandler {
      * {@code bad_request} envelope so the JS upload UX can render an informative
      * "max 50 MiB" message instead of the generic "Request rejected." default.
      */
+    /** 413 body. {@code maxBytes} is a primitive {@code long} on purpose: the global
+     *  {@code Long → ToStringSerializer} only catches the boxed type, so a bare {@code Map} rendered
+     *  it as the string {@code "52428800"} and the clients' {@code typeof === 'number'} guard failed
+     *  (N9). A primitive field serializes as a JSON number. */
+    public record UploadTooLargeBody(String code, String message, long maxBytes,
+                                     String traceId, String error) {}
+
     @ExceptionHandler(UploadTooLargeException.class)
-    public ResponseEntity<Map<String, Object>> uploadTooLarge(UploadTooLargeException ex) {
+    public ResponseEntity<UploadTooLargeBody> uploadTooLarge(UploadTooLargeException ex) {
         var traceId = newTraceId();
         log.warn("[trace={}] upload_too_large: maxBytes={}", traceId, ex.getMaxBytes());
         return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
-                .body(Map.of("code", "upload_too_large",
-                        "message", ex.getMessage(),
-                        "maxBytes", ex.getMaxBytes(),
-                        "traceId", traceId,
-                        "error", ex.getMessage()));
+                .body(new UploadTooLargeBody("upload_too_large", ex.getMessage(),
+                        ex.getMaxBytes(), traceId, ex.getMessage()));
     }
 
     @ExceptionHandler(RateLimitExceededException.class)
