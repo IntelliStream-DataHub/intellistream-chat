@@ -98,12 +98,21 @@ public class AttachmentRestController {
             var iter = upload.getItemIterator(request);
             while (iter.hasNext()) {
                 var item = iter.next();
+                // Once the file is persisted (its @Transactional upload committed), drain any
+                // trailing parts silently. Throwing here would 400 the client AFTER the row
+                // committed, orphaning a ghost message and prompting a retry that duplicates the
+                // upload (N17). Well-formed clients send caption before file, so nothing useful
+                // arrives after it.
+                if (savedAttachment != null) {
+                    item.getInputStream().transferTo(java.io.OutputStream.nullOutputStream());
+                    continue;
+                }
                 if (item.isFormField()) {
                     if ("caption".equals(item.getFieldName())) {
                         caption = UploadParts.readSmallField(item);
                     } else {
-                        // Reject unknown form fields so a client typo (or probing) surfaces clearly
-                        // rather than silently being ignored.
+                        // Reject unknown form fields (before any persist) so a client typo (or
+                        // probing) surfaces clearly rather than silently being ignored.
                         item.getInputStream().transferTo(java.io.OutputStream.nullOutputStream());
                         throw new IllegalArgumentException("Unknown form field: " + item.getFieldName());
                     }
@@ -113,18 +122,13 @@ public class AttachmentRestController {
                     item.getInputStream().transferTo(java.io.OutputStream.nullOutputStream());
                     throw new IllegalArgumentException("Unknown file part: " + item.getFieldName());
                 }
-                if ("file".equals(item.getFieldName())) {
-                    if (savedAttachment != null) {
-                        throw new IllegalArgumentException("Only one file per upload");
-                    }
-                    filename = item.getName();
-                    contentType = item.getContentType();
-                    // The service consumes the InputStream and copies straight to disk —
-                    // never holds the whole file in memory.
-                    savedAttachment = attachmentService.upload(
-                            channel, me, filename, contentType, -1L, maxBytes, caption,
-                            item.getInputStream());
-                }
+                filename = item.getName();
+                contentType = item.getContentType();
+                // The service consumes the InputStream and copies straight to disk —
+                // never holds the whole file in memory.
+                savedAttachment = attachmentService.upload(
+                        channel, me, filename, contentType, -1L, maxBytes, caption,
+                        item.getInputStream());
             }
         } catch (org.apache.commons.fileupload2.core.FileUploadException e) {
             throw new IllegalArgumentException("Malformed upload: " + e.getMessage(), e);

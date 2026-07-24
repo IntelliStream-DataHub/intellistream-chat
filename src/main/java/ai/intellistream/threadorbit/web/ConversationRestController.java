@@ -327,6 +327,12 @@ public class ConversationRestController {
             var iter = upload.getItemIterator(request);
             while (iter.hasNext()) {
                 var item = iter.next();
+                // Drain any part that follows the persisted file rather than throwing post-commit
+                // and orphaning a ghost message the client then retries (N17).
+                if (savedAttachment != null) {
+                    item.getInputStream().transferTo(java.io.OutputStream.nullOutputStream());
+                    continue;
+                }
                 if (item.isFormField()) {
                     if ("caption".equals(item.getFieldName())) {
                         caption = UploadParts.readSmallField(item);
@@ -339,9 +345,6 @@ public class ConversationRestController {
                 if (!"file".equals(item.getFieldName())) {
                     item.getInputStream().transferTo(java.io.OutputStream.nullOutputStream());
                     throw new IllegalArgumentException("Unknown file part: " + item.getFieldName());
-                }
-                if (savedAttachment != null) {
-                    throw new IllegalArgumentException("Only one file per upload");
                 }
                 savedAttachment = attachments.upload(
                         conv, me, item.getName(), item.getContentType(), -1L, maxBytes, caption,

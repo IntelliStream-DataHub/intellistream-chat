@@ -1001,8 +1001,10 @@ presenceMenu.init();
       };
       async function uploadAttachment(file, caption) {
         const fd = new FormData();
-        fd.append('file', file);
+        // Caption BEFORE file: the server streams the file part straight to disk as it's read, so
+        // a caption arriving after the file part was being dropped (N17).
         if (caption) fd.append('caption', caption);
+        fd.append('file', file);
         const h = headers();
         delete h['Content-Type']; // let the browser set the multipart boundary
         const res = await fetch('/api/channels/' + activeChannelId + '/attachments', {
