@@ -39,18 +39,21 @@ public final class UploadParts {
      * larger is almost certainly a misconfigured client.
      */
     public static String readSmallField(FileItemInput item) throws IOException {
-        var sb = new StringBuilder();
+        // Accumulate the raw bytes and decode once at the end. Decoding each read chunk
+        // independently corrupted any multi-byte UTF-8 character that straddled a 1 KiB read
+        // boundary (→ U+FFFD), and compared char-length against a byte limit (N16).
+        var out = new java.io.ByteArrayOutputStream();
         var buf = new byte[1024];
         try (var in = item.getInputStream()) {
             int n;
             while ((n = in.read(buf)) != -1) {
-                sb.append(new String(buf, 0, n, StandardCharsets.UTF_8));
-                if (sb.length() > MAX_FORM_FIELD_BYTES) {
+                out.write(buf, 0, n);
+                if (out.size() > MAX_FORM_FIELD_BYTES) {
                     throw new IllegalArgumentException("Form field too long");
                 }
             }
         }
-        return sb.toString();
+        return out.toString(StandardCharsets.UTF_8);
     }
 
     /**

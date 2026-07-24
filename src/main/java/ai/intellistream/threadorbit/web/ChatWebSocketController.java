@@ -90,8 +90,11 @@ public class ChatWebSocketController {
         } catch (IllegalArgumentException badArgs) {
             // Surface usage / validation errors only to the sender — they show as a transient
             // banner above their composer (chat.js subscribes to /user/queue/notices). Not
-            // broadcast to the channel because nobody else cares about a typo.
-            broker.convertAndSendToUser(user.getUsername(), "/queue/notices",
+            // broadcast to the channel because nobody else cares about a typo. Route by
+            // principal.getName() (the key Spring's user-destination registry uses), not the
+            // sanitized domain username — they differ for email-style or collision-suffixed
+            // usernames, and mismatching one silently delivers nothing (N19).
+            broker.convertAndSendToUser(principal.getName(), "/queue/notices",
                     java.util.Map.of("level", "error", "text", badArgs.getMessage()));
             return;
         }
@@ -122,7 +125,10 @@ public class ChatWebSocketController {
             return; // silently drop excess typing pings
         }
         var channel = channelService.requireById(channelId);
-        channelService.requireMember(channel, user);
+        // Broadcasting "X is typing" is a write — use the write check, not the read check that
+        // short-circuits true for PUBLIC channels, so a non-member can't inject typing pings into
+        // a channel they never joined (N15).
+        channelService.requireWriteAccess(channel, user);
         broker.convertAndSend("/topic/channels/" + channelId + "/typing",
                 new TypingEvent(user.getUsername(), user.getDisplayName()));
     }

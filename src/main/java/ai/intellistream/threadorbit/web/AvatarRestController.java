@@ -122,7 +122,15 @@ public class AvatarRestController {
         if (!rateLimiter.tryAcquire(me.getUsername(), "avatar-download", 600, Duration.ofMinutes(1))) {
             throw new RateLimitExceededException("avatar download rate exceeded");
         }
-        var user = userService.requireByUsername(username);
+        // Return a uniform 404 for an unknown user, matching the known-user-without-avatar case —
+        // otherwise the 400-vs-404 split is a username-existence oracle at 5× the profile
+        // endpoint's anti-enumeration budget (N18).
+        ai.intellistream.threadorbit.domain.User user;
+        try {
+            user = userService.requireByUsername(username);
+        } catch (IllegalArgumentException unknownUser) {
+            return ResponseEntity.notFound().build();
+        }
         var path = avatarService.resolve(user);
         if (path == null || !Files.isRegularFile(path)) {
             return ResponseEntity.notFound().build();
