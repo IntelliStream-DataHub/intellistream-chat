@@ -2587,7 +2587,7 @@ body.lightbox-open { overflow: hidden; }
   overflow: hidden;
   /* Sheet treatment matching .content (dropped when it becomes a fixed overlay). */
   margin-top: var(--chrome-gap);
-  border-radius: var(--radius-lg) 0 0 0;
+  border-radius: 0 var(--radius-lg) 0 0;
 }
 .thread-panel[hidden] { display: none; }
 body.thread-open .layout {
