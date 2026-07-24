@@ -81,8 +81,18 @@ public class MessageIndexService {
     private final IndexWriter writer;
     private final SearcherManager searcherManager;
     private final StandardAnalyzer analyzer = new StandardAnalyzer();
+    /** When true, per-message index/delete only stage the change; a scheduled task batches the
+     *  {@link SearcherManager#maybeRefresh() refresh} (visibility) and the {@link IndexWriter#commit()
+     *  commit} (durability) off the hot path. When false (tests), each op refreshes + commits inline
+     *  so a post is immediately searchable AND committed — the original synchronous behaviour. */
+    private final boolean async;
+    private final java.util.concurrent.atomic.AtomicBoolean pendingRefresh =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+    private final java.util.concurrent.atomic.AtomicBoolean pendingCommit =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
 
-    public MessageIndexService(String dir) {
+    public MessageIndexService(String dir, boolean async) {
+        this.async = async;
         var path = Path.of(dir);
         try {
             Files.createDirectories(path);
@@ -102,8 +112,7 @@ public class MessageIndexService {
         try {
             writer.updateDocument(new Term(F_ID, messageId.toString()),
                     toDoc(messageId, channelId, author, body));
-            writer.commit();
-            searcherManager.maybeRefresh();
+            afterWrite();
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to index message " + messageId, e);
         }
@@ -142,8 +151,7 @@ public class MessageIndexService {
     public void delete(Long messageId) {
         try {
             writer.deleteDocuments(new Term(F_ID, messageId.toString()));
-            writer.commit();
-            searcherManager.maybeRefresh();
+            afterWrite();
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to delete message " + messageId + " from index", e);
         }
@@ -159,10 +167,21 @@ public class MessageIndexService {
                 .toArray(Term[]::new);
         try {
             writer.deleteDocuments(terms);
-            writer.commit();
-            searcherManager.maybeRefresh();
+            afterWrite();
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to delete " + messageIds.size() + " messages from index", e);
+        }
+    }
+
+    /** After a per-message write: async => stage refresh+commit for the batched maintainer;
+     *  sync => flush both now (immediate visibility + durability — the test/original path). */
+    private void afterWrite() throws IOException {
+        if (async) {
+            pendingRefresh.set(true);
+            pendingCommit.set(true);
+        } else {
+            searcherManager.maybeRefresh();
+            writer.commit();
         }
     }
 
@@ -297,8 +316,39 @@ public class MessageIndexService {
         }
     }
 
+    /**
+     * Batches the fsync-heavy {@link IndexWriter#commit()} off the per-message write path: commits
+     * at most once per interval when there are pending changes (durability), instead of once per
+     * message. Docs are already searchable via the per-op NRT refresh; a crash before the next
+     * commit loses only the not-yet-committed index docs, which the DB→index reconcile (CLEAN-3) /
+     * empty-index bootstrap rebuild from the source-of-truth {@code messages} table.
+     */
+    @org.springframework.scheduling.annotation.Scheduled(
+            fixedDelayString = "${threadorbit.search.flush-interval-ms:250}")
+    void maintain() {
+        try {
+            if (pendingRefresh.compareAndSet(true, false)) searcherManager.maybeRefresh(); // visibility
+        } catch (IOException e) {
+            pendingRefresh.set(true);
+            log.warn("Deferred Lucene refresh failed; will retry", e);
+        }
+        if (!pendingCommit.compareAndSet(true, false)) return;
+        try {
+            writer.commit(); // durability — batched across all messages since the last tick
+        } catch (IOException e) {
+            pendingCommit.set(true); // retry next tick
+            log.warn("Deferred Lucene commit failed; will retry", e);
+        }
+    }
+
     @PreDestroy
     void close() {
+        try {
+            if (pendingRefresh.getAndSet(false)) searcherManager.maybeRefresh();
+            if (pendingCommit.getAndSet(false)) writer.commit(); // durably flush anything pending
+        } catch (IOException e) {
+            log.warn("Final Lucene flush/commit on shutdown failed", e);
+        }
         try {
             searcherManager.close();
         } catch (IOException e) {

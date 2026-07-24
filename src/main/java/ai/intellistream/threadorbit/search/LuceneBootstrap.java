@@ -52,18 +52,56 @@ public class LuceneBootstrap {
 
     @EventListener(ApplicationReadyEvent.class)
     @Transactional(readOnly = true)
-    public void rebuildIfEmpty() {
-        if (!messageIndex.isEmpty()) {
+    public void rebuildOrReconcile() {
+        if (messageIndex.isEmpty()) {
+            if (messageRepository.count() == 0) {
+                return;
+            }
+            log.info("Rebuilding Lucene index from the messages table (streaming, {} per page)…", PAGE_SIZE);
+            // Feed rebuild a LAZY iterable that keyset-pages a flat (id, channelId, author, body)
+            // projection — no Message entities, no per-author N+1, and only one page in memory at a
+            // time, instead of findAll() materialising the whole table (BUG-24).
+            messageIndex.rebuild(this::streamingIterator);
             return;
         }
-        if (messageRepository.count() == 0) {
-            return;
+        // Index already populated — heal any tail an unclean shutdown left behind: with async
+        // commits (see MessageIndexService / scalability.md), docs indexed since the last commit
+        // are lost from the index on a crash but still durable in the DB. Re-index what's missing
+        // and drop docs whose message is gone. This heals the tail in seconds at startup; the
+        // periodic CLEAN-3 reconcile is the ongoing backstop.
+        reconcileTail();
+    }
+
+    private void reconcileTail() {
+        // Read the INDEX first, then the DB (N3): a message posted after ApplicationReadyEvent (the
+        // server is already serving) is then "missing" → re-indexed (a no-op), never "stale" → dropped.
+        var indexIds = messageIndex.allIndexedIds();
+        var dbIds = new java.util.HashSet<>(messageRepository.findAllMessageIds());
+        var missing = new ArrayList<Long>();
+        for (var id : dbIds) {
+            if (!indexIds.contains(id)) missing.add(id);
         }
-        log.info("Rebuilding Lucene index from the messages table (streaming, {} per page)…", PAGE_SIZE);
-        // Feed rebuild a LAZY iterable that keyset-pages a flat (id, channelId, author, body)
-        // projection — no Message entities, no per-author N+1, and only one page in memory at a
-        // time, instead of findAll() materialising the whole table (BUG-24).
-        messageIndex.rebuild(this::streamingIterator);
+        var stale = new ArrayList<Long>();
+        for (var id : indexIds) {
+            if (!dbIds.contains(id)) stale.add(id);
+        }
+        if (missing.isEmpty() && stale.isEmpty()) {
+            return; // clean shutdown — nothing to heal
+        }
+        log.info("Startup index reconcile: re-indexing {} missing, dropping {} stale doc(s)",
+                missing.size(), stale.size());
+        if (!stale.isEmpty()) {
+            messageIndex.deleteAll(stale);
+        }
+        for (int i = 0; i < missing.size(); i += PAGE_SIZE) {
+            var batch = missing.subList(i, Math.min(i + PAGE_SIZE, missing.size()));
+            var docs = new ArrayList<MessageIndexService.IndexedMessage>(batch.size());
+            for (var m : messageRepository.findAllByIdWithAuthor(batch)) {
+                docs.add(new MessageIndexService.IndexedMessage(m.getId(), m.getChannel().getId(),
+                        m.getAuthor().getUsername(), m.getBodyMarkdown()));
+            }
+            messageIndex.reindex(docs);
+        }
     }
 
     private Iterator<MessageIndexService.IndexedMessage> streamingIterator() {

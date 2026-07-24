@@ -27,7 +27,10 @@ public class LuceneConfig {
     @Bean
     @ConditionalOnMissingBean
     public MessageIndexService messageIndexService(
-            @Value("${threadorbit.search.lucene-dir:./data/lucene}") String dir) {
-        return new MessageIndexService(dir);
+            @Value("${threadorbit.search.lucene-dir:./data/lucene}") String dir,
+            @Value("${threadorbit.search.async-indexing:true}") boolean async) {
+        // async batches the NRT refresh + commit off the per-message write path (throughput);
+        // tests set it false for immediate, synchronous visibility. See scalability.md.
+        return new MessageIndexService(dir, async);
     }
 }

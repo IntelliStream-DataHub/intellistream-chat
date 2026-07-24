@@ -39,5 +39,8 @@ final class TestLuceneDirs {
                 throw new UncheckedIOException(e);
             }
         });
+        // Synchronous indexing in tests: a posted message is immediately searchable + committed,
+        // so post-then-search assertions stay deterministic (prod defaults to async/batched).
+        registry.add("threadorbit.search.async-indexing", () -> "false");
     }
 }
