@@ -55,7 +55,7 @@ public class SidebarService {
     @Transactional(readOnly = true)
     public List<ChannelSidebarDto> sidebarFor(User user) {
         var publicChannels = channelRepository.findAllByTypeOrderByNameAsc(PUBLIC);
-        var memberships = memberRepository.findAllByUser(user);
+        var memberships = memberRepository.findAllByUserFetchingChannel(user); // avoid per-row channel N+1 (N28)
 
         LinkedHashMap<Long, ChannelSidebarDto> byId = new LinkedHashMap<>();
         for (var m : memberships) {

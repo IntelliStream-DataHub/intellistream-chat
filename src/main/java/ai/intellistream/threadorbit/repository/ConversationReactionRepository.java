@@ -30,8 +30,13 @@ public interface ConversationReactionRepository extends JpaRepository<Conversati
 
     Optional<ConversationReaction> findByMessageAndUserAndEmoji(ConversationMessage message, User user, String emoji);
 
+    // join fetch the reactor's user so collapse() doesn't N+1 per distinct reactor on render (N28).
+    @org.springframework.data.jpa.repository.Query(
+            "select r from ConversationReaction r join fetch r.user where r.message = :message order by r.createdAt asc")
     List<ConversationReaction> findByMessageOrderByCreatedAtAsc(ConversationMessage message);
 
+    @org.springframework.data.jpa.repository.Query(
+            "select r from ConversationReaction r join fetch r.user where r.message in :messages order by r.createdAt asc")
     List<ConversationReaction> findByMessageInOrderByCreatedAtAsc(Collection<ConversationMessage> messages);
 
     void deleteByMessageAndUserAndEmoji(ConversationMessage message, User user, String emoji);

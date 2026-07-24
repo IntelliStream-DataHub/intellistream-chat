@@ -30,8 +30,14 @@ public interface MessageReactionRepository extends JpaRepository<MessageReaction
 
     Optional<MessageReaction> findByMessageAndUserAndEmoji(Message message, User user, String emoji);
 
+    // join fetch the reactor's user — collapse() reads r.getUser().getUsername() after the tx, so
+    // without it every distinct reactor is a separate SELECT on render (N28).
+    @org.springframework.data.jpa.repository.Query(
+            "select r from MessageReaction r join fetch r.user where r.message = :message order by r.createdAt asc")
     List<MessageReaction> findByMessageOrderByCreatedAtAsc(Message message);
 
+    @org.springframework.data.jpa.repository.Query(
+            "select r from MessageReaction r join fetch r.user where r.message in :messages order by r.createdAt asc")
     List<MessageReaction> findByMessageInOrderByCreatedAtAsc(Collection<Message> messages);
 
     void deleteByMessageAndUserAndEmoji(Message message, User user, String emoji);

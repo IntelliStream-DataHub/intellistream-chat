@@ -49,6 +49,11 @@ public interface ChannelMemberRepository extends JpaRepository<ChannelMember, Lo
 
     List<ChannelMember> findAllByUser(User user);
 
+    /** Memberships with their channels eager-fetched — the sidebar render reads m.getChannel()
+     *  per row, so the plain findAllByUser lazy-loaded one channel per membership (N28). */
+    @Query("select m from ChannelMember m join fetch m.channel where m.user = :user")
+    List<ChannelMember> findAllByUserFetchingChannel(User user);
+
     @Query("""
             select m.channel from ChannelMember m
             where m.user = :user
