@@ -598,25 +598,46 @@ presenceMenu.init();
 
     const myUsername = meta('me-username');
     let stompConnectedBefore = false;
-    stomp.onConnect = () => {
-      // On a RECONNECT (not the first connect), the simple broker replayed nothing, so any
-      // message posted during the outage is missing. Backfill via the same ?after= endpoint
-      // infinite-scroll uses; appendMessage de-dupes by id, so overlap is harmless. Only while
-      // live-tailing — an anchored/historical view backfills when the user jumps to latest.
-      if (stompConnectedBefore && activeChannelId && infiniteScrollDownDone) {
-        const last = lastMessageEl();
-        const after = last ? last.dataset.createdAt : null;
-        if (after) {
-          fetch('/api/channels/' + activeChannelId + '/messages?after='
-                + encodeURIComponent(after) + '&limit=200', { headers: headers() })
+    let backfilling = false;
+    const pendingLive = [];
+
+    // Page the ?after= endpoint until caught up. The server caps each page at 50, so the old
+    // single limit=200 request silently dropped every message past the first 50 (a permanent
+    // gap if the outage was busy). Live events that arrive mid-backfill are buffered so they
+    // can't be appended ahead of the older rows still loading; they replay in arrival order,
+    // and appendMessage de-dupes by id so overlap is harmless (N5).
+    async function backfillMissedMessages() {
+      backfilling = true;
+      try {
+        for (let page = 0; page < 50; page++) { // safety cap: 50 pages * 50 = 2500 messages
+          const last = lastMessageEl();
+          const after = last ? last.dataset.createdAt : null;
+          if (!after) break;
+          const rows = await fetch('/api/channels/' + activeChannelId + '/messages?after='
+                + encodeURIComponent(after) + '&limit=50', { headers: headers() })
             .then((r) => (r.ok ? r.json() : []))
-            .then((rows) => { (rows || []).forEach(appendMessage); })
-            .catch(() => {});
+            .catch(() => []);
+          if (!rows || rows.length === 0) break;
+          rows.forEach(appendMessage);
+          if (rows.length < 50) break; // short page => we've caught up
         }
+      } finally {
+        backfilling = false;
+        pendingLive.splice(0).forEach(handleMessageEvent);
+      }
+    }
+
+    stomp.onConnect = () => {
+      // On a RECONNECT (not the first connect), the simple broker replayed nothing, so backfill
+      // everything missed during the outage. Only while live-tailing — an anchored/historical
+      // view backfills when the user jumps to latest.
+      if (stompConnectedBefore && activeChannelId && infiniteScrollDownDone) {
+        backfillMissedMessages();
       }
       stompConnectedBefore = true;
       stomp.subscribe('/topic/channels/' + activeChannelId, (frame) => {
         const event = JSON.parse(frame.body);
+        if (backfilling) { pendingLive.push(event); return; } // ordered replay after backfill
         handleMessageEvent(event);
       });
       stomp.subscribe('/topic/channels/' + activeChannelId + '/typing', (frame) => {
