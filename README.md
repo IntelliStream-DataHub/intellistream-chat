@@ -4,7 +4,9 @@ A small workspace chat built with Spring Boot 4, Java 25, PostgreSQL, Keycloak O
 
 ## Why this exists
 
-This was built by me and Claude in a few hours. I wrote the specification and gave Claude Code free rein on a virtual machine. An application like Slack/Mattermost is actually very simple. Most of the work is plumbing. I trust Claude to get most things right, and will spend time reviewing this code later. But I trust it for now, and we are already running it in production in a local isolated environment. Keep in mind, this is still considered AI-slop, and there are bugs, even serious bugs. But finding these bugs can only be done by either reviewing the code or using the application. Just using it in the current state is a quick way to verify that basic functionality works. Backups also matter. Highly recommend ZFS snapshots every 15 minutes plus a daily `pg_dump`.
+ThreadOrbit was built quickly: I wrote the specification and drove the implementation with Claude Code on a virtual machine. A Slack/Mattermost-style app is mostly plumbing, and this one covers the core — channels, DMs, threads, reactions, mentions, presence, full-text search, file uploads, and OIDC single sign-on.
+
+It's **early, pre-1.0 software.** A five-track code audit has been run (see [`tasks.md`](tasks.md), which tracks the security/bug backlog and its status openly), but it hasn't had exhaustive real-world hardening — review the code before trusting it with anything sensitive, follow the checklist in [`SECURITY.md`](SECURITY.md) before exposing an instance, and keep backups (ZFS snapshots plus a daily `pg_dump` are cheap insurance). Bugs are found by reading the code or using the app; running it is the quickest way to confirm the basics work.
 
 Workplace chat is important infrastructure. We should stop handing the keys to a vendor whose interests do not include making sure you can still read your own conversations next year. For me, the ability to self-host isn't a feature — it's a right.
 
@@ -12,7 +14,7 @@ Workplace chat is important infrastructure. We should stop handing the keys to a
 
 **Mattermost** sold itself as the open-source Slack alternative, and for a while it was. Then the free edition started taking things back. SAML and OAuth2 logins are paywalled now. Team message history is capped at 10,000 on the free plan. You can still self-host the binary. The open-core playbook is at work here: the things that separate a real chat app from a demo keep migrating into the licence you have to pay for. "Open source" stops meaning much when the table stakes aren't. Mattermost has a very slick and responsive UI, so it's a shame that the company is going open-core for a short-term win.
 
-**Microsoft Teams** is the worst team-collaboration application I've used. Loved by enterprises that hate their employees. I'm always late to MS Teams meetings, because whenever I start it, it has to update and restart and yadda yadda yadda. The UI is so slow that it freezes for seconds.
+**Microsoft Teams** is, in my experience, the most frustrating of the bunch — I'm regularly late to meetings because the client wants to update and restart on launch, and the UI can freeze for seconds at a time.
 
 For me it's important that a chat/team collaboration application is something I can deploy on a box I control. Fast UI. No message cap. No SSO paywall. No telemetry. No vendor able to change the terms a year from now because the funding round demanded it. It won't have Slack's polish or Mattermost's feature breadth. It will still be readable in five years, on a server you own, running code you can audit, under a licence that can't be retroactively narrowed.
 
