@@ -26,7 +26,7 @@ Recommended workflow:
 2. **Read (and own) `CLAUDE.md`.** Claude Code reads it on every invocation. It codifies the conventions that aren't obvious from the code alone — the two filter chains, `requireMember` vs `requireWriteAccess`, server-side Markdown render, the strict CSP, embedded Lucene, Testcontainers + real Postgres. Keep it in sync as your fork diverges; Claude follows whatever's in there.
 3. **Write a spec file.** A markdown file in the repo, even rough, drives much better Claude Code sessions than chat-style prompts. Acceptance criteria help: *"polls auto-close after 7 days; closed polls show the winner above the option list; admins can re-open a closed poll within 24 hours."*
 4. **Run `claude` and ask for incremental changes.** Good prompts name files and reference existing patterns: *"Add a slash command `/announce` modelled on `PollCommand`, with a Flyway migration for the new `announcements` table and an IT under `integration/AnnounceFlowIT.java`."* The codebase is small enough that whole-feature changes fit in a single Claude Code session.
-5. **Keep the test suite green.** `./gradlew test` runs in 1–2 minutes against Testcontainers Postgres. Make Claude Code add a unit test *and* an IT for every feature it ships — the existing ~190 tests across 21 classes are the floor, not the ceiling.
+5. **Keep the test suite green.** `./gradlew test` runs in 1–2 minutes against Testcontainers Postgres. Make Claude Code add a unit test *and* an IT for every feature it ships — the existing ~338 tests across 34 classes (26 integration + 8 unit) are the floor, not the ceiling.
 
 ### What's intentionally under-engineered (so a fork can swap it)
 
@@ -819,7 +819,7 @@ The systemd / SELinux / Quick start sections cover the mechanical setup. This is
 
 ## Tests
 
-The suite is **190+ tests across 21 classes** — about 30 unit tests that run anywhere, and ~160 integration tests that need a Postgres container. Both layers run from a single `./gradlew test`.
+The suite is **338+ tests across 34 classes** — about 40 unit tests that run anywhere, and ~298 integration tests that need a Postgres container. Both layers run from a single `./gradlew test`.
 
 ### Run everything
 
