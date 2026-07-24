@@ -375,6 +375,10 @@ presenceMenu.init();
     let inflight = 0; // monotonic request id — drop stale responses
 
     const close = () => {
+      // Cancel a pending debounced search and invalidate any in-flight response, so a query
+      // scheduled just before Escape / outside-click can't fire and reopen the dropdown (N12).
+      clearTimeout(debounce);
+      inflight++;
       dropdown?.remove();
       dropdown = null;
       activeIndex = -1;
@@ -828,6 +832,43 @@ presenceMenu.init();
       stomp.publish({ destination: '/app/channels/' + activeChannelId + '/typing', body: '{}' });
     };
 
+    // Send a channel message resiliently even if STOMP is mid-handshake / reconnecting (N10):
+    // wait briefly for the socket, publish over STOMP when up (the only path that runs slash
+    // commands), otherwise HTTP-POST non-slash messages (the server broadcasts them — N6 — and we
+    // render the returned DTO locally since our own subscription may be down). Never a silent no-op.
+    async function awaitConnected(timeoutMs) {
+      const deadline = Date.now() + timeoutMs;
+      while (!stomp.connected && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 50));
+      }
+      return stomp.connected;
+    }
+    async function sendChannelMessage(body) {
+      if (await awaitConnected(800)) {
+        try {
+          stomp.publish({ destination: '/app/channels/' + activeChannelId + '/send',
+                          body: JSON.stringify({ body }) });
+          return true;
+        } catch (err) { console.warn('[chat] STOMP publish failed, trying HTTP', err); }
+      }
+      if (body.startsWith('/')) {
+        alert('Not connected — reconnecting. Please try that command again in a moment.');
+        return false;
+      }
+      try {
+        const res = await fetch('/api/channels/' + activeChannelId + '/messages', {
+          method: 'POST', headers: headers(), body: JSON.stringify({ body }),
+        });
+        if (!res.ok) { alert('Message not sent — please try again.'); return false; }
+        const dto = await res.json().catch(() => null);
+        if (dto) appendMessage(dto);
+        return true;
+      } catch (err) {
+        alert('Could not send: ' + (err?.message || err));
+        return false;
+      }
+    }
+
     if (composer) {
       const fileInput = document.getElementById('composer-file');
       const attachBtn = document.getElementById('composer-attach');
@@ -862,6 +903,10 @@ presenceMenu.init();
           for (const [localId, item] of Array.from(pending.entries())) {
             try {
               await uploadAttachment(item.file, caption);
+              // Clear the composer as soon as the caption is consumed — otherwise a later file's
+              // failure returns with the caption still in the box, and resubmitting re-posts it
+              // against the remaining files (N14).
+              if (caption) { input.value = ''; input._autoResize?.(); }
               caption = '';
               removePendingAttachment(localId);
             } catch (err) {
@@ -872,12 +917,10 @@ presenceMenu.init();
           input.value = '';
           input._autoResize?.();
         } else {
-          stomp.publish({
-            destination: '/app/channels/' + activeChannelId + '/send',
-            body: JSON.stringify({ body }),
-          });
-          input.value = '';
-          input._autoResize?.();
+          if (await sendChannelMessage(body)) {
+            input.value = '';
+            input._autoResize?.();
+          }
         }
       });
       const composerInput = document.getElementById('composer-input');
@@ -1877,7 +1920,9 @@ presenceMenu.init();
     // dataset.id is always a string; id may arrive as a JSON number via the STOMP 'deleted'
     // frame. Coerce so the strict-equal doesn't silently miss the remote-delete case.
     if (tp && tp.dataset.id === String(id)) closeThread();
-    positionDayDividers();
+    // Rebuild dividers AND grouping — deleting a day's first message (or an author-run head)
+    // otherwise orphans the divider and leaves the next row wrongly .grouped (N13).
+    refreshDayDividers();
   };
 
   // Single delegate handles reactions / thread-indicator / msg-action clicks. Bound to
@@ -2042,8 +2087,10 @@ presenceMenu.init();
     openEmojiPicker(threadEmojiBtn, (e) => insertAtCursor(threadInput, e));
   });
 
+  let threadReq = 0;
   const closeThread = () => {
     if (!threadPanel) return;
+    threadReq++; // invalidate any in-flight openThread so its late response can't reopen the panel (N11)
     threadPanel.hidden = true;
     document.body.classList.remove('thread-open');
     openThreadId = null;
@@ -2059,7 +2106,6 @@ presenceMenu.init();
     if (e.key === 'Escape' && threadPanel && !threadPanel.hidden) closeThread();
   });
 
-  let threadReq = 0;
   async function openThread(parentId) {
     if (!threadPanel) return;
     // Monotonic request id (like the search/preview paths): if the user clicks a different thread
