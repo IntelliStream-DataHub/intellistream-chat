@@ -156,6 +156,37 @@ class MentionInboxIT {
     }
 
     @Test
+    void privateChannelMentionDoesNotLeakToNonMember() {
+        // N2: mentioning a non-member in a PRIVATE channel must not surface the message body or
+        // channel name in their inbox, and must not bump their bell count.
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var secret = channels.create("Secret-" + SEQ.incrementAndGet(), null, ChannelType.PRIVATE, alice);
+        // bob is deliberately NOT a member of the private channel.
+        messages.post(secret, alice, "@" + bob.getUsername() + " the deal closes at $5M");
+
+        when(currentUser.resolve(any(Principal.class))).thenReturn(bob);
+        assertThat(controller.inbox(20, mock(Principal.class))).isEmpty();
+        assertThat(controller.count(mock(Principal.class))).containsEntry("unread", 0L);
+    }
+
+    @Test
+    void privateChannelMentionStillReachesAMember() {
+        // Control for N2: a mention of an actual member of the private channel works as before.
+        var alice = newUser("alice");
+        var carol = newUser("carol");
+        var secret = channels.create("Team-" + SEQ.incrementAndGet(), null, ChannelType.PRIVATE, alice);
+        channels.invite(secret, carol, alice);
+        messages.post(secret, alice, "@" + carol.getUsername() + " standup in 5");
+
+        when(currentUser.resolve(any(Principal.class))).thenReturn(carol);
+        var inbox = controller.inbox(20, mock(Principal.class));
+        assertThat(inbox).hasSize(1);
+        assertThat(inbox.get(0).channelId()).isEqualTo(secret.getId());
+        assertThat(controller.count(mock(Principal.class))).containsEntry("unread", 1L);
+    }
+
+    @Test
     void inboxOrdersNewestFirstAndRespectsLimit() {
         var bob = newUser("bob");
         var alice = newUser("alice");

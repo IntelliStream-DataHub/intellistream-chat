@@ -47,6 +47,10 @@ public interface MessageMentionRepository extends JpaRepository<MessageMention, 
              where mn.user_id = :userId
                and msg.channel_id in (:channelIds)
                and (cr.last_read_at is null or msg.created_at > cr.last_read_at)
+               and (exists (select 1 from channels ch
+                             where ch.id = msg.channel_id and ch.type = 'PUBLIC')
+                    or exists (select 1 from channel_members cm
+                                where cm.channel_id = msg.channel_id and cm.user_id = :userId))
              group by msg.channel_id
             """, nativeQuery = true)
     List<Object[]> countMentionsPerChannel(@Param("userId") Long userId,
@@ -66,6 +70,10 @@ public interface MessageMentionRepository extends JpaRepository<MessageMention, 
                      on cr.channel_id = msg.channel_id and cr.user_id = mn.user_id
              where mn.user_id = :userId
                and (cr.last_read_at is null or msg.created_at > cr.last_read_at)
+               and (exists (select 1 from channels ch
+                             where ch.id = msg.channel_id and ch.type = 'PUBLIC')
+                    or exists (select 1 from channel_members cm
+                                where cm.channel_id = msg.channel_id and cm.user_id = :userId))
             """, nativeQuery = true)
     long countUnreadFor(@Param("userId") Long userId);
 
@@ -86,6 +94,9 @@ public interface MessageMentionRepository extends JpaRepository<MessageMention, 
                      on cr.channel_id = msg.channel_id and cr.user_id = mn.user_id
              where mn.user_id = :userId
                and (cr.last_read_at is null or msg.created_at > cr.last_read_at)
+               and (ch.type = 'PUBLIC'
+                    or exists (select 1 from channel_members cm
+                                where cm.channel_id = msg.channel_id and cm.user_id = :userId))
              order by msg.created_at desc
              limit :limit
             """, nativeQuery = true)

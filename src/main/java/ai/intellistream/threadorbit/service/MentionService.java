@@ -16,9 +16,11 @@
 
 package ai.intellistream.threadorbit.service;
 
+import ai.intellistream.threadorbit.domain.ChannelType;
 import ai.intellistream.threadorbit.domain.Message;
 import ai.intellistream.threadorbit.domain.MessageMention;
 import ai.intellistream.threadorbit.domain.User;
+import ai.intellistream.threadorbit.repository.ChannelMemberRepository;
 import ai.intellistream.threadorbit.repository.MessageMentionRepository;
 import ai.intellistream.threadorbit.repository.UserRepository;
 import ai.intellistream.threadorbit.web.dto.MentionInboxItemDto;
@@ -50,10 +52,13 @@ public class MentionService {
 
     private final UserRepository userRepo;
     private final MessageMentionRepository mentionRepo;
+    private final ChannelMemberRepository memberRepo;
 
-    public MentionService(UserRepository userRepo, MessageMentionRepository mentionRepo) {
+    public MentionService(UserRepository userRepo, MessageMentionRepository mentionRepo,
+                          ChannelMemberRepository memberRepo) {
         this.userRepo = userRepo;
         this.mentionRepo = mentionRepo;
+        this.memberRepo = memberRepo;
     }
 
     /** Extract the candidate handles a body refers to (case-preserved, deduped, in input order). */
@@ -80,6 +85,16 @@ public class MentionService {
         var resolved = new LinkedHashSet<User>();
         for (var h : handles) {
             userRepo.findByUsernameIgnoreCase(h).ifPresent(resolved::add);
+        }
+        // N2: never create a mention row (which the inbox/bell surface with the body snippet and
+        // channel name) for a user who can't read the channel — a PRIVATE-channel mention must not
+        // leak to a non-member. PUBLIC channels are readable by anyone, so no filter there. This
+        // also stops the live "you were mentioned" notification (driven by the returned set).
+        var channel = message.getChannel();
+        if (channel != null && channel.getType() != ChannelType.PUBLIC && !resolved.isEmpty()) {
+            var ids = resolved.stream().map(User::getId).toList();
+            var members = new HashSet<>(memberRepo.findMemberUserIds(channel, ids));
+            resolved.removeIf(u -> !members.contains(u.getId()));
         }
         for (var u : resolved) {
             mentionRepo.save(new MessageMention(message, u));
