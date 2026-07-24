@@ -177,7 +177,9 @@ class GroupConversationFlowIT {
                         List.of(bob.getUsername(), "ghost-no-such-user")),
                 mock(Principal.class)))
                 .isInstanceOf(ai.intellistream.threadorbit.security.PublicBadRequestException.class)
-                .hasMessageContaining("ghost-no-such-user");
+                // SEC-5: the error is generic — it must NOT echo the unknown username (enumeration oracle).
+                .hasMessageContaining("could not be found")
+                .hasMessageNotContaining("ghost-no-such-user");
     }
 
     @Test
@@ -186,14 +188,16 @@ class GroupConversationFlowIT {
         var bob = newUser("bob");
         when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
 
-        // Don't fail on the first bad name — collect them so the user fixes everything in one go.
+        // SEC-5: multiple unknowns still fail the whole call, but the message is generic — it must
+        // not list which names were unknown (that would be a username-existence oracle).
         assertThatThrownBy(() -> controller.createGroup(
                 new CreateGroupRequest("Triage",
                         List.of(bob.getUsername(), "ghost-1", "ghost-2")),
                 mock(Principal.class)))
                 .isInstanceOf(ai.intellistream.threadorbit.security.PublicBadRequestException.class)
-                .hasMessageContaining("ghost-1")
-                .hasMessageContaining("ghost-2");
+                .hasMessageContaining("could not be found")
+                .hasMessageNotContaining("ghost-1")
+                .hasMessageNotContaining("ghost-2");
     }
 
     @Test
