@@ -1,9 +1,12 @@
-# Chat — Security Plan
+# ThreadOrbit — Security Plan
+
+> **Note:** this is the historical hardening audit and checklist. For the current, actively
+> tracked security/bug backlog and its status, see [`tasks.md`](tasks.md).
 
 > **Companion test files:**
-> - `src/test/java/com/example/chat/integration/SecurityBoundaryIT.java` — locks in the
+> - `src/test/java/ai/intellistream/threadorbit/integration/SecurityBoundaryIT.java` — locks in the
 >   AuthN/AuthZ/sanitisation invariants the codebase has always asserted.
-> - `src/test/java/com/example/chat/integration/InternetExposureSecurityIT.java` — locks
+> - `src/test/java/ai/intellistream/threadorbit/integration/InternetExposureSecurityIT.java` — locks
 >   in the additions made for public-internet exposure (per-user upload cap from Keycloak,
 >   GET rate limits, Lucene wildcard refusal).
 
@@ -18,12 +21,11 @@ refactor) folded in. Outcome:
 
 ### Resolved this round
 
-- **[Was H] Cookie `Secure` flag missing.** Fixed: cookies auto-detect Secure from `request.isSecure()`
-  (`CHAT_SECURITY_COOKIE_SECURE` env) drives both the JSESSIONID cookie (via
-  `application.yml`'s `server.servlet.session.cookie.secure`) and the CSRF cookie
-  (via `csrfRepo.setCookieCustomizer(c -> c.secure(cookieSecure))` in `SecurityConfig`).
-  Defaults `false` so local-dev over plain HTTP keeps working; production checklist
-  flips it `true`.
+- **[Was H] Cookie `Secure` flag missing.** Fixed: both the JSESSIONID and CSRF cookies now
+  auto-detect `Secure` **per request** from `request.isSecure()` — no env var. Behind a
+  TLS-terminating proxy, `forward-headers-strategy: framework` sets `request.isSecure()` from
+  `X-Forwarded-Proto: https`, so the cookies are marked Secure automatically; on plain-HTTP
+  local dev they aren't, so they round-trip. See the class comment in `SecurityConfig`.
 - **[Was H] No upload cap once streaming was added.** Fixed: per-user 50 MiB default,
   unlimited for `chat-admin`, override per-user via Keycloak attribute
   `chat_max_upload_bytes` mapped through to the JWT by the protocol mapper in
@@ -47,7 +49,7 @@ refactor) folded in. Outcome:
 
 ### Still open / handed to operations
 
-- **[H-ops] Default Keycloak client secret `chat-secret` ships in `realm.json`.**
+- **[H-ops] A bundled dev Keycloak client secret ships in `realm.json`.**
   Cannot be fixed in code without breaking `podman compose up -d` for newcomers.
   Listed as item 1 in the README's Production Hardening Checklist; rotation is the
   operator's responsibility before flipping DNS.
@@ -334,9 +336,9 @@ Each finding is tagged by severity: **[H]** high, **[M]** medium, **[L]** low,
   - `Referrer-Policy: strict-origin-when-cross-origin`
   - `Strict-Transport-Security: max-age=31536000; includeSubDomains` (when HTTPS only)
   - `X-Frame-Options: DENY` (or `frame-ancestors 'none'` in CSP)
-- **[L] `server.address: 192.168.100.98`** is hard-coded in `application.yml`. Acceptable
-  for a single dev environment, but anyone reading the repo learns the deployment IP.
-  Make it `${SERVER_ADDRESS:0.0.0.0}`.
+- **[Resolved] `server.address` now defaults to `${SERVER_ADDRESS:127.0.0.1}`** in
+  `application.yml` (loopback, safe behind a proxy). The maintainer's LAN IP is no longer in
+  the committed tree — LAN/mobile dev uses a gitignored `compose.override.yml`.
 
 ---
 
