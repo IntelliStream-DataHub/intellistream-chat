@@ -141,6 +141,12 @@ public class CleanupTasks {
     @Transactional(readOnly = true)
     public void reconcileSearchIndex() {
         if (!props.isEnabled()) return;
+        // Snapshot the INDEX first, then the DB (N3). A message posted+indexed between the two reads
+        // is then absent from indexIds but present in dbIds → classified "missing" → re-indexed
+        // (an idempotent no-op), instead of the reverse order which classified it "stale" and
+        // DELETED its fresh doc. The stale direction stays correct: a message genuinely removed
+        // from the DB is in indexIds but not dbIds → dropped.
+        var indexIds = messageIndex.allIndexedIds();
         Set<Long> dbIds;
         try {
             dbIds = new HashSet<>(messageRepo.findAllMessageIds());
@@ -148,7 +154,6 @@ public class CleanupTasks {
             log.warn("[cleanup:lucene] skipping reconcile — DB read failed", e);
             return;
         }
-        var indexIds = messageIndex.allIndexedIds();
         var missing = new ArrayList<Long>();
         for (var id : dbIds) {
             if (!indexIds.contains(id)) missing.add(id);
