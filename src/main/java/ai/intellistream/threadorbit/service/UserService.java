@@ -47,12 +47,20 @@ public class UserService {
     /** Cap last_active_at writes to once per minute per user — admin overview doesn't need finer. */
     static final Duration ACTIVE_BUMP_INTERVAL = Duration.ofMinutes(1);
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(UserService.class);
+
     private final UserRepository userRepository;
+    private final ai.intellistream.threadorbit.repository.MessageRepository messageRepository;
+    private final ai.intellistream.threadorbit.search.MessageIndexService messageIndex;
     /** In-memory throttle: userId -> instant of the most recent persisted bump. */
     private final ConcurrentHashMap<Long, Instant> lastBumpByUser = new ConcurrentHashMap<>();
 
-    public UserService(UserRepository userRepository) {
+    public UserService(UserRepository userRepository,
+                       ai.intellistream.threadorbit.repository.MessageRepository messageRepository,
+                       ai.intellistream.threadorbit.search.MessageIndexService messageIndex) {
         this.userRepository = userRepository;
+        this.messageRepository = messageRepository;
+        this.messageIndex = messageIndex;
     }
 
     /** Realm role that maps to {@code ROLE_ADMIN} (see {@link ai.intellistream.threadorbit.security.KeycloakRolesConverter}). */
@@ -148,10 +156,18 @@ public class UserService {
         var existing = userRepository.findBySubject(subject);
         if (existing.isPresent()) {
             var u = existing.get();
-            u.setUsername(uniqueUsername(username, subject));
+            var oldUsername = u.getUsername();
+            var newUsername = uniqueUsername(username, subject);
+            u.setUsername(newUsername);
             u.setEmail(email);
             u.setDisplayName(displayName);
             u.setAdmin(admin);
+            // The Lucene doc stores the author's username at write time; on a rename, reindex this
+            // user's messages so search-by-author finds them under the new handle (N23). Rare, and
+            // afterCommit so it reads the committed rename.
+            if (!newUsername.equalsIgnoreCase(oldUsername)) {
+                reindexAuthorMessagesAfterCommit(u.getId());
+            }
             return u;
         }
         // Insert-or-ignore on the subject unique constraint (N1): two concurrent first-time logins
@@ -166,6 +182,37 @@ public class UserService {
         u.setDisplayName(displayName);
         u.setAdmin(admin);
         return u;
+    }
+
+    /** After the rename commits, rebuild this author's Lucene docs (which cache the username) so
+     *  search-by-author matches the new handle. Best-effort — a failure just leaves those docs
+     *  stale until the message is next edited/reconciled; it must not fail the login (N23). */
+    private void reindexAuthorMessagesAfterCommit(Long authorId) {
+        Runnable reindex = () -> {
+            try {
+                var rows = messageRepository.findIndexRowsByAuthor(authorId);
+                if (rows.isEmpty()) return;
+                var docs = new java.util.ArrayList<
+                        ai.intellistream.threadorbit.search.MessageIndexService.IndexedMessage>(rows.size());
+                for (var r : rows) {
+                    docs.add(new ai.intellistream.threadorbit.search.MessageIndexService.IndexedMessage(
+                            ((Number) r[0]).longValue(), ((Number) r[1]).longValue(),
+                            (String) r[2], (String) r[3]));
+                }
+                messageIndex.reindex(docs);
+            } catch (RuntimeException e) {
+                log.warn("Failed to reindex messages for renamed user {}; search-by-author may be "
+                        + "stale for their older messages until next edit", authorId, e);
+            }
+        };
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                    new org.springframework.transaction.support.TransactionSynchronization() {
+                        @Override public void afterCommit() { reindex.run(); }
+                    });
+        } else {
+            reindex.run();
+        }
     }
 
     @Transactional(readOnly = true)

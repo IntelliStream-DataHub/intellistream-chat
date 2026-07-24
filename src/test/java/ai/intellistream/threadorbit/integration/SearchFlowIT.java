@@ -75,6 +75,7 @@ class SearchFlowIT {
     @Autowired ChannelService channels;
     @Autowired MessageService messages;
     @Autowired SearchService search;
+    @Autowired ai.intellistream.threadorbit.service.UserService userService;
 
     /** Each test gets a fresh user/channel name to avoid colliding with other tests sharing the container. */
     private static final AtomicInteger SEQ = new AtomicInteger();
@@ -405,6 +406,25 @@ class SearchFlowIT {
     }
 
     // ---------- @author filter ----------
+
+    @Test
+    void renamingAnAuthorReindexesTheirMessagesForAtUserSearch() {
+        // N23: the Lucene doc caches the author's username at write time; after a rename,
+        // @newname search must still find the renamed user's older messages.
+        var subject = "kc-rename-" + SEQ.incrementAndGet();
+        var oldName = "oldhandle" + SEQ.incrementAndGet();
+        var alice = userService.upsert(subject, oldName, "a@e.com", "Alice", false);
+        var room = newPublic("rename-room", alice);
+        messages.post(room, alice, "reindex me after the rename");
+
+        var newName = "newhandle" + SEQ.incrementAndGet();
+        var renamed = userService.upsert(subject, newName, "a@e.com", "Alice", false);
+        assertThat(renamed.getId()).isEqualTo(alice.getId());
+        assertThat(renamed.getUsername()).isEqualTo(newName);
+
+        assertThat(search.searchChannel(room, renamed, "@" + newName, 10))
+                .extracting(m -> m.getBodyMarkdown()).contains("reindex me after the rename");
+    }
 
     @Test
     void atUserOnlyReturnsAllMessagesByThatAuthor() {

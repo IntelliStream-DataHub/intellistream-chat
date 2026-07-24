@@ -168,4 +168,10 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     /** Every message id — the DB side of the Lucene↔DB reconcile (CLEAN-3). */
     @org.springframework.data.jpa.repository.Query("select m.id from Message m")
     java.util.List<Long> findAllMessageIds();
+
+    /** Flat (id, channelId, authorUsername, bodyMarkdown) rows for one author — used to reindex
+     *  their messages when their username changes so search-by-author stays correct (N23). */
+    @org.springframework.data.jpa.repository.Query(
+            "select m.id, m.channel.id, m.author.username, m.bodyMarkdown from Message m where m.author.id = :authorId")
+    java.util.List<Object[]> findIndexRowsByAuthor(Long authorId);
 }
