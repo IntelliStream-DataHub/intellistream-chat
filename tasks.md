@@ -73,30 +73,30 @@ Legend: `[ ]` todo · severity in each heading · `file:line → fix`.
 
 ### Security
 
-- [ ] **SEC-4 · Poll voting uses the read check** 🟡 medium **[2 auditors, verified]** —
+- [x] **SEC-4 · Poll voting uses the read check** 🟡 medium **[2 auditors, verified]** —
   `web/PollRestController.java:120` `requireMembership` calls `channelService.requireMember`
   (short-circuits `true` for PUBLIC), so a non-member can mutate poll tallies in any public
   channel. `ReactionService.addReaction:44` correctly uses `requireWriteAccess`. → Use
   `requireWriteAccess` in `castVote`/`removeVote`; keep `requireMember` for the `GET`.
-- [ ] **SEC-5 · Username-enumeration oracle on group/DM/invite** 🟡 medium —
+- [x] **SEC-5 · Username-enumeration oracle on group/DM/invite** 🟡 medium —
   `web/ConversationRestController.java:138-150` `createGroup` echoes
   `"Unknown user(s): " + names` verbatim, unbounded (≤100/req), unthrottled; same for
   `/direct`, `/{id}/members`, `/api/channels/{id}/invite`. Defeats the 120/min throttle those
   handles are otherwise protected by. → Rate-limit these mutations per user and return a
   generic "one or more members not found."
-- [ ] **SEC-6 · DM reaction/edit/delete are not rate limited** 🟡 medium **[verified]** —
+- [x] **SEC-6 · DM reaction/edit/delete are not rate limited** 🟡 medium **[verified]** —
   `web/ConversationRestController.java:205-240` `addReaction`/`removeReaction`/`editMessage`/
   `deleteMessage` write + fan out over STOMP with no `rateLimiter.tryAcquire`, unlike their
   channel twins in `MessageRestController` (and unlike dm-send/upload/download in the same
   file). → Add the `reaction-toggle`/`msg-edit`/`msg-delete` limiter calls.
-- [ ] **SEC-7 · CSP `connect-src` wildcards weaken the policy** 🟡 medium **[verified]** —
+- [x] **SEC-7 · CSP `connect-src` wildcards weaken the policy** 🟡 medium **[verified]** —
   `config/SecurityConfig.java:114` sets `connect-src 'self' ws: wss:`; the scheme wildcards
   permit outbound WebSocket to any host (exfil channel) and contradict the adjacent comment.
   Same-origin `wss://…/ws` is already covered by `'self'`. → Drop `ws: wss:`.
 
 ### WebSocket robustness (from datahub-api comparison)
 
-- [ ] **WS-1 · One throttled/oversized message tears down the whole STOMP connection** 🟠 high
+- [x] **WS-1 · One throttled/oversized message tears down the whole STOMP connection** 🟠 high
   **[verified]** — `web/ChatWebSocketController.java:81` throws `RateLimitExceededException` from
   the `@MessageMapping` send (and `@Valid @Size(8000)` breaches propagate too), and there is
   **no** `@MessageExceptionHandler` / `StompSubProtocolErrorHandler` anywhere in the codebase.
@@ -107,7 +107,7 @@ Legend: `[ ]` todo · severity in each heading · `file:line → fix`.
   `@MessageExceptionHandler` that routes rate-limit/validation errors to `/user/queue/notices`
   and keeps the session open — mirroring the pattern already used for slash-command errors
   (`ChatWebSocketController.java:90-97`). Same for `ConversationWebSocketController`.
-- [ ] **WS-2 · No STOMP heartbeat or idle timeout → phantom-online sessions leak** 🟡 medium
+- [x] **WS-2 · No STOMP heartbeat or idle timeout → phantom-online sessions leak** 🟡 medium
   **[verified]** — `config/WebSocketConfig.java` sets neither a broker heartbeat nor a
   `ServletServerContainerFactoryBean` `maxSessionIdleTimeout`, so a half-open TCP (client
   vanished with no FIN — sleep, dropped wifi) never fires `SessionDisconnectEvent`: the session
@@ -119,7 +119,7 @@ Legend: `[ ]` todo · severity in each heading · `file:line → fix`.
 
 ### Bugs
 
-- [ ] **BUG-2 · Non-unique username mis-routes private notices & breaks login** 🟠 high
+- [x] **BUG-2 · Non-unique username mis-routes private notices & breaks login** 🟠 high
   **[2 auditors, verified]** — `db/migration/V1__init.sql:20`: `users.username` has no unique
   constraint (only `subject`). `UserService.upsert:119-140` rewrites username every login with
   no collision check and `sanitizeUsername` collapses `bob@a.com` & `bob@b.com` → `bob`.
@@ -128,31 +128,31 @@ Legend: `[ ]` todo · severity in each heading · `file:line → fix`.
   → one collision cross-delivers private messages and throws on login. → V2 migration adding
   `unique index on users(lower(username))`; make `sanitizeUsername` collision-proof (subject
   suffix) with the existing `DataIntegrityViolationException` catch-and-retry.
-- [ ] **BUG-3 · No message catch-up after STOMP reconnect** 🟠 high — `chat/index.js:591-635`,
+- [x] **BUG-3 · No message catch-up after STOMP reconnect** 🟠 high — `chat/index.js:591-635`,
   `conversation.js:343-378`: the simple broker has no replay, so every message sent during a
   network blip / laptop sleep is missing until a full reload, silently. → In `onConnect` (when
   not the first connect) fetch `/api/channels/{id}/messages?after=<last data-created-at>` and
   append via the existing de-duping path. *(datahub-api solves the same problem with durable
   Pulsar cursors + ack/nack; the simple broker can't replay server-side, so this HTTP backfill
   is the STOMP-world equivalent — gate the read with the same channel read check.)*
-- [ ] **BUG-4 · Edit button vanishes on live/paged channel messages** 🟠 high **[verified]** —
+- [x] **BUG-4 · Edit button vanishes on live/paged channel messages** 🟠 high **[verified]** —
   `chat/index.js:945-1003` `buildMessageLi` never sets `li.dataset.bodyMarkdown`, but
   `attachActions`/`startEdit`/`replaceMessageDom` all depend on it, so every WS-appended and
   infinite-scroll message loses Edit and misdetects the first reaction as a body edit.
   `conversation.js:84` does it correctly. → Add
   `li.dataset.bodyMarkdown = msg.bodyMarkdown || '';`.
-- [ ] **BUG-5 · Broken mention deep-links** 🟠 high — `chat/index.js:578`,
+- [x] **BUG-5 · Broken mention deep-links** 🟠 high — `chat/index.js:578`,
   `mention-inbox.js:72` build `/channels/{id}#m-{id}`, but the permalink consumer matches
   `#m=<id>` and needs `?m=<id>` for server context-around; clicking a mention lands at the
   channel tail with no highlight. → Build like `permalinkFor` (index.js:1892):
   `'/channels/'+ch+'?m='+id+'#m='+id`.
-- [ ] **BUG-6 · Reminder batch aborts on one bad row** 🟡 medium —
+- [x] **BUG-6 · Reminder batch aborts on one bad row** 🟡 medium —
   `slash/ReminderScheduler.java:110-133`: `fireOne` catches `messageService.post`'s exception,
   but `post` is `@Transactional` and has already marked the tx rollback-only, so `fireOne`'s
   commit throws `UnexpectedRollbackException` into `runOnce`'s loop → all later due reminders
   slip a poll cycle. → Move try/catch into `runOnce` (let `fireOne` throw); post via a separate
   `REQUIRES_NEW` method so the batch tx is never poisoned.
-- [ ] **BUG-7 · Presence counter corrupted by duplicate disconnects** 🟡 medium —
+- [x] **BUG-7 · Presence counter corrupted by duplicate disconnects** 🟡 medium —
   `service/PresenceTracker.java:43-62`: Spring may publish `SessionDisconnectEvent` more than
   once per session; blind counter decrement drives a two-tab user offline while a live session
   remains, and the connect/disconnect race can drop an online user from `sessions`. → Track
@@ -161,13 +161,13 @@ Legend: `[ ]` todo · severity in each heading · `file:line → fix`.
   an already-removed session is inert. *(datahub-api uses the same guarded-idempotency approach —
   `compareAndSet` teardown guard in `DatapointListenSession.stop()` — for exactly this class of
   double-fire.)*
-- [ ] **BUG-8 · Upload captions bypass mention + search indexing** 🟡 medium —
+- [x] **BUG-8 · Upload captions bypass mention + search indexing** 🟡 medium —
   `service/AttachmentService.java:128-130` saves the caption via
   `messageRepository.save(new Message(...))`, skipping `syncMentions` and the afterCommit
   Lucene write that `MessageService.post` performs → captions are unsearchable and their
   `@mentions` never notify, until a bootstrap rebuild silently changes behavior. → Route the
   caption through `MessageService.post` (or replicate syncMentions + index write).
-- [ ] **BUG-9 · Channel delete leaks attachment files & Lucene docs** 🟡 medium —
+- [x] **BUG-9 · Channel delete leaks attachment files & Lucene docs** 🟡 medium —
   `service/ChannelService.java:132-136` `destroy` is a bare `delete(channel)`; DB cascades rows
   but nothing removes the on-disk attachment files (permanent disk leak) or the channel's
   Lucene docs (index bloats forever; `rebuildIfEmpty` never reconciles a non-empty index).
@@ -175,35 +175,35 @@ Legend: `[ ]` todo · severity in each heading · `file:line → fix`.
   delete index docs (add a `channelId` term / `deleteByChannel`) and files. *(This is the exact
   shape datahub-cleanup's `DeletedFilePurgeTask` uses: unlink file, then delete row; CLEAN-1
   below adds the scheduled backstop for the crash-in-between case.)*
-- [ ] **BUG-10 · DM attachment files orphaned on message delete** 🟡 medium —
+- [x] **BUG-10 · DM attachment files orphaned on message delete** 🟡 medium —
   `service/ConversationService.java:151-160` `deleteMessage` removes rows (FK cascade) but never
   deletes the files on disk; the channel twin (`MessageService.delete:296-313`) does. → Look up
   the message's `ConversationAttachment` storage keys and register an afterCommit file cleanup.
-- [ ] **BUG-11 · Reminder `at`-times resolve in server timezone** 🟡 medium —
+- [x] **BUG-11 · Reminder `at`-times resolve in server timezone** 🟡 medium —
   `slash/RemindCommand.java:142` uses `ZoneId.systemDefault()`, so `/remind … at 14:00` fires
   at the wrong local time for any non-server-TZ user; also `in 99999999999999d` →
   `Duration.ofDays` `ArithmeticException` → raw 500. → Store/collect a per-user timezone;
   clamp the duration and map `ArithmeticException` to the friendly usage error.
-- [ ] **BUG-12 · Backgrounded tab wipes unread/mention state** 🟡 medium —
+- [x] **BUG-12 · Backgrounded tab wipes unread/mention state** 🟡 medium —
   `chat/index.js:702-708` POSTs `/read` on every `created` event with no
   `visibilityState`/`hasFocus` check (the adjacent mention-notify call has one), so a tab left
   open overnight clears sidebar badges, the bell, and unseen mention rows. → Only POST `/read`
   when the tab is visible+focused; post one catch-up on `visibilitychange→visible`.
-- [ ] **BUG-13 · Timezone-split day grouping & timestamps** 🟡 medium —
+- [x] **BUG-13 · Timezone-split day grouping & timestamps** 🟡 medium —
   server renders `data-day`/`<time>` in the *server* zone (`channels.html:308,333`) while the
   client computes them in the *browser* zone (`chat-kit.js:67-69`), so cross-TZ viewers get
   wrong day dividers/grouping and disagreeing timestamps between old and live messages. →
   Hydrate day keys/times client-side from `data-created-at`, or format server-side per-user TZ.
-- [ ] **BUG-14 · Reacting deletes an in-progress edit form** 🟡 medium —
+- [x] **BUG-14 · Reacting deletes an in-progress edit form** 🟡 medium —
   `chat/index.js:1714-1757`, `conversation.js:159-187`: `replaceMessageDom` removes
   `.message-edit` on any `updated` broadcast, and reaction toggles arrive as `updated`, so a
   reaction from anyone destroys the author's unsaved edit draft. → If an edit form is present,
   refresh reactions/attachments but preserve the form + textarea value.
-- [ ] **BUG-15 · Live append force-scrolls readers to the bottom** 🟡 medium —
+- [x] **BUG-15 · Live append force-scrolls readers to the bottom** 🟡 medium —
   `chat/index.js:1026` `messagesEl.scrollTop = scrollHeight` unconditionally, yanking a user
   reading history down on every new message. → Only auto-scroll when already near the bottom;
   otherwise show a "new messages" pill.
-- [ ] **BUG-16 · `appendMessage` has no de-dupe → duplicate rows** 🟡 medium **[verified]** —
+- [x] **BUG-16 · `appendMessage` has no de-dupe → duplicate rows** 🟡 medium **[verified]** —
   `chat/index.js:1006-1028` lacks the id guard `conversation.js:49` has, so a broadcast that
   races the final infinite-scroll page renders a duplicate `<li>`. → Add the same
   `querySelector('li.message[data-id=…]')` guard.
@@ -305,47 +305,47 @@ multi-tenant loops to a single un-routed pass (chat is single-tenant, one data d
 ## Open-source release prep
 
 ### Blockers
-- [ ] **OSS-1 · Community health files** — add `SECURITY.md` (private vuln-reporting channel —
+- [x] **OSS-1 · Community health files** — add `SECURITY.md` (private vuln-reporting channel —
   priority for a self-hosted chat app), `CONTRIBUTING.md` (distill README's testing/dev-stack
   sections), `CODE_OF_CONDUCT.md`. `LICENSE` (Apache-2.0) already exists.
-- [ ] **OSS-2 · Add missing license headers** — 9 Java + 13 JS first-party files lack the
+- [x] **OSS-2 · Add missing license headers** — 9 Java + 13 JS first-party files lack the
   Apache header (README claims 100% coverage). Java: `StompAuthorizationConfig`,
   `ConversationReaction`, `MessageReaction`, `ConversationReactionRepository`,
   `MessageReactionRepository`, `ConversationReactionService`, `ReactionService`,
   `ReactionGroupDto`, `ReactionRequest` (+ `ReactionFlowIT` in tests). JS: `conversation.js`,
   `hovercard.js`, `idle-logout.js`, `mention-inbox.js`, `notifications.js`, `presence.js`,
   `profile.js`, `theme-loader.js`, `emoji-data.js`, and the four `*.manifest.js`.
-- [ ] **OSS-3 · Third-party notices** — `static/js/vendor/stomp.umd.min.js` carries no license
+- [x] **OSS-3 · Third-party notices** — `static/js/vendor/stomp.umd.min.js` carries no license
   banner (StompJS = Apache-2.0); `static/fonts/OFL-Figtree.txt` is a 3-line pointer but OFL 1.1
   requires the full text to accompany the fonts. Add `THIRD-PARTY-NOTICES.md` covering StompJS,
   highlight.js (BSD-3 + its GitHub themes) and the full Figtree OFL.
 
 ### Important
-- [ ] **OSS-4 · Add CI** — no `.github/workflows`. Add a GitHub Actions job running
+- [x] **OSS-4 · Add CI** — no `.github/workflows`. Add a GitHub Actions job running
   `./gradlew test` (Testcontainers works out-of-box on `ubuntu-latest`; the podman socket dance
   is local-only). Gradle wrapper is already committed.
-- [ ] **OSS-5 · Ship `application-dev.properties.example`** — the real file is gitignored, but
+- [x] **OSS-5 · Ship `application-dev.properties.example`** — the real file is gitignored, but
   README/ASSETS/application.yml all reference it and `bootRun` force-activates `dev`. Commit a
   sanitized template (no LAN IP) documenting `assets.unbundled`, `dev-tools.enabled`,
   `allowed-origins`, issuer overrides.
-- [ ] **OSS-6 · Refresh or trim `security_plan.md`** — README links it 3× as the hardening
+- [x] **OSS-6 · Refresh or trim `security_plan.md`** — README links it 3× as the hardening
   checklist, but it references `com.example.chat.*` paths (two renames stale), a removed
   `CHAT_SECURITY_COOKIE_SECURE` env var, and the LAN IP. Update names or trim to the still-true
   checklist. (Consider whether this internal doc should ship at all.)
-- [ ] **OSS-7 · Rework the README "AI-slop" framing** — the opening says "this is still
+- [x] **OSS-7 · Rework the README "AI-slop" framing** — the opening says "this is still
   considered AI-slop, and there are bugs, even serious bugs" plus a Teams rant; it's the first
   thing every visitor reads. Keep the candor deliberately or rework it.
-- [ ] **OSS-8 · Relocate the root `index.html`** — it's a 707-line standalone marketing page for
+- [x] **OSS-8 · Relocate the root `index.html`** — it's a 707-line standalone marketing page for
   threadorbit.com, unreferenced by the build (the app's landing page is `templates/landing.html`).
   Move to `docs/`/`website/` or its own branch so the repo root isn't a marketing artifact.
 
 ### Nice-to-have
-- [ ] **OSS-9 · Fix test-count claims** — README says "~190 tests / 21 classes"; the tree has
+- [x] **OSS-9 · Fix test-count claims** — README says "~190 tests / 21 classes"; the tree has
   ~37 test files. Recount or drop the numbers.
-- [ ] **OSS-10 · Prune stale branches & confirm publish point** — `main` is ahead of the private
+- [ ] **OSS-10 · Prune stale branches & confirm publish point** *(your call — destructive / a decision)* — `main` is ahead of the private
   `origin`; stale branches (`code-audit-fixes`, `landing-page`, `presence-search-and-polish`,
   `rebrand-and-openbao-secrets`) exist; history exposes author emails (normal for OSS — confirm).
-- [ ] **OSS-11 · `.gitignore` whitelists `!.env.example` but none exists** — add one or drop the
+- [x] **OSS-11 · `.gitignore` whitelists `!.env.example` but none exists** — add one or drop the
   rule.
 
 ---
