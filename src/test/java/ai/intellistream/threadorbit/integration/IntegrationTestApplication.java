@@ -34,7 +34,7 @@ import static org.mockito.Mockito.mock;
  * Boots a slim Spring context for integration tests: JPA + Flyway + services,
  * skipping security/oauth2/web layers so the tests don't need a live Keycloak.
  *
- * Each integration test class points {@code chat.search.lucene-dir} at its own
+ * Each integration test class points {@code threadorbit.search.lucene-dir} at its own
  * unique sub-directory (see the {@code @DynamicPropertySource} blocks in each IT)
  * so concurrent contexts don't fight over the Lucene index lock.
  */
