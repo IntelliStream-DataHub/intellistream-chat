@@ -24,6 +24,11 @@ import ai.intellistream.threadorbit.repository.ChannelMemberRepository;
 import ai.intellistream.threadorbit.repository.MessageMentionRepository;
 import ai.intellistream.threadorbit.repository.UserRepository;
 import ai.intellistream.threadorbit.web.dto.MentionInboxItemDto;
+import org.commonmark.ext.autolink.AutolinkExtension;
+import org.commonmark.ext.gfm.tables.TablesExtension;
+import org.commonmark.node.AbstractVisitor;
+import org.commonmark.node.Text;
+import org.commonmark.parser.Parser;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,11 +49,18 @@ import java.util.regex.Pattern;
 public class MentionService {
 
     /**
-     * @username followed by 1+ word chars, underscore, dot, or hyphen.
-     * Anchored on either start-of-string or a non-word boundary so ordinary
-     * email addresses (foo@bar.com) don't trigger a false positive.
+     * @username: 2–100 chars, starting and ending with an alphanumeric/underscore so trailing
+     * sentence punctuation isn't captured ("thanks @bob." → {@code bob}, not {@code bob.}, which
+     * would resolve to nobody — N22). Anchored on start-of-string or a whitespace/paren/bracket so
+     * ordinary email addresses (foo@bar.com) don't trigger a false positive.
      */
-    static final Pattern MENTION = Pattern.compile("(?:^|(?<=[\\s(\\[]))@([A-Za-z0-9_.-]{2,100})");
+    static final Pattern MENTION = Pattern.compile(
+            "(?:^|(?<=[\\s(\\[]))@([A-Za-z0-9_][A-Za-z0-9_.-]{0,98}[A-Za-z0-9_])");
+
+    /** Parser used only to strip code spans/blocks before mention extraction (N21). */
+    private static final Parser PARSER = Parser.builder()
+            .extensions(java.util.List.of(TablesExtension.create(), AutolinkExtension.create()))
+            .build();
 
     private final UserRepository userRepo;
     private final MessageMentionRepository mentionRepo;
@@ -61,13 +73,28 @@ public class MentionService {
         this.memberRepo = memberRepo;
     }
 
-    /** Extract the candidate handles a body refers to (case-preserved, deduped, in input order). */
+    /** Extract the candidate handles a body refers to (case-preserved, deduped, in input order).
+     *  Reads only non-code text so an {@code @user} inside inline/fenced code neither notifies nor
+     *  highlights — matching the renderer, which never decorates mentions in code (N21). */
     public Set<String> extractHandles(String body) {
         if (body == null || body.isEmpty()) return Set.of();
         var out = new LinkedHashSet<String>();
-        var m = MENTION.matcher(body);
+        var m = MENTION.matcher(nonCodeText(body));
         while (m.find()) out.add(m.group(1));
         return out;
+    }
+
+    /** Concatenate the markdown's plain-text (Text) nodes. Inline {@code Code} and fenced/indented
+     *  code blocks hold their content as a literal, not as Text children, so they're excluded. */
+    private static String nonCodeText(String markdown) {
+        var sb = new StringBuilder();
+        PARSER.parse(markdown).accept(new AbstractVisitor() {
+            @Override
+            public void visit(Text text) {
+                sb.append(text.getLiteral()).append('\n'); // newline keeps each node start anchorable
+            }
+        });
+        return sb.toString();
     }
 
     /** Replace any existing mention rows for {@code message} with rows for users that exist for the handles in its body. */
