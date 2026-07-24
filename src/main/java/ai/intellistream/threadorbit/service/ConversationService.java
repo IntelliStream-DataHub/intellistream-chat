@@ -166,6 +166,16 @@ public class ConversationService {
         return rows;
     }
 
+    /** Forward page of messages with {@code createdAt > after}, oldest-first — the DM reconnect
+     *  backfill (N4/BUG-3), mirroring MessageService.after for channels. */
+    @Transactional(readOnly = true)
+    public List<ConversationMessage> after(Conversation conversation, User viewer,
+                                           java.time.Instant after, int limit) {
+        requireMember(conversation, viewer);
+        var page = PageRequest.of(0, Math.min(Math.max(limit, 1), DEFAULT_PAGE_SIZE));
+        return messages.findByConversationAndCreatedAtAfterOrderByCreatedAtAsc(conversation, after, page);
+    }
+
     @Transactional(readOnly = true)
     public List<ConversationMember> members(Conversation conversation) {
         return members.findAllByConversationOrderByJoinedAtAsc(conversation);

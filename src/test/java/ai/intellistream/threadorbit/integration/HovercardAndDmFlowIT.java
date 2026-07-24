@@ -224,7 +224,7 @@ class HovercardAndDmFlowIT {
         conversations.post(conv, bob,   "second **bold**");
         when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
 
-        var msgs = conversationController.messages(conv.getId(), mock(Principal.class));
+        var msgs = conversationController.messages(conv.getId(), null, mock(Principal.class));
 
         assertThat(msgs).hasSize(2);
         assertThat(msgs).extracting(ConversationMessageDto::bodyMarkdown)
@@ -240,7 +240,7 @@ class HovercardAndDmFlowIT {
         var conv = conversations.directBetween(alice, bob);
         when(currentUser.resolve(any(Principal.class))).thenReturn(carol);
 
-        assertThatThrownBy(() -> conversationController.messages(conv.getId(), mock(Principal.class)))
+        assertThatThrownBy(() -> conversationController.messages(conv.getId(), null, mock(Principal.class)))
                 .isInstanceOf(AccessDeniedException.class);
     }
 
@@ -255,7 +255,7 @@ class HovercardAndDmFlowIT {
 
         // Persisted: bob can read it back via the membership-checked path.
         when(currentUser.resolve(any(Principal.class))).thenReturn(bob);
-        var seenByBob = conversationController.messages(conv.getId(), mock(Principal.class));
+        var seenByBob = conversationController.messages(conv.getId(), null, mock(Principal.class));
         assertThat(seenByBob).extracting(ConversationMessageDto::bodyMarkdown)
                 .containsExactly("Hello **world**");
 

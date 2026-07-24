@@ -328,7 +328,7 @@ class GroupConversationFlowIT {
 
         // Persistence: bob (a member) can read the message back through the membership-checked path.
         when(currentUser.resolve(any(Principal.class))).thenReturn(bob);
-        var msgs = controller.messages(dto.id(), mock(Principal.class));
+        var msgs = controller.messages(dto.id(), null, mock(Principal.class));
         assertThat(msgs).extracting(ConversationMessageDto::bodyMarkdown)
                 .containsExactly("hello group");
     }

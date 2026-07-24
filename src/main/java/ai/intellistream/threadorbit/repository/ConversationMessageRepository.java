@@ -22,6 +22,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -36,6 +37,17 @@ public interface ConversationMessageRepository extends JpaRepository<Conversatio
             order by m.createdAt desc
             """)
     List<ConversationMessage> findByConversationOrderByCreatedAtDesc(Conversation conversation, Pageable pageable);
+
+    /** Forward page after a timestamp, oldest-first — the DM reconnect backfill (N4/BUG-3). */
+    @Query("""
+            select m from ConversationMessage m
+            join fetch m.author
+            join fetch m.conversation
+            where m.conversation = :conversation and m.createdAt > :after
+            order by m.createdAt asc, m.id asc
+            """)
+    List<ConversationMessage> findByConversationAndCreatedAtAfterOrderByCreatedAtAsc(
+            Conversation conversation, Instant after, Pageable pageable);
 
     /**
      * Eager fetch for read-then-render paths (edit/delete/react endpoints) that build a

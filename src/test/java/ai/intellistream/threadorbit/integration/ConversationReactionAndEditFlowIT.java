@@ -136,7 +136,7 @@ class ConversationReactionAndEditFlowIT {
         assertThat(afterAdd.reactions().get(0).count()).isEqualTo(1);
 
         controller.removeReaction(msg.getId(), "👍", mock(Principal.class));
-        var afterRemoveList = controller.messages(conv.getId(), mock(Principal.class));
+        var afterRemoveList = controller.messages(conv.getId(), null, mock(Principal.class));
         assertThat(afterRemoveList).hasSize(1);
         assertThat(afterRemoveList.get(0).reactions()).isEmpty();
 
@@ -189,7 +189,7 @@ class ConversationReactionAndEditFlowIT {
 
         // Alice (the author) reads the list — she sees two distinct reactions, neither marked mine.
         when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
-        var msgs = controller.messages(conv.getId(), mock(Principal.class));
+        var msgs = controller.messages(conv.getId(), null, mock(Principal.class));
         assertThat(msgs).hasSize(1);
         assertThat(msgs.get(0).reactions()).extracting(r -> r.emoji())
                 .containsExactlyInAnyOrder("👍", "🎉");
@@ -197,8 +197,32 @@ class ConversationReactionAndEditFlowIT {
 
         // From bob's POV both are his.
         when(currentUser.resolve(any(Principal.class))).thenReturn(bob);
-        var bobView = controller.messages(conv.getId(), mock(Principal.class));
+        var bobView = controller.messages(conv.getId(), null, mock(Principal.class));
         assertThat(bobView.get(0).reactions()).allMatch(r -> r.mine());
+    }
+
+    // ---------- Reconnect backfill (?after=) ----------
+
+    @Test
+    void afterParamReturnsOnlyLaterMessagesOldestFirst() {
+        // Backs the DM reconnect catch-up (N4/BUG-3): GET .../messages?after=<ts> returns the
+        // messages missed during an outage, oldest-first.
+        var alice = newUser("alice-after");
+        var bob = newUser("bob-after");
+        var conv = conversations.directBetween(alice, bob);
+        var m1 = conversations.post(conv, alice, "one");
+        var m2 = conversations.post(conv, alice, "two");
+        var m3 = conversations.post(conv, bob, "three");
+
+        when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
+        // Epoch floor → the whole history, oldest-first (id tie-break keeps it deterministic).
+        assertThat(controller.messages(conv.getId(), java.time.Instant.EPOCH, mock(Principal.class)))
+                .extracting(d -> d.id()).containsExactly(m1.getId(), m2.getId(), m3.getId());
+        // Nothing is strictly after the newest message.
+        assertThat(controller.messages(conv.getId(), m3.getCreatedAt(), mock(Principal.class))).isEmpty();
+        // after m1 excludes the anchor itself (strict >).
+        assertThat(controller.messages(conv.getId(), m1.getCreatedAt(), mock(Principal.class)))
+                .extracting(d -> d.id()).doesNotContain(m1.getId());
     }
 
     // ---------- Edit ----------
@@ -263,7 +287,7 @@ class ConversationReactionAndEditFlowIT {
         var resp = controller.deleteMessage(msg.getId(), mock(Principal.class));
         assertThat(resp.getStatusCode().value()).isEqualTo(204);
 
-        var msgs = controller.messages(conv.getId(), mock(Principal.class));
+        var msgs = controller.messages(conv.getId(), null, mock(Principal.class));
         assertThat(msgs).isEmpty();
 
         var captor = ArgumentCaptor.forClass(ConversationEvent.class);
@@ -285,7 +309,7 @@ class ConversationReactionAndEditFlowIT {
         assertThat(resp.getStatusCode().value()).isEqualTo(204);
 
         when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
-        assertThat(controller.messages(conv.getId(), mock(Principal.class))).isEmpty();
+        assertThat(controller.messages(conv.getId(), null, mock(Principal.class))).isEmpty();
     }
 
     @Test
@@ -327,7 +351,7 @@ class ConversationReactionAndEditFlowIT {
         when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
         controller.editMessage(msg.getId(), new EditMessageRequest("hello, world"), mock(Principal.class));
 
-        var msgs = controller.messages(conv.getId(), mock(Principal.class));
+        var msgs = controller.messages(conv.getId(), null, mock(Principal.class));
         assertThat(msgs.get(0).bodyMarkdown()).isEqualTo("hello, world");
         assertThat(msgs.get(0).reactions()).extracting(r -> r.emoji()).containsExactly("👍");
     }
@@ -346,6 +370,6 @@ class ConversationReactionAndEditFlowIT {
         controller.deleteMessage(msg.getId(), mock(Principal.class));
 
         // No row left to grouping over; messages list is empty, so no reaction tray to render.
-        assertThat(controller.messages(conv.getId(), mock(Principal.class))).isEmpty();
+        assertThat(controller.messages(conv.getId(), null, mock(Principal.class))).isEmpty();
     }
 }

@@ -63,6 +63,9 @@
     if (!msg || !msg.id) return;
     // De-dupe across WS replays (and the upcoming local-append optimisation).
     if (messagesEl.querySelector('li.message[data-id="' + msg.id + '"]')) return;
+    // Measure BEFORE appending: only follow the tail if the reader is already near it, or the
+    // message is their own — otherwise don't yank someone reading history down (BUG-15).
+    const nearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 120;
     const created = new Date(msg.createdAt);
     const curDay = dayKey(created);
     const prev = lastMessageEl();
@@ -123,7 +126,7 @@
     li.append(avatar, right);
     messagesEl.appendChild(li);
     attachActions(li);
-    li.scrollIntoView({ block: 'end' });
+    if (nearBottom || msg.authorUsername === myUsername) li.scrollIntoView({ block: 'end' });
   };
 
   // ---------- Reactions / actions toolbar (mirrors chat.js patterns) ----------
@@ -175,9 +178,19 @@
   const replaceMessageDom = (msg) => {
     const li = findMessageEl(msg.id);
     if (!li) return;
-    li.dataset.bodyMarkdown = msg.bodyMarkdown || '';
     const right = li.querySelector(':scope > div');
     if (!right) return;
+    const isEdit = (msg.bodyMarkdown || '') !== (li.dataset.bodyMarkdown || '');
+    // If the author has an edit form open and this update is only a reaction/attachment change
+    // (not a body edit), refresh just those trays — removing .message-edit here would destroy
+    // their unsaved draft the moment anyone reacts (BUG-14).
+    if (right.querySelector('.message-edit') && !isEdit) {
+      right.querySelectorAll('.message-reactions, .message-attachments').forEach(n => n.remove());
+      if (msg.attachments && msg.attachments.length) right.appendChild(renderAttachmentTray(msg.attachments));
+      if (msg.reactions && msg.reactions.length) right.appendChild(renderReactionTray(msg.reactions));
+      return;
+    }
+    li.dataset.bodyMarkdown = msg.bodyMarkdown || '';
     right.querySelectorAll('.message-body, .message-reactions, .message-attachments, .message-edit, .edited-tag').forEach(n => n.remove());
     const meta = right.querySelector('.message-meta');
     if (msg.bodyMarkdown) {
@@ -361,28 +374,62 @@
     reconnectDelay: 4000,
   });
 
+  // The conversation topic carries ConversationMessageDto (new message) and lightweight
+  // ConversationEvent envelopes (member-added, message-updated, message-deleted). Discriminate
+  // by the `type` field that only ConversationEvent carries.
+  function handleFrame(payload) {
+    if (payload && payload.type === 'member-added') {
+      if (typeof window.__refreshGroupMembers === 'function') window.__refreshGroupMembers();
+      return;
+    }
+    if (payload && payload.type === 'message-updated') {
+      if (payload.message) replaceMessageDom(payload.message);
+      return;
+    }
+    if (payload && payload.type === 'message-deleted') {
+      if (payload.messageId) removeMessageDom(payload.messageId);
+      return;
+    }
+    appendMessage(payload);
+  }
+
+  let stompConnectedBefore = false;
+  let backfilling = false;
+  const pendingLive = [];
+
+  // On a RECONNECT the simple broker replayed nothing, so DMs sent during the outage are missing
+  // (BUG-3 — this catch-up existed on the channel page but never the DM page). Page ?after= until
+  // caught up (server caps each page at 50); buffer live frames during the backfill so they can't
+  // land ahead of the older rows still loading, then replay them in arrival order.
+  async function backfillMissedMessages() {
+    backfilling = true;
+    try {
+      for (let page = 0; page < 50; page++) {
+        const last = lastMessageEl();
+        const after = last ? last.dataset.createdAt : null;
+        if (!after) break;
+        const rows = await fetch('/api/conversations/' + conversationId + '/messages?after='
+              + encodeURIComponent(after), { headers: headers() })
+          .then((r) => (r.ok ? r.json() : []))
+          .catch(() => []);
+        if (!rows || rows.length === 0) break;
+        rows.forEach(appendMessage);
+        if (rows.length < 50) break;
+      }
+    } finally {
+      backfilling = false;
+      pendingLive.splice(0).forEach(handleFrame);
+    }
+  }
+
   stomp.onConnect = () => {
+    if (stompConnectedBefore) backfillMissedMessages();
+    stompConnectedBefore = true;
     stomp.subscribe('/topic/conversations/' + conversationId, (frame) => {
       try {
         const payload = JSON.parse(frame.body);
-        // The same topic carries ConversationMessageDto (new message) and lightweight
-        // ConversationEvent envelopes (member-added, message-updated, message-deleted).
-        // Discriminate by the `type` discriminator that only ConversationEvent carries.
-        if (payload && payload.type === 'member-added') {
-          if (typeof window.__refreshGroupMembers === 'function') {
-            window.__refreshGroupMembers();
-          }
-          return;
-        }
-        if (payload && payload.type === 'message-updated') {
-          if (payload.message) replaceMessageDom(payload.message);
-          return;
-        }
-        if (payload && payload.type === 'message-deleted') {
-          if (payload.messageId) removeMessageDom(payload.messageId);
-          return;
-        }
-        appendMessage(payload);
+        if (backfilling) { pendingLive.push(payload); return; }
+        handleFrame(payload);
       } catch (e) { /* ignore malformed frame */ }
     });
     if (window.Presence) window.Presence.attachStomp(stomp);

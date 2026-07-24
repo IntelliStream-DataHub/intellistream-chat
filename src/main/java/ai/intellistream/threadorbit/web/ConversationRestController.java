@@ -196,10 +196,15 @@ public class ConversationRestController {
     }
 
     @GetMapping("/{id}/messages")
-    public List<ConversationMessageDto> messages(@PathVariable Long id, Principal principal) {
+    public List<ConversationMessageDto> messages(@PathVariable Long id,
+                                                 @RequestParam(value = "after", required = false) java.time.Instant after,
+                                                 Principal principal) {
         var me = currentUser.resolve(principal);
         var conv = conversations.requireById(id);
-        var rows = conversations.recent(conv, me, 50);
+        // ?after= drives the reconnect backfill (N4/BUG-3): the messages missed during an outage,
+        // oldest-first. No param → the latest 50 for the initial page load.
+        var rows = after != null ? conversations.after(conv, me, after, 50)
+                                  : conversations.recent(conv, me, 50);
         var attachmentMap = attachments.findForMessages(rows);
         var reactionMap = reactions.groupingsFor(rows, me);
         return rows.stream()
