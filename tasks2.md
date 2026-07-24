@@ -18,14 +18,18 @@ are defects introduced by (or left incomplete in) an earlier fix in `tasks.md`.
 
 ## P0 — correctness / confidentiality, fix first
 
-### N1 · Insert-race "catch-and-reread" recovery is dead code on Postgres 🔴 high **[regression, runtime-confirmed]**
+### N1 · Insert-race "catch-and-reread" recovery is dead code on Postgres 🔴 high **[regression, runtime-confirmed]** — ✅ FIXED
+> Fixed: all sites moved to native `INSERT … ON CONFLICT` (DO NOTHING / DO UPDATE), which keeps
+> the transaction usable so the re-read succeeds. `InsertRaceIT` races each path across 8 threads.
 The BUG-17 / BUG-2 remediation wrapped racy inserts in `saveAndFlush` + `catch(DataIntegrityViolationException)` + re-read — but the catch sits **inside the same `@Transactional` method** whose transaction the failed INSERT just poisoned. On Postgres the recovery cannot work: (a) Hibernate's failed flush leaves the session broken (the IDENTITY entity has a null id — reusing the session throws `AssertionFailure`), (b) Postgres aborts the whole tx on the constraint error (SQLSTATE 25P02), so the re-read SELECT throws "current transaction is aborted", and (c) both Hibernate and the participating repository proxy mark the tx rollback-only, so even a successful read couldn't commit.
 - **Runtime-confirmed** against Testcontainers Postgres 18: replaying `join`'s exact sequence after seeding the winner row produced `org.hibernate.AssertionFailure: Entry for instance of 'ChannelMember' has a null identifier (this can happen if the session is flushed after an exception occurs)` — i.e. the loser still 500s.
 - Sites (all inside `@Transactional`): `ReadStateService.java:60-69` (markRead — fires on every live message, the most reachable), `ChannelService.java:110-113` (join) & `:127-130` (invite), `ReactionService.java:67-74` (addReaction), `PollService.java:113-119` (castVote), `UserService.java:157-167` (upsert — **500s a concurrent first login**, the BUG-2 case), `ConversationService.java:70-79` (directBetween — `tasks.md` cites this as the "correct" reference pattern; it has the same flaw).
 - Unguarded siblings with the identical race that need the same real fix: `ConversationReactionService.addReaction`, `ConversationService.addToGroup:109-110`, `PresenceService.setStatus`/`setKind`.
 - **Fix:** do the insert-or-ignore as a native `INSERT … ON CONFLICT DO NOTHING` then SELECT (the codebase already does this correctly in `ChannelReadRepository.markAllChannelsWithUnreadMentionsRead`), **or** attempt the insert in a `REQUIRES_NEW` self-proxy method (the `ReminderScheduler` pattern) so only the inner tx aborts. Add an IT that seeds the winner in a committed tx and replays the loser — none of these paths has a test today.
 
-### N2 · Mention inbox & bell badge leak PRIVATE-channel content to non-members 🟠 high (confidentiality)
+### N2 · Mention inbox & bell badge leak PRIVATE-channel content to non-members 🟠 high (confidentiality) — ✅ FIXED
+> Fixed on both sides: `syncMentions` drops non-readers before persisting rows (also stops the live
+> notification), and the three inbox queries now require membership-or-PUBLIC. Covered by `MentionInboxIT`.
 No channel authorization exists anywhere on the mention read path — the "IDOR is prevented" note in `tasks.md`'s good-news section missed this.
 - `MentionService.syncMentions:70-88` resolves every `@handle` to any existing user (`findByUsernameIgnoreCase`) and writes a `message_mentions` row **with no check that the mentioned user can read the channel**.
 - `MessageMentionRepository.findUnreadInbox:77-92`, `countUnreadFor:61-70`, and `countMentionsPerChannel:41-53` join `message_mentions → messages → channels` filtered only on `mn.user_id` — **no `channel_members` join, no `channel.type` filter**. `findUnreadInbox` returns `channel.slug`, `channel.name`, author identity, and a 240-char `body_markdown` snippet.
