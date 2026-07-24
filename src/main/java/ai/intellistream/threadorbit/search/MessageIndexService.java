@@ -99,18 +99,39 @@ public class MessageIndexService {
 
     /** Add or replace the document for a single message. Refreshes the searcher view. */
     public void index(Long messageId, Long channelId, String author, String body) {
-        var doc = new Document();
-        doc.add(new StringField(F_ID, messageId.toString(), Field.Store.YES));
-        doc.add(new StringField(F_CHANNEL, channelId.toString(), Field.Store.NO));
-        doc.add(new StringField(F_AUTHOR, normalizeAuthor(author), Field.Store.NO));
-        doc.add(new TextField(F_BODY, body == null ? "" : body, Field.Store.NO));
         try {
-            writer.updateDocument(new Term(F_ID, messageId.toString()), doc);
+            writer.updateDocument(new Term(F_ID, messageId.toString()),
+                    toDoc(messageId, channelId, author, body));
             writer.commit();
             searcherManager.maybeRefresh();
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to index message " + messageId, e);
         }
+    }
+
+    /** Add/replace many docs in a single commit — used by the reconcile sweep so a large backlog
+     *  doesn't fsync-commit once per document while holding a DB connection (N26). */
+    public void reindex(java.util.Collection<IndexedMessage> rows) {
+        if (rows.isEmpty()) return;
+        try {
+            for (var row : rows) {
+                writer.updateDocument(new Term(F_ID, row.id().toString()),
+                        toDoc(row.id(), row.channelId(), row.author(), row.body()));
+            }
+            writer.commit();
+            searcherManager.maybeRefresh();
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to reindex batch", e);
+        }
+    }
+
+    private Document toDoc(Long messageId, Long channelId, String author, String body) {
+        var doc = new Document();
+        doc.add(new StringField(F_ID, messageId.toString(), Field.Store.YES));
+        doc.add(new StringField(F_CHANNEL, channelId.toString(), Field.Store.NO));
+        doc.add(new StringField(F_AUTHOR, normalizeAuthor(author), Field.Store.NO));
+        doc.add(new TextField(F_BODY, body == null ? "" : body, Field.Store.NO));
+        return doc;
     }
 
     private static String normalizeAuthor(String author) {
@@ -263,12 +284,11 @@ public class MessageIndexService {
         try {
             writer.deleteAll();
             for (var row : rows) {
-                var doc = new Document();
-                doc.add(new StringField(F_ID, row.id().toString(), Field.Store.YES));
-                doc.add(new StringField(F_CHANNEL, row.channelId().toString(), Field.Store.NO));
-                doc.add(new StringField(F_AUTHOR, normalizeAuthor(row.author()), Field.Store.NO));
-                doc.add(new TextField(F_BODY, row.body() == null ? "" : row.body(), Field.Store.NO));
-                writer.addDocument(doc);
+                // updateDocument (not addDocument) so that a live index() landing for the same id
+                // between deleteAll and here — the bootstrap runs on ApplicationReadyEvent while the
+                // server already accepts posts — can't leave two docs with the same id (N25).
+                writer.updateDocument(new Term(F_ID, row.id().toString()),
+                        toDoc(row.id(), row.channelId(), row.author(), row.body()));
             }
             writer.commit();
             searcherManager.maybeRefresh();

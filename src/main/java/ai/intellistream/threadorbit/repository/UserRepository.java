@@ -29,7 +29,11 @@ import java.util.Optional;
 public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findBySubject(String subject);
 
-    Optional<User> findByUsernameIgnoreCase(String username);
+    /** Explicit {@code lower(username)} predicate so the V2 functional unique index is used —
+     *  Spring's derived {@code IgnoreCase} generates {@code UPPER(username)=UPPER(?)}, which can't
+     *  serve that index and forced a seq scan on every mention/login/lookup (N27). */
+    @Query("select u from User u where lower(u.username) = lower(:username)")
+    Optional<User> findByUsernameIgnoreCase(@Param("username") String username);
 
     /**
      * Batch lookup used by {@code PresenceService} so the auto-away computation can

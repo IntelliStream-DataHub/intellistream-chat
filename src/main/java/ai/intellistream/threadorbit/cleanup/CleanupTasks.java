@@ -173,10 +173,12 @@ public class CleanupTasks {
         }
         for (int i = 0; i < missing.size(); i += REINDEX_BATCH) {
             var batch = missing.subList(i, Math.min(i + REINDEX_BATCH, missing.size()));
+            var docs = new ArrayList<MessageIndexService.IndexedMessage>(batch.size());
             for (var m : messageRepo.findAllByIdWithAuthor(batch)) {
-                messageIndex.index(m.getId(), m.getChannel().getId(),
-                        m.getAuthor().getUsername(), m.getBodyMarkdown());
+                docs.add(new MessageIndexService.IndexedMessage(m.getId(), m.getChannel().getId(),
+                        m.getAuthor().getUsername(), m.getBodyMarkdown()));
             }
+            messageIndex.reindex(docs); // one commit per batch, not per document (N26)
         }
         log.info("[cleanup:lucene] reconciled: indexed {} missing, removed {} stale",
                 missing.size(), stale.size());
