@@ -1,0 +1,13 @@
+{
+  "conns": 10000,
+  "established": 10000,
+  "connectFailures": 0,
+  "connectMs": 17481,
+  "setupP50ms": 9683.13,
+  "setupP99ms": 10563.99,
+  "setupMaxMs": 13014.82,
+  "serverMaxRssMb": 3744.59,
+  "serverMaxCpuPct": 581.84,
+  "steady": {"sent":4000,"delivered":5650,"expected":200000,"dropped":194350,"late":5650,"deliveredPerSec":283,"latP50ms":25259.2,"latP99ms":34308.9,"latMaxMs":34309.9,"offerMillis":-1},
+  "burst": {"sent":10000,"delivered":0,"expected":500000,"dropped":500000,"late":0,"deliveredPerSec":0,"latP50ms":-0.0,"latP99ms":-0.0,"latMaxMs":-0.0,"offerMillis":69}
+}
