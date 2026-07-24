@@ -312,7 +312,7 @@ class SecurityBoundaryIT {
     void sanitizeFilenameStripsPathTraversalControlCharsAndDots() {
         assertThat(ai.intellistream.threadorbit.service.AttachmentService.sanitizeFilename("../../etc/passwd"))
                 .isEqualTo("passwd");
-        assertThat(ai.intellistream.threadorbit.service.AttachmentService.sanitizeFilename("evil .txt"))
+        assertThat(ai.intellistream.threadorbit.service.AttachmentService.sanitizeFilename("evil\u0000.txt"))
                 .isEqualTo("evil.txt");
         assertThat(ai.intellistream.threadorbit.service.AttachmentService.sanitizeFilename(".."))
                 .isEqualTo("file");
@@ -351,7 +351,7 @@ class SecurityBoundaryIT {
                 .isEqualTo("alice");
         assertThat(ai.intellistream.threadorbit.service.UserService.sanitizeUsername("../../etc/passwd", "sub-12345"))
                 .isEqualTo("user-sub12345");
-        assertThat(ai.intellistream.threadorbit.service.UserService.sanitizeUsername(" bad", "sub-1"))
+        assertThat(ai.intellistream.threadorbit.service.UserService.sanitizeUsername("\u0000bad\u0007", "sub-1"))
                 .isEqualTo("user-sub1");
         assertThat(ai.intellistream.threadorbit.service.UserService.sanitizeUsername(null, null))
                 .isEqualTo("user-anon");
