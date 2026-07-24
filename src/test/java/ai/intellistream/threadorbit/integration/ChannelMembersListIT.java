@@ -100,7 +100,9 @@ class ChannelMembersListIT {
     void wire() {
         currentUser = mock(CurrentUser.class);
         controller = new ChannelRestController(channels, messages, attachments, reactions,
-                reads, userService, pollService, markdown, currentUser, new RateLimiter());
+                reads, userService, pollService, markdown, currentUser, new RateLimiter(),
+                mock(org.springframework.messaging.simp.SimpMessagingTemplate.class),
+                mock(ai.intellistream.threadorbit.repository.MessageMentionRepository.class));
     }
 
     private User newUser(String prefix) {

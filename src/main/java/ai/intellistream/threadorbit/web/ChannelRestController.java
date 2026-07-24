@@ -31,7 +31,10 @@ import ai.intellistream.threadorbit.web.dto.ChannelDto;
 import ai.intellistream.threadorbit.web.dto.ChannelMemberDto;
 import ai.intellistream.threadorbit.web.dto.CreateChannelRequest;
 import ai.intellistream.threadorbit.web.dto.InviteRequest;
+import ai.intellistream.threadorbit.repository.MessageMentionRepository;
 import ai.intellistream.threadorbit.web.dto.MessageDto;
+import ai.intellistream.threadorbit.web.dto.MessageEvent;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import ai.intellistream.threadorbit.web.dto.SendMessageRequest;
 import ai.intellistream.threadorbit.web.dto.SetMemberRoleRequest;
 import jakarta.validation.Valid;
@@ -57,6 +60,8 @@ public class ChannelRestController {
     private final MarkdownRenderer markdown;
     private final CurrentUser currentUser;
     private final RateLimiter rateLimiter;
+    private final SimpMessagingTemplate broker;
+    private final MessageMentionRepository mentionRepository;
 
     public ChannelRestController(ChannelService channelService,
                                  MessageService messageService,
@@ -67,7 +72,9 @@ public class ChannelRestController {
                                  PollService pollService,
                                  MarkdownRenderer markdown,
                                  CurrentUser currentUser,
-                                 RateLimiter rateLimiter) {
+                                 RateLimiter rateLimiter,
+                                 SimpMessagingTemplate broker,
+                                 MessageMentionRepository mentionRepository) {
         this.channelService = channelService;
         this.messageService = messageService;
         this.attachmentService = attachmentService;
@@ -78,6 +85,8 @@ public class ChannelRestController {
         this.markdown = markdown;
         this.currentUser = currentUser;
         this.rateLimiter = rateLimiter;
+        this.broker = broker;
+        this.mentionRepository = mentionRepository;
     }
 
     @GetMapping
@@ -114,7 +123,14 @@ public class ChannelRestController {
                                        @RequestBody @Valid InviteRequest body,
                                        Principal principal) {
         var me = currentUser.resolve(principal);
+        // Throttle the username lookup and authorize BEFORE resolving the name (N8). Without this,
+        // a non-member gets 400 (unknown user) vs 403 (forbidden) as an unbounded existence oracle
+        // — SEC-5 gave the DM/group invite siblings the same user-lookup limiter; invite was missed.
+        if (!rateLimiter.tryAcquire(me.getUsername(), "user-lookup", 20, Duration.ofMinutes(1))) {
+            throw new RateLimitExceededException("lookup rate exceeded");
+        }
         var channel = channelService.requireById(id);
+        channelService.requireWriteAccess(channel, me);
         var invitee = userService.requireByUsername(body.username());
         channelService.invite(channel, invitee, me);
         return ResponseEntity.noContent().build();
@@ -131,7 +147,12 @@ public class ChannelRestController {
                                               @RequestBody @Valid SetMemberRoleRequest body,
                                               Principal principal) {
         var me = currentUser.resolve(principal);
+        // Throttle + authorize before resolving the username, same rationale as invite (N8).
+        if (!rateLimiter.tryAcquire(me.getUsername(), "user-lookup", 20, Duration.ofMinutes(1))) {
+            throw new RateLimitExceededException("lookup rate exceeded");
+        }
         var channel = channelService.requireById(id);
+        channelService.requireAdmin(channel, me);
         var target = userService.requireByUsername(username);
         switch (body.role()) {
             case ADMIN  -> channelService.promote(channel, target, me);
@@ -239,7 +260,14 @@ public class ChannelRestController {
         }
         var channel = channelService.requireById(id);
         var saved = messageService.post(channel, me, body.body());
-        return MessageDto.from(saved, markdown.render(saved.getBodyMarkdown()));
+        var dto = MessageDto.from(saved, markdown.render(saved.getBodyMarkdown()),
+                List.of(), List.of(), 0L,
+                mentionRepository.usernamesByMessage(saved), null);
+        // Broadcast on the channel topic so connected clients see the message live and fire their
+        // @mention notifications — mirroring the WS send path (N6). Without this, a message posted
+        // via HTTP was invisible until reload.
+        broker.convertAndSend("/topic/channels/" + id, MessageEvent.created(dto));
+        return dto;
     }
 
     @PostMapping("/{id}/read")
