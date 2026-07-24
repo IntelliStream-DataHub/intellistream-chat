@@ -29,4 +29,9 @@ public interface UserPresenceRepository extends JpaRepository<UserPresence, Long
 
     @Query("select p from UserPresence p join fetch p.user u where lower(u.username) in (:usernames)")
     List<UserPresence> findByUsernames(@Param("usernames") Collection<String> lowercaseUsernames);
+
+    /** Ensure a presence row exists for the user, race-free (N1); other columns default/null. */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
+    @org.springframework.data.jpa.repository.Query(value = "insert into user_presence (user_id) values (:userId) on conflict (user_id) do nothing", nativeQuery = true)
+    void insertRowIgnore(@org.springframework.data.repository.query.Param("userId") Long userId);
 }

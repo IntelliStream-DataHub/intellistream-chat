@@ -109,15 +109,10 @@ public class PollService {
         // Flush the delete BEFORE the insert so we don't trip uk_poll_votes_voter on the same
         // (poll, voter) row twice within one Hibernate flush cycle.
         voteRepo.flush();
-        try {
-            voteRepo.saveAndFlush(new PollVote(poll, option, voter));
-        } catch (org.springframework.dao.DataIntegrityViolationException race) {
-            // Two concurrent first-votes by the same voter — one wins the uk_poll_votes_voter
-            // constraint. A vote now exists; treat it as the effective state rather than 500.
-            // (A follow-up click re-enters castVote and switches the option via the delete+insert
-            // path above, so the voter's final choice self-heals.)
-            if (voteRepo.findByPollAndVoter(poll, voter).isEmpty()) throw race;
-        }
+        // Insert-or-ignore (N1): a concurrent first-vote by the same voter is absorbed — their pick
+        // wins the uk_poll_votes_voter row and this caller's choice self-heals on the next click.
+        // ON CONFLICT (vs the old saveAndFlush + catch) keeps the tx usable so toDto below can read.
+        voteRepo.insertVoteIgnore(poll.getId(), option.getId(), voter.getId());
         return toDto(poll, voter);
     }
 

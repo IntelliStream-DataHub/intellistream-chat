@@ -24,4 +24,9 @@ import java.util.Optional;
 
 public interface ConversationRepository extends JpaRepository<Conversation, Long> {
     Optional<Conversation> findByDmKey(String dmKey);
+
+    /** Insert a DIRECT conversation for the given dm_key if absent, ignore on conflict (N1). */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
+    @org.springframework.data.jpa.repository.Query(value = "insert into conversations (type, dm_key, created_by) values ('DIRECT', :dmKey, :creatorId) on conflict (dm_key) do nothing", nativeQuery = true)
+    void insertDirectIgnore(@org.springframework.data.repository.query.Param("dmKey") String dmKey, @org.springframework.data.repository.query.Param("creatorId") Long creatorId);
 }

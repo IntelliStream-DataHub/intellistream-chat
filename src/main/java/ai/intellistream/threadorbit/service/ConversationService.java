@@ -66,18 +66,14 @@ public class ConversationService {
             throw new IllegalArgumentException("Cannot start a direct conversation with yourself");
         }
         var key = directKey(a, b);
-        var existing = conversations.findByDmKey(key);
-        if (existing.isPresent()) return existing.get();
-        try {
-            var conv = conversations.save(new Conversation(ConversationType.DIRECT, null, key, a));
-            members.save(new ConversationMember(conv, a));
-            members.save(new ConversationMember(conv, b));
-            return conv;
-        } catch (org.springframework.dao.DataIntegrityViolationException race) {
-            // Both peers opened the DM at once; the unique constraint on dm_key rejected
-            // one. The winner's row is in the DB now — return it and let this caller share.
-            return conversations.findByDmKey(key).orElseThrow(() -> race);
-        }
+        // Insert-or-ignore the conversation, then ensure both memberships (N1). ON CONFLICT keeps
+        // the tx usable when both peers open the DM at once — the loser reads the winner's row
+        // instead of the old catch-and-reread re-querying an aborted transaction.
+        conversations.insertDirectIgnore(key, a.getId());
+        var conv = conversations.findByDmKey(key).orElseThrow();
+        members.insertMemberIgnore(conv.getId(), a.getId());
+        members.insertMemberIgnore(conv.getId(), b.getId());
+        return conv;
     }
 
     @Transactional
@@ -106,8 +102,10 @@ public class ConversationService {
         if (conversation.getType() != ConversationType.GROUP) {
             throw new IllegalArgumentException("Cannot add members to a direct conversation");
         }
-        return members.findByConversationAndUser(conversation, invitee)
-                .orElseGet(() -> members.save(new ConversationMember(conversation, invitee)));
+        // Insert-or-ignore then read (N1): idempotent re-add, race-free, tx-safe. Fetch the user
+        // eagerly so the controller can build the DTO after this @Transactional closes.
+        members.insertMemberIgnore(conversation.getId(), invitee.getId());
+        return members.findByConversationAndUserFetchingUser(conversation, invitee).orElseThrow();
     }
 
     @Transactional

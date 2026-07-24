@@ -35,4 +35,9 @@ public interface MessageReactionRepository extends JpaRepository<MessageReaction
     List<MessageReaction> findByMessageInOrderByCreatedAtAsc(Collection<Message> messages);
 
     void deleteByMessageAndUserAndEmoji(Message message, User user, String emoji);
+
+    /** Insert the reaction if absent, ignore the duplicate (N1). */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
+    @org.springframework.data.jpa.repository.Query(value = "insert into message_reactions (message_id, user_id, emoji) values (:messageId, :userId, :emoji) on conflict (message_id, user_id, emoji) do nothing", nativeQuery = true)
+    void insertReactionIgnore(@org.springframework.data.repository.query.Param("messageId") Long messageId, @org.springframework.data.repository.query.Param("userId") Long userId, @org.springframework.data.repository.query.Param("emoji") String emoji);
 }

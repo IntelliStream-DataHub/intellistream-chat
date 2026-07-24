@@ -32,6 +32,11 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
 
     Optional<ConversationMember> findByConversationAndUser(Conversation conversation, User user);
 
+    /** Same lookup but eager-fetching the member's user, so the caller can build a DTO after the
+     *  transaction closes (open-in-view is off) — used by addToGroup's return (N1). */
+    @Query("select m from ConversationMember m join fetch m.user where m.conversation = :conversation and m.user = :user")
+    Optional<ConversationMember> findByConversationAndUserFetchingUser(Conversation conversation, User user);
+
     boolean existsByConversationAndUser(Conversation conversation, User user);
 
     @Query("""
@@ -71,4 +76,9 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
             """, nativeQuery = true)
     List<Object[]> countUnreadPerConversation(@Param("userId") Long userId,
                                               @Param("convIds") Collection<Long> convIds);
+
+    /** Insert a membership if absent, ignore on the (conversation,user) conflict (N1). */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
+    @org.springframework.data.jpa.repository.Query(value = "insert into conversation_members (conversation_id, user_id) values (:conversationId, :userId) on conflict (conversation_id, user_id) do nothing", nativeQuery = true)
+    void insertMemberIgnore(@org.springframework.data.repository.query.Param("conversationId") Long conversationId, @org.springframework.data.repository.query.Param("userId") Long userId);
 }

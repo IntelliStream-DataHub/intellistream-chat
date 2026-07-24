@@ -51,22 +51,12 @@ public class ReadStateService {
     /** Mark all current messages in {@code channel} as read for {@code user}. */
     @Transactional
     public ChannelRead markRead(Channel channel, User user) {
-        var existing = readRepo.findByChannelAndUser(channel, user);
-        if (existing.isPresent()) {
-            var row = existing.get();
-            row.setLastReadAt(Instant.now());
-            return row;
-        }
-        try {
-            // saveAndFlush so a uk_channel_reads violation surfaces here (inside the catch) rather
-            // than at tx commit. markRead fires on every live message in the active channel, so
-            // two frames racing the first read is realistic — the loser re-reads and stamps.
-            return readRepo.saveAndFlush(new ChannelRead(channel, user, Instant.now()));
-        } catch (org.springframework.dao.DataIntegrityViolationException race) {
-            var row = readRepo.findByChannelAndUser(channel, user).orElseThrow(() -> race);
-            row.setLastReadAt(Instant.now());
-            return row;
-        }
+        // Single-statement upsert (N1): ON CONFLICT DO UPDATE handles both the first read and the
+        // concurrent-first-read race atomically. The old saveAndFlush + catch-and-reread could not
+        // recover on Postgres — the failed INSERT aborts the transaction, so the re-read threw and
+        // the loser still 500'd. markRead fires on every live message, so this race is realistic.
+        readRepo.upsertLastReadAt(channel.getId(), user.getId(), Instant.now());
+        return readRepo.findByChannelAndUser(channel, user).orElseThrow();
     }
 
     /**

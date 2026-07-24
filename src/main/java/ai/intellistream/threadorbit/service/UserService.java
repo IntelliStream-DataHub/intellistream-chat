@@ -154,17 +154,18 @@ public class UserService {
             u.setAdmin(admin);
             return u;
         }
-        try {
-            var fresh = new User(subject, uniqueUsername(username, subject), email, displayName);
-            fresh.setAdmin(admin);
-            return userRepository.saveAndFlush(fresh);
-        } catch (org.springframework.dao.DataIntegrityViolationException race) {
-            // Two concurrent first-time logins for the same subject: both saw the row
-            // missing, both inserted, the unique constraint kicks one out. Re-read; the
-            // winner's row is now in the DB and that's the canonical user we should use.
-            return userRepository.findBySubject(subject)
-                    .orElseThrow(() -> race);
-        }
+        // Insert-or-ignore on the subject unique constraint (N1): two concurrent first-time logins
+        // for the same subject no longer abort the tx (the old saveAndFlush + catch re-read a
+        // poisoned transaction and threw). We then re-read the winning row and refresh its fields
+        // so the latest claims win regardless of which INSERT landed first.
+        var resolvedUsername = uniqueUsername(username, subject);
+        userRepository.insertIgnore(subject, resolvedUsername, email, displayName, admin);
+        var u = userRepository.findBySubject(subject).orElseThrow();
+        u.setUsername(resolvedUsername);
+        u.setEmail(email);
+        u.setDisplayName(displayName);
+        u.setAdmin(admin);
+        return u;
     }
 
     @Transactional(readOnly = true)

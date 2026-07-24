@@ -63,8 +63,8 @@ public class ConversationReactionService {
             throw new AccessDeniedException("You cannot react to your own message.");
         }
         var trimmed = sanitize(emoji);
-        reactionRepository.findByMessageAndUserAndEmoji(message, actor, trimmed)
-                .orElseGet(() -> reactionRepository.save(new ConversationReaction(message, actor, trimmed)));
+        // Insert-or-ignore (N1): idempotent on a concurrent identical reaction, tx stays usable.
+        reactionRepository.insertReactionIgnore(message.getId(), actor.getId(), trimmed);
         return message;
     }
 

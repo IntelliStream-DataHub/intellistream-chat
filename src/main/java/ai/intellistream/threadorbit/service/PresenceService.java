@@ -85,7 +85,10 @@ public class PresenceService {
             // Treat "set with no content" as a clear so callers don't have to special-case.
             return clearStatus(user);
         }
-        var row = repo.findById(user.getId()).orElseGet(() -> new UserPresence(user));
+        // Ensure the row exists race-free (N1) so two concurrent first-time status writes don't
+        // both INSERT and abort the tx; then update the loaded entity.
+        repo.insertRowIgnore(user.getId());
+        var row = repo.findById(user.getId()).orElseThrow();
         row.setStatus(emptyToNull(trimmedEmoji), emptyToNull(trimmedText), clearAt);
         var saved = repo.save(row);
         return toDto(user.getUsername(), saved, tracker.isOnline(user.getUsername()),
@@ -113,7 +116,9 @@ public class PresenceService {
      */
     @Transactional
     public PresenceDto setKind(User user, PresenceKind kind) {
-        var row = repo.findById(user.getId()).orElseGet(() -> new UserPresence(user));
+        // Ensure the row exists race-free (N1) before updating the loaded entity.
+        repo.insertRowIgnore(user.getId());
+        var row = repo.findById(user.getId()).orElseThrow();
         row.setManualKind(kind);
         var saved = repo.save(row);
         return toDto(user.getUsername(), saved, tracker.isOnline(user.getUsername()),

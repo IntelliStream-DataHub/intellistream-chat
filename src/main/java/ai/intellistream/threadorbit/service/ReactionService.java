@@ -63,16 +63,9 @@ public class ReactionService {
             throw new AccessDeniedException("You cannot react to your own message.");
         }
         var trimmed = sanitize(emoji);
-        if (reactionRepository.findByMessageAndUserAndEmoji(message, actor, trimmed).isEmpty()) {
-            try {
-                reactionRepository.saveAndFlush(new MessageReaction(message, actor, trimmed));
-            } catch (org.springframework.dao.DataIntegrityViolationException race) {
-                // Concurrent identical reaction — the row already exists; idempotent, ignore.
-                if (reactionRepository.findByMessageAndUserAndEmoji(message, actor, trimmed).isEmpty()) {
-                    throw race;
-                }
-            }
-        }
+        // Insert-or-ignore (N1): idempotent on a concurrent identical reaction, and ON CONFLICT
+        // keeps the transaction usable (the old saveAndFlush + catch aborted the tx on Postgres).
+        reactionRepository.insertReactionIgnore(message.getId(), actor.getId(), trimmed);
         return message;
     }
 

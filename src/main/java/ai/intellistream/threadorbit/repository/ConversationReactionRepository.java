@@ -35,4 +35,9 @@ public interface ConversationReactionRepository extends JpaRepository<Conversati
     List<ConversationReaction> findByMessageInOrderByCreatedAtAsc(Collection<ConversationMessage> messages);
 
     void deleteByMessageAndUserAndEmoji(ConversationMessage message, User user, String emoji);
+
+    /** Insert the reaction if absent, ignore the duplicate (N1). */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
+    @org.springframework.data.jpa.repository.Query(value = "insert into conversation_reactions (conversation_message_id, user_id, emoji) values (:messageId, :userId, :emoji) on conflict (conversation_message_id, user_id, emoji) do nothing", nativeQuery = true)
+    void insertReactionIgnore(@org.springframework.data.repository.query.Param("messageId") Long messageId, @org.springframework.data.repository.query.Param("userId") Long userId, @org.springframework.data.repository.query.Param("emoji") String emoji);
 }

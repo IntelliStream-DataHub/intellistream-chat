@@ -57,4 +57,16 @@ public interface ChannelReadRepository extends JpaRepository<ChannelRead, Long> 
             """, nativeQuery = true)
     int markAllChannelsWithUnreadMentionsRead(@Param("userId") Long userId,
                                               @Param("now") Instant now);
+
+    /** Race-free read-marker upsert (N1): ON CONFLICT keeps the tx usable, unlike the old
+     *  saveAndFlush + catch-and-reread which aborts the tx on Postgres so the re-read threw. */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
+    @org.springframework.data.jpa.repository.Query(value = """
+            insert into channel_reads (channel_id, user_id, last_read_at)
+            values (:channelId, :userId, cast(:now as timestamptz))
+            on conflict (channel_id, user_id) do update set last_read_at = excluded.last_read_at
+            """, nativeQuery = true)
+    void upsertLastReadAt(@org.springframework.data.repository.query.Param("channelId") Long channelId,
+                          @org.springframework.data.repository.query.Param("userId") Long userId,
+                          @org.springframework.data.repository.query.Param("now") java.time.Instant now);
 }

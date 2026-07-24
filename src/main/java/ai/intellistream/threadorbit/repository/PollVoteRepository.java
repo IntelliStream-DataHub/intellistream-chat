@@ -58,4 +58,9 @@ public interface PollVoteRepository extends JpaRepository<PollVote, Long> {
             """)
     List<Object[]> myVotesByPollIds(@Param("voter") User voter,
                                     @Param("pollIds") Collection<Long> pollIds);
+
+    /** Insert the vote if the voter has none yet, ignore on the (poll,voter) conflict (N1). */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
+    @org.springframework.data.jpa.repository.Query(value = "insert into poll_votes (poll_id, option_id, voter_id) values (:pollId, :optionId, :voterId) on conflict (poll_id, voter_id) do nothing", nativeQuery = true)
+    void insertVoteIgnore(@org.springframework.data.repository.query.Param("pollId") Long pollId, @org.springframework.data.repository.query.Param("optionId") Long optionId, @org.springframework.data.repository.query.Param("voterId") Long voterId);
 }

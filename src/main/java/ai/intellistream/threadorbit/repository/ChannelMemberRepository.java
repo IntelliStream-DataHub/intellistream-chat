@@ -58,5 +58,15 @@ public interface ChannelMemberRepository extends JpaRepository<ChannelMember, Lo
 
     boolean existsByChannelAndUser(Channel channel, User user);
 
+    /** Of the given user ids, which are members of {@code channel} — used to keep private-channel
+     *  mentions from reaching non-members (N2), in one query rather than N membership checks. */
+    @Query("select m.user.id from ChannelMember m where m.channel = :channel and m.user.id in :userIds")
+    List<Long> findMemberUserIds(Channel channel, java.util.Collection<Long> userIds);
+
     long countByChannel(Channel channel);
+
+    /** Insert a MEMBER row if absent, ignore if the (channel,user) row already exists (N1). */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
+    @org.springframework.data.jpa.repository.Query(value = "insert into channel_members (channel_id, user_id, role) values (:channelId, :userId, 'MEMBER') on conflict (channel_id, user_id) do nothing", nativeQuery = true)
+    void insertMemberIgnore(@org.springframework.data.repository.query.Param("channelId") Long channelId, @org.springframework.data.repository.query.Param("userId") Long userId);
 }

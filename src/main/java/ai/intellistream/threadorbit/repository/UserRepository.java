@@ -42,4 +42,10 @@ public interface UserRepository extends JpaRepository<User, Long> {
     /** Every non-null avatar storage key — the live set for the orphan-avatar sweep (CLEAN-2). */
     @org.springframework.data.jpa.repository.Query("select u.avatarStorageKey from User u where u.avatarStorageKey is not null")
     java.util.List<String> findAllAvatarStorageKeys();
+
+    /** Insert a freshly-provisioned user if the subject is new, ignore on the subject conflict
+     *  (N1: concurrent first login). Username uniqueness is disambiguated before this call. */
+    @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
+    @org.springframework.data.jpa.repository.Query(value = "insert into users (subject, username, email, display_name, admin) values (:subject, :username, :email, :displayName, :admin) on conflict (subject) do nothing", nativeQuery = true)
+    void insertIgnore(@org.springframework.data.repository.query.Param("subject") String subject, @org.springframework.data.repository.query.Param("username") String username, @org.springframework.data.repository.query.Param("email") String email, @org.springframework.data.repository.query.Param("displayName") String displayName, @org.springframework.data.repository.query.Param("admin") boolean admin);
 }
