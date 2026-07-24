@@ -48,10 +48,20 @@ public class RateLimiter {
     private final ConcurrentMap<String, Deque<Long>> windows = new ConcurrentHashMap<>();
 
     /**
+     * Master switch. Defaults on. Setting {@code threadorbit.ratelimit.enabled=false} (the load-test
+     * {@code bench} profile does this) makes every acquire succeed, so a benchmark driving many
+     * connections from one user isn't capped by the per-user limits it's not trying to measure.
+     * Never disable in production.
+     */
+    @org.springframework.beans.factory.annotation.Value("${threadorbit.ratelimit.enabled:true}")
+    private boolean enabled = true;
+
+    /**
      * @return {@code true} when the action is permitted, {@code false} when the caller has
      *         exceeded {@code limit} in the trailing {@code window}.
      */
     public boolean tryAcquire(String key, String action, int limit, Duration window) {
+        if (!enabled) return true;
         var bucketKey = key + "|" + action;
         var now = System.nanoTime();
         var floor = now - window.toNanos();

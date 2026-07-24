@@ -69,6 +69,38 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         config.setUserDestinationPrefix("/user");
     }
 
+    /**
+     * Inbound channel = threads that run @MessageMapping handlers (the per-message post work: DB
+     * insert + Markdown render). Outbound channel = threads that deliver broadcasts to clients.
+     * Spring's defaults are small (~2×cores); the post path is I/O-bound (DB), so more threads lift
+     * throughput until CPU/DB saturates. Sized from properties so a load test can raise them
+     * without a rebuild; the defaults are a modest prod bump. 0 = leave Spring's default untouched.
+     */
+    @Override
+    public void configureClientInboundChannel(org.springframework.messaging.simp.config.ChannelRegistration registration) {
+        if (inboundThreads > 0) {
+            registration.taskExecutor().corePoolSize(inboundThreads).maxPoolSize(inboundThreads)
+                    .queueCapacity(inboundQueue);
+        }
+    }
+
+    @Override
+    public void configureClientOutboundChannel(org.springframework.messaging.simp.config.ChannelRegistration registration) {
+        if (outboundThreads > 0) {
+            registration.taskExecutor().corePoolSize(outboundThreads).maxPoolSize(outboundThreads)
+                    .queueCapacity(outboundQueue);
+        }
+    }
+
+    @org.springframework.beans.factory.annotation.Value("${threadorbit.ws.inbound-threads:0}")
+    private int inboundThreads;
+    @org.springframework.beans.factory.annotation.Value("${threadorbit.ws.inbound-queue:100000}")
+    private int inboundQueue;
+    @org.springframework.beans.factory.annotation.Value("${threadorbit.ws.outbound-threads:0}")
+    private int outboundThreads;
+    @org.springframework.beans.factory.annotation.Value("${threadorbit.ws.outbound-queue:200000}")
+    private int outboundQueue;
+
     @Override
     public void registerStompEndpoints(StompEndpointRegistry registry) {
         // Native WebSocket only. Don't add .withSockJS() — its iframe / htmlfile / jsonp-polling
