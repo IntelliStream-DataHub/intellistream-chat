@@ -40,29 +40,29 @@ No channel authorization exists anywhere on the mention read path — the "IDOR 
 
 ## P1 — data-loss / visibility bugs (several are defects in shipped fixes)
 
-### N3 · Lucene reconcile (CLEAN-3) deletes freshly-indexed messages 🟡 medium **[regression]**
+### N3 · Lucene reconcile (CLEAN-3) deletes freshly-indexed messages 🟡 medium **[regression]** — ✅ FIXED
 `cleanup/CleanupTasks.java:146-167`: `findAllMessageIds()` snapshots the DB **before** `allIndexedIds()` enumerates the index. A message committed + indexed (afterCommit) between the two reads is in `indexIds` but not the older `dbIds` → classified "stale" → `messageIndex.deleteAll(stale)` removes its doc (when `dry-run=false`). It stays search-invisible until the next reconcile (~1h) re-adds it, and recurs every run on a busy server. The file sweep has a 24h mtime grace for exactly this commit-window race; the index reconcile has none. → **Fix:** snapshot the index **first** (the race then degrades to a harmless duplicate re-index), or exclude ids above `max(dbIds)` (ids are monotonic), or `existsById`-recheck each stale candidate before deleting.
 
-### N4 · BUG-3 / BUG-14 / BUG-15 fixes never ported to the DM page 🟡 medium **[regression]**
+### N4 · BUG-3 / BUG-14 / BUG-15 fixes never ported to the DM page 🟡 medium **[regression]** — ✅ FIXED
 `tasks.md` marks these done for both `chat/index.js` and `conversation.js`, but only the channel side was implemented:
 - **BUG-3 (reconnect catch-up):** `conversation.js:364-394` `onConnect` has no backfill at all → every DM sent during a blip/sleep is missing until reload.
 - **BUG-14 (reaction wipes edit draft):** `conversation.js:181` `replaceMessageDom` removes `.message-edit` unconditionally, and DM reactions broadcast `message-updated` → anyone reacting destroys the author's unsaved edit.
 - **BUG-15 (force-scroll):** `conversation.js:126` `scrollIntoView({block:'end'})` runs for every incoming message → yanks a DM reader reading history to the tail.
 - **Fix:** port each guard from the channel page (backfill loop; "edit form open + not a body change → refresh trays only"; near-bottom scroll check).
 
-### N5 · STOMP reconnect backfill (BUG-3) silently truncated at 50 + can render out of order 🟡 medium **[regression]**
+### N5 · STOMP reconnect backfill (BUG-3) silently truncated at 50 + can render out of order 🟡 medium **[regression]** — ✅ FIXED
 `chat/index.js:604-616` requests `?after=<last>&limit=200`, but `MessageService.after:113` clamps to `DEFAULT_PAGE_SIZE=50` and the client never pages → if >50 messages were missed, only the oldest 50 load and a permanent invisible gap remains (no indicator) until reload. Separately, the subscription registers while the backfill is in flight, so a live `created` event appended first ends up **above** the older backfill rows (wrong order, wrong grouping). Backfill also returns only top-level rows, so thread counts stay stale. → **Fix:** loop `?after=` until a short page; buffer live `created` events until the backfill resolves (or insert by `createdAt`), then `refreshDayDividers()`.
 
-### N6 · `POST /api/channels/{id}/messages` never broadcasts over STOMP 🟡 medium
+### N6 · `POST /api/channels/{id}/messages` never broadcasts over STOMP 🟡 medium — ✅ FIXED
 `web/ChannelRestController.java:230-243` persists + indexes + returns the DTO but never `broker.convertAndSend("/topic/channels/{id}", MessageEvent.created(...))`. Every sibling create path broadcasts (WS send, HTTP thread reply `MessageRestController:174`, attachment upload, DM HTTP send). A message posted through this documented HTTP twin is invisible to connected clients until reload and fires no mention notifications. → **Fix:** build the DTO and broadcast like `reply()`.
 
-### N7 · Permalink to a deleted message breaks the whole channel page 🟡 medium
+### N7 · Permalink to a deleted message breaks the whole channel page 🟡 medium — ✅ FIXED
 `web/HomeController.java:183` `safeAround` catches only `IllegalArgumentException`, but `MessageService.around` throws `ResourceNotFoundException` for a missing or channel-mismatched anchor (only the thread-reply case is IAE). So a stale mention/search deep-link `/channels/{id}?m=<deleted-id>` escapes the fallback-to-recent the method's own javadoc promises, and `ApiExceptionHandler` renders a **bare JSON 404 in place of the HTML channel page**. Stale permalinks are routine after deletion. → **Fix:** also catch `ResourceNotFoundException` and fall back to recent.
 
-### N8 · Channel invite is an unthrottled username-enumeration oracle 🟡 medium (incomplete SEC-5)
+### N8 · Channel invite is an unthrottled username-enumeration oracle 🟡 medium (incomplete SEC-5) — ✅ FIXED
 `web/ChannelRestController.java:112-121`: SEC-5 added the `user-lookup` limiter to `startDirect`/`createGroup`/`addMember` but **not** `invite`, and `invite` resolves the username (`requireByUsername` → 400 for unknown) **before** `requireWriteAccess` (→ 403 for an existing user). A non-member thus gets 403-vs-400 as a clean existence oracle with no rate limit. `setMemberRole:128-141` has the same order-of-checks issue. → **Fix:** add the `user-lookup` limiter and check write-access **before** resolving the username.
 
-### N9 · 413 `maxBytes` (and unread counts) serialized as JSON strings — breaks the upload-error UX 🟡 medium **[regression]**
+### N9 · 413 `maxBytes` (and unread counts) serialized as JSON strings — breaks the upload-error UX 🟡 medium **[regression]** — ✅ FIXED
 The global `Long → ToStringSerializer` (commit `1610c41`) turns `ApiExceptionHandler.java:96` `Map.of(…, "maxBytes", <long>, …)` into `"maxBytes":"52428800"` (autoboxed to `Long`). All three clients guard `typeof err.maxBytes === 'number'` (`profile.js:150`, `conversation.js:~522`, `chat/index.js:~951`) → now always false → the precise "max N MiB" message never renders; users see the generic failure. Same root cause at `MentionRestController.java:67` (`{"unread":"5"}`). → **Fix:** return small typed records with **primitive** `long` fields (primitive `long` keeps the default number serializer), or relax the JS `typeof` checks.
 
 ---
