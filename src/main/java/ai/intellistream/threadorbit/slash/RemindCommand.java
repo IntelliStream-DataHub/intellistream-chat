@@ -104,8 +104,10 @@ public class RemindCommand implements SlashCommand {
         // Confirm back into the channel as the requester so they see the queue actually took it.
         // The post() call enforces requireWriteAccess — under @Transactional, an AccessDenied
         // throw rolls back the just-saved Reminder so non-members can't queue work via /remind.
+        // No live "@username" in the confirmation — that would fire a mention notification NOW,
+        // and the reminder fires a second one when it's actually due (N30). Name the target plainly.
         var confirmation = "⏰ Reminder set for " + describeWhen(parsed.fireAt, clock.getZone())
-                + (parsed.target == null ? "" : " (will tag @" + parsed.target.getUsername() + ")")
+                + (parsed.target == null ? "" : " (will tag " + parsed.target.getUsername() + ")")
                 + ": _" + parsed.body + "_";
         return messageService.post(channel, author, confirmation);
     }
@@ -140,10 +142,8 @@ public class RemindCommand implements SlashCommand {
             } catch (NumberFormatException overflow) {
                 throw new IllegalArgumentException("That's too far in the future. " + help());
             }
-            // Cap the amount so toDuration's second-multiplication can't overflow into an
-            // ArithmeticException (which would surface as a raw 500). ~366 days is plenty.
-            if (amount < 1 || amount > 100L * 366 * 24 * 60 * 60) {
-                throw new IllegalArgumentException("Pick a time within about a year. " + help());
+            if (amount < 1) {
+                throw new IllegalArgumentException("Pick a positive time. " + help());
             }
             var unit = dm.group(2).toLowerCase();
             Duration d;
@@ -151,6 +151,12 @@ public class RemindCommand implements SlashCommand {
                 d = toDuration(amount, unit);
             } catch (ArithmeticException overflow) {
                 throw new IllegalArgumentException("That's too far in the future. " + help());
+            }
+            // Clamp on the actual DURATION, not the raw amount — the old amount-based ceiling was
+            // seconds-scaled, so "in 3000000000d" slipped through and queued a reminder ~8.6M years
+            // out (N31). ~366 days covers every legitimate use.
+            if (d.compareTo(Duration.ofDays(366)) > 0) {
+                throw new IllegalArgumentException("Pick a time within about a year. " + help());
             }
             fireAt = clock.instant().plus(d);
             input = input.substring(dm.end()).stripLeading();

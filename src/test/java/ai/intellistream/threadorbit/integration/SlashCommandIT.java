@@ -150,9 +150,11 @@ class SlashCommandIT {
                 null, ChannelType.PUBLIC, alice);
         when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
 
+        var principal = mock(Principal.class);
+        when(principal.getName()).thenReturn(alice.getUsername()); // notice routes by principal name (N19)
         controller.send(room.getId(),
                 new SendMessageRequest("/poll Just a question?"),
-                mock(Principal.class));
+                principal);
 
         // No public broadcast — the malformed command never produces a channel message.
         verify(broker, never()).convertAndSend(eq("/topic/channels/" + room.getId()),
@@ -175,8 +177,10 @@ class SlashCommandIT {
         for (int i = 0; i < 11; i++) manyOptions += " | option" + i;
         var body = "/poll " + manyOptions;
 
+        var principal = mock(Principal.class);
+        when(principal.getName()).thenReturn(alice.getUsername());
         controller.send(room.getId(),
-                new SendMessageRequest(body), mock(Principal.class));
+                new SendMessageRequest(body), principal);
 
         verify(broker, never()).convertAndSend(eq("/topic/channels/" + room.getId()),
                 any(Object.class));
@@ -270,9 +274,11 @@ class SlashCommandIT {
                 null, ChannelType.PUBLIC, alice);
         when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
 
+        var principal = mock(Principal.class);
+        when(principal.getName()).thenReturn(alice.getUsername());
         controller.send(room.getId(),
                 new SendMessageRequest("/remind me to do the thing"),
-                mock(Principal.class));
+                principal);
 
         verify(broker, never()).convertAndSend(eq("/topic/channels/" + room.getId()),
                 any(Object.class));
@@ -294,6 +300,18 @@ class SlashCommandIT {
         var fireZdt = parsed.fireAt().atZone(fixed);
         assertThat(fireZdt.getHour()).isEqualTo(8);
         assertThat(fireZdt.toLocalDate()).isEqualTo(noonToday.atZone(fixed).toLocalDate().plusDays(1));
+    }
+
+    @Test
+    void remindClampsHugeDurationsToAboutAYear() {
+        var alice = newUser("alice");
+        var cmd = new RemindCommand(messages, userService, reminderRepo, Clock.systemUTC());
+        // N31: the clamp must bound the actual duration, not the raw amount — "in 3000000000d"
+        // used to slip past the seconds-scaled ceiling and queue a reminder ~8.6M years out.
+        org.assertj.core.api.Assertions.assertThatThrownBy(
+                () -> cmd.parse("in 3000000000d to spam the future", alice))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("within about a year");
     }
 
     @Test

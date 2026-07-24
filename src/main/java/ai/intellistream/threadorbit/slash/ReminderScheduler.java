@@ -98,7 +98,16 @@ public class ReminderScheduler {
         for (var r : due) {
             Long id = r.getId();
             try {
-                if (self.fireOne(id, now)) fired++;
+                var posted = self.fireOne(id, now);
+                if (posted != null) {
+                    // Broadcast AFTER fireOne's REQUIRES_NEW tx has committed (it returns only on a
+                    // clean commit). Broadcasting inside the tx (as before) would show clients a
+                    // message that a subsequent commit failure then discarded, and the row would be
+                    // force-marked fired so it's lost (N30).
+                    broker.convertAndSend("/topic/channels/" + posted.channelId(),
+                            MessageEvent.created(posted.dto()));
+                    fired++;
+                }
             } catch (RuntimeException e) {
                 // fireOne's REQUIRES_NEW tx rolled back cleanly (the exception propagated
                 // instead of being swallowed-then-committed, which used to throw
@@ -122,22 +131,22 @@ public class ReminderScheduler {
      * {@code messageService.post} marks this tx rollback-only on failure, so returning normally
      * would make the commit throw {@code UnexpectedRollbackException} and abort the batch.
      */
+    /** Posted-message payload the caller broadcasts after this tx commits (N30). */
+    public record FiredMessage(Long channelId, MessageDto dto) {}
+
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public boolean fireOne(Long reminderId, Instant now) {
+    public FiredMessage fireOne(Long reminderId, Instant now) {
         var r = repo.findById(reminderId).orElse(null);
-        if (r == null || r.getFiredAt() != null) return false;
+        if (r == null || r.getFiredAt() != null) return null;
         var saved = messageService.post(r.getChannel(), r.getCreator(), r.getBody());
         r.markFired(now);
         repo.save(r);
-        // Same shape as a normal channel post — clients render it via the existing
-        // /topic/channels/{id} subscription. Mentions list is left empty here because
-        // the body's @-mention (if any) is parsed by the renderer; the WS-side caller
-        // refresh path handles the badge bump.
+        // Build the broadcast payload here (inside the tx, where the associations are loaded), but
+        // let runOnce send it after this tx commits. Mentions list is left empty — the body's
+        // @-mention (if any) is parsed by the renderer; the WS-side refresh path bumps the badge.
         var dto = MessageDto.from(saved, markdown.render(saved.getBodyMarkdown()),
                 List.of(), List.of(), 0L, List.of());
-        broker.convertAndSend("/topic/channels/" + r.getChannel().getId(),
-                MessageEvent.created(dto));
-        return true;
+        return new FiredMessage(r.getChannel().getId(), dto);
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
