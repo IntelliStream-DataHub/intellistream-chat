@@ -38,6 +38,14 @@ class MarkdownRendererTest {
     }
 
     @Test
+    void userProvidedMentionSpanIsStripped() {
+        // N29: a hand-written mention span in raw markdown must not survive sanitization —
+        // otherwise a user could forge a styled/clickable mention of anyone.
+        var html = renderer.render("<span class=\"mention\" data-username=\"admin\">@admin</span>");
+        assertThat(html).doesNotContain("<span").doesNotContain("data-username");
+    }
+
+    @Test
     void rendersFencedCodeBlock() {
         var html = renderer.render("""
                 ```

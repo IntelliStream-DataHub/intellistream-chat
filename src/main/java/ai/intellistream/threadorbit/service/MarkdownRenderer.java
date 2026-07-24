@@ -47,12 +47,16 @@ public class MarkdownRenderer {
         var extensions = List.of(TablesExtension.create(), AutolinkExtension.create());
         this.parser = Parser.builder().extensions(extensions).build();
         this.renderer = HtmlRenderer.builder().extensions(extensions).build();
+        // NB: `span` is deliberately stripped (removeTags — Safelist.basic() allows it by default).
+        // Mention spans are added by decorateMentions() AFTER this clean, so a user can't hand-write
+        // <span class="mention" data-username="admin"> in raw markdown to forge a mention of someone
+        // they didn't actually @-mention (N29).
         this.safelist = Safelist.basic()
-                .addTags("h1", "h2", "h3", "h4", "h5", "h6", "pre", "table", "thead", "tbody", "tr", "th", "td", "span")
+                .removeTags("span")
+                .addTags("h1", "h2", "h3", "h4", "h5", "h6", "pre", "table", "thead", "tbody", "tr", "th", "td")
                 .addAttributes("a", "rel", "target")
                 .addAttributes("code", "class")
-                .addAttributes("pre", "class")
-                .addAttributes("span", "class", "data-username");
+                .addAttributes("pre", "class");
     }
 
     public String render(String markdown) {
