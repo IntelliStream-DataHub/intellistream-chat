@@ -180,7 +180,11 @@ public class HomeController {
             Long anchorId) {
         try {
             return messageService.around(channel, me, anchorId, 25);
-        } catch (IllegalArgumentException unknownAnchor) {
+        } catch (IllegalArgumentException | ai.intellistream.threadorbit.security.ResourceNotFoundException unknownAnchor) {
+            // around() throws ResourceNotFoundException for a deleted or channel-mismatched anchor
+            // and IllegalArgumentException for a thread-reply anchor. Both mean "no usable anchor" —
+            // fall back to recent() rather than letting the API 404 handler replace the HTML page
+            // with a JSON error envelope (N7).
             return null;
         }
     }
