@@ -1,0 +1,28 @@
+# Local development profile — copy to application-dev.properties (gitignored) and tweak.
+#
+# `./gradlew bootRun` auto-activates the `dev` profile, so this file is picked up automatically.
+# Tests and `java -jar` do NOT activate it. Keep machine-specific values (LAN IPs, personal
+# overrides) out of the committed tree — that's why application-dev.properties is gitignored.
+
+# Bind to loopback for solo local dev. To reach the app from another device on your LAN (e.g. a
+# phone for mobile-layout testing), set this to your machine's LAN IP AND mirror it in a
+# gitignored compose.override.yml (see compose.override.yml.example) and your Keycloak redirect
+# URIs.
+server.address=127.0.0.1
+
+# Keycloak realm URL used by both the OIDC client and the resource-server JWT validator. Matches
+# the compose stack's Keycloak on :8081. Change the host if you moved Keycloak.
+spring.security.oauth2.client.provider.keycloak.issuer-uri=http://localhost:8081/realms/threadorbit
+spring.security.oauth2.resourceserver.jwt.issuer-uri=http://localhost:8081/realms/threadorbit
+
+# STOMP/WebSocket origin allow-list (CSWSH defence). Add the exact origin(s) the app is served
+# from during dev; add your LAN origin here too if you set a LAN server.address above.
+threadorbit.allowed-origins=http://localhost:8080,http://127.0.0.1:8080
+
+# Expose the in-browser smoke runner (channels page loads /js/test/index.js → runTests() in the
+# console). Handy in dev; never enable in production.
+threadorbit.dev-tools.enabled=true
+
+# Serve the original JS/CSS source files instead of the minified bundles, so front-end edits show
+# on refresh with no rebuild. Production keeps the default (bundled). See ASSETS.md.
+threadorbit.assets.unbundled=true
