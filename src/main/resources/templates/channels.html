@@ -98,10 +98,31 @@
         <div class="sidebar-section">
             <h2>
                 Largest
-                <button type="button" class="add-btn" id="sidebar-create-add-btn"
-                        title="Create channel" aria-label="Create channel">
-                    <svg class="icon icon-sm"><use href="#icon-plus"/></svg>
-                </button>
+                <!--/* The create form hangs off this button as a popover rather than sitting in
+                       the sidebar flow: it's an occasional action, and inline it pushed the
+                       channel list down and competed with it for attention. */-->
+                <span class="popover-anchor">
+                    <button type="button" class="add-btn" id="sidebar-create-add-btn"
+                            title="Create channel" aria-label="Create channel"
+                            aria-haspopup="dialog" aria-expanded="false"
+                            aria-controls="sidebar-create-popover">
+                        <svg class="icon icon-sm"><use href="#icon-plus"/></svg>
+                    </button>
+                    <div class="sidebar-popover" id="sidebar-create-popover" role="dialog"
+                         aria-label="Create channel" hidden>
+                        <form id="create-channel-form-sidebar" class="create-channel-form">
+                            <label>Name <input name="name" required maxlength="120"/></label>
+                            <label>Description <input name="description" maxlength="500"/></label>
+                            <label>Type
+                                <select name="type">
+                                    <option value="PUBLIC">Public</option>
+                                    <option value="PRIVATE">Private</option>
+                                </select>
+                            </label>
+                            <button type="submit">Create</button>
+                        </form>
+                    </div>
+                </span>
             </h2>
             <ul class="channel-list" id="sidebar-channel-list"
                 th:replace="~{fragments/channel-group :: group(${sidebar.largest}, ${activeChannelId}, 'sidebar-channel-list')}"></ul>
@@ -119,21 +140,6 @@
                 more channel<span th:if="${sidebar.hiddenCount != 1}">s</span> —
                 <button type="button" class="linklike" id="sidebar-browse-all">search to find them</button>
             </p>
-
-            <details class="create-channel">
-                <summary id="sidebar-create-toggle">+ Create channel</summary>
-                <form id="create-channel-form-sidebar" class="create-channel-form">
-                    <label>Name <input name="name" required maxlength="120"/></label>
-                    <label>Description <input name="description" maxlength="500"/></label>
-                    <label>Type
-                        <select name="type">
-                            <option value="PUBLIC">Public</option>
-                            <option value="PRIVATE">Private</option>
-                        </select>
-                    </label>
-                    <button type="submit">Create</button>
-                </form>
-            </details>
         </div>
 
         <div class="sidebar-section">

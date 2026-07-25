@@ -2258,6 +2258,70 @@ body.lightbox-open { overflow: hidden; }
 /* ===========================================================
    Message hover toolbar + inline edit
    =========================================================== */
+/* ---------- Sidebar popovers ---------- */
+/* Anchor for a popover hung off a header button. inline-flex so it doesn't disturb the h2's
+   baseline the way a block wrapper would. */
+.popover-anchor {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.sidebar-popover {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  z-index: 40;
+  min-width: 16rem;
+  padding: 0.85rem;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-3);
+  /* The sidebar h2 this hangs off is uppercased, letter-spaced and bold. Reset all three or the
+     form inherits a header's typography. */
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+  font-size: var(--fs-md);
+}
+.sidebar-popover[hidden] { display: none; }
+
+/* .create-channel-form is styled for the dark sidebar it used to sit in — translucent white fills
+   and --sb-text labels. On a light popover that is white text on a white panel. Re-skin it for the
+   light surface, exactly as .empty-state already does for the same form in the content area. */
+.sidebar-popover .create-channel-form {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+}
+.sidebar-popover .create-channel-form label {
+  display: grid;
+  gap: 0.2rem;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+.sidebar-popover .create-channel-form input,
+.sidebar-popover .create-channel-form select {
+  width: 100%;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.sidebar-popover .create-channel-form input::placeholder { color: var(--muted); }
+.sidebar-popover .create-channel-form button[type="submit"] {
+  background: var(--accent);
+  color: var(--accent-on);
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0.4rem 0.8rem;
+  cursor: pointer;
+}
+.sidebar-popover .create-channel-form button[type="submit"]:hover { background: var(--accent-2); }
+
 /* ---------- Curated sidebar + channel search ---------- */
 .sidebar-more {
   margin: 0 0 0.6rem;

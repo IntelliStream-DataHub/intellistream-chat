@@ -55,11 +55,45 @@ presenceMenu.init();
   wireCreateChannel('create-channel-form');
   wireCreateChannel('create-channel-form-sidebar');
 
-  // Sidebar "+" toggles the create-channel <details>; bound here so we can drop the
-  // inline onclick (CSP forbids inline event handlers under script-src 'self').
-  document.getElementById('sidebar-create-add-btn')?.addEventListener('click', () => {
-    document.getElementById('sidebar-create-toggle')?.click();
-  });
+  // Sidebar "+" opens the create-channel form as a popover anchored to the button. Bound here
+  // rather than inline because the CSP forbids inline handlers (script-src 'self').
+  //
+  // A popover has obligations a <details> block didn't: it has to close on Escape and on a click
+  // elsewhere, or it strands the user with a floating panel and no obvious way out; and focus has
+  // to move into it on open and back to the button on close, or a keyboard user tabs into a form
+  // they can't see and never gets back.
+  const wirePopover = (buttonId, popoverId, firstFieldSelector) => {
+    const button = document.getElementById(buttonId);
+    const popover = document.getElementById(popoverId);
+    if (!button || !popover) return;
+
+    const isOpen = () => !popover.hidden;
+    const close = ({ refocus = true } = {}) => {
+      if (!isOpen()) return;
+      popover.hidden = true;
+      button.setAttribute('aria-expanded', 'false');
+      if (refocus) button.focus();
+    };
+    const open = () => {
+      popover.hidden = false;
+      button.setAttribute('aria-expanded', 'true');
+      popover.querySelector(firstFieldSelector)?.focus();
+    };
+
+    button.addEventListener('click', (e) => {
+      e.stopPropagation();   // don't let the outside-click handler immediately re-close it
+      isOpen() ? close() : open();
+    });
+    popover.addEventListener('click', (e) => e.stopPropagation());
+    document.addEventListener('click', () => close({ refocus: false }));
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && isOpen()) close();
+    });
+    // A submit navigates away on success; on failure the form stays open with the message.
+    return { close };
+  };
+
+  wirePopover('sidebar-create-add-btn', 'sidebar-create-popover', 'input[name="name"]');
 
   // ---------- Group conversation create ----------
   // Tiny <details>-driven form. The "+" beside the "Direct messages" header opens the
@@ -1196,6 +1230,25 @@ presenceMenu.init();
     return li;
   };
 
+  /**
+   * Scroll to the bottom now, and again as each image inside {@code el} finishes loading.
+   *
+   * An image attachment has no height until its bytes arrive, so a single synchronous scroll
+   * lands on what is momentarily the bottom; the image then loads, the container grows, and the
+   * message the user just posted ends up below the fold. The initial page load already handles
+   * this — the live append path did not, which is why sending a picture left you stranded above
+   * it. `error` counts too: a broken image still changes the layout when it collapses.
+   */
+  const stickToBottomThroughImageLoads = (el) => {
+    const stick = () => { messagesEl.scrollTop = messagesEl.scrollHeight; };
+    stick();
+    el.querySelectorAll('img').forEach((img) => {
+      if (img.complete) return;
+      img.addEventListener('load', stick, { once: true });
+      img.addEventListener('error', stick, { once: true });
+    });
+  };
+
   const appendMessage = (msg) => {
     // De-dupe: a live broadcast can race the final infinite-scroll page (which flips
     // infiniteScrollDownDone) and arrive for a message already rendered — without this
@@ -1225,7 +1278,7 @@ presenceMenu.init();
     attachActions(li);
     flagAsAppearing(li);
     if (nearBottom || msg.authorUsername === myUsernameMeta) {
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+      stickToBottomThroughImageLoads(li);
     }
     positionDayDividers();
   };

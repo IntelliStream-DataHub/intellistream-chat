@@ -126,7 +126,19 @@
     li.append(avatar, right);
     messagesEl.appendChild(li);
     attachActions(li);
-    if (nearBottom || msg.authorUsername === myUsername) li.scrollIntoView({ block: 'end' });
+    if (nearBottom || msg.authorUsername === myUsername) {
+      // Scroll now and again as each image lands. An image attachment has no height until its
+      // bytes arrive, so a single scroll stops at what is momentarily the bottom and the picture
+      // then pushes itself below the fold. The first-paint path below already accounts for this;
+      // the live append path did not.
+      const stick = () => li.scrollIntoView({ block: 'end' });
+      stick();
+      li.querySelectorAll('img').forEach((img) => {
+        if (img.complete) return;
+        img.addEventListener('load', stick, { once: true });
+        img.addEventListener('error', stick, { once: true });
+      });
+    }
   };
 
   // ---------- Reactions / actions toolbar (mirrors chat.js patterns) ----------
