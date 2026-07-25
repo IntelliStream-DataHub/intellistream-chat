@@ -374,6 +374,22 @@
   tbody tr:last-child td { border-bottom: 0; }
   table.nowrap-1 td:first-child { white-space: nowrap; }
 
+  /* Config tables are Key + Env + Default + prose, and every identifier column was nowrap, so
+     nothing could give and the table ran past its container. Identifiers may break: property keys
+     at their dots, env vars at their underscores. The description column then gets the room. */
+  table.cfg td:nth-child(-n+3),
+  table.cfg td:nth-child(-n+3) code {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  table.cfg { min-width: 0; }
+  table.cfg td:nth-child(1) { width: 23%; }
+  table.cfg td:nth-child(2) { width: 20%; }
+  table.cfg td:nth-child(3) { width: 19%; }
+  /* Defaults are often URLs. Prefer a break after a slash or a dot to one mid-word; `anywhere`
+     stays as the fallback so a single unbroken token still cannot overflow. */
+  table.cfg td:nth-child(3) code { word-break: break-word; }
+
   /* ---------- Callouts ---------- */
 
   .note, .warn, .measured {
@@ -1287,7 +1303,7 @@
 <section class="doc" id="config-http">
   <h3><span class="marker"></span>HTTP and the proxy</h3>
   <div class="tw">
-  <table class="nowrap-1">
+  <table class="nowrap-1 cfg">
     <thead><tr><th>Key</th><th>Env</th><th>Default</th><th>What it does</th></tr></thead>
     <tbody>
       <tr>
@@ -1334,7 +1350,7 @@
 <section class="doc" id="config-db">
   <h3><span class="marker"></span>Database</h3>
   <div class="tw">
-  <table class="nowrap-1">
+  <table class="nowrap-1 cfg">
     <thead><tr><th>Key</th><th>Env</th><th>Default</th></tr></thead>
     <tbody>
       <tr><td><code>spring.datasource.url</code></td><td><code>ICHAT_DB_URL</code></td><td><code>jdbc:postgresql://localhost:5432/intellistream_chat</code></td></tr>
@@ -1364,7 +1380,7 @@
 <section class="doc" id="config-identity">
   <h3><span class="marker"></span>Identity and Keycloak</h3>
   <div class="tw">
-  <table class="nowrap-1">
+  <table class="nowrap-1 cfg">
     <thead><tr><th>Key</th><th>Env</th><th>Default</th><th>What it does</th></tr></thead>
     <tbody>
       <tr>
@@ -1411,7 +1427,7 @@
 <section class="doc" id="config-storage">
   <h3><span class="marker"></span>Storage and quotas</h3>
   <div class="tw">
-  <table class="nowrap-1">
+  <table class="nowrap-1 cfg">
     <thead><tr><th>Key</th><th>Env</th><th>Default</th><th>What it does</th></tr></thead>
     <tbody>
       <tr><td><code>ichat.attachments.dir</code></td><td><code>ICHAT_ATTACHMENTS_DIR</code></td><td><code>./data/attachments</code></td><td>Where uploaded files land.</td></tr>
@@ -1454,7 +1470,7 @@
 <section class="doc" id="config-search">
   <h3><span class="marker"></span>Search</h3>
   <div class="tw">
-  <table class="nowrap-1">
+  <table class="nowrap-1 cfg">
     <thead><tr><th>Key</th><th>Env</th><th>Default</th><th>What it does</th></tr></thead>
     <tbody>
       <tr>
@@ -1567,7 +1583,7 @@
     ban is sometimes the wrong ban. A scheduled purge then removes it for good.
   </p>
   <div class="tw">
-  <table class="nowrap-1">
+  <table class="nowrap-1 cfg">
     <thead><tr><th>Key</th><th>Env</th><th>Default</th><th>What it does</th></tr></thead>
     <tbody>
       <tr>
@@ -1681,7 +1697,7 @@
 <section class="doc" id="config-dev">
   <h3><span class="marker"></span>Assets and dev tools</h3>
   <div class="tw">
-  <table class="nowrap-1">
+  <table class="nowrap-1 cfg">
     <thead><tr><th>Key</th><th>Env</th><th>Default</th><th>What it does</th></tr></thead>
     <tbody>
       <tr>
@@ -1750,7 +1766,7 @@ keycloak.client-id       -&gt; OIDC client id
 keycloak.client-secret   -&gt; OIDC client secret
 keycloak.issuer-uri      -&gt; both the OIDC client and the resource server issuer</code></pre>
   <div class="tw">
-  <table class="nowrap-1">
+  <table class="nowrap-1 cfg">
     <thead><tr><th>Key</th><th>Env</th><th>Default</th></tr></thead>
     <tbody>
       <tr><td><code>ichat.vault.enabled</code></td><td><code>ICHAT_VAULT_ENABLED</code></td><td><code>false</code></td></tr>
