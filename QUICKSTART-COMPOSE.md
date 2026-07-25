@@ -1,6 +1,6 @@
-# ThreadOrbit — quick start (Docker/Podman Compose)
+# IntelliStream Chat — quick start (Docker/Podman Compose)
 
-The fastest way to a running ThreadOrbit: Postgres 18 and Keycloak 26 come up in containers
+The fastest way to a running IntelliStream Chat: Postgres 18 and Keycloak 26 come up in containers
 with everything pre-configured (realm, OIDC client, two test users); the app itself runs from
 Gradle on the host.
 
@@ -23,12 +23,12 @@ This starts:
 
 | Service  | Image                        | Address                 | Credentials |
 |----------|------------------------------|-------------------------|-------------|
-| Postgres | `postgres:18-alpine`         | `127.0.0.1:5432`        | `threadorbit` / `threadorbit`, db `threadorbit_chat` |
+| Postgres | `postgres:18-alpine`         | `127.0.0.1:5432`        | `intellistream` / `intellistream`, db `intellistream_chat` |
 | Keycloak | `keycloak:26.0`              | port `8081` (see note)  | admin console: `admin` / `admin` |
 
-Keycloak imports the `threadorbit` realm from `keycloak/realm.json` on first boot (takes
-15–30 s — watch `podman compose logs -f keycloak` for `Imported realm threadorbit`). The realm
-ships an OIDC client (`threadorbit`) and two test users: **`alice`/`alice`** and **`bob`/`bob`**.
+Keycloak imports the `intellistream` realm from `keycloak/realm.json` on first boot (takes
+15–30 s — watch `podman compose logs -f keycloak` for `Imported realm intellistream`). The realm
+ships an OIDC client (`intellistream-chat`) and two test users: **`alice`/`alice`** and **`bob`/`bob`**.
 
 > **Note — bind address:** the compose file binds Keycloak to a LAN IP so phones on the same
 > network can log in during mobile testing. If you don't need that, change the `keycloak`
@@ -42,7 +42,7 @@ An optional OpenBao (Vault) dev server is profile-gated — only started with
 
 ```bash
 # The OIDC client secret is baked into the dev realm file; export it for the app:
-export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="threadorbit") | .secret' keycloak/realm.json)
+export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="intellistream-chat") | .secret' keycloak/realm.json)
 
 ./gradlew bootRun
 ```
@@ -72,4 +72,4 @@ podman compose down -v     # also wipe the volume — full reset, realm re-impor
 - **`invalid_client` on login** — `KEYCLOAK_CLIENT_SECRET` isn't exported in the shell running
   `bootRun` (step 2).
 - **Login redirect loops** — Keycloak was still importing the realm; wait for
-  `Imported realm threadorbit` in its logs.
+  `Imported realm intellistream` in its logs.

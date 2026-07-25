@@ -33,8 +33,8 @@ if [ -n "$OLD" ]; then
 fi
 
 export SPRING_PROFILES_ACTIVE=bench
-export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[]|select(.clientId=="threadorbit").secret' "$ROOT/keycloak/realm.json")
-export KEYCLOAK_ISSUER_URI="http://${KC_HOST}:8081/realms/threadorbit"
+export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[]|select(.clientId=="intellistream-chat").secret' "$ROOT/keycloak/realm.json")
+export KEYCLOAK_ISSUER_URI="http://${KC_HOST}:8081/realms/intellistream"
 export BENCH_SERVER_ADDRESS=0.0.0.0
 # The generator sends Origin: http://<dstIP>:<port>, so every loopback address it uses must match.
 export BENCH_ALLOWED_ORIGINS="http://127.0.0.*:${PORT},http://localhost:${PORT}"
@@ -47,10 +47,10 @@ export BENCH_LUCENE_DIR=${BENCH_LUCENE_DIR:-./data/lucene-bench-wide}
 CMD=("$JAVA" -Xmx"$HEAP" -XX:+UseZGC --enable-native-access=ALL-UNNAMED
      -Dserver.port="$PORT"
      -Dspring.datasource.hikari.maximum-pool-size=30
-     -Dthreadorbit.ws.socket-buffer-bytes="$SOCKBUF"
-     -Dthreadorbit.ws.binary-buffer-bytes="$BINBUF"
-     -Dthreadorbit.write-behind.enabled=false
-     -jar "$ROOT"/build/libs/threadorbit-*-SNAPSHOT.jar)
+     -Dintellistream.ws.socket-buffer-bytes="$SOCKBUF"
+     -Dintellistream.ws.binary-buffer-bytes="$BINBUF"
+     -Dintellistream.write-behind.enabled=false
+     -jar "$ROOT"/build/libs/intellistream-chat-*-SNAPSHOT.jar)
 
 : > "$LOG"
 if [ -n "$BUDGET" ]; then

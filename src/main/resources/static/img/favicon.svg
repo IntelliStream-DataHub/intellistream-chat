@@ -1,5 +1,5 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ThreadOrbit">
-  <title>ThreadOrbit</title>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="IntelliStream Chat">
+  <title>IntelliStream Chat</title>
   <!-- Favicon variant of the "Thread in orbit" mark: static (no animation burning cycles in a
        background tab) and weighted heavier — thicker arc, larger core and bead, and no faint
        guide ring, which would vanish at this size anyway — so it stays legible at 16px. The full

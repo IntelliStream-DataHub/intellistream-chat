@@ -1,7 +1,7 @@
 # Third-Party Notices
 
-ThreadOrbit bundles or vendors the third-party components below. Each is the property of its
-respective copyright holders and is used under the license noted. ThreadOrbit itself is licensed
+IntelliStream Chat bundles or vendors the third-party components below. Each is the property of its
+respective copyright holders and is used under the license noted. IntelliStream Chat itself is licensed
 under Apache-2.0 (see [`LICENSE`](LICENSE)).
 
 ## Vendored front-end assets (shipped in the repo)

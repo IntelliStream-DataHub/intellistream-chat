@@ -15,7 +15,7 @@
  */
 
 /**
- * In-browser smoke runner. Loaded only when threadorbit.dev-tools.enabled=true (auto in
+ * In-browser smoke runner. Loaded only when intellistream.dev-tools.enabled=true (auto in
  * the dev Spring profile, never in prod). Type `runTests()` in the browser console
  * to execute every registered check against the LIVE page and deployment.
  *
@@ -48,7 +48,7 @@ window.runTests = async function runTests() {
     let fail = 0;
     const failures = [];
     console.group(
-        '%cThreadOrbit smoke tests · ' + tests.length + ' checks',
+        '%cIntelliStream Chat smoke tests · ' + tests.length + ' checks',
         'font-weight:bold;color:#4af;font-size:14px'
     );
     for (const t of tests) {
@@ -81,7 +81,7 @@ window.runTests = async function runTests() {
 };
 
 console.log(
-    '%cThreadOrbit dev-tools loaded · type runTests() to run ' + tests.length + ' smoke tests',
+    '%cIntelliStream Chat dev-tools loaded · type runTests() to run ' + tests.length + ' smoke tests',
     'color:#4af'
 );
 

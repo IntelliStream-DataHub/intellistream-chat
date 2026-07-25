@@ -11,7 +11,7 @@ JS=$("$JAVA" "$HERE/AuthProbe.java" "$BASE" "$USER" "$PASS" 2>/dev/null | grep -
 [ -n "$JS" ] || { echo "could not authenticate to $BASE"; exit 1; }
 
 for s in total resolve-user load-channel slash-dispatch persist persist.access-check persist.insert persist.mention-sync persist.enqueue persist.index mention-readback poll-lookup render broadcast; do
-  curl -s -H "Cookie: JSESSIONID=$JS" "$BASE/actuator/metrics/threadorbit.write.stage?tag=stage:$s" \
+  curl -s -H "Cookie: JSESSIONID=$JS" "$BASE/actuator/metrics/intellistream.write.stage?tag=stage:$s" \
     | jq -r --arg s "$s" '[$s,
         ([.measurements[]|select(.statistic=="COUNT").value][0] // 0),
         ([.measurements[]|select(.statistic=="TOTAL_TIME").value][0] // 0),

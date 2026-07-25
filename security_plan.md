@@ -1,12 +1,12 @@
-# ThreadOrbit — Security Plan
+# IntelliStream Chat — Security Plan
 
 > **Note:** this is the historical hardening audit and checklist. For the current, actively
 > tracked security/bug backlog and its status, see [`tasks.md`](tasks.md).
 
 > **Companion test files:**
-> - `src/test/java/ai/intellistream/threadorbit/integration/SecurityBoundaryIT.java` — locks in the
+> - `src/test/java/ai/intellistream/chat/integration/SecurityBoundaryIT.java` — locks in the
 >   AuthN/AuthZ/sanitisation invariants the codebase has always asserted.
-> - `src/test/java/ai/intellistream/threadorbit/integration/InternetExposureSecurityIT.java` — locks
+> - `src/test/java/ai/intellistream/chat/integration/InternetExposureSecurityIT.java` — locks
 >   in the additions made for public-internet exposure (per-user upload cap from Keycloak,
 >   GET rate limits, Lucene wildcard refusal).
 

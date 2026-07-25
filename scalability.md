@@ -1,6 +1,6 @@
-# ThreadOrbit — performance and scalability on a single machine
+# IntelliStream Chat — performance and scalability on a single machine
 
-ThreadOrbit is designed to be a chat server you run on one box. This document reports what one box
+IntelliStream Chat is designed to be a chat server you run on one box. This document reports what one box
 does: how many messages a second it persists and delivers, how many concurrent WebSocket
 connections it holds while still serving them, what governs each of those limits, and how to size a
 machine for your own workload.
@@ -68,9 +68,9 @@ The rest of the method:
 - **Rate limits off** (`bench` profile). All connections authenticate as one user, so the per-user
   30 messages/minute cap would otherwise cap the entire test at 30 messages. That is a test
   artifact, not a server limit; the limiter is on in every other profile.
-- **One OIDC login,** with the session reused across connections. This measures ThreadOrbit, not
+- **One OIDC login,** with the session reused across connections. This measures IntelliStream Chat, not
   Keycloak.
-- **Per-stage server timers** (`threadorbit.write.stage`, scraped by `benchmark/write-stages.sh`)
+- **Per-stage server timers** (`intellistream.write.stage`, scraped by `benchmark/write-stages.sh`)
   record where each message's time goes, so tuning decisions came from the breakdown rather than
   from intuition.
 
@@ -162,7 +162,7 @@ by default.** The run used 2,000 rooms, so most broadcasts missed, and each miss
 100,000 subscriptions — making broadcast cost proportional to total subscriptions rather than to
 room size.
 
-`BrokerSubscriptionCacheConfig` raises the limit (`threadorbit.ws.subscription-cache-limit`,
+`BrokerSubscriptionCacheConfig` raises the limit (`intellistream.ws.subscription-cache-limit`,
 default **16384**):
 
 | 100k tier | before | after |
@@ -201,7 +201,7 @@ live set under ZGC — the same method also reported per-connection heap *rising
 identical code. A controlled A/B in a fixed cgroup then showed the buffer change was not measurable
 at all: two ways of drawing a line through the same two runs disagreed by 70% and disagreed about
 which configuration was better. The defaults are back to Tomcat's 8192 bytes.
-`threadorbit.ws.socket-buffer-bytes` and `.binary-buffer-bytes` remain as knobs for a deployment
+`intellistream.ws.socket-buffer-bytes` and `.binary-buffer-bytes` remain as knobs for a deployment
 that knows its message sizes. **Use Native Memory Tracking (`-XX:NativeMemoryTracking=summary`
 plus `jcmd VM.native_memory`) rather than RSS arithmetic if you need to settle this.**
 
@@ -242,7 +242,7 @@ people's clients only ever see durable messages.
 
 ### Write-behind batching
 
-`MessageWriteBehind` (on by default, `threadorbit.write-behind.enabled=false` to disable) allocates
+`MessageWriteBehind` (on by default, `intellistream.write-behind.enabled=false` to disable) allocates
 message ids in blocks from `messages_id_seq` up front, so a message has its real primary key the
 moment it is accepted, then hands the row to a queue that flushers drain into batched multi-row
 INSERTs. Roughly 14,000 transactions/second become ~55 batches/second. This was the single largest
@@ -305,7 +305,7 @@ STOMP clientInboundChannel  -> ThreadPoolTaskExecutor[prefix=stomp-inbound-, cor
 ```
 
 **Check that line before trusting any throughput number.** Tunable via
-`threadorbit.ws.inbound-threads` / `outbound-threads` (48 / 96 in these runs; default `cores × 4`).
+`intellistream.ws.inbound-threads` / `outbound-threads` (48 / 96 in these runs; default `cores × 4`).
 The inbound pool wants to be about the size of the connection pool it feeds — threads beyond that
 just queue inside Hikari.
 

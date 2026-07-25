@@ -1,6 +1,6 @@
 # Security Policy
 
-ThreadOrbit is self-hosted chat that handles private messages, credentials, and file uploads,
+IntelliStream Chat is self-hosted chat that handles private messages, credentials, and file uploads,
 so we take security reports seriously. Thank you for helping keep it safe.
 
 ## Reporting a vulnerability
@@ -12,7 +12,7 @@ Report privately through one of:
 - **GitHub Security Advisories** — the preferred channel: open a draft advisory under the
   repository's **Security → Advisories → Report a vulnerability** tab. This keeps the report
   private until a fix ships.
-- **Email** — `security@intellistream.ai` with a subject starting `[ThreadOrbit security]`.
+- **Email** — `security@intellistream.ai` with a subject starting `[IntelliStream Chat security]`.
 
 Please include:
 
@@ -26,7 +26,7 @@ you. We'll credit reporters in the release notes unless you prefer to remain ano
 
 ## Supported versions
 
-ThreadOrbit is pre-1.0 and ships from `main`. Security fixes land on `main`; there is no
+IntelliStream Chat is pre-1.0 and ships from `main`. Security fixes land on `main`; there is no
 back-port branch yet. Run a recent build.
 
 ## Operator responsibilities

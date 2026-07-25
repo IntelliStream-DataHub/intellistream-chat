@@ -1,7 +1,7 @@
 # WebSocket load benchmark
 
 A pure-JDK (Java 25 virtual threads + `java.net.http` WebSocket, no dependencies) STOMP-over-WS
-load generator for ThreadOrbit. Measures message throughput, connection scalability, delivery
+load generator for IntelliStream Chat. Measures message throughput, connection scalability, delivery
 latency, and burst behaviour. Results and analysis live in [`../scalability.md`](../scalability.md).
 
 ## Files
@@ -31,11 +31,11 @@ the loopback redirect URI:
 KC=http://<keycloak-host>:8081
 TOK=$(curl -s -X POST "$KC/realms/master/protocol/openid-connect/token" \
        -d 'grant_type=password&client_id=admin-cli&username=admin&password=admin' | jq -r .access_token)
-ID=$(curl -s -H "Authorization: Bearer $TOK" "$KC/admin/realms/threadorbit/clients?clientId=threadorbit" | jq -r '.[0].id')
-CUR=$(curl -s -H "Authorization: Bearer $TOK" "$KC/admin/realms/threadorbit/clients/$ID")
+ID=$(curl -s -H "Authorization: Bearer $TOK" "$KC/admin/realms/intellistream/clients?clientId=intellistream-chat" | jq -r '.[0].id')
+CUR=$(curl -s -H "Authorization: Bearer $TOK" "$KC/admin/realms/intellistream/clients/$ID")
 echo "$CUR" | jq '.redirectUris += ["http://127.0.0.1:8080/*"] | .webOrigins += ["http://127.0.0.1:8080"]' \
   | curl -s -X PUT -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' -d @- \
-      "$KC/admin/realms/threadorbit/clients/$ID"
+      "$KC/admin/realms/intellistream/clients/$ID"
 ```
 
 Then:
@@ -89,7 +89,7 @@ code is roughly half of warm, which is enough to invent a bottleneck that doesn'
 # realistic rooms: 2000 connections in 50-member rooms, closed loop
 java benchmark/WsLoadTest.java --base http://127.0.0.1:8080 --user alice --pass alice \
   --conns 2000 --room-size 50 --in-flight 16 --ramp 5 --duration 25 \
-  --server-pid "$(pgrep -f 'threadorbit.*SNAPSHOT.jar' | head -1)" \
+  --server-pid "$(pgrep -f 'intellistream-chat.*SNAPSHOT.jar' | head -1)" \
   --report benchmark/results/rooms50.json
 ```
 
@@ -139,7 +139,7 @@ far below the number of threads you think are working, something upstream is ser
 millions of rows, so to reclaim the space entirely:
 
 ```bash
-podman exec -i chat_postgres_1 psql -U threadorbit -d threadorbit_chat \
+podman exec -i chat_postgres_1 psql -U intellistream -d intellistream_chat \
   -c "delete from channels where slug like 'bench-room-%';"
 ```
 

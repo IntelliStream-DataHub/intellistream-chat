@@ -4,7 +4,7 @@
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
     <meta name="theme-color" content="#1e325c"/>
-    <title th:text="${activeChannel != null ? '#' + activeChannel.name + ' · ' + appTitle : appTitle}">ThreadOrbit</title>
+    <title th:text="${activeChannel != null ? '#' + activeChannel.name + ' · ' + appTitle : appTitle}">IntelliStream Chat</title>
     <link rel="icon" th:href="${appFaviconUrl}"/>
     <th:block th:replace="~{fragments/assets :: css('app')}"/>
     <meta name="_csrf" th:content="${_csrf != null ? _csrf.token : ''}"/>
@@ -38,7 +38,7 @@
         </button>
         <a th:href="@{/channels}" class="logo">
             <th:block th:replace="~{fragments/logo :: mark('logo-mark')}"/>
-            <span class="logo-text" th:text="${appTitle}">ThreadOrbit</span>
+            <span class="logo-text" th:text="${appTitle}">IntelliStream Chat</span>
         </a>
     </div>
     <div class="topbar-center">
@@ -494,7 +494,7 @@
 <div id="tutorial-overlay" class="tutorial-overlay" th:if="${!me.tutorialDismissed}" role="dialog" aria-modal="true" aria-labelledby="tutorial-title">
     <div class="tutorial-card">
         <button type="button" class="tutorial-skip" id="tutorial-skip" title="Skip tutorial">Skip</button>
-        <h2 id="tutorial-title" th:text="'Welcome to ' + ${appTitle}">Welcome to ThreadOrbit</h2>
+        <h2 id="tutorial-title" th:text="'Welcome to ' + ${appTitle}">Welcome to IntelliStream Chat</h2>
         <ol class="tutorial-steps">
             <li><strong>Channels</strong> live in the sidebar on the left. Public ones are joinable; the <span aria-hidden="true">+</span> button creates a new one.</li>
             <li><strong>Send messages</strong> with the composer at the bottom. Markdown is supported — try <code>**bold**</code>, <code>`code`</code>, or fenced blocks.</li>
@@ -516,7 +516,7 @@
      files instead. Declared in assets.gradle; see ASSETS.md. -->
 <th:block th:replace="~{fragments/assets :: js('chat')}"/>
 <script type="module" th:src="@{/js/chat/index.js}" defer></script>
-<!-- In-browser smoke runner — only loaded when threadorbit.dev-tools.enabled=true (auto in
+<!-- In-browser smoke runner — only loaded when intellistream.dev-tools.enabled=true (auto in
      the dev profile, off in prod). Type runTests() in the devtools console. -->
 <script th:if="${devToolsEnabled}" type="module" th:src="@{/js/test/index.js}" defer></script>
 </body>

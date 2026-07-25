@@ -1,4 +1,4 @@
-# ThreadOrbit — Security, Bug-fix & Open-Source Readiness Plan
+# IntelliStream Chat — Security, Bug-fix & Open-Source Readiness Plan
 
 Generated 2026-07-23 from a five-track audit (web/API security, auth+WebSocket+config
 security, backend bugs/concurrency, front-end JS/XSS, open-source readiness), plus a
@@ -62,7 +62,7 @@ Legend: `[ ]` todo · severity in each heading · `file:line → fix`.
 
 ### DOC-1 · README setup is stale post-rename & setup-breaking  🟠 high
 - `README.md` still references the old `chat` realm/client and `default-roles-chat`
-  (lines 88, 645, 661, 696) while `keycloak/realm.json` is realm/client `threadorbit`; the
+  (lines 88, 645, 661, 696) while `keycloak/realm.json` is realm `intellistream` / client `intellistream-chat`; the
   repo-layout section claims `V1__…V13__…sql` but only `V1__init.sql` exists; line 895 claims
   "every source file carries the Apache header" (false — see OSS-2).
 - **Fix:** correct realm/client names, migration layout, and the header claim.
@@ -336,7 +336,7 @@ multi-tenant loops to a single un-routed pass (chat is single-tenant, one data d
   considered AI-slop, and there are bugs, even serious bugs" plus a Teams rant; it's the first
   thing every visitor reads. Keep the candor deliberately or rework it.
 - [x] **OSS-8 · Relocate the root `index.html`** — it's a 707-line standalone marketing page for
-  threadorbit.com, unreferenced by the build (the app's landing page is `templates/landing.html`).
+  intellistream.com, unreferenced by the build (the app's landing page is `templates/landing.html`).
   Move to `docs/`/`website/` or its own branch so the repo root isn't a marketing artifact.
 
 ### Nice-to-have
@@ -379,7 +379,7 @@ These were probed and found correct; recording them so they aren't re-litigated.
 - **Lucene** writes are deferred to afterCommit (never indexes rolled-back data) and use
   thread-safe writer/searcher closed in `@PreDestroy`. **Scheduled** jobs use `fixedDelay` (no
   overlap) and correct `@Lazy` self-injection for `REQUIRES_NEW`.
-- **`radiance`→`threadorbit` rename is complete** (`git grep -i radiance` clean); Gradle wrapper
+- **`radiance`→`threadorbit`→`intellistream-chat` renames are complete** (`git grep -i radiance` clean); Gradle wrapper
   committed; `.gitignore` thorough; `application.yml` secret-free with safe localhost defaults.
 
 ---

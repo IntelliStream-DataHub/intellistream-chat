@@ -1,6 +1,6 @@
-# Contributing to ThreadOrbit
+# Contributing to IntelliStream Chat
 
-Thanks for your interest in ThreadOrbit — a small, self-hostable Slack/Mattermost-style chat
+Thanks for your interest in IntelliStream Chat — a small, self-hostable Slack/Mattermost-style chat
 built with Spring Boot 4, Java 25, Postgres, Keycloak, and vanilla JS. Contributions of all
 sizes are welcome.
 
@@ -24,7 +24,7 @@ The fastest path is the compose stack — see **`QUICKSTART-COMPOSE.md`**:
 
 ```bash
 podman compose up -d          # Postgres 18 + Keycloak 26 (realm pre-imported)
-export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[]|select(.clientId=="threadorbit").secret' keycloak/realm.json)
+export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[]|select(.clientId=="intellistream-chat").secret' keycloak/realm.json)
 ./gradlew bootRun             # http://localhost:8080 — sign in as alice/alice
 ```
 
@@ -38,7 +38,7 @@ need to override local dev settings — `bootRun` auto-activates the `dev` profi
 
 ```bash
 ./gradlew test                                                   # everything (needs a container runtime for ITs)
-./gradlew test --tests 'ai.intellistream.threadorbit.service.*'  # pure unit tests, no containers
+./gradlew test --tests 'ai.intellistream.chat.service.*'  # pure unit tests, no containers
 ```
 
 - **Integration tests** (`src/test/java/.../integration/*IT.java`) run against a real Postgres

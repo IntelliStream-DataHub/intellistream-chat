@@ -2,9 +2,9 @@ services:
   postgres:
     image: docker.io/library/postgres:18-alpine
     environment:
-      POSTGRES_DB: threadorbit_chat
-      POSTGRES_USER: threadorbit
-      POSTGRES_PASSWORD: threadorbit
+      POSTGRES_DB: intellistream_chat
+      POSTGRES_USER: intellistream
+      POSTGRES_PASSWORD: intellistream
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
@@ -12,9 +12,9 @@ services:
       # postgres:18+, which puts the cluster in a major-version subdirectory so
       # in-place pg_upgrade --link can run without mount-point boundary issues.
       # See https://github.com/docker-library/postgres/pull/1259.
-      - threadorbit-chat-pg:/var/lib/postgresql
+      - intellistream-chat-pg:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U threadorbit -d threadorbit_chat"]
+      test: ["CMD-SHELL", "pg_isready -U intellistream -d intellistream_chat"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -45,7 +45,7 @@ services:
     profiles: ["openbao"]
     command: ["server", "-dev"]
     environment:
-      BAO_DEV_ROOT_TOKEN_ID: threadorbit-dev-token
+      BAO_DEV_ROOT_TOKEN_ID: intellistream-dev-token
       BAO_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
       BAO_ADDR: http://0.0.0.0:8200
     ports:
@@ -62,4 +62,4 @@ services:
       retries: 10
 
 volumes:
-  threadorbit-chat-pg:
+  intellistream-chat-pg:

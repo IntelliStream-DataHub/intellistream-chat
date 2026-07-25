@@ -1,7 +1,7 @@
 {
-  "realm": "threadorbit",
-  "displayName": "ThreadOrbit Chat",
-  "displayNameHtml": "<strong>ThreadOrbit</strong> Chat",
+  "realm": "intellistream",
+  "displayName": "IntelliStream Chat",
+  "displayNameHtml": "<strong>IntelliStream Chat</strong> Chat",
   "enabled": true,
   "registrationAllowed": true,
   "loginWithEmailAllowed": true,
@@ -11,7 +11,7 @@
   "ssoSessionMaxLifespanRememberMe": 28800,
   "clients": [
     {
-      "clientId": "threadorbit",
+      "clientId": "intellistream-chat",
       "enabled": true,
       "publicClient": false,
       "secret": "DAJpMxDkLxHidawHQXu8MMlmjEiKQRZzWRiLzFBQ",

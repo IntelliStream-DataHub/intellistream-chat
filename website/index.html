@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ThreadOrbit — self-hosted Slack/Mattermost-style chat</title>
+<title>IntelliStream Chat — self-hosted Slack/Mattermost-style chat</title>
 <meta name="description" content="A small, fast, self-hostable workspace chat built with Spring Boot 4, Java 25, PostgreSQL, Keycloak, STOMP-over-WebSocket, Thymeleaf and vanilla JS.">
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><circle cx='32' cy='32' r='8' fill='%23f59e0b'/><g stroke='%23f59e0b' stroke-width='4' stroke-linecap='round'><line x1='32' y1='10' x2='32' y2='18'/><line x1='32' y1='46' x2='32' y2='54'/><line x1='10' y1='32' x2='18' y2='32'/><line x1='46' y1='32' x2='54' y2='32'/></g><g stroke='%23ea580c' stroke-width='4' stroke-linecap='round'><line x1='16' y1='16' x2='22' y2='22'/><line x1='42' y1='42' x2='48' y2='48'/><line x1='48' y1='16' x2='42' y2='22'/><line x1='22' y1='42' x2='16' y2='48'/></g></svg>">
 <style>
@@ -343,7 +343,7 @@
           <line x1="22" y1="42" x2="16" y2="48"/>
         </g>
       </svg>
-      ThreadOrbit
+      IntelliStream Chat
     </a>
     <nav>
       <a href="#why">Why</a>
@@ -381,7 +381,7 @@
     </svg>
     <h1>Workplace chat <span class="accent">you actually own</span></h1>
     <p class="lede">
-      ThreadOrbit is a small, fast, self-hostable Slack/Mattermost-style chat
+      IntelliStream Chat is a small, fast, self-hostable Slack/Mattermost-style chat
       app. Built with Spring Boot 4, Java 25, PostgreSQL, Keycloak,
       STOMP-over-WebSocket, Thymeleaf and vanilla JS &mdash; no SPA framework,
       no telemetry, no SSO paywall.
@@ -467,7 +467,7 @@
       If you want a team-chat / collaboration tool that doesn't quite
       match Slack or Mattermost &mdash; internal-only, compliance-locked,
       embedded inside another product, an unusual channel taxonomy, a
-      domain-specific slash-command surface &mdash; ThreadOrbit is small
+      domain-specific slash-command surface &mdash; IntelliStream Chat is small
       enough to fork and extend with <a href="https://www.claude.com/product/claude-code" rel="noopener">Claude Code</a>
       rather than build from scratch. The codebase was itself built this
       way; that's the workflow it was designed for.
@@ -475,7 +475,7 @@
 
     <div class="qs-step">
       <h3><span class="num">1</span>Fork and rename</h3>
-      <p class="qs-note">Package is <code>ai.intellistream.threadorbit</code>; the slug <code>threadorbit</code> appears in <code>application.yml</code>, <code>keycloak/realm.json</code>, <code>docker-compose.yml</code>, the Flyway migrations and a few CSS / SVG files. One search-and-replace pass plus a fresh <code>V1__init.sql</code> usually covers it.</p>
+      <p class="qs-note">Package is <code>ai.intellistream.chat</code>. Four slugs carry the product name and they are deliberately distinct: config prefix and Postgres role <code>intellistream</code>, Keycloak realm <code>intellistream</code>, and OIDC client / Gradle artifact / systemd unit / <code>/opt</code> path <code>intellistream-chat</code>. Environment variables are <code>INTELLISTREAM_*</code>. Rename per slug, then regenerate <code>V1__init.sql</code>.</p>
     </div>
 
     <div class="qs-step">
@@ -667,23 +667,23 @@ export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock
 
     <div class="qs-step">
       <h3><span class="num">4</span>Optional: boot with the prod profile</h3>
-<pre><code>export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="threadorbit") | .secret' keycloak/realm.json)
+<pre><code>export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="intellistream-chat") | .secret' keycloak/realm.json)
 SPRING_PROFILES_ACTIVE=prod ./gradlew bootRun</code></pre>
       <p class="qs-note">Verifies the production configuration locally. The containers from step 1 must still be running, and <code>KEYCLOAK_CLIENT_SECRET</code> has no default outside the dev profile &mdash; a missing prod secret fails fast at boot instead of silently using a baked-in dev value.</p>
     </div>
 
     <div class="qs-step">
       <h3><span class="num">5</span>Optional: skip Podman, use external Postgres + Keycloak</h3>
-<pre><code>export THREADORBIT_DB_URL=jdbc:postgresql://db.example.com:5432/threadorbit_chat
-export THREADORBIT_DB_USERNAME=threadorbit
-export THREADORBIT_DB_PASSWORD=...
-export KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/threadorbit
+<pre><code>export INTELLISTREAM_DB_URL=jdbc:postgresql://db.example.com:5432/intellistream_chat
+export INTELLISTREAM_DB_USERNAME=intellistream
+export INTELLISTREAM_DB_PASSWORD=...
+export KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/intellistream
 export KEYCLOAK_CLIENT_SECRET=...
 ./gradlew bootRun</code></pre>
-      <p class="qs-note">Already running Postgres 18 and Keycloak 26 elsewhere? Point the app at them and skip step 1. Import <code>keycloak/realm.json</code> via the Keycloak admin console (<strong>Realms &rarr; Import</strong>) and regenerate the client secret. Flyway runs the schema on first boot &mdash; no manual SQL beyond <code>CREATE DATABASE threadorbit_chat OWNER threadorbit</code>.</p>
-<pre><code>export THREADORBIT_VAULT_ENABLED=true
-export THREADORBIT_VAULT_URI=https://vault.example.com:8200
-export THREADORBIT_VAULT_TOKEN=...
+      <p class="qs-note">Already running Postgres 18 and Keycloak 26 elsewhere? Point the app at them and skip step 1. Import <code>keycloak/realm.json</code> via the Keycloak admin console (<strong>Realms &rarr; Import</strong>) and regenerate the client secret. Flyway runs the schema on first boot &mdash; no manual SQL beyond <code>CREATE DATABASE intellistream_chat OWNER intellistream</code>.</p>
+<pre><code>export INTELLISTREAM_VAULT_ENABLED=true
+export INTELLISTREAM_VAULT_URI=https://vault.example.com:8200
+export INTELLISTREAM_VAULT_TOKEN=...
 ./gradlew bootRun</code></pre>
       <p class="qs-note">To pull the DB password and OIDC client secret from Vault / OpenBao instead, enable the KV-v2 backend. Expected keys: <code>db.username</code>, <code>db.password</code>, <code>keycloak.client-id</code>, <code>keycloak.client-secret</code>, <code>keycloak.issuer-uri</code>. The bundled <code>docker-compose.yml</code> has a profile-gated OpenBao dev container for trying this locally.</p>
     </div>

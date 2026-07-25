@@ -1,15 +1,15 @@
 spring:
   application:
-    name: threadorbit
+    name: intellistream-chat
 
   threads:
     virtual:
       enabled: true
 
   datasource:
-    url: ${THREADORBIT_DB_URL:jdbc:postgresql://localhost:5432/threadorbit_chat}
-    username: ${THREADORBIT_DB_USERNAME:threadorbit}
-    password: ${THREADORBIT_DB_PASSWORD:threadorbit}
+    url: ${INTELLISTREAM_DB_URL:jdbc:postgresql://localhost:5432/intellistream_chat}
+    username: ${INTELLISTREAM_DB_USERNAME:intellistream}
+    password: ${INTELLISTREAM_DB_PASSWORD:intellistream}
 
   jpa:
     hibernate:
@@ -30,11 +30,11 @@ spring:
       client:
         registration:
           keycloak:
-            client-id: ${KEYCLOAK_CLIENT_ID:threadorbit}
+            client-id: ${KEYCLOAK_CLIENT_ID:intellistream-chat}
             # No default — operators MUST supply the secret via env (or Vault). The previous
             # default was the dev secret baked into keycloak/realm.json; if that string ever
             # leaves the repo it becomes a credential. For local dev, export it from realm.json:
-            #   export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="threadorbit") | .secret' keycloak/realm.json)
+            #   export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="intellistream-chat") | .secret' keycloak/realm.json)
             client-secret: ${KEYCLOAK_CLIENT_SECRET:}
             scope: openid,profile,email
             authorization-grant-type: authorization_code
@@ -45,11 +45,11 @@ spring:
             # Default points at a localhost-bound Keycloak. Local-dev with the bundled
             # docker-compose stack (Keycloak bound to a LAN IP) overrides this in
             # application-dev.properties. Production sets KEYCLOAK_ISSUER_URI explicitly.
-            issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/threadorbit}
+            issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/intellistream}
             user-name-attribute: preferred_username
       resourceserver:
         jwt:
-          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/threadorbit}
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/intellistream}
 
   thymeleaf:
     cache: false
@@ -74,19 +74,19 @@ server:
       # request is treated as secure and the cookie is marked Secure automatically.
       # SameSite is set programmatically via SecurityConfig.sessionCookieSameSite.
 
-threadorbit:
+intellistream:
   # JS/CSS asset bundles (assets.gradle / ASSETS.md). Default (false) serves the minified,
   # hash-versioned bundles built by `buildAssets`. The dev profile flips this to true to serve
   # the original source files — edit + refresh, no rebuild.
   assets:
-    unbundled: ${THREADORBIT_ASSETS_UNBUNDLED:false}
+    unbundled: ${INTELLISTREAM_ASSETS_UNBUNDLED:false}
 
   attachments:
-    dir: ${THREADORBIT_ATTACHMENTS_DIR:./data/attachments}
+    dir: ${INTELLISTREAM_ATTACHMENTS_DIR:./data/attachments}
   avatars:
-    dir: ${THREADORBIT_AVATARS_DIR:./data/avatars}
+    dir: ${INTELLISTREAM_AVATARS_DIR:./data/avatars}
   branding:
-    dir: ${THREADORBIT_BRANDING_DIR:./data/branding}
+    dir: ${INTELLISTREAM_BRANDING_DIR:./data/branding}
 
   # Optional Vault / OpenBao secret backend. Off by default — the env-var → application.yml
   # default chain handles credentials. When enabled=true, VaultEnvironmentPostProcessor reads
@@ -100,10 +100,10 @@ threadorbit:
   #   keycloak.client-secret  - OIDC client secret
   #   keycloak.issuer-uri     - Keycloak realm URL (used by both client + resource server)
   vault:
-    enabled: ${THREADORBIT_VAULT_ENABLED:false}
-    uri: ${THREADORBIT_VAULT_URI:}
-    token: ${THREADORBIT_VAULT_TOKEN:}
-    path: ${THREADORBIT_VAULT_PATH:threadorbit}
+    enabled: ${INTELLISTREAM_VAULT_ENABLED:false}
+    uri: ${INTELLISTREAM_VAULT_URI:}
+    token: ${INTELLISTREAM_VAULT_TOKEN:}
+    path: ${INTELLISTREAM_VAULT_PATH:intellistream-chat}
 
 logging:
   level:

@@ -17,7 +17,7 @@
     <img th:if="${appHasCustomLogo}" th:src="${appLogoUrl}" th:class="${cls}" alt=""/>
     <svg th:unless="${appHasCustomLogo}" th:class="${cls}" viewBox="0 0 64 64" role="img"
          aria-label="Logo" xmlns="http://www.w3.org/2000/svg">
-        <title th:text="${appTitle}">ThreadOrbit</title>
+        <title th:text="${appTitle}">IntelliStream Chat</title>
         <circle class="to-logo-ring" cx="32" cy="32" r="23" fill="none" stroke-width="1.5"/>
         <g class="to-orbit">
             <path class="to-logo-thread" d="M 32 55 A 23 23 0 1 1 55 32" fill="none"

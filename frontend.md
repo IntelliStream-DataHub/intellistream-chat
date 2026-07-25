@@ -1,4 +1,4 @@
-# Fronting ThreadOrbit in production
+# Fronting IntelliStream Chat in production
 
 What to put in front of the JVM, how to size it, and the things that will bite you if you don't.
 Working configs for both nginx and haproxy are at the bottom; the reasoning comes first, because
@@ -99,7 +99,7 @@ Three fixes, best first:
 2. **Spread the upstream across loopback addresses.** Each additional destination IP is a fresh
    ~64k port pool. Bind the app to `0.0.0.0` and:
    ```nginx
-   upstream threadorbit {
+   upstream intellistream_chat {
        server 127.0.0.1:8080;
        server 127.0.0.2:8080;
        server 127.0.0.3:8080;
@@ -146,7 +146,7 @@ miss each other's messages.
 If you must run more than one node now, pin each user to a node:
 
 ```haproxy
-backend threadorbit
+backend intellistream-chat
     balance source
     hash-type consistent          # adding a node reshuffles the minimum
     cookie TOSRV insert indirect nocache
@@ -164,7 +164,7 @@ JS and CSS bundles are content-versioned (`?v=<hash>`), so they are safe to cach
 
 ```nginx
 location ~* ^/(css|js|img|fonts)/ {
-    proxy_pass http://threadorbit;
+    proxy_pass http://intellistream_chat;
     proxy_cache_valid 200 30d;
     add_header Cache-Control "public, max-age=2592000, immutable";
 }
@@ -190,7 +190,7 @@ OIDC flow, so a naive check measures Keycloak's availability instead of the app'
 
 ## Complete nginx config
 
-Drop into `/etc/nginx/conf.d/threadorbit.conf`, adjust the `TODO`s, then
+Drop into `/etc/nginx/conf.d/intellistream.conf`, adjust the `TODO`s, then
 `sudo nginx -t && sudo systemctl reload nginx`. Assumes the app on `127.0.0.1:8080`
 (`SERVER_ADDRESS=127.0.0.1`) and certificates from your ACME client.
 
@@ -324,9 +324,9 @@ frontend https
     # Raw-body attachment uploads: the request IS the file.
     http-request deny deny_status 413 if { path_beg /api/channels/ } { req.body_size gt 524288000 }
 
-    default_backend threadorbit
+    default_backend intellistream-chat
 
-backend threadorbit
+backend intellistream-chat
     option httpchk GET /actuator/health
     http-check expect status 200
     server app1 127.0.0.1:8080 check maxconn 100000

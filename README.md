@@ -1,38 +1,133 @@
-# ThreadOrbit — Spring Boot 4 Slack/Mattermost-style chat app
+# IntelliStream Chat — self-hosted team chat, built to last
 
-A small workspace chat built with Spring Boot 4, Java 25, PostgreSQL, Keycloak OIDC, STOMP-over-WebSocket, Thymeleaf and vanilla JS.
+Slack/Mattermost-style workspace chat: channels, threads, direct and group messages, reactions,
+mentions, presence, polls, slash commands, full-text search, streamed file uploads and OIDC single
+sign-on. One JVM process, one Postgres database, one systemd unit.
+
+Built on Java 25, Spring Boot 4, PostgreSQL 18, embedded Apache Lucene and Keycloak — a stack chosen
+for how well it ages, not for how new it is.
 
 ## Why this exists
 
-ThreadOrbit was built quickly: I wrote the specification and drove the implementation with Claude Code on a virtual machine. A Slack/Mattermost-style app is mostly plumbing, and this one covers the core — channels, DMs, threads, reactions, mentions, presence, full-text search, file uploads, and OIDC single sign-on.
+Workplace chat is important infrastructure. We should stop handing the keys to a vendor whose
+interests do not include making sure you can still read your own conversations next year. The
+ability to self-host isn't a feature — it's a right.
 
-It's **early, pre-1.0 software.** A five-track code audit has been run (see [`tasks.md`](tasks.md), which tracks the security/bug backlog and its status openly), but it hasn't had exhaustive real-world hardening — review the code before trusting it with anything sensitive, follow the checklist in [`SECURITY.md`](SECURITY.md) before exposing an instance, and keep backups (ZFS snapshots plus a daily `pg_dump` are cheap insurance). Bugs are found by reading the code or using the app; running it is the quickest way to confirm the basics work.
+**Slack** is mostly good. The UI is slow, and the product is proprietary, cloud-only, and your
+archive is governed by the vendor's pricing tiers and retention rules. The cost-per-seat and the
+visibility horizon are theirs to set. That's a workable trade for plenty of teams. It isn't workable
+for regulated industries, security-conscious organisations, or anyone who'd rather not have their
+internal knowledge graph held off-premises.
 
-Workplace chat is important infrastructure. We should stop handing the keys to a vendor whose interests do not include making sure you can still read your own conversations next year. For me, the ability to self-host isn't a feature — it's a right.
+**Mattermost** sold itself as the open-source Slack alternative, and for a while it was. Then the
+free edition started taking things back. SAML and OAuth2 logins are paywalled. Team message history
+is capped at 10,000 messages. You can still self-host the binary, but the open-core playbook is at
+work: the things that separate a real chat app from a demo keep migrating into the licence you have
+to pay for. "Open source" stops meaning much when the table stakes aren't. The UI is genuinely slick
+and responsive, which makes the direction more of a shame.
 
-**Slack** is mostly good. The UI is slow, and the product is proprietary, cloud-only, and your archive is governed by the vendor's pricing tiers and retention rules. The cost-per-seat and the visibility horizon are theirs to set. That's a workable trade for plenty of teams. It isn't workable for regulated industries, security-conscious orgs, or anyone who'd rather not have their internal knowledge graph held off-premises.
+**Microsoft Teams** is the most frustrating of the bunch — regularly late to meetings because the
+client wants to update and restart on launch, and a UI that can freeze for seconds at a time.
 
-**Mattermost** sold itself as the open-source Slack alternative, and for a while it was. Then the free edition started taking things back. SAML and OAuth2 logins are paywalled now. Team message history is capped at 10,000 on the free plan. You can still self-host the binary. The open-core playbook is at work here: the things that separate a real chat app from a demo keep migrating into the licence you have to pay for. "Open source" stops meaning much when the table stakes aren't. Mattermost has a very slick and responsive UI, so it's a shame that the company is going open-core for a short-term win.
+What this is instead: a chat server you deploy on a box you control. Fast UI. No message cap. No SSO
+paywall. No telemetry. No vendor able to change the terms a year from now because the funding round
+demanded it. It won't have Slack's polish or Mattermost's feature breadth. It will still be readable
+in five years, on a server you own, running code you can audit, under a licence that cannot be
+retroactively narrowed.
 
-**Microsoft Teams** is, in my experience, the most frustrating of the bunch — I'm regularly late to meetings because the client wants to update and restart on launch, and the UI can freeze for seconds at a time.
+## The architecture, and why each piece was chosen
 
-For me it's important that a chat/team collaboration application is something I can deploy on a box I control. Fast UI. No message cap. No SSO paywall. No telemetry. No vendor able to change the terms a year from now because the funding round demanded it. It won't have Slack's polish or Mattermost's feature breadth. It will still be readable in five years, on a server you own, running code you can audit, under a licence that can't be retroactively narrowed.
+The whole system is one JVM process and one database. There is no message broker to operate, no
+search cluster, no Redis, no sidecar, no npm build. That is the central design decision and
+everything else follows from it.
+
+| Layer | Choice | Why |
+|---|---|---|
+| Language | **Java 25** | Virtual threads make a connection-per-user server cheap without async plumbing. A language with a 30-year compatibility record and tooling that will still work in a decade. |
+| Framework | **Spring Boot 4** | The most thoroughly documented server framework in existence. Any problem you hit has been hit before, in public, with an answer. |
+| Storage | **PostgreSQL 18** | One database for everything. Schema changes go through Flyway migrations with `ddl-auto=validate`, so the schema is always exactly what the code expects. |
+| Search | **Embedded Apache Lucene** | Real full-text search — the same engine under Elasticsearch — with no second service to run, monitor or keep in sync. The index lives on local disk and rebuilds itself from Postgres on startup. |
+| Identity | **Keycloak (OIDC)** | Authentication is a solved problem owned by people who specialise in it. This codebase contains no password hashing, no session store, no reset flow — deliberately. |
+| Realtime | **STOMP over native WebSocket** | An in-process broker that does 136,000 deliveries/second. No RabbitMQ until you actually need multiple nodes. |
+| Frontend | **Thymeleaf + vanilla JS** | Server-rendered HTML and hand-written ES modules, bundled at build time by Closure Compiler. No npm dependency tree, no framework migration every three years, no supply-chain surface. |
+
+Every one of those is replaceable behind an existing seam — see
+[What's intentionally under-engineered](#whats-intentionally-under-engineered-so-a-fork-can-swap-it).
+
+## Performance
+
+Measured on one 12-core / 31 GB machine with the load generator running **on the same box**, so
+these are floors rather than ceilings. Full method, raw results and analysis in
+[`scalability.md`](scalability.md); the harness is in [`benchmark/`](benchmark/).
+
+| | |
+|---|---|
+| Messages persisted + delivered | **17,066 / second**, p50 21.6 ms end-to-end, 0 dropped |
+| Fan-out into 50-member rooms | **136,043 deliveries / second**, 0 dropped |
+| Concurrent connections served | **100,000**, 47,484 deliveries/s, 0 dropped, p50 792 ms |
+| Memory holding 100,000 connections | **11.2 GiB** RSS, whole JVM |
+| Attachment upload | **~380 MB/s** (~3 Gbps) single stream |
+
+Two design decisions behind those numbers are worth knowing before you fork:
+
+- **The write path is batched, and broadcast waits for the commit.** `MessageWriteBehind`
+  pre-allocates message ids and inserts rows in batches; a message is broadcast and indexed only
+  *after* its batch commits, so nobody is ever shown a message that then failed to persist. Queues
+  are sharded by channel, so per-channel ordering holds. The sender doesn't wait for any of it — the
+  composer renders optimistically and reconciles on the broadcast.
+- **Uploads are raw request bodies, not multipart.** Multipart's boundary scan caps throughput well
+  below line rate; the file is streamed straight to disk and the metadata rides in headers.
+
+## Built to be maintained
+
+Performance is easy to demonstrate and hard to keep. What makes that possible here is that the
+codebase is small, conventional and covered:
+
+- **404 tests across 44 classes** (29 integration, 15 unit), running in 1–2 minutes. Integration
+  tests run against a real PostgreSQL via Testcontainers — never H2, which silently accepts SQL that
+  Postgres rejects.
+- **Conventions are written down.** [`CLAUDE.md`](CLAUDE.md) documents the decisions you cannot infer
+  from the code: the two security filter chains, `requireMember` vs `requireWriteAccess`, why
+  broadcast happens after commit, why there is no SockJS. Read it before your first change.
+- **Security posture is explicit.** A strict CSP with no inline script, two separate filter chains,
+  STOMP `SUBSCRIBE` authorisation, server-side Markdown rendering sanitised with jsoup, and a
+  hardened systemd unit that scores 4.7 OK on `systemd-analyze security`. The open items are listed
+  honestly in [`security_plan.md`](security_plan.md) and [`SECURITY.md`](SECURITY.md).
+- **One artifact, one unit file.** `./gradlew assemble` produces a single runnable jar. Deployment is
+  copying it and `systemctl restart`.
+
+**Maturity:** this is pre-1.0 software under active development. It is tested and audited, but it
+has not had years of production exposure across many deployments. Read the code before trusting it
+with anything sensitive, follow the hardening checklist in [`SECURITY.md`](SECURITY.md) before
+exposing an instance, and keep backups.
 
 ## Use as a starting point
 
-If you want a team-chat / collaboration tool that doesn't quite match Slack or Mattermost — internal-only, compliance-locked, embedded inside another product, an unusual channel taxonomy, a domain-specific slash-command surface — ThreadOrbit is small enough to fork and extend with Claude Code rather than build from scratch. The codebase was itself built this way; that's the workflow it was designed for.
+If you want a team-chat tool that doesn't quite match Slack or Mattermost — internal-only,
+compliance-locked, embedded inside another product, an unusual channel taxonomy, a domain-specific
+slash-command surface — this codebase is small enough to fork and shape rather than build from
+scratch. A feature typically touches one service, one controller, one migration and one test class.
 
-Recommended workflow:
-
-1. **Fork the repo and rename.** The package is `ai.intellistream.threadorbit` and the slug `threadorbit` appears in `application.yml`, `keycloak/realm.json`, `docker-compose.yml`, the Flyway migrations and a few CSS / SVG files. One search-and-replace pass plus a fresh `V1__init.sql` usually covers it.
-2. **Read (and own) `CLAUDE.md`.** Claude Code reads it on every invocation. It codifies the conventions that aren't obvious from the code alone — the two filter chains, `requireMember` vs `requireWriteAccess`, server-side Markdown render, the strict CSP, embedded Lucene, Testcontainers + real Postgres. Keep it in sync as your fork diverges; Claude follows whatever's in there.
-3. **Write a spec file.** A markdown file in the repo, even rough, drives much better Claude Code sessions than chat-style prompts. Acceptance criteria help: *"polls auto-close after 7 days; closed polls show the winner above the option list; admins can re-open a closed poll within 24 hours."*
-4. **Run `claude` and ask for incremental changes.** Good prompts name files and reference existing patterns: *"Add a slash command `/announce` modelled on `PollCommand`, with a Flyway migration for the new `announcements` table and an IT under `integration/AnnounceFlowIT.java`."* The codebase is small enough that whole-feature changes fit in a single Claude Code session.
-5. **Keep the test suite green.** `./gradlew test` runs in 1–2 minutes against Testcontainers Postgres. Make Claude Code add a unit test *and* an IT for every feature it ships — the existing ~338 tests across 34 classes (26 integration + 8 unit) are the floor, not the ceiling.
+1. **Fork the repo and rename.** The package is `ai.intellistream.chat`. Four slugs carry the product
+   name and they are deliberately distinct: the config prefix and Postgres role are `intellistream`,
+   the Keycloak realm is `intellistream`, and the OIDC client, Gradle artifact, systemd unit and
+   `/opt` path are `intellistream-chat`. Environment variables are `INTELLISTREAM_*`. Rename per
+   slug — not with one global search-and-replace — then regenerate `V1__init.sql`.
+2. **Read `CLAUDE.md` and keep it current.** It is the conventions document for the project, and it
+   is worth more to a new contributor than any amount of generated API documentation. Update it as
+   your fork diverges.
+3. **Write the change down before writing it.** Acceptance criteria beat prose: *"polls auto-close
+   after 7 days; closed polls show the winner above the option list; admins can re-open a closed poll
+   within 24 hours."*
+4. **Follow the existing shape.** New slash command? Model it on `PollCommand`. New entity? Flyway
+   migration plus a JPA entity plus a repository. New endpoint? Decide `requireMember` or
+   `requireWriteAccess` first.
+5. **Keep the suite green.** Add a unit test for pure logic and an integration test under
+   `integration/` for anything database-shaped. The existing 404 tests are the floor, not the ceiling.
 
 ### What's intentionally under-engineered (so a fork can swap it)
 
-These pieces are deliberately simple so a fork can replace them without a rewrite:
+These pieces are deliberately simple, behind a seam, so a fork can replace them without a rewrite:
 
 | Today | Swap to, when |
 |---|---|
@@ -44,14 +139,24 @@ These pieces are deliberately simple so a fork can replace them without a rewrit
 
 ### Conventions to keep when extending
 
-- **Two filter chains** in `SecurityConfig`. Browser pages and `/api/**` / `/ws/**` have very different auth postures (CSRF on/off, stateful/stateless). Merging them re-introduces classic CSRF-via-XHR bugs.
-- **`CurrentUser` indirection.** Don't read JWT / `OidcUser` claims in controllers — go through `currentUser.resolve(principal)`. Provisioning the domain `User` row from the OIDC subject is the *only* place that should happen.
-- **`requireMember` for read, `requireWriteAccess` for write.** PUBLIC channels are world-readable but never world-writeable; mix the two checks up and you've quietly broken that.
-- **Strict CSP — no inline `<script>`, no SockJS.** Inline blocks and SockJS's `iframe` / `htmlfile` / `jsonp-polling` transports both require relaxing the CSP. Extract to `static/js/` instead.
-- **`ddl-auto=validate` + Flyway.** Schema changes are migrations under `db/migration/V*.sql`, not `ddl-auto=update`. Don't flip the switch.
-- **Testcontainers + real Postgres, no H2.** The schema uses Postgres-only features (`generated by default as identity`, partial indexes, named-constraint syntax). H2 silently accepts invalid SQL and lies to you.
+- **Two filter chains** in `SecurityConfig`. Browser pages and `/api/**` / `/ws/**` have very
+  different auth postures (CSRF on/off, stateful/stateless). Merging them re-introduces classic
+  CSRF-via-XHR bugs.
+- **`CurrentUser` indirection.** Don't read JWT / `OidcUser` claims in controllers — go through
+  `currentUser.resolve(principal)`. Provisioning the domain `User` row from the OIDC subject is the
+  *only* place that should happen.
+- **`requireMember` for read, `requireWriteAccess` for write.** PUBLIC channels are world-readable
+  but never world-writeable; mix the two checks up and you've quietly broken that.
+- **Strict CSP — no inline `<script>`, no SockJS.** Inline blocks and SockJS's `iframe` /
+  `htmlfile` / `jsonp-polling` transports both require relaxing the CSP. Extract to `static/js/`.
+- **`ddl-auto=validate` + Flyway.** Schema changes are migrations under `db/migration/V*.sql`, not
+  `ddl-auto=update`. Don't flip the switch.
+- **Testcontainers + real Postgres, no H2.** The schema uses Postgres-only features (`generated by
+  default as identity`, partial indexes, named-constraint syntax). H2 silently accepts invalid SQL
+  and lies to you.
 
-If your fork ends up generally useful, send a PR back — generic improvements (distributed rate limiter, S3 attachment backend, pluggable slash-command loader) are welcome upstream.
+If your fork ends up generally useful, send a PR back — generic improvements (distributed rate
+limiter, S3 attachment backend, pluggable slash-command loader) are welcome upstream.
 
 ## Prerequisites
 
@@ -87,7 +192,7 @@ If `java` doesn't end up on `PATH`, follow the post-install instructions Homebre
 For exploring the app, hacking on it, or quick local testing. Two commands once the prerequisites above are installed:
 
 ```bash
-podman compose up -d   # Postgres 18 + Keycloak 26, with the 'threadorbit' realm pre-imported
+podman compose up -d   # Postgres 18 + Keycloak 26, with the 'intellistream' realm pre-imported
 ./gradlew bootRun      # the Spring Boot app on :8080
 ```
 
@@ -98,7 +203,7 @@ If `podman compose` can't find a socket, run once: `systemctl --user enable --no
 To boot with the production profile locally (for verification — the build wires `bootRun` to `--spring.profiles.active=dev` only when `SPRING_PROFILES_ACTIVE` is unset), keep the containers from above running, then:
 
 ```bash
-export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="threadorbit") | .secret' keycloak/realm.json)
+export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="intellistream-chat") | .secret' keycloak/realm.json)
 SPRING_PROFILES_ACTIVE=prod ./gradlew bootRun
 ```
 
@@ -109,23 +214,23 @@ SPRING_PROFILES_ACTIVE=prod ./gradlew bootRun
 Already running Postgres 18 and Keycloak 26 elsewhere (managed cloud, a host install, a shared dev environment)? Skip `podman compose` and point the app at them via env vars:
 
 ```bash
-export THREADORBIT_DB_URL=jdbc:postgresql://db.example.com:5432/threadorbit_chat
-export THREADORBIT_DB_USERNAME=threadorbit
-export THREADORBIT_DB_PASSWORD=...
-export KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/threadorbit
+export INTELLISTREAM_DB_URL=jdbc:postgresql://db.example.com:5432/intellistream_chat
+export INTELLISTREAM_DB_USERNAME=intellistream
+export INTELLISTREAM_DB_PASSWORD=...
+export KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/intellistream
 export KEYCLOAK_CLIENT_SECRET=...
 ./gradlew bootRun
 ```
 
-The Keycloak realm definition you'll need is in `keycloak/realm.json` — import it via the admin console (**Realms → Import**) or `bin/kcadm.sh create realms -f keycloak/realm.json`. Once imported, regenerate the client secret (the bundled one is in this public repo) and use the new value for `KEYCLOAK_CLIENT_SECRET`. Flyway runs the schema on first boot — no manual SQL setup beyond `CREATE DATABASE threadorbit_chat OWNER threadorbit`. See [Without containers (native install)](#without-containers-native-install) for a step-by-step host install of both, and [Keycloak realm](#keycloak-realm) for the realm/client knobs.
+The Keycloak realm definition you'll need is in `keycloak/realm.json` — import it via the admin console (**Realms → Import**) or `bin/kcadm.sh create realms -f keycloak/realm.json`. Once imported, regenerate the client secret (the bundled one is in this public repo) and use the new value for `KEYCLOAK_CLIENT_SECRET`. Flyway runs the schema on first boot — no manual SQL setup beyond `CREATE DATABASE intellistream_chat OWNER intellistream`. See [Without containers (native install)](#without-containers-native-install) for a step-by-step host install of both, and [Keycloak realm](#keycloak-realm) for the realm/client knobs.
 
-To pull `THREADORBIT_DB_PASSWORD` and `KEYCLOAK_CLIENT_SECRET` from a Vault / OpenBao KV-v2 record instead of plain env vars:
+To pull `INTELLISTREAM_DB_PASSWORD` and `KEYCLOAK_CLIENT_SECRET` from a Vault / OpenBao KV-v2 record instead of plain env vars:
 
 ```bash
-export THREADORBIT_VAULT_ENABLED=true
-export THREADORBIT_VAULT_URI=https://vault.example.com:8200
-export THREADORBIT_VAULT_TOKEN=...
-export THREADORBIT_VAULT_PATH=threadorbit     # default; maps to secret/data/threadorbit
+export INTELLISTREAM_VAULT_ENABLED=true
+export INTELLISTREAM_VAULT_URI=https://vault.example.com:8200
+export INTELLISTREAM_VAULT_TOKEN=...
+export INTELLISTREAM_VAULT_PATH=intellistream-chat     # default; maps to secret/data/intellistream-chat
 ./gradlew bootRun
 ```
 
@@ -139,24 +244,24 @@ For a real internet-facing deployment. **Do not skip the hardening steps**: the 
 
 ```bash
 # 1. Build a runnable jar
-./gradlew assemble                # produces build/libs/threadorbit-<version>.jar
+./gradlew assemble                # produces build/libs/intellistream-chat-<version>.jar
 
 # 2. Stand up Postgres 18 + Keycloak 26 on the host (see "Without containers" below)
 #    or your managed equivalents. Point the app at them via env vars.
 
 # 3. Configure the production env. Each line below is required.
-export THREADORBIT_DB_URL=jdbc:postgresql://db.internal:5432/threadorbit_chat
-export THREADORBIT_DB_USERNAME=threadorbit
-export THREADORBIT_DB_PASSWORD=$(openssl rand -base64 32)
-export KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/threadorbit
+export INTELLISTREAM_DB_URL=jdbc:postgresql://db.internal:5432/intellistream_chat
+export INTELLISTREAM_DB_USERNAME=intellistream
+export INTELLISTREAM_DB_PASSWORD=$(openssl rand -base64 32)
+export KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/intellistream
 export KEYCLOAK_CLIENT_SECRET=$(openssl rand -base64 32)   # rotate from the dev default
 export SERVER_ADDRESS=127.0.0.1                            # bind localhost only; nginx fronts it
 # Cookie Secure flag auto-detects from X-Forwarded-Proto via forward-headers-strategy:
-# framework (already set in application.yml), so no explicit THREADORBIT_SECURITY_COOKIE_SECURE
+# framework (already set in application.yml), so no explicit INTELLISTREAM_SECURITY_COOKIE_SECURE
 # is needed when nginx forwards X-Forwarded-Proto: https.
 
 # 4. Run behind a TLS-terminating reverse proxy (see frontend.md in this repo):
-java -jar build/libs/threadorbit-*.jar
+java -jar build/libs/intellistream-chat-*.jar
 ```
 
 Then complete the [production hardening checklist](#production-hardening-checklist) below before flipping DNS.
@@ -175,26 +280,26 @@ The bare `java -jar …` line above gets you running once. For an actual deploym
 
 ### systemd unit
 
-Drop this at `/etc/systemd/system/threadorbit.service`:
+Drop this at `/etc/systemd/system/intellistream-chat.service`:
 
 Every directive is annotated below — read top to bottom and you'll see exactly what each line buys you. Tested as-is on AlmaLinux 10.1 with SELinux enforcing; `systemd-analyze security` reports an exposure score of **4.7 OK** with this configuration.
 
 ```ini
 [Unit]
-Description=ThreadOrbit chat server
+Description=IntelliStream Chat
 Wants=network-online.target
 After=network-online.target postgresql.service
 
 [Service]
 Type=simple
-User=threadorbit
-Group=threadorbit
-WorkingDirectory=/opt/threadorbit
-EnvironmentFile=/etc/threadorbit/env
+User=intellistream-chat
+Group=intellistream-chat
+WorkingDirectory=/opt/intellistream-chat
+EnvironmentFile=/etc/intellistream-chat/env
 # New files default to mode 0750/0640 — no "other" read.
 UMask=0027
 
-ExecStart=/usr/lib/jvm/java-25-openjdk/bin/java $JAVA_OPTS -jar /opt/threadorbit/threadorbit.jar
+ExecStart=/usr/lib/jvm/java-25-openjdk/bin/java $JAVA_OPTS -jar /opt/intellistream-chat/intellistream-chat.jar
 
 Restart=on-failure
 RestartSec=5s
@@ -222,7 +327,7 @@ RestrictSUIDSGID=true
 # below closes the read leaks that matter.
 ProtectSystem=strict
 # The only writable location: attachments, avatars, lucene index, heap dumps.
-ReadWritePaths=/opt/threadorbit/data
+ReadWritePaths=/opt/intellistream-chat/data
 # /home, /root, /run/user/* become inaccessible (mounted over with empty bind).
 ProtectHome=true
 # Service gets a private /tmp and /var/tmp. Can't see other services' temp files,
@@ -276,20 +381,20 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 WantedBy=multi-user.target
 ```
 
-The companion env file at `/etc/threadorbit/env` (chmod 600, owned by `threadorbit`):
+The companion env file at `/etc/intellistream-chat/env` (chmod 600, owned by `intellistream-chat`):
 
 ```bash
 # JVM tuning — see the table below for what each flag does.
-JAVA_OPTS=-Xms1g -Xmx1g -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/opt/threadorbit/data/heapdumps -XX:+UseStringDeduplication -XX:+AlwaysPreTouch -Duser.timezone=UTC
+JAVA_OPTS=-Xms1g -Xmx1g -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/opt/intellistream-chat/data/heapdumps -XX:+UseStringDeduplication -XX:+AlwaysPreTouch -Duser.timezone=UTC
 
 # App config (see "Quick start — production" for the full list)
-THREADORBIT_DB_URL=jdbc:postgresql://db.internal:5432/threadorbit_chat
-THREADORBIT_DB_USERNAME=threadorbit
-THREADORBIT_DB_PASSWORD=...
-KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/threadorbit
+INTELLISTREAM_DB_URL=jdbc:postgresql://db.internal:5432/intellistream_chat
+INTELLISTREAM_DB_USERNAME=intellistream
+INTELLISTREAM_DB_PASSWORD=...
+KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/intellistream
 KEYCLOAK_CLIENT_SECRET=...
 SERVER_ADDRESS=127.0.0.1
-# THREADORBIT_SECURITY_COOKIE_SECURE is no longer needed — cookies auto-mark Secure based on
+# INTELLISTREAM_SECURITY_COOKIE_SECURE is no longer needed — cookies auto-mark Secure based on
 # request.isSecure() (which RemoteIpValve sets from X-Forwarded-Proto). Override at the
 # Servlet API level (server.servlet.session.cookie.secure=true) only if you want to force
 # Secure even on non-forwarded requests — e.g. behind a proxy that doesn't set the header.
@@ -298,16 +403,16 @@ SERVER_ADDRESS=127.0.0.1
 Bring it up:
 
 ```bash
-sudo useradd --system --home /opt/threadorbit --shell /usr/sbin/nologin threadorbit
-sudo install -d -o threadorbit -g threadorbit /opt/threadorbit /opt/threadorbit/data /opt/threadorbit/data/heapdumps
-sudo install -d -o root -g threadorbit -m 750 /etc/threadorbit
-sudo install -m 640 -o root -g threadorbit /path/to/env /etc/threadorbit/env
-sudo install -m 644 build/libs/threadorbit-*.jar /opt/threadorbit/threadorbit.jar
-sudo chown threadorbit:threadorbit /opt/threadorbit/threadorbit.jar
+sudo useradd --system --home /opt/intellistream-chat --shell /usr/sbin/nologin intellistream-chat
+sudo install -d -o intellistream-chat -g intellistream-chat /opt/intellistream-chat /opt/intellistream-chat/data /opt/intellistream-chat/data/heapdumps
+sudo install -d -o root -g intellistream-chat -m 750 /etc/intellistream-chat
+sudo install -m 640 -o root -g intellistream-chat /path/to/env /etc/intellistream-chat/env
+sudo install -m 644 build/libs/intellistream-chat-*.jar /opt/intellistream-chat/intellistream-chat.jar
+sudo chown intellistream-chat:intellistream-chat /opt/intellistream-chat/intellistream-chat.jar
 sudo systemctl daemon-reload
-sudo systemctl enable --now threadorbit
-sudo systemctl status threadorbit
-sudo journalctl -u threadorbit -f
+sudo systemctl enable --now intellistream-chat
+sudo systemctl status intellistream-chat
+sudo journalctl -u intellistream-chat -f
 ```
 
 ### JVM options
@@ -337,21 +442,21 @@ The app already enables **virtual threads** via `spring.threads.virtual.enabled=
 G1 is the right default at a 1 GiB heap (10–50 ms pauses, mature, well-understood). **ZGC** and **Shenandoah** trade ~15% RAM and ~10% throughput for sub-millisecond pauses; that's only a win once heap > ~4 GiB **and** GC pauses become user-visible. If you scale up later:
 
 ```bash
-JAVA_OPTS=-XX:+UseZGC -Xms4g -Xmx4g -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/opt/threadorbit/data/heapdumps -Duser.timezone=UTC
+JAVA_OPTS=-XX:+UseZGC -Xms4g -Xmx4g -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/opt/intellistream-chat/data/heapdumps -Duser.timezone=UTC
 ```
 
 (Drop `+UseStringDeduplication` and `+AlwaysPreTouch` under ZGC — neither applies.)
 
 ### Verifying the namespace lockdown
 
-After `systemctl restart threadorbit`, three quick checks:
+After `systemctl restart intellistream-chat`, three quick checks:
 
 ```bash
 # Exposure score (target: drops into "OK" range, ~4.7 with the unit above).
-sudo systemd-analyze security threadorbit.service
+sudo systemd-analyze security intellistream-chat.service
 
 # From inside the service's mount namespace — these should be Permission denied / ENOENT.
-sudo nsenter -t $(systemctl show -p MainPID --value threadorbit) -m ls /var/log /etc/cron.d
+sudo nsenter -t $(systemctl show -p MainPID --value intellistream-chat) -m ls /var/log /etc/cron.d
 
 # No SELinux denials.
 sudo ausearch -m AVC -ts recent
@@ -370,10 +475,10 @@ getenforce
 # 1. Make sure the policy management tools are installed (they aren't always pulled in on minimal images).
 sudo dnf install -y policycoreutils-python-utils setools-console
 
-# 2. Label /opt/threadorbit/data so writes survive a relabel (`restorecon -R /` or a touched .autorelabel).
+# 2. Label /opt/intellistream-chat/data so writes survive a relabel (`restorecon -R /` or a touched .autorelabel).
 #    var_lib_t is the catch-all label for system services' state directories.
-sudo semanage fcontext -a -t var_lib_t '/opt/threadorbit/data(/.*)?'
-sudo restorecon -Rv /opt/threadorbit
+sudo semanage fcontext -a -t var_lib_t '/opt/intellistream-chat/data(/.*)?'
+sudo restorecon -Rv /opt/intellistream-chat
 
 # 3. Allow nginx (httpd_t) to make outbound connections to the JVM on localhost:8080.
 sudo setsebool -P httpd_can_network_connect on
@@ -382,34 +487,34 @@ sudo setsebool -P httpd_can_network_connect on
 #    sudo semanage port -a -t http_port_t -p tcp 9090
 ```
 
-The systemd unit's `ReadWritePaths=/opt/threadorbit/data` and SELinux's file context for the same path are independent layers — both must be correct. The systemd one stops the JVM from writing outside the data dir; the SELinux one stops it from writing inside the data dir if the labels are wrong.
+The systemd unit's `ReadWritePaths=/opt/intellistream-chat/data` and SELinux's file context for the same path are independent layers — both must be correct. The systemd one stops the JVM from writing outside the data dir; the SELinux one stops it from writing inside the data dir if the labels are wrong.
 
 ### When something gets denied
 
-The JVM will fail to start, attachments will fail to upload, or nginx will return `502` and there will be **nothing useful** in `journalctl -u threadorbit` — SELinux denials land in the audit log, not the service log. Check both:
+The JVM will fail to start, attachments will fail to upload, or nginx will return `502` and there will be **nothing useful** in `journalctl -u intellistream-chat` — SELinux denials land in the audit log, not the service log. Check both:
 
 ```bash
 sudo ausearch -m AVC,USER_AVC -ts recent
-sudo journalctl -u threadorbit -p err --since "10 min ago"
+sudo journalctl -u intellistream-chat -p err --since "10 min ago"
 ```
 
 Common AVCs and their fixes:
 
 | Symptom | Fix |
 |---|---|
-| `denied { write } ... path="/opt/threadorbit/data/..."` | The `restorecon` step was skipped, or the directory was created **after** `semanage fcontext`. Re-run `sudo restorecon -Rv /opt/threadorbit`. |
+| `denied { write } ... path="/opt/intellistream-chat/data/..."` | The `restorecon` step was skipped, or the directory was created **after** `semanage fcontext`. Re-run `sudo restorecon -Rv /opt/intellistream-chat`. |
 | `denied { name_connect } ... port=8080` from `httpd_t` | nginx can't reach the upstream — `sudo setsebool -P httpd_can_network_connect on`. |
 | `denied { name_bind } ... port=NNNN` from the JVM | You've bound to a port the policy doesn't recognise as HTTP — `sudo semanage port -a -t http_port_t -p tcp NNNN`. |
-| `denied { read } ... path="/etc/threadorbit/env"` | Custom env file location with the wrong label. Either keep it under `/etc/` (already `etc_t`) or label it: `sudo semanage fcontext -a -t etc_t '/path/to/env'; sudo restorecon -v /path/to/env`. |
+| `denied { read } ... path="/etc/intellistream-chat/env"` | Custom env file location with the wrong label. Either keep it under `/etc/` (already `etc_t`) or label it: `sudo semanage fcontext -a -t etc_t '/path/to/env'; sudo restorecon -v /path/to/env`. |
 
 ### Don't reach for `setenforce 0`
 
 If something breaks, capture the denial and write a targeted local module — don't disable enforcement.
 
 ```bash
-sudo ausearch -m AVC -ts recent | audit2allow -a -M threadorbit-local
-less threadorbit-local.te                  # review before loading
-sudo semodule -i threadorbit-local.pp
+sudo ausearch -m AVC -ts recent | audit2allow -a -M intellistream-chat-local
+less intellistream-chat-local.te                  # review before loading
+sudo semodule -i intellistream-chat-local.pp
 ```
 
 `sudo setenforce 0` is OK as a single-session debug hatch (turn it back on with `setenforce 1`), but never persist permissive across reboots and never edit `/etc/selinux/config` to `SELINUX=disabled` — re-enabling later forces a full relabel.
@@ -651,10 +756,10 @@ bin/kc.sh start-dev --import-realm --http-port=8081
 
 `start-dev` runs against an embedded H2 — fine for a quick local run. For production, switch to `bin/kc.sh start` and configure a Postgres backend (a separate database from the chat one) per Keycloak's docs.
 
-Once Keycloak is up at http://localhost:8081 the `threadorbit` realm exists with users `alice` / `alice` and `bob` / `bob`. Point the app at it:
+Once Keycloak is up at http://localhost:8081 the `intellistream` realm exists with users `alice` / `alice` and `bob` / `bob`. Point the app at it:
 
 ```bash
-export KEYCLOAK_ISSUER_URI=http://localhost:8081/realms/threadorbit
+export KEYCLOAK_ISSUER_URI=http://localhost:8081/realms/intellistream
 export KEYCLOAK_CLIENT_SECRET=<value from realm.json or a fresh one you rotated to>
 ./gradlew bootRun
 ```
@@ -667,10 +772,10 @@ The bundled `keycloak/realm.json` defines everything `podman compose` and `kc.sh
 
 | Item | Value |
 |---|---|
-| Realm name | `threadorbit` |
+| Realm name | `intellistream` |
 | Login with email | enabled |
 | Self-registration | enabled |
-| Client id | `threadorbit` (confidential, Authorization Code + PKCE) |
+| Client id | `intellistream-chat` (confidential, Authorization Code + PKCE) |
 | Client secret | `(generated; rotate)` (override via `KEYCLOAK_CLIENT_SECRET` in production) |
 | Valid redirect URIs | `http://localhost:8080/*` |
 | Web origins | `http://localhost:8080` |
@@ -702,7 +807,7 @@ Self-registration is already on in the bundled realm. To toggle (or enable on a 
 
 Then make sure new self-registered accounts get the `user` realm role automatically:
 
-1. **Realm settings → User registration** sub-tab (or **Realm roles → default-roles-threadorbit**).
+1. **Realm settings → User registration** sub-tab (or **Realm roles → default-roles-intellistream**).
 2. Assign realm role `user` (and any others you want every account to have).
 
 `chat-admin` is deliberately **not** in the default role set and should never be — promote people one at a time, after you've vetted them.
@@ -713,33 +818,33 @@ Every override is plain Spring Boot env-var substitution against `application.ym
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `THREADORBIT_DB_URL` | `jdbc:postgresql://localhost:5432/threadorbit_chat` | JDBC URL for the Postgres instance |
-| `THREADORBIT_DB_USERNAME` | `threadorbit` | Postgres user |
-| `THREADORBIT_DB_PASSWORD` | `threadorbit` — **rotate in production** | Postgres password — **set this in production** |
-| `KEYCLOAK_ISSUER_URI` | `http://localhost:8081/realms/threadorbit` | Keycloak realm issuer (used by both OIDC client and resource server). Must match the OIDC issuer in `keycloak/realm.json`'s redirect-URI list — change one and the other will reject the redirect with `400 invalid_redirect_uri`. |
-| `KEYCLOAK_CLIENT_ID` | `threadorbit` | OIDC client id |
+| `INTELLISTREAM_DB_URL` | `jdbc:postgresql://localhost:5432/intellistream_chat` | JDBC URL for the Postgres instance |
+| `INTELLISTREAM_DB_USERNAME` | `intellistream` | Postgres user |
+| `INTELLISTREAM_DB_PASSWORD` | `intellistream` — **rotate in production** | Postgres password — **set this in production** |
+| `KEYCLOAK_ISSUER_URI` | `http://localhost:8081/realms/intellistream` | Keycloak realm issuer (used by both OIDC client and resource server). Must match the OIDC issuer in `keycloak/realm.json`'s redirect-URI list — change one and the other will reject the redirect with `400 invalid_redirect_uri`. |
+| `KEYCLOAK_CLIENT_ID` | `intellistream-chat` | OIDC client id |
 | `KEYCLOAK_CLIENT_SECRET` | `(generated; rotate in production)` | OIDC client secret — **set this in production** |
 | `SERVER_PORT` | `8080` | HTTP port the Boot app binds to |
 | `SERVER_ADDRESS` | `127.0.0.1` | Network interface to bind. The dev profile overrides this to a LAN IP for cross-device testing; prod typically keeps `127.0.0.1` and fronts the JVM with nginx. |
-| `THREADORBIT_ATTACHMENTS_DIR` | `./data/attachments` | Where uploaded message attachments are stored |
-| `THREADORBIT_AVATARS_DIR` | `./data/avatars` | Where uploaded avatars are stored |
-| `THREADORBIT_BRANDING_DIR` | `./data/branding` | Where the admin-uploaded logo is stored |
+| `INTELLISTREAM_ATTACHMENTS_DIR` | `./data/attachments` | Where uploaded message attachments are stored |
+| `INTELLISTREAM_AVATARS_DIR` | `./data/avatars` | Where uploaded avatars are stored |
+| `INTELLISTREAM_BRANDING_DIR` | `./data/branding` | Where the admin-uploaded logo is stored |
 | _(no env var)_ | _auto_ | The JSESSIONID and CSRF cookies' `Secure` flag is auto-detected from `request.isSecure()` per request. Behind a TLS-terminating proxy with `X-Forwarded-Proto: https`, `forward-headers-strategy: framework` flips request.isSecure() to true and the cookies are marked Secure automatically. To force Secure for every request (e.g. behind a proxy that strips the header), set `server.servlet.session.cookie.secure=true`. |
 
 The Lucene index lives at `./data/lucene` (override with `chat.search.lucene-dir`). Back up the whole `./data/` directory plus the Postgres database and you have everything: messages, attachments, avatars, branding, and the search index.
 
 ### Optional: Vault / OpenBao secret backend
 
-For deployments where shipping `THREADORBIT_DB_PASSWORD` and `KEYCLOAK_CLIENT_SECRET` via `EnvironmentFile=` is too coarse, the app can pull them from a [HashiCorp Vault](https://www.vaultproject.io/) / [OpenBao](https://openbao.org/) KV-v2 mount at boot. **Off by default** — `THREADORBIT_VAULT_ENABLED=false` skips the integration entirely.
+For deployments where shipping `INTELLISTREAM_DB_PASSWORD` and `KEYCLOAK_CLIENT_SECRET` via `EnvironmentFile=` is too coarse, the app can pull them from a [HashiCorp Vault](https://www.vaultproject.io/) / [OpenBao](https://openbao.org/) KV-v2 mount at boot. **Off by default** — `INTELLISTREAM_VAULT_ENABLED=false` skips the integration entirely.
 
 When enabled, a `VaultEnvironmentPostProcessor` runs before Spring autoconfiguration reads `spring.datasource.*` / the OAuth client config, fetches one KV-v2 record, and injects the values as a high-priority `MapPropertySource`.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `THREADORBIT_VAULT_ENABLED` | `false` | Master switch. |
-| `THREADORBIT_VAULT_URI` | _(empty)_ | Base URL (e.g. `http://127.0.0.1:8200`). Required when enabled. |
-| `THREADORBIT_VAULT_TOKEN` | _(empty)_ | Token credential. Required when enabled. |
-| `THREADORBIT_VAULT_PATH` | `threadorbit` | KV-v2 path; default maps to `secret/data/threadorbit`. |
+| `INTELLISTREAM_VAULT_ENABLED` | `false` | Master switch. |
+| `INTELLISTREAM_VAULT_URI` | _(empty)_ | Base URL (e.g. `http://127.0.0.1:8200`). Required when enabled. |
+| `INTELLISTREAM_VAULT_TOKEN` | _(empty)_ | Token credential. Required when enabled. |
+| `INTELLISTREAM_VAULT_PATH` | `intellistream-chat` | KV-v2 path; default maps to `secret/data/intellistream-chat`. |
 
 If enabled but URI or token is missing, the app **fails fast at boot** with `IllegalStateException` — silently falling back to env-var defaults in a "vault-enabled" deploy would be a security bug.
 
@@ -758,11 +863,11 @@ If enabled but URI or token is missing, the app **fails fast at boot** with `Ill
 ```bash
 podman compose --profile openbao up -d
 KEYCLOAK_CLIENT_SECRET=<value-from-keycloak/realm.json> ./scripts/seed-vault.sh
-THREADORBIT_VAULT_ENABLED=true THREADORBIT_VAULT_URI=http://127.0.0.1:8200 \
-  THREADORBIT_VAULT_TOKEN=threadorbit-dev-token ./gradlew bootRun
+INTELLISTREAM_VAULT_ENABLED=true INTELLISTREAM_VAULT_URI=http://127.0.0.1:8200 \
+  INTELLISTREAM_VAULT_TOKEN=intellistream-dev-token ./gradlew bootRun
 ```
 
-Hit `/actuator/env` to verify the `threadorbit-vault` property source appeared. The OpenBao dev container uses in-memory storage and a root token — for production, switch to sealed deployment + auto-unseal + AppRole or Kubernetes auth.
+Hit `/actuator/env` to verify the `intellistream-vault` property source appeared. The OpenBao dev container uses in-memory storage and a root token — for production, switch to sealed deployment + auto-unseal + AppRole or Kubernetes auth.
 
 ### Upload size cap
 
@@ -816,7 +921,7 @@ The systemd / SELinux / Quick start sections cover the mechanical setup. This is
 
 | | What | Why |
 |---|---|---|
-| ☐ | Rotate `KEYCLOAK_CLIENT_SECRET` (Keycloak admin → **Clients → threadorbit → Credentials → Regenerate**) | The bundled secret in `keycloak/realm.json` is in this public repo. |
+| ☐ | Rotate `KEYCLOAK_CLIENT_SECRET` (Keycloak admin → **Clients → intellistream-chat → Credentials → Regenerate**) | The bundled secret in `keycloak/realm.json` is in this public repo. |
 | ☐ | Restrict the `chat` client's **Valid redirect URIs** + **Web origins** to your real hostname | OIDC redirect-URI matching is your defence against open-redirect token theft. |
 | ☐ | Change `KC_BOOTSTRAP_ADMIN_PASSWORD` from `admin` | Master key to every account in your realm. |
 | ☐ | Enable **Verify email** in Keycloak before opening self-registration | Without it, bots will mass-register. |
@@ -848,11 +953,11 @@ The first run pulls `postgres:18-alpine` (~80 MB); subsequent runs reuse the cac
 
 ```bash
 # Unit tests only — no Docker needed.
-./gradlew test --tests 'ai.intellistream.threadorbit.service.*' --tests 'ai.intellistream.threadorbit.security.*'
+./gradlew test --tests 'ai.intellistream.chat.service.*' --tests 'ai.intellistream.chat.security.*'
 
 # Single class / method.
-./gradlew test --tests 'ai.intellistream.threadorbit.integration.HovercardAndDmFlowIT'
-./gradlew test --tests 'ai.intellistream.threadorbit.integration.SearchFlowIT.fuzzyMatch_*'
+./gradlew test --tests 'ai.intellistream.chat.integration.HovercardAndDmFlowIT'
+./gradlew test --tests 'ai.intellistream.chat.integration.SearchFlowIT.fuzzyMatch_*'
 ```
 
 ### Test layers
@@ -872,7 +977,7 @@ The first run pulls `postgres:18-alpine` (~80 MB); subsequent runs reuse the cac
 ## Layout
 
 ```
-src/main/java/ai/intellistream/threadorbit/
+src/main/java/ai/intellistream/chat/
 ├── ChatApplication.java
 ├── config/        # SecurityConfig (two filter chains), WebSocketConfig, StompAuthorizationConfig, MultipartConfig
 ├── domain/        # JPA entities (User, Channel, Message, Conversation, Attachment, Reaction, Mention, ...)
@@ -915,7 +1020,7 @@ Two things are worth knowing if you fork this:
   are sharded by channel, so per-channel ordering holds. The sender doesn't wait for any of it — the
   composer renders an optimistic bubble and reconciles it when the broadcast arrives. The trade is a
   small durability window (one flush interval, ~5 ms) on an abrupt kill, for messages nobody saw.
-  On by default; `threadorbit.write-behind.enabled=false` restores commit-per-message.
+  On by default; `intellistream.write-behind.enabled=false` restores commit-per-message.
 - **Server concurrency is explicit.** `WebSocketConfig` sets the STOMP channel executors
   unconditionally, and `StompChannelDiagnostics` logs them at startup. This is not incidental: a
   mis-wired executor once put every inbound message on a single thread and capped the whole server
