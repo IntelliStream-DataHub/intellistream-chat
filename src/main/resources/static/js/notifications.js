@@ -75,7 +75,7 @@
     close.type = 'button';
     close.className = 'notification-toast-close';
     close.setAttribute('aria-label', 'Dismiss');
-    close.textContent = '×';
+    close.innerHTML = '<svg class="icon icon-sm" aria-hidden="true"><use href="#icon-close"/></svg>';
     head.append(headTitle, close);
 
     const body = document.createElement('div');

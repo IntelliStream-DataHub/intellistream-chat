@@ -517,8 +517,13 @@
       row.dataset.action = orig.dataset.action || '';
       const icon = document.createElement('span');
       icon.className = 'action-sheet-icon';
-      icon.textContent = orig.textContent;
+      // The action buttons hold an <svg><use/></svg>, so textContent is empty — clone the node.
+      // The textContent branch is the fallback for any caller still rendering a glyph.
+      const svg = orig.querySelector('svg');
+      if (svg) icon.append(svg.cloneNode(true));
+      else icon.textContent = orig.textContent;
       const label = document.createElement('span');
+      // Falls back to textContent only for a glyph button; every SVG one sets a title.
       label.textContent = orig.title || orig.textContent;
       row.append(icon, label);
       row.addEventListener('click', () => {

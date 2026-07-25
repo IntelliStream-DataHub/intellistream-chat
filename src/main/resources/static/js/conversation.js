@@ -167,10 +167,15 @@
     const canDelete = isMine || isAdmin;
     const actions = document.createElement('div');
     actions.className = 'message-actions';
+    // Sprite icons, matching the channel view — see the note in chat/index.js buildActions.
+    const action = (name, icon, title) =>
+        '<button type="button" class="msg-action" data-action="' + name + '" title="' + title + '"'
+        + ' aria-label="' + title + '"><svg class="icon" aria-hidden="true"><use href="#icon-'
+        + icon + '"/></svg></button>';
     let html = '';
-    if (!isMine) html += '<button type="button" class="msg-action" data-action="react" title="Add reaction">😊</button>';
-    if (isMine && hasBody) html += '<button type="button" class="msg-action" data-action="edit" title="Edit">✏️</button>';
-    if (canDelete) html += '<button type="button" class="msg-action" data-action="delete" title="Delete">🗑</button>';
+    if (!isMine) html += action('react', 'face-smile', 'Add reaction');
+    if (isMine && hasBody) html += action('edit', 'pencil', 'Edit');
+    if (canDelete) html += action('delete', 'trash', 'Delete');
     actions.innerHTML = html;
     return actions;
   };

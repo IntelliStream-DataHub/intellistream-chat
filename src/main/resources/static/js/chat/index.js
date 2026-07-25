@@ -1517,7 +1517,8 @@ presenceMenu.init();
     btn.type = 'button';
     btn.className = 'thread-indicator';
     btn.title = 'Open thread (' + count + ' ' + (count === 1 ? 'reply' : 'replies') + ')';
-    btn.innerHTML = '<span class="thread-indicator-icon">💬</span><span class="thread-indicator-count"></span>';
+    btn.innerHTML = '<svg class="icon thread-indicator-icon" aria-hidden="true">'
+        + '<use href="#icon-thread"/></svg><span class="thread-indicator-count"></span>';
     btn.querySelector('.thread-indicator-count').textContent = count + ' ' + (count === 1 ? 'reply' : 'replies');
     btn.dataset.count = String(count);
     return btn;
@@ -1674,17 +1675,26 @@ presenceMenu.init();
     actions.className = 'message-actions';
     // Authors can't react to their own messages — server enforces it; hide the button so users
     // don't get a 403 toast on click.
+    // Icons come from the sprite in fragments/icon-sprite.html rather than being emoji: emoji
+    // render as full-colour glyphs from whatever font the OS picked, so they ignore the theme,
+    // change shape per platform, and can't be dimmed to --muted the way the rest of the row is.
+    // The `title` on each button is load-bearing beyond the tooltip — the mobile action sheet in
+    // chat-kit.js reads it for the row label.
+    const action = (name, icon, title) =>
+        '<button type="button" class="msg-action" data-action="' + name + '" title="' + title + '"'
+        + ' aria-label="' + title + '"><svg class="icon" aria-hidden="true"><use href="#icon-'
+        + icon + '"/></svg></button>';
     let html = '';
     if (!isMine) {
-      html += '<button type="button" class="msg-action" data-action="react" title="Add reaction">😊</button>';
+      html += action('react', 'face-smile', 'Add reaction');
     }
-    html += '<button type="button" class="msg-action" data-action="reply" title="Reply in thread">↩</button>';
-    html += '<button type="button" class="msg-action" data-action="permalink" title="Copy link to message">🔗</button>';
+    html += action('reply', 'reply', 'Reply in thread');
+    html += action('permalink', 'link', 'Copy link to message');
     if (isMine && hasBody) {
-      html += '<button type="button" class="msg-action" data-action="edit" title="Edit">✏️</button>';
+      html += action('edit', 'pencil', 'Edit');
     }
     if (canDelete) {
-      html += '<button type="button" class="msg-action" data-action="delete" title="Delete">🗑</button>';
+      html += action('delete', 'trash', 'Delete');
     }
     actions.innerHTML = html;
     return actions;
@@ -1949,7 +1959,9 @@ presenceMenu.init();
           '<a class="lightbox-btn" data-action="download" title="Download" aria-label="Download">' +
             '<svg class="icon"><use href="#icon-download"/></svg>' +
           '</a>' +
-          '<a class="lightbox-btn" data-action="open" target="_blank" rel="noopener" title="Open in new tab" aria-label="Open in new tab">↗</a>' +
+          '<a class="lightbox-btn" data-action="open" target="_blank" rel="noopener" title="Open in new tab" aria-label="Open in new tab">' +
+            '<svg class="icon"><use href="#icon-external"/></svg>' +
+          '</a>' +
           '<button type="button" class="lightbox-btn" data-action="close" title="Close (Esc)" aria-label="Close">' +
             '<svg class="icon"><use href="#icon-close"/></svg>' +
           '</button>' +

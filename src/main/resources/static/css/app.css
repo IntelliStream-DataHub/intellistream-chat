@@ -1557,7 +1557,14 @@ button.icon-btn > .icon {
   border-top: 1px solid var(--border);
   color: var(--muted);
 }
+/* Mixed content by design: bold/italic/strike/code are letterforms (B, I, S, { }), the rest are
+   sprite icons. inline-flex centres both against a shared baseline-free box, so the row doesn't
+   jitter where a glyph meets a letter. One icon size for the whole toolbar — the paperclip
+   inherits it too, which it didn't when it was the only SVG among glyphs. */
 .composer-toolbar .tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   border: 0;
   color: var(--muted);
@@ -1565,8 +1572,10 @@ button.icon-btn > .icon {
   border-radius: var(--radius-sm);
   font-size: var(--fs-md);
   font-weight: 600;
+  line-height: 1;
   cursor: default;
 }
+.composer-toolbar .tool > .icon { width: 1.15rem; height: 1.15rem; }
 .composer-toolbar .tool:hover { background: var(--panel-2); color: var(--text); }
 .composer-toolbar .spacer { flex: 1; }
 .composer-toolbar .send-btn {
@@ -2455,18 +2464,26 @@ body.lightbox-open { overflow: hidden; }
 }
 .message:hover .message-actions { display: inline-flex; }
 .message:focus-within .message-actions { display: inline-flex; }
+/* Hover actions hold a sprite icon, not a glyph — inline-flex so the SVG centres in the button
+   instead of sitting on a text baseline. 16px reads as an affordance next to body text without
+   crowding the row; the 20px .icon default is sized for toolbar buttons. */
 .msg-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   border: 0;
-  padding: 4px 8px;
-  font-size: var(--fs-base);
+  padding: 4px 6px;
   border-radius: var(--radius-sm);
   cursor: pointer;
   color: var(--muted);
-  font-weight: 500;
   line-height: 1;
 }
+.msg-action > .icon { width: 1rem; height: 1rem; }
 .msg-action:hover { background: var(--panel-2); color: var(--text); }
+/* Destructive action reads as destructive on hover — the emoji 🗑 carried that signal in its
+   own colour, an inherited-currentColor icon has to be told. */
+.msg-action[data-action="delete"]:hover { color: var(--danger); }
 
 .edited-tag {
   font-size: var(--fs-xs);
@@ -2539,7 +2556,7 @@ body.lightbox-open { overflow: hidden; }
   background: var(--hover);
   border-color: var(--accent);
 }
-.thread-indicator-icon { font-size: var(--fs-md); line-height: 1; }
+.thread-indicator-icon { width: 0.95rem; height: 0.95rem; }
 .thread-indicator-count { line-height: 1; }
 .reaction {
   display: inline-flex;
@@ -3056,11 +3073,17 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
 .action-sheet-item[data-action="delete"] { color: var(--danger); }
 .action-sheet-icon {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 1.6rem;
   font-size: var(--fs-lg);
   line-height: 1;
   text-align: center;
 }
+/* Cloned from the hover-action button, which sizes its icon down to 16px — the sheet is a
+   touch surface with room, so restore the standard 20px. */
+.action-sheet-icon > .icon { width: 1.25rem; height: 1.25rem; }
 
 /* ---------- Tablet (769–1100px): keep the two columns but slim the sidebar; the
    thread panel floats over the content instead of squeezing it into a sliver. */
@@ -3164,7 +3187,6 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
   }
   .msg-action {
     padding: 6px 10px;
-    font-size: var(--fs-base);
   }
 
   /* Composer: ensure inputs are 16px so iOS doesn't auto-zoom (horizontal padding
@@ -3524,10 +3546,11 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
   line-height: 1.25;
 }
 .notification-toast-close {
+  display: inline-flex;
+  align-items: center;
   background: transparent;
   color: var(--muted);
   border: 0;
-  font-size: var(--fs-lg);
   line-height: 1;
   cursor: pointer;
   padding: 0 0.25rem;
