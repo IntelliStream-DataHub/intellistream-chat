@@ -25,7 +25,12 @@
     --brand-soft: rgba(16, 89, 132, 0.07);
     --link: #105984;
     --peach: #ffc49a;
-    --peach-ink: #7c3f11;
+    /* Ink for text sitting ON the peach, and the accent colour for statement
+       highlights on white. Green rather than a darker peach: a brown-orange on
+       orange reads as a smudge, and the green is the only other hue in play so it
+       stays deliberate rather than decorative. */
+    --accent-ink: #14532d;
+    --green: #0f7a4f;
     --band: #105984;
     --band-2: #0b4467;
     --band-text: #ffffff;
@@ -68,7 +73,7 @@
   .band .qs-step h3 { color: var(--band-text); }
   .band .qs-step { border-color: rgba(255,255,255,.16); }
   /* Must out-specify '.qs-step h3 .num' below, which is three selectors deep. */
-  .band .qs-step h3 .num { background: var(--peach); color: var(--peach-ink); }
+  .band .qs-step h3 .num { background: var(--peach); color: var(--accent-ink); }
   .band .qs-note { color: #cfe2ec; }
   .band .qs-note code { color: var(--peach); }
   .band a { color: var(--peach); }
@@ -86,9 +91,12 @@
     letter-spacing: -0.02em;
     color: var(--brand-deep);
   }
-  .statement .lift { color: var(--peach-ink); }
-  .band .statement p { color: #fff; }
-  .band .statement .lift { color: var(--peach); }
+  .statement .lift { color: var(--green); }
+  /* '.statement band' is ONE element with two classes, so '.band .statement' (descendant)
+     never matches it. Compound selectors, or the statement stays --brand-deep on the teal
+     band and is invisible. */
+  .statement.band p, .band .statement p { color: #ffffff; }
+  .statement.band .lift, .band .statement .lift { color: var(--peach); }
 
   /* --- Hero orbit rings: the logo motif blown up as background geometry. --- */
   .hero { position: relative; overflow: hidden; }
