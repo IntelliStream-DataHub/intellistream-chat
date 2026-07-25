@@ -8,7 +8,7 @@ set -euo pipefail
 BASE=${1:?base url}; USER=${2:?user}; PASS=${3:?pass}; ROOMS=${4:?room count}
 JAVA=${JAVA:-/usr/lib/jvm/java-25-openjdk/bin/java}
 HERE="$(cd "$(dirname "$0")" && pwd)"
-PSQL=(podman exec -i chat_postgres_1 psql -U intellistream -d intellistream_chat -tA)
+PSQL=(podman exec -i chat_postgres_1 psql -U ichat_role -d intellistream_chat -tA)
 
 # 1) Provision the user (any authenticated request upserts their row via CurrentUser).
 "$JAVA" "$HERE/AuthProbe.java" "$BASE" "$USER" "$PASS" >/dev/null

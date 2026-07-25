@@ -13,15 +13,15 @@ database:
 
 ```bash
 sudo -u postgres psql <<'SQL'
-CREATE ROLE intellistream LOGIN PASSWORD 'CHANGE-ME';
-CREATE DATABASE intellistream_chat OWNER intellistream;
+CREATE ROLE ichat_role LOGIN PASSWORD 'CHANGE-ME';
+CREATE DATABASE intellistream_chat OWNER ichat_role;
 SQL
 ```
 
 Flyway creates the schema on first app start — no manual DDL. Verify connectivity:
 
 ```bash
-psql "postgresql://intellistream:CHANGE-ME@localhost:5432/intellistream_chat" -c 'select 1'
+psql "postgresql://ichat_role:CHANGE-ME@localhost:5432/intellistream_chat" -c 'select 1'
 ```
 
 ## 2. Keycloak
@@ -62,26 +62,57 @@ In the admin console:
 4. **Users**: create your accounts, give everyone `ichat-user`, and assign `ichat-admin` to at
    least one — otherwise nobody can reach `/admin`.
 
-## 3. Build and install the app
+## 3. Install the app
+
+Two scripts do everything from here. Both are idempotent and both take `--dry-run`, which prints
+what they would do and changes nothing — worth running first.
 
 ```bash
-./gradlew bootJar          # builds JS/CSS bundles + the executable jar
-sudo useradd --system --home /opt/intellistream-chat --create-home intellistream-chat
-sudo mkdir -p /opt/intellistream-chat /etc/intellistream-chat
-sudo cp build/libs/intellistream-chat-0.1.0-SNAPSHOT.jar /opt/intellistream-chat/intellistream-chat.jar
+# Installs Java, PostgreSQL (unless --skip-postgres), the service account and layout,
+# the env file, the hardened systemd unit; then starts and health-checks the service.
+sudo scripts/install-almalinux.sh \
+  --issuer-uri https://auth.your-domain/realms/ichat-realm \
+  --client-secret -              # '-' reads the secret from stdin, keeping it out of argv/history
+
+# Then, if `getenforce` says Enforcing:
+sudo scripts/selinux-harden.sh
 ```
 
-The app writes runtime data (attachments, avatars, branding, Lucene index) under its working
-directory — the unit below uses `/opt/intellistream-chat`.
+**Neither script touches your reverse proxy.** That is deliberate — it is a separate concern with
+its own decisions, and it has its own guide (`frontend.md`, step 6 below). The app ends up
+listening on `127.0.0.1:8080` and nothing outside the host can reach it until you put a proxy in
+front.
+
+`--help` on either script lists the knobs: alternate paths, an external database
+(`--skip-postgres`), a pre-built jar (`--jar`), heap size, listen address and port.
+
+### What the installer does, if you'd rather do it by hand
+
+```bash
+./gradlew bootJar                                     # JS/CSS bundles + executable jar
+sudo groupadd --system intellistream-chat
+sudo useradd --system --gid intellistream-chat --home-dir /opt/intellistream-chat \
+             --shell /usr/sbin/nologin intellistream-chat
+sudo install -d -o root -g intellistream-chat -m 0750 /etc/intellistream-chat
+sudo install -d -o intellistream-chat -g intellistream-chat -m 0750 \
+     /opt/intellistream-chat /opt/intellistream-chat/data
+sudo install -o root -g intellistream-chat -m 0640 \
+     build/libs/intellistream-chat-*.jar /opt/intellistream-chat/intellistream-chat.jar
+```
+
+`/opt/intellistream-chat/data` is the **only** writable path — attachments, avatars, branding, the
+Lucene index and heap dumps all live under it, and the unit's `ReadWritePaths=` names exactly that
+directory. Keep the two in agreement; a data directory outside `ReadWritePaths` fails at runtime as
+a permission error with a healthy-looking service log.
 
 ## 4. Configuration
 
-`/etc/intellistream-chat/intellistream-chat.env` (readable by the service user only):
+`/etc/intellistream-chat/env`, mode 0640, owned `root:intellistream-chat`:
 
 ```bash
 # --- database ---
 ICHAT_DB_URL=jdbc:postgresql://localhost:5432/intellistream_chat
-ICHAT_DB_USERNAME=intellistream
+ICHAT_DB_USERNAME=ichat_role
 ICHAT_DB_PASSWORD=CHANGE-ME
 
 # --- Keycloak ---
@@ -89,43 +120,48 @@ KEYCLOAK_ISSUER_URI=https://auth.your-domain/realms/ichat-realm
 KEYCLOAK_CLIENT_ID=ichat-client
 KEYCLOAK_CLIENT_SECRET=CHANGE-ME
 
-# --- HTTP: bind localhost; terminate TLS in nginx/caddy in front (see frontend.md) ---
+# --- HTTP: loopback only; terminate TLS in the proxy in front (see frontend.md) ---
 SERVER_ADDRESS=127.0.0.1
 SERVER_PORT=8080
 
-# --- data directories (inside WorkingDirectory) ---
-ICHAT_ATTACHMENTS_DIR=/opt/intellistream-chat/attachments
-ICHAT_AVATARS_DIR=/opt/intellistream-chat/avatars
-ICHAT_BRANDING_DIR=/opt/intellistream-chat/branding
-ICHAT_SEARCH_LUCENE_DIR=/opt/intellistream-chat/lucene
+# --- data directories (all under the unit's single ReadWritePaths) ---
+ICHAT_ATTACHMENTS_DIR=/opt/intellistream-chat/data/attachments
+ICHAT_AVATARS_DIR=/opt/intellistream-chat/data/avatars
+ICHAT_BRANDING_DIR=/opt/intellistream-chat/data/branding
+ICHAT_SEARCH_LUCENE_DIR=/opt/intellistream-chat/data/lucene
+
+# --- JVM ---
+JAVA_OPTS=-Xms256m -Xmx2g -XX:+UseZGC -XX:+ExitOnOutOfMemoryError --enable-native-access=ALL-UNNAMED
 ```
+
+systemd reads this file itself, so it is not shell: no quoting, no `$` expansion, no trailing
+comments after a value.
 
 ```bash
-sudo chown root:intellistream-chat /etc/intellistream-chat/intellistream-chat.env
-sudo chmod 640 /etc/intellistream-chat/intellistream-chat.env
+sudo chown root:intellistream-chat /etc/intellistream-chat/env
+sudo chmod 640 /etc/intellistream-chat/env
 ```
 
-(Prefer a secret manager? The app has optional Vault/OpenBao support —
-`ICHAT_VAULT_*`, see `scripts/seed-vault.sh`.)
+(Prefer a secret manager? The app has optional Vault/OpenBao support — `ICHAT_VAULT_*`, see
+`scripts/seed-vault.sh`.)
 
 ## 5. systemd service
 
 There is **one** unit for this project and it lives in the README, under
 [Production: systemd + JVM tuning](README.md#production-systemd--jvm-tuning). It is annotated
 directive by directive, runs the JVM sandboxed (`ProtectSystem=strict`, `NoNewPrivileges`,
-`RestrictNamespaces`, an explicit `InaccessiblePaths` list) and scores **4.7 OK** on
-`systemd-analyze security`. Copy it to `/etc/systemd/system/intellistream-chat.service`.
+`RestrictNamespaces`, `RestrictAddressFamilies`, an explicit `InaccessiblePaths` list) and scores
+**4.6 OK** on `systemd-analyze security`. `scripts/install-almalinux.sh` writes exactly that unit,
+so the documented one and the installed one cannot drift.
 
 Earlier revisions of this guide carried a second, weaker unit that disagreed with the README's on
 paths and on the environment-file location, so following both in sequence produced a broken
-install. Don't reintroduce one — if the unit needs to change, change it in the README.
+install. Don't reintroduce one — if the unit needs to change, change it in the README and in the
+installer's heredoc together.
 
-Paths throughout assume `/opt/intellistream-chat`, which is a convention rather than a
-requirement. If you relocate it, three things must move together: `WorkingDirectory`,
-`ReadWritePaths` (and the SELinux `fcontext` rule for the same directory, if SELinux is enforcing),
-and wherever you install the jar.
-
-Then:
+Paths assume `/opt/intellistream-chat`, a convention rather than a requirement. If you relocate it,
+four things move together: `WorkingDirectory`, `ReadWritePaths`, wherever you install the jar, and
+the SELinux `fcontext` rule for the data directory (`selinux-harden.sh --data-dir`).
 
 ```bash
 sudo systemctl daemon-reload

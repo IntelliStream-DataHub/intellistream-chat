@@ -8,8 +8,8 @@ spring:
 
   datasource:
     url: ${ICHAT_DB_URL:jdbc:postgresql://localhost:5432/intellistream_chat}
-    username: ${ICHAT_DB_USERNAME:intellistream}
-    password: ${ICHAT_DB_PASSWORD:intellistream}
+    username: ${ICHAT_DB_USERNAME:ichat_role}
+    password: ${ICHAT_DB_PASSWORD:ichat_role}
 
   jpa:
     hibernate:

@@ -139,7 +139,7 @@ far below the number of threads you think are working, something upstream is ser
 millions of rows, so to reclaim the space entirely:
 
 ```bash
-podman exec -i chat_postgres_1 psql -U intellistream -d intellistream_chat \
+podman exec -i chat_postgres_1 psql -U ichat_role -d intellistream_chat \
   -c "delete from channels where slug like 'bench-room-%';"
 ```
 

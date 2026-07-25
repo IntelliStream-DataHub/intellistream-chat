@@ -103,7 +103,7 @@ class VaultIntegrationIT {
         try (ConfigurableApplicationContext ctx = bootWithVault(false)) {
             ConfigurableEnvironment env = ctx.getEnvironment();
             // No vault-sourced properties: spring.datasource.password should resolve to the
-            // application.yml default ("intellistream"), not "vault-pass".
+            // application.yml default ("ichat_role"), not "vault-pass".
             assertThat(env.getProperty("spring.datasource.password")).isNotEqualTo("vault-pass");
             assertThat(env.getPropertySources().contains(VaultEnvironmentPostProcessor.SOURCE_NAME)).isFalse();
         }

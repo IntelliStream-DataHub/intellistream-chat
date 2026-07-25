@@ -5,7 +5,7 @@
 #   ./scripts/seed-vault.sh                       # uses dev defaults below
 #   BAO_ADDR=http://vault.example:8200 \
 #   BAO_TOKEN=<root-or-write-token> \
-#   ICHAT_DB_USERNAME=intellistream \
+#   ICHAT_DB_USERNAME=ichat_role \
 #   ICHAT_DB_PASSWORD='...' \
 #   KEYCLOAK_CLIENT_ID=ichat-client \
 #   KEYCLOAK_CLIENT_SECRET='...' \
@@ -28,8 +28,8 @@ set -euo pipefail
 : "${BAO_ADDR:=http://127.0.0.1:8200}"
 : "${BAO_TOKEN:=intellistream-dev-token}"
 
-: "${ICHAT_DB_USERNAME:=intellistream}"
-: "${ICHAT_DB_PASSWORD:=intellistream}"
+: "${ICHAT_DB_USERNAME:=ichat_role}"
+: "${ICHAT_DB_PASSWORD:=ichat_role}"
 : "${KEYCLOAK_CLIENT_ID:=ichat-client}"
 : "${KEYCLOAK_CLIENT_SECRET:?KEYCLOAK_CLIENT_SECRET must be set (no safe default — pull from keycloak/realm.json)}"
 : "${KEYCLOAK_ISSUER_URI:=http://localhost:8081/realms/ichat-realm}"

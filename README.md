@@ -117,7 +117,7 @@ scratch. A feature typically touches one service, one controller, one migration 
    | `ichat` | config property prefix (`ichat.search.lucene-dir`, …) |
    | `ICHAT_` | environment variables (`ICHAT_DB_URL`, …) |
    | `ichat-realm` / `ichat-client` / `ichat-*` roles | Keycloak realm, OIDC client, realm roles |
-   | `intellistream` / `intellistream_chat` | Postgres role and database |
+   | `ichat_role` / `intellistream_chat` | Postgres role and database |
    | `intellistream-chat` | Gradle artifact, systemd unit, `/opt` path |
 
    Then regenerate `V1__init.sql`.
@@ -223,14 +223,14 @@ Already running Postgres 18 and Keycloak 26 elsewhere (managed cloud, a host ins
 
 ```bash
 export ICHAT_DB_URL=jdbc:postgresql://db.example.com:5432/intellistream_chat
-export ICHAT_DB_USERNAME=intellistream
+export ICHAT_DB_USERNAME=ichat_role
 export ICHAT_DB_PASSWORD=...
 export KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/ichat-realm
 export KEYCLOAK_CLIENT_SECRET=...
 ./gradlew bootRun
 ```
 
-The Keycloak realm definition you'll need is in `keycloak/realm.json` — import it via the admin console (**Realms → Import**) or `bin/kcadm.sh create realms -f keycloak/realm.json`. Once imported, regenerate the client secret (the bundled one is in this public repo) and use the new value for `KEYCLOAK_CLIENT_SECRET`. Flyway runs the schema on first boot — no manual SQL setup beyond `CREATE DATABASE intellistream_chat OWNER intellistream`. See [Without containers (native install)](#without-containers-native-install) for a step-by-step host install of both, and [Keycloak realm](#keycloak-realm) for the realm/client knobs.
+The Keycloak realm definition you'll need is in `keycloak/realm.json` — import it via the admin console (**Realms → Import**) or `bin/kcadm.sh create realms -f keycloak/realm.json`. Once imported, regenerate the client secret (the bundled one is in this public repo) and use the new value for `KEYCLOAK_CLIENT_SECRET`. Flyway runs the schema on first boot — no manual SQL setup beyond `CREATE DATABASE intellistream_chat OWNER ichat_role`. See [Without containers (native install)](#without-containers-native-install) for a step-by-step host install of both, and [Keycloak realm](#keycloak-realm) for the realm/client knobs.
 
 To pull `ICHAT_DB_PASSWORD` and `KEYCLOAK_CLIENT_SECRET` from a Vault / OpenBao KV-v2 record instead of plain env vars:
 
@@ -259,7 +259,7 @@ For a real internet-facing deployment. **Do not skip the hardening steps**: the 
 
 # 3. Configure the production env. Each line below is required.
 export ICHAT_DB_URL=jdbc:postgresql://db.internal:5432/intellistream_chat
-export ICHAT_DB_USERNAME=intellistream
+export ICHAT_DB_USERNAME=ichat_role
 export ICHAT_DB_PASSWORD=$(openssl rand -base64 32)
 export KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/ichat-realm
 export KEYCLOAK_CLIENT_SECRET=$(openssl rand -base64 32)   # rotate from the dev default
@@ -290,7 +290,7 @@ The bare `java -jar …` line above gets you running once. For an actual deploym
 
 Drop this at `/etc/systemd/system/intellistream-chat.service`:
 
-Every directive is annotated below — read top to bottom and you'll see exactly what each line buys you. Tested as-is on AlmaLinux 10.2 with SELinux enforcing; `systemd-analyze security` reports an exposure score of **4.7 OK** with this configuration.
+Every directive is annotated below — read top to bottom and you'll see exactly what each line buys you. Tested as-is on AlmaLinux 10.2 with SELinux enforcing; `systemd-analyze security` reports an exposure score of **4.6 OK** with this configuration. `scripts/install-almalinux.sh` writes exactly this unit, so the documented one and the installed one cannot drift.
 
 ```ini
 [Unit]
@@ -384,6 +384,8 @@ ProcSubset=pid
 # Restrict socket(2) families to UNIX + IP. No raw, packet, netlink, bluetooth, can, …
 # (The JVM never needs anything else — outbound to Postgres / Keycloak is plain TCP.)
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# Deny SCHED_FIFO / SCHED_RR — the JVM has no use for realtime scheduling.
+RestrictRealtime=true
 
 [Install]
 WantedBy=multi-user.target
@@ -397,7 +399,7 @@ JAVA_OPTS=-Xms1g -Xmx1g -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryEr
 
 # App config (see "Quick start — production" for the full list)
 ICHAT_DB_URL=jdbc:postgresql://db.internal:5432/intellistream_chat
-ICHAT_DB_USERNAME=intellistream
+ICHAT_DB_USERNAME=ichat_role
 ICHAT_DB_PASSWORD=...
 KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/ichat-realm
 KEYCLOAK_CLIENT_SECRET=...
@@ -491,8 +493,13 @@ sudo restorecon -Rv /opt/intellistream-chat
 # 3. Allow nginx (httpd_t) to make outbound connections to the JVM on localhost:8080.
 sudo setsebool -P httpd_can_network_connect on
 
-# 4. If you bind the JVM to a port that isn't already labelled (8080 is fine; 9090, 8443 etc. are not):
-#    sudo semanage port -a -t http_port_t -p tcp 9090
+# 4. Port labels. Stock http_port_t on AlmaLinux 10 covers 80, 81, 443, 488, 8008, 8009,
+#    8443 and 9000 — note that 8080 is NOT among them. Check yours rather than assume:
+#      semanage port -l | awk '$1=="http_port_t"'
+#    This only bites if you confine the JVM to a domain that enforces port labels; the
+#    unit above runs unconfined_service_t, which does not. Label it anyway if you later
+#    write a custom domain:
+#    sudo semanage port -a -t http_port_t -p tcp 8080
 ```
 
 The systemd unit's `ReadWritePaths=/opt/intellistream-chat/data` and SELinux's file context for the same path are independent layers — both must be correct. The systemd one stops the JVM from writing outside the data dir; the SELinux one stops it from writing inside the data dir if the labels are wrong.
@@ -764,7 +771,7 @@ bin/kc.sh start-dev --import-realm --http-port=8081
 
 `start-dev` runs against an embedded H2 — fine for a quick local run. For production, switch to `bin/kc.sh start` and configure a Postgres backend (a separate database from the chat one) per Keycloak's docs.
 
-Once Keycloak is up at http://localhost:8081 the `intellistream` realm exists with users `alice` / `alice` and `bob` / `bob`. Point the app at it:
+Once Keycloak is up at http://localhost:8081 the `ichat-realm` realm exists with users `alice` / `alice` and `bob` / `bob`. Point the app at it:
 
 ```bash
 export KEYCLOAK_ISSUER_URI=http://localhost:8081/realms/ichat-realm
@@ -827,8 +834,8 @@ Every override is plain Spring Boot env-var substitution against `application.ym
 | Variable | Default | Purpose |
 |---|---|---|
 | `ICHAT_DB_URL` | `jdbc:postgresql://localhost:5432/intellistream_chat` | JDBC URL for the Postgres instance |
-| `ICHAT_DB_USERNAME` | `intellistream` | Postgres user |
-| `ICHAT_DB_PASSWORD` | `intellistream` — **rotate in production** | Postgres password — **set this in production** |
+| `ICHAT_DB_USERNAME` | `ichat_role` | Postgres user |
+| `ICHAT_DB_PASSWORD` | `ichat_role` — **rotate in production** | Postgres password — **set this in production** |
 | `KEYCLOAK_ISSUER_URI` | `http://localhost:8081/realms/ichat-realm` | Keycloak realm issuer (used by both OIDC client and resource server). Must match the OIDC issuer in `keycloak/realm.json`'s redirect-URI list — change one and the other will reject the redirect with `400 invalid_redirect_uri`. |
 | `KEYCLOAK_CLIENT_ID` | `ichat-client` | OIDC client id |
 | `KEYCLOAK_CLIENT_SECRET` | `(generated; rotate in production)` | OIDC client secret — **set this in production** |

@@ -475,7 +475,7 @@
 
     <div class="qs-step">
       <h3><span class="num">1</span>Fork and rename</h3>
-      <p class="qs-note">The name lives in several distinct slugs, on purpose: Java package <code>ai.intellistream.chat</code>, config prefix <code>ichat.</code>, environment variables <code>ICHAT_*</code>, Keycloak realm <code>ichat-realm</code> with client <code>ichat-client</code> and <code>ichat-</code>-prefixed roles, Postgres role/database <code>intellistream</code> / <code>intellistream_chat</code>, and Gradle artifact / systemd unit / <code>/opt</code> path <code>intellistream-chat</code>. Rename each deliberately, then regenerate <code>V1__init.sql</code>.</p>
+      <p class="qs-note">The name lives in several distinct slugs, on purpose: Java package <code>ai.intellistream.chat</code>, config prefix <code>ichat.</code>, environment variables <code>ICHAT_*</code>, Keycloak realm <code>ichat-realm</code> with client <code>ichat-client</code> and <code>ichat-</code>-prefixed roles, Postgres role/database <code>ichat_role</code> / <code>intellistream_chat</code>, and Gradle artifact / systemd unit / <code>/opt</code> path <code>intellistream-chat</code>. Rename each deliberately, then regenerate <code>V1__init.sql</code>.</p>
     </div>
 
     <div class="qs-step">
@@ -675,12 +675,12 @@ SPRING_PROFILES_ACTIVE=prod ./gradlew bootRun</code></pre>
     <div class="qs-step">
       <h3><span class="num">5</span>Optional: skip Podman, use external Postgres + Keycloak</h3>
 <pre><code>export ICHAT_DB_URL=jdbc:postgresql://db.example.com:5432/intellistream_chat
-export ICHAT_DB_USERNAME=intellistream
+export ICHAT_DB_USERNAME=ichat_role
 export ICHAT_DB_PASSWORD=...
 export KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/ichat-realm
 export KEYCLOAK_CLIENT_SECRET=...
 ./gradlew bootRun</code></pre>
-      <p class="qs-note">Already running Postgres 18 and Keycloak 26 elsewhere? Point the app at them and skip step 1. Import <code>keycloak/realm.json</code> via the Keycloak admin console (<strong>Realms &rarr; Import</strong>) and regenerate the client secret. Flyway runs the schema on first boot &mdash; no manual SQL beyond <code>CREATE DATABASE intellistream_chat OWNER intellistream</code>.</p>
+      <p class="qs-note">Already running Postgres 18 and Keycloak 26 elsewhere? Point the app at them and skip step 1. Import <code>keycloak/realm.json</code> via the Keycloak admin console (<strong>Realms &rarr; Import</strong>) and regenerate the client secret. Flyway runs the schema on first boot &mdash; no manual SQL beyond <code>CREATE DATABASE intellistream_chat OWNER ichat_role</code>.</p>
 <pre><code>export ICHAT_VAULT_ENABLED=true
 export ICHAT_VAULT_URI=https://vault.example.com:8200
 export ICHAT_VAULT_TOKEN=...

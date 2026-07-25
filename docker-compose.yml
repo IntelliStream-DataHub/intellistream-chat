@@ -3,8 +3,8 @@ services:
     image: docker.io/library/postgres:18-alpine
     environment:
       POSTGRES_DB: intellistream_chat
-      POSTGRES_USER: intellistream
-      POSTGRES_PASSWORD: intellistream
+      POSTGRES_USER: ichat_role
+      POSTGRES_PASSWORD: ichat_role
     ports:
       - "127.0.0.1:5432:5432"
     volumes:
@@ -14,7 +14,7 @@ services:
       # See https://github.com/docker-library/postgres/pull/1259.
       - intellistream-chat-pg:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U intellistream -d intellistream_chat"]
+      test: ["CMD-SHELL", "pg_isready -U ichat_role -d intellistream_chat"]
       interval: 5s
       timeout: 5s
       retries: 10

@@ -23,10 +23,10 @@ This starts:
 
 | Service  | Image                        | Address                 | Credentials |
 |----------|------------------------------|-------------------------|-------------|
-| Postgres | `postgres:18-alpine`         | `127.0.0.1:5432`        | `intellistream` / `intellistream`, db `intellistream_chat` |
+| Postgres | `postgres:18-alpine`         | `127.0.0.1:5432`        | `ichat_role` / `ichat_role`, db `intellistream_chat` |
 | Keycloak | `keycloak:26.0`              | port `8081` (see note)  | admin console: `admin` / `admin` |
 
-Keycloak imports the `intellistream` realm from `keycloak/realm.json` on first boot (takes
+Keycloak imports the `ichat-realm` realm from `keycloak/realm.json` on first boot (takes
 15–30 s — watch `podman compose logs -f keycloak` for `Imported realm ichat-realm`). The realm
 ships an OIDC client (`ichat-client`) and two test users: **`alice`/`alice`** and **`bob`/`bob`**.
 
