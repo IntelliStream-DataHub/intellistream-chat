@@ -26,10 +26,13 @@ These files are checked into `src/main/resources/static/` and served to browsers
 - License: **BSD 3-Clause** (same as highlight.js above).
 
 ### Figtree (font)
-- Files: `static/fonts/figtree-*.woff2`
+- Files: `static/fonts/figtree-*.woff2`, and the upright subsets copied into the Keycloak login
+  theme at `keycloak/themes/intellistream/login/resources/fonts/figtree-*.woff2` (the sign-in page
+  is served by Keycloak from its own themes directory, so it cannot reach the app's copy)
 - Project: https://github.com/erikdkennedy/figtree · https://fonts.google.com/specimen/Figtree
 - License: **SIL Open Font License 1.1** — full text in
-  [`static/fonts/OFL-Figtree.txt`](src/main/resources/static/fonts/OFL-Figtree.txt)
+  [`static/fonts/OFL-Figtree.txt`](src/main/resources/static/fonts/OFL-Figtree.txt), copied
+  alongside the theme's fonts as required when the font is redistributed
 - Copyright © The Figtree Project Authors.
 
 ### Heroicons (UI icon paths)

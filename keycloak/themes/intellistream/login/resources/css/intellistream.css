@@ -1,0 +1,757 @@
+/* =================================================================================================
+   IntelliStream Chat — Keycloak login theme stylesheet.
+
+   This is the whole visual layer. theme.properties clears `stylesCommon`, so PatternFly is not
+   loaded and nothing here has to out-specify it; the pf-* class names below are just the names
+   Keycloak's templates happen to emit (they read them from the kc*Class properties inherited from
+   the `keycloak` parent theme), and we style them directly.
+
+   The design tokens are lifted verbatim from the application's src/main/resources/static/css/
+   app.css so the sign-in page is continuous with the product. The page background is the same
+   `linear-gradient(160deg, --sb-bg, --sb-bg-3)` the signed-out landing page uses, which is what
+   the user is looking at one click earlier.
+
+   Light and dark come from prefers-color-scheme. The app switches theme from a stored user
+   preference, which Keycloak has no access to (it is a different origin, before any session
+   exists), so the OS signal is the only honest input here.
+   ============================================================================================== */
+
+/* ---------- Brand font: Figtree (SIL OFL — licence text in ../fonts/OFL-Figtree.txt).
+   Copied into the theme rather than linked from a CDN: the application's CSP is
+   `font-src 'self'` and vendoring every asset is a project rule, so a themes directory that
+   reaches out to fonts.googleapis.com would be the one place the rule leaks. Only the upright
+   latin + latin-ext subsets ship — a login form has no italics, and latin-ext is what carries
+   the Norwegian å/æ/ø. */
+@font-face {
+  font-family: "Figtree";
+  font-style: normal;
+  font-weight: 300 900;
+  font-display: swap;
+  src: url("../fonts/figtree-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Figtree";
+  font-style: normal;
+  font-weight: 300 900;
+  font-display: swap;
+  src: url("../fonts/figtree-latin-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+/* ---------- Tokens ---------- */
+:root {
+  color-scheme: light dark;
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+
+  --shadow-3: 0 10px 28px rgba(0, 0, 0, 0.2);
+
+  /* Type scale on a 16px root. The app runs a 14px root because it is a dense workspace UI;
+     a sign-in form is not, so the same token names resolve one step larger here. */
+  --fs-xs: 0.72rem;
+  --fs-sm: 0.8rem;
+  --fs-md: 0.875rem;
+  --fs-base: 1rem;
+  --fs-xl: 1.45rem;
+
+  /* Dark chrome — the page backdrop, identical to the app's sidebar/topbar and landing hero. */
+  --sb-bg: #1e325c;
+  --sb-bg-3: #19294a;
+  --sb-text: #ffffff;
+
+  /* Light content — the card. */
+  --panel: #ffffff;
+  --panel-2: #f4f5f7;
+  --text: #2d2f36;
+  --muted: #72767d;
+  --accent: #1c58d9;
+  --accent-2: #1448b1;
+  --accent-on: #ffffff;
+  --border: #e0e1e5;
+  --border-strong: #c8cbd1;
+  --danger: #d24b4e;
+  /* The app uses --danger as a fill under white text, where 4.2:1 against a white *panel* is
+     not enough for the error copy here. --danger-text is that same hue darkened to ~5.9:1;
+     --danger stays the border/fill value so the two agree visually. */
+  --danger-text: #a93639;
+
+  --hover: color-mix(in srgb, var(--accent) 6%, transparent);
+  --danger-soft: color-mix(in srgb, var(--danger) 9%, transparent);
+  --focus-ring: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+  --focus-ring-danger: 0 0 0 2px color-mix(in srgb, var(--danger) 30%, transparent);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --sb-bg: #1f1f23;
+    --sb-bg-3: #18181c;
+    --sb-text: #e8e8ec;
+
+    --panel: #25262b;
+    --panel-2: #2d2e34;
+    --text: #e8e8ec;
+    --muted: #9a9ba2;
+    --accent: #5d8eff;
+    --accent-2: #4072e4;
+    --border: #3a3b42;
+    --border-strong: #4a4b53;
+    /* Same reasoning as above, inverted: #d24b4e only reaches 3.6:1 on the dark panel. */
+    --danger-text: #f0908f;
+  }
+}
+
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+/* The gradient lives on <html> so it paints the whole canvas even when the form is taller than
+   the viewport — a background on <body> alone stops at the body box on short pages. */
+html.login-pf,
+html {
+  min-height: 100%;
+  background: linear-gradient(160deg, var(--sb-bg) 0%, var(--sb-bg-3) 100%);
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: transparent;
+  color: var(--sb-text);
+  /* Same explicit stack as the app: the `system-ui` / `-apple-system` keywords are avoided
+     because Firefox's resistFingerprinting probes their OS-specific fallbacks and logs each one. */
+  font-family: "Figtree", BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  font-size: var(--fs-base);
+  line-height: 1.5;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Orbit rings, the logo motif blown up as background geometry — the same device the marketing
+   site uses in its hero. Fixed and non-interactive; three hairlines, no image request. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 50% 30%, transparent calc(11rem - 1px), rgba(255, 255, 255, 0.08) 11rem, transparent calc(11rem + 1px)),
+    radial-gradient(circle at 50% 30%, transparent calc(18rem - 1px), rgba(255, 255, 255, 0.06) 18rem, transparent calc(18rem + 1px)),
+    radial-gradient(circle at 50% 30%, transparent calc(26rem - 1px), rgba(255, 255, 255, 0.04) 26rem, transparent calc(26rem + 1px));
+}
+
+/* ---------- Page shell ---------- */
+/* .login-pf-page is kcLoginClass; it wraps #kc-header and the .card-pf. */
+.login-pf-page {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.75rem;
+  padding: 3rem 1.25rem;
+}
+
+/* ---------- Header: the mark and the realm's display name ---------- */
+#kc-header {
+  text-align: center;
+  max-width: 30rem;
+}
+
+/* The mark is a background image, not inline SVG, precisely so this theme does not have to fork
+   template.ftl to inject markup. The trade-off of an SVG-as-image is that it is an isolated
+   document that inherits no CSS variables, which is why img/logo-mark.svg pins its colours; its
+   own declarative animation still runs, so the thread keeps orbiting. */
+#kc-header-wrapper {
+  font-size: 1.9rem;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  color: var(--sb-text);
+  text-shadow: 0 2px 6px rgba(8, 16, 40, 0.55);
+}
+
+#kc-header-wrapper::before {
+  content: "";
+  display: block;
+  width: 5.5rem;
+  height: 5.5rem;
+  margin: 0 auto 1.1rem;
+  background: url("../img/logo-mark.svg") center / contain no-repeat;
+}
+
+#kc-header-wrapper strong { font-weight: 800; }
+
+/* ---------- The card ---------- */
+/* .card-pf is kcFormCardClass. */
+.card-pf {
+  width: 100%;
+  max-width: 26rem;
+  padding: 1.75rem 1.75rem 1.5rem;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+}
+
+.login-pf-header { margin: 0 0 1.25rem; }
+
+#kc-page-title {
+  margin: 0;
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  color: var(--text);
+}
+
+#kc-content,
+#kc-content-wrapper { width: 100%; }
+
+/* ---------- Links ---------- */
+.card-pf a {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+}
+.card-pf a:hover { color: var(--accent-2); }
+
+a:focus-visible,
+button:focus-visible,
+input[type="submit"]:focus-visible,
+summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ---------- Icons ----------
+   PatternFly's Font Awesome went with its stylesheet. Each icon is an inline SVG used as a mask
+   so it inherits the surrounding text colour, which is what makes one .ic-error work in the red
+   error callout and in a neutral alert without a second asset. The class names are set in
+   theme.properties, not here — passwordVisibility.js swaps ic-eye/ic-eye-off at runtime from the
+   button's data-icon-show / data-icon-hide attributes. */
+.ic {
+  display: inline-block;
+  width: 1.15em;
+  height: 1.15em;
+  flex: 0 0 auto;
+  background-color: currentColor;
+  -webkit-mask-position: center;
+          mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+          mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+          mask-size: contain;
+}
+
+.ic-error {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 7.5v5.5'/%3E%3Cpath d='M12 16.5v.01'/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 7.5v5.5'/%3E%3Cpath d='M12 16.5v.01'/%3E%3C/svg%3E");
+}
+.ic-warning {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 4 2.6 20.5h18.8z'/%3E%3Cpath d='M12 10v4'/%3E%3Cpath d='M12 17.5v.01'/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 4 2.6 20.5h18.8z'/%3E%3Cpath d='M12 10v4'/%3E%3Cpath d='M12 17.5v.01'/%3E%3C/svg%3E");
+}
+.ic-success {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='m8 12.2 2.8 2.8L16 9.5'/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='m8 12.2 2.8 2.8L16 9.5'/%3E%3C/svg%3E");
+}
+.ic-info {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 11v5.5'/%3E%3Cpath d='M12 7.5v.01'/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 11v5.5'/%3E%3Cpath d='M12 7.5v.01'/%3E%3C/svg%3E");
+}
+.ic-eye {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E");
+}
+.ic-eye-off {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 3l18 18'/%3E%3Cpath d='M10.7 6.2A10.6 10.6 0 0 1 12 6c6.4 0 10 6 10 6a17.6 17.6 0 0 1-3.4 4'/%3E%3Cpath d='M6.3 7.4C3.7 9 2 12 2 12s3.6 6 10 6a10.5 10.5 0 0 0 3.5-.6'/%3E%3Cpath d='M9.9 9.9a3 3 0 0 0 4.2 4.2'/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 3l18 18'/%3E%3Cpath d='M10.7 6.2A10.6 10.6 0 0 1 12 6c6.4 0 10 6 10 6a17.6 17.6 0 0 1-3.4 4'/%3E%3Cpath d='M6.3 7.4C3.7 9 2 12 2 12s3.6 6 10 6a10.5 10.5 0 0 0 3.5-.6'/%3E%3Cpath d='M9.9 9.9a3 3 0 0 0 4.2 4.2'/%3E%3C/svg%3E");
+}
+.ic-restart {
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 12a8.5 8.5 0 1 0 2.9-6.4'/%3E%3Cpath d='M3 4v5h5'/%3E%3C/svg%3E");
+          mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3.5 12a8.5 8.5 0 1 0 2.9-6.4'/%3E%3Cpath d='M3 4v5h5'/%3E%3C/svg%3E");
+}
+
+/* ---------- The page-level alert (template.ftl) ----------
+   Rendered for expired pages, account-linking notices, brute-force lockouts and so on. Note that
+   a plain wrong-password does NOT come through here: login.ftl passes displayMessage=false when
+   the failure is field-scoped, and the message arrives as #input-error below instead. Both are
+   styled, because both are reachable. */
+.pf-c-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin: 0 0 1.25rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--panel-2);
+  color: var(--text);
+  font-size: var(--fs-md);
+  line-height: 1.45;
+}
+.pf-c-alert__icon {
+  display: flex;
+  align-items: center;
+  height: 1.45em;
+}
+.pf-c-alert__title {
+  font-weight: 500;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.alert-error {
+  border-color: color-mix(in srgb, var(--danger) 40%, transparent);
+  background: var(--danger-soft);
+  color: var(--danger-text);
+}
+.alert-warning {
+  border-color: color-mix(in srgb, #d98324 45%, transparent);
+  background: color-mix(in srgb, #d98324 10%, transparent);
+}
+.alert-success {
+  border-color: color-mix(in srgb, #2e8b57 45%, transparent);
+  background: color-mix(in srgb, #2e8b57 10%, transparent);
+}
+.alert-info {
+  border-color: color-mix(in srgb, var(--accent) 35%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* ---------- Form ---------- */
+/* .form-group is kcFormGroupClass. */
+.form-group { margin: 0 0 1rem; }
+
+/* inline-block, not block: register.ftl puts the label and its <span class="required">*</span>
+   inside one wrapper div, and a block label pushes the asterisk onto its own line. The inputs are
+   display:block, so they still start a new line either way. */
+.pf-c-form__label {
+  display: inline-block;
+  margin: 0 0 0.35rem;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.required {
+  margin-left: 0.15rem;
+  color: var(--danger-text);
+  font-weight: 700;
+}
+
+.subtitle {
+  display: block;
+  margin: 0 0 0.75rem;
+  text-align: right;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+.pf-c-form-control,
+select,
+textarea {
+  display: block;
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  font: inherit;
+  /* Deliberately literal, not a token: anything under 16px makes iOS Safari zoom the viewport
+     on focus and the user then has to pinch back out to reach the submit button. */
+  font-size: 16px;
+  line-height: 1.35;
+}
+.pf-c-form-control::placeholder { color: var(--muted); }
+.pf-c-form-control:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+.pf-c-form-control[aria-invalid="true"] { border-color: var(--danger); }
+.pf-c-form-control[aria-invalid="true"]:focus { box-shadow: var(--focus-ring-danger); }
+.pf-c-form-control:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* Password field + its visibility toggle. The wrapper carries dir="ltr" from the template, so
+   the button is always on the trailing edge regardless of the locale's direction. */
+.pf-c-input-group {
+  display: flex;
+  align-items: stretch;
+  border-radius: var(--radius-md);
+}
+.pf-c-input-group > .pf-c-form-control {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  min-width: 0;
+}
+/* One ring for the whole group, so focusing the input does not draw a rectangle that stops
+   halfway under the toggle button. */
+.pf-c-input-group > .pf-c-form-control:focus { box-shadow: none; }
+.pf-c-input-group:focus-within { box-shadow: var(--focus-ring); }
+.pf-c-input-group:focus-within > .pf-c-form-control,
+.pf-c-input-group:focus-within > .pf-c-button { border-color: var(--accent); }
+.pf-c-input-group:focus-within:has(.pf-c-form-control[aria-invalid="true"]) { box-shadow: var(--focus-ring-danger); }
+
+.pf-c-button.pf-m-control {
+  flex: 0 0 auto;
+  width: 2.85rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: var(--panel-2);
+  color: var(--muted);
+  border: 1px solid var(--border-strong);
+  border-left: 0;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  cursor: pointer;
+  font: inherit;
+  transition: color 0.12s, background-color 0.12s;
+}
+.pf-c-button.pf-m-control:hover { color: var(--text); background: var(--hover); }
+
+/* ---------- Field-level errors ----------
+   #input-error is where a wrong username/password actually lands. Given a block, a border and an
+   icon rather than a bare red line, because it is the single most important thing on the page
+   when it appears. */
+.pf-m-error,
+[id^="input-error"] {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  margin-top: 0.5rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid color-mix(in srgb, var(--danger) 40%, transparent);
+  border-radius: var(--radius-md);
+  background: var(--danger-soft);
+  color: var(--danger-text);
+  font-size: var(--fs-md);
+  font-weight: 500;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.pf-m-error::before,
+[id^="input-error"]::before {
+  content: "";
+  display: inline-block;
+  width: 1.15em;
+  height: 1.15em;
+  flex: 0 0 auto;
+  margin-top: 0.05em;
+  background-color: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 7.5v5.5'/%3E%3Cpath d='M12 16.5v.01'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 7.5v5.5'/%3E%3Cpath d='M12 16.5v.01'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.pf-c-form__helper-text:not(.pf-m-error) {
+  margin-top: 0.35rem;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+
+/* ---------- Options row: remember-me and forgot-password ---------- */
+/* The realm decides whether remember-me and forgot-password exist. With both off the template
+   still emits the row (two empty divs inside it), which would leave a 1rem hole above the submit
+   button; collapse it when there is nothing interactive in there. */
+.login-pf-settings:not(:has(label, a)) { display: none; }
+.login-pf-settings {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 0;
+  font-size: var(--fs-md);
+}
+#kc-form-options .checkbox { margin: 0; }
+#kc-form-options label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  color: var(--muted);
+  font-weight: 400;
+  cursor: pointer;
+}
+input[type="checkbox"] {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+/* ---------- Submit ---------- */
+#kc-form-buttons { margin: 1.25rem 0 0; }
+
+.pf-c-button.pf-m-primary,
+#kc-login {
+  display: block;
+  width: 100%;
+  padding: 0.7rem 1rem;
+  background: var(--accent);
+  color: var(--accent-on);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-size: var(--fs-base);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.12s;
+}
+.pf-c-button.pf-m-primary:hover,
+#kc-login:hover { background: var(--accent-2); }
+/* login.ftl disables the button in onsubmit to stop double posts; without a disabled style the
+   page looks frozen rather than busy. */
+.pf-c-button.pf-m-primary:disabled,
+#kc-login:disabled { opacity: 0.62; cursor: default; }
+
+.pf-c-button.pf-m-secondary {
+  display: block;
+  width: 100%;
+  padding: 0.65rem 1rem;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  font: inherit;
+  font-weight: 600;
+  text-align: center;
+  cursor: pointer;
+}
+.pf-c-button.pf-m-secondary:hover { background: var(--hover); color: var(--text); }
+
+/* ---------- Footer strip inside the card: register link, try-another-way, our own footer ------ */
+#kc-info,
+#kc-select-try-another-way-form,
+#kc-switch-organization-form {
+  margin: 1.25rem 0 0;
+  text-align: center;
+  font-size: var(--fs-md);
+  color: var(--muted);
+}
+#kc-info {
+  padding-top: 1.1rem;
+  border-top: 1px solid var(--border);
+}
+#kc-select-try-another-way-form .form-group,
+#kc-switch-organization-form .form-group { margin: 0; }
+
+.ichat-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 1.1rem;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.ichat-footer-sep { opacity: 0.5; }
+
+/* ---------- Restart-login header (login-password, OTP, and anything else that shows the
+              username you already typed) ---------- */
+#kc-username {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  margin: 0 0 1.1rem;
+}
+#kc-attempted-username {
+  margin: 0;
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+#reset-login {
+  display: inline-flex;
+  color: var(--muted);
+}
+#reset-login:hover { color: var(--accent); }
+.kc-login-tooltip {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+.kc-tooltip-text {
+  position: absolute;
+  left: 50%;
+  bottom: calc(100% + 0.4rem);
+  transform: translateX(-50%);
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--radius-sm);
+  background: var(--sb-bg);
+  color: #ffffff;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s;
+}
+#reset-login:hover .kc-tooltip-text,
+#reset-login:focus-visible .kc-tooltip-text { opacity: 1; }
+
+/* ---------- error.ftl / info.ftl / login-page-expired.ftl ---------- */
+#kc-error-message,
+#kc-info-message { color: var(--text); }
+.instruction {
+  margin: 0 0 0.9rem;
+  font-size: var(--fs-base);
+  line-height: 1.55;
+}
+#kc-error-message p:last-child,
+#kc-info-message p:last-child { margin-bottom: 0; }
+#traceId {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Locale switcher (only rendered when the realm enables internationalisation) ------ */
+#kc-locale {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.6rem;
+}
+#kc-locale-dropdown { position: relative; }
+#kc-current-locale-link {
+  padding: 0.2rem 0.5rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+#kc-current-locale-link::after { content: " \25BE"; }
+#kc-locale ul {
+  display: none;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 0.25rem);
+  z-index: 10;
+  min-width: 10rem;
+  max-height: 15rem;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.25rem;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-3);
+}
+#kc-locale-dropdown:hover ul,
+#kc-locale-dropdown:focus-within ul { display: block; }
+#kc-locale ul a {
+  display: block;
+  padding: 0.3rem 0.5rem;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--fs-md);
+  font-weight: 400;
+}
+#kc-locale ul a:hover { background: var(--hover); color: var(--text); }
+
+/* ---------- Identity providers (only rendered when the realm has some) ---------- */
+#kc-social-providers { margin-top: 1.25rem; }
+#kc-social-providers hr {
+  margin: 0 0 1rem;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+#kc-social-providers h2 {
+  margin: 0 0 0.6rem;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--muted);
+}
+#kc-social-providers ul {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.kc-social-grid { grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); }
+#kc-social-providers a {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+  color: var(--text);
+  font-size: var(--fs-md);
+  font-weight: 600;
+}
+#kc-social-providers a:hover { background: var(--hover); color: var(--text); }
+#kc-social-providers a[aria-disabled="true"] { opacity: 0.6; pointer-events: none; }
+
+/* ---------- select-authenticator.ftl ----------
+   Not reachable in the shipped realm (one credential type), but three lines of defence so that
+   turning on OTP or passkeys later does not produce an unstyled list. */
+.select-auth-container { display: grid; gap: 0.6rem; margin: 0; padding: 0; list-style: none; }
+.select-auth-box-parent {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+}
+.select-auth-box-parent:hover { background: var(--hover); border-color: var(--accent); }
+.select-auth-box-headline { font-weight: 600; color: var(--text); }
+.select-auth-box-desc { font-size: var(--fs-md); color: var(--muted); }
+
+/* kcSrOnlyClass — no base template uses it today, but a message bundle or a future template can,
+   and without a definition "screen-reader only" text renders as visible clutter. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- Small screens ---------- */
+@media (max-width: 30rem) {
+  .login-pf-page { padding: 2rem 0.9rem; gap: 1.35rem; }
+  #kc-header-wrapper { font-size: 1.5rem; }
+  #kc-header-wrapper::before { width: 4.25rem; height: 4.25rem; margin-bottom: 0.85rem; }
+  .card-pf { padding: 1.35rem 1.15rem 1.25rem; }
+  #kc-page-title { font-size: 1.25rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

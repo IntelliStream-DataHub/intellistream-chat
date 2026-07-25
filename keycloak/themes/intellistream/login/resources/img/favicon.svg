@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="IntelliStream Chat">
+  <title>IntelliStream Chat</title>
+  <!-- Favicon variant of the "Thread in orbit" mark: static (no animation burning cycles in a
+       background tab) and weighted heavier — thicker arc, larger core and bead, and no faint
+       guide ring, which would vanish at this size anyway — so it stays legible at 16px. The full
+       animated mark lives in logo.svg. -->
+  <path d="M 32 55 A 23 23 0 1 1 55 32" fill="none" stroke="#1c58d9"
+        stroke-width="8" stroke-linecap="round"/>
+  <circle cx="55" cy="32" r="7.5" fill="#f59e0b"/>
+  <circle cx="32" cy="32" r="11.5" fill="#1c58d9"/>
+</svg>

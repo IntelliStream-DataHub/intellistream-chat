@@ -580,6 +580,7 @@
           <li><a href="#config-profiles">Spring profiles</a></li>
           <li><a href="#config-vault">Vault and OpenBao</a></li>
           <li><a href="#config-keycloak">The Keycloak realm</a></li>
+          <li><a href="#config-login-theme">The login theme</a></li>
         </ol>
       </li>
       <li>
@@ -1861,6 +1862,149 @@ keycloak.issuer-uri      -&gt; both the OIDC client and the resource server issu
       there. Also rotate the client secret, the one in the repository is public.
     </p>
   </div>
+</section>
+
+<section class="doc" id="config-login-theme">
+  <h3><span class="marker"></span>The login theme</h3>
+  <p>
+    The sign-in page belongs to Keycloak, not to this application, so it inherits none of the app's
+    styling. Left alone, a user goes from the product's landing page to stock Keycloak and back,
+    which is the one moment a self-hosted deployment looks least like a product. The repository
+    ships a login theme, <code>keycloak/themes/intellistream</code>, that closes the gap: the same
+    navy chrome as the app shell, the same orbit mark, the same self-hosted Figtree, and light and
+    dark driven by <code>prefers-color-scheme</code>.
+  </p>
+
+  <h4>Installing it</h4>
+  <p>
+    Themes live in <code>$KEYCLOAK_HOME/themes/&lt;name&gt;/&lt;type&gt;/</code>. For a distribution
+    unzipped under <code>/opt/keycloak</code> that is
+    <code>/opt/keycloak/themes/intellistream/login/</code>. Keycloak reads that directory at
+    runtime, so installing a theme needs <b>no <code>kc.sh build</code></b> and no rebuild of an
+    optimized image. Only themes packaged as a JAR under <code>providers/</code> need one.
+  </p>
+<pre><code>sudo cp -r /path/to/repo/keycloak/themes/intellistream /opt/keycloak/themes/
+sudo chown -R root:keycloak /opt/keycloak/themes/intellistream
+sudo find /opt/keycloak/themes/intellistream -type d -exec chmod 750 {} +
+sudo find /opt/keycloak/themes/intellistream -type f -exec chmod 640 {} +</code></pre>
+  <p>
+    The server only ever reads a theme, so it never needs write access. On an SELinux host, files
+    copied into <code>/opt/keycloak</code> inherit the correct label but files <i>moved</i> in from a
+    home directory keep the old one; <code>sudo restorecon -R /opt/keycloak/themes</code> fixes a
+    permission error that otherwise makes no sense.
+  </p>
+  <p>
+    In the compose stack the same directory is bind-mounted read-only, with the SELinux relabel
+    rootless Podman needs: <code>./keycloak/themes:/opt/keycloak/themes:ro,Z</code>.
+  </p>
+  <p class="warn">
+    <b>Not <code>U</code>.</b> That flag chowns the source to the container's remapped UID, which
+    a container needs only when it has to <em>write</em> — Keycloak only reads a theme, and
+    world-readable files are the whole requirement. What <code>U</code> costs is that the theme
+    files stop being yours to edit, and the moment anyone hands them back with
+    <code>podman unshare chown</code>, the container loses access. Keycloak then falls back to its
+    built-in theme: the login page still works, it is simply unbranded, and the only evidence is a
+    <code>Failed to find LOGIN theme</code> line in the server log. A theme that silently
+    un-applies itself is worse than one that fails to start.
+  </p>
+
+  <h4>Selecting it for the realm</h4>
+  <p>Three equivalent routes. Use whichever matches how the realm is managed.</p>
+  <div class="tw">
+  <table class="nowrap-1 cfg">
+    <thead><tr><th>Route</th><th>What to do</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Admin console</td>
+        <td>
+          Select <code>ichat-realm</code> in the realm picker first &mdash; the setting on
+          <code>master</code> does nothing for your users &mdash; then <b>Realm settings &rarr;
+          Themes &rarr; Login theme &rarr; <code>intellistream</code> &rarr; Save</b>. The dropdown
+          lists only themes present on disk, so a missing entry means Keycloak never saw the
+          directory: check the path and the permissions above, then restart.
+        </td>
+      </tr>
+      <tr>
+        <td>Realm import</td>
+        <td>
+          <code>"loginTheme": "intellistream"</code> as a top-level key of the realm object. That is
+          how <code>keycloak/realm.json</code> sets it, so a fresh <code>kc.sh import</code> comes up
+          already themed.
+        </td>
+      </tr>
+      <tr>
+        <td><code>kcadm</code></td>
+        <td>One update against the realm, shown below. Handy from a deploy script, and the only
+          route that does not need a browser.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+<pre><code>kcadm.sh config credentials --server https://auth.your-domain \
+         --realm master --user admin
+kcadm.sh update realms/ichat-realm -s loginTheme=intellistream</code></pre>
+  <p>
+    The wordmark under the mark is not part of the theme. It renders <b>Realm settings &rarr; General
+    &rarr; HTML Display name</b>, so change your name there rather than in the stylesheet; the
+    bundled realm sets <code>&lt;strong&gt;IntelliStream&lt;/strong&gt; Chat</code>.
+  </p>
+
+  <h4>Caching, which will confuse you exactly once</h4>
+  <p>
+    <code>kc.sh start</code> caches resolved themes and compiled FreeMarker templates in memory, and
+    serves theme resources with a thirty-day <code>Cache-Control</code>. Both defaults are correct
+    for production and both hide your edits.
+  </p>
+  <div class="tw">
+  <table class="nowrap-1 cfg">
+    <thead><tr><th>Option</th><th>Production default</th><th>Dev value</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>spi-theme-cache-themes</code></td><td><code>true</code></td><td><code>false</code></td>
+        <td>Caches the resolved theme, including <code>theme.properties</code> and the parent chain. Only a restart clears it.</td>
+      </tr>
+      <tr>
+        <td><code>spi-theme-cache-templates</code></td><td><code>true</code></td><td><code>false</code></td>
+        <td>Caches compiled FreeMarker templates. An edited <code>.ftl</code> is invisible until restart.</td>
+      </tr>
+      <tr>
+        <td><code>spi-theme-static-max-age</code></td><td><code>2592000</code></td><td><code>-1</code></td>
+        <td>Seconds of <code>Cache-Control: max-age</code> on CSS, fonts and images. Thirty days by default; <code>-1</code> sends <code>no-cache</code> instead.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <p>
+    So on a production server: restart Keycloak after changing a theme, and expect browsers that
+    already loaded the page to keep the old stylesheet regardless. A restart cannot reach a client
+    cache. The only reliable fix is a new URL &mdash; rename the file
+    (<code>intellistream.css</code> &rarr; <code>intellistream.2.css</code>, updated in
+    <code>theme.properties</code>). Telling users to hard-reload is not a deployment strategy.
+  </p>
+  <div class="warn">
+    <span class="tag">Not in production</span>
+    <p>
+      The dev values above are what <code>docker-compose.yml</code> passes to
+      <code>start-dev</code>, which makes a theme edit visible on a browser reload.
+      <code>start-dev</code> already defaults to them; they are stated explicitly because the
+      default is invisible from the compose file, and switching the command to <code>start</code>
+      for a production-shaped test silently brings the caches back. Leaving them on a real server
+      means re-reading the theme from disk and re-compiling the login page on every single request.
+    </p>
+  </div>
+
+  <h4>If you fork it</h4>
+  <p>
+    The theme overrides exactly one FreeMarker template: <code>footer.ftl</code>, which Keycloak
+    ships as an empty macro specifically so themes can fill it in. Everything else is
+    <code>theme.properties</code>, one stylesheet, two SVGs and the font. That is a deliberate
+    constraint, not laziness. A theme that copies <code>login.ftl</code> or
+    <code>template.ftl</code> keeps rendering <i>your</i> copy after an upgrade rewrites the
+    original, and the failure is silent: a new required action, credential type or security fix to
+    the login form simply never appears, and nothing in the logs mentions it. Before copying a
+    template, check whether a CSS rule or one of the <code>kc*Class</code> properties gets you
+    there.
+  </p>
 </section>
 
 <!-- ==================================================================== PART 3 -->

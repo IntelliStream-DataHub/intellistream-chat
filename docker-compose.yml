@@ -21,7 +21,23 @@ services:
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.7
-    command: ["start-dev", "--import-realm"]
+    # The three --spi-theme flags are the edit loop for keycloak/themes/intellistream: no
+    # resolved-theme cache, no compiled-template cache, and Cache-Control: no-cache instead of the
+    # thirty-day max-age on theme resources (CSS, fonts, the logo). A browser reload is then the
+    # whole cycle — no container restart.
+    #
+    # `start-dev` already defaults this way (measured: a CSS edit is served immediately by a plain
+    # start-dev container, and theme resources come back `no-cache`), so these are belt and braces.
+    # They are here because the dev-profile defaults are not visible from this file: switch the
+    # command to `start` for a production-shaped test and caching silently comes back on, at which
+    # point an explicit flag is the difference between "why is my CSS stale" and a line to delete.
+    # Never carry them to production — see QUICKSTART-MANUAL.md § "Branding the login page".
+    command:
+      - "start-dev"
+      - "--import-realm"
+      - "--spi-theme-cache-themes=false"
+      - "--spi-theme-cache-templates=false"
+      - "--spi-theme-static-max-age=-1"
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
@@ -36,6 +52,20 @@ services:
       - "127.0.0.1:8081:8080"
     volumes:
       - ./keycloak/realm.json:/opt/keycloak/data/import/realm.json:ro,Z,U
+      # Custom login theme. `themes/` is the whole directory Keycloak scans, so the mount is the
+      # parent, not themes/intellistream — that way adding a second theme needs no compose change.
+      # Flags, all three load-bearing under rootless Podman:
+      #   ro  the server only ever reads it
+      #   Z   private SELinux relabel; without it the container gets EACCES on an enforcing host
+      #
+      # Deliberately NO `U`. That flag chowns the source to the container's remapped UID, which is
+      # needed when the container must WRITE — Keycloak only reads a theme. What it costs is that
+      # the files stop being yours to edit, and the moment anyone hands them back
+      # (`podman unshare chown`), the container loses access and Keycloak silently falls back to
+      # its built-in theme: the login page keeps working, just unbranded, and the only evidence is
+      # a "Failed to find LOGIN theme" line in its log. Read access needs no ownership at all —
+      # the files are world-readable, which is the whole requirement.
+      - ./keycloak/themes:/opt/keycloak/themes:ro,Z
 
   # Optional secret backend. Profile-gated so the default `podman compose up -d` skips it —
   # only `podman compose --profile openbao up -d` brings it online. The app itself works

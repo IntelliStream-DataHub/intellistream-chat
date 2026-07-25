@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="IntelliStream Chat">
+  <title>IntelliStream Chat</title>
+  <!-- "Thread in orbit" the same mark as static/img/logo.svg, recoloured for the sign-in page.
+
+       The login page sits on the application's dark chrome gradient (sb-bg to sb-bg-3) in BOTH
+       colour schemes, so one asset covers light and dark: the ring is white at low alpha and the
+       arc/core run a lighter blue ramp than the in-app mark, which is drawn for a white panel.
+       The amber bead is unchanged, it is the one fixed colour in the identity.
+
+       Referenced from CSS as a background-image, which makes this an isolated document: it
+       inherits nothing from the page, so every colour is pinned rather than currentColor.
+       Declarative animation still runs inside an SVG used as an image (scripts do not), which
+       is why the orbit sweep survives the trip through background-image.
+
+       Careful editing this: a double hyphen is illegal inside an XML comment, so writing CSS
+       custom property names here the way you would in a stylesheet makes the whole file
+       unparseable. Chrome then renders nothing at all and the network tab still shows 200. -->
+  <style>
+    .thread {
+      transform-origin: 32px 32px;
+      transform-box: view-box;
+      animation: to-spin 12s linear infinite;
+    }
+    @keyframes to-spin {
+      to { transform: rotate(360deg); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .thread { animation: none; }
+    }
+  </style>
+  <defs>
+    <linearGradient id="to-core" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8fb4ff"/>
+      <stop offset="1" stop-color="#3f76f0"/>
+    </linearGradient>
+    <linearGradient id="to-thread" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#3f76f0"/>
+      <stop offset="1" stop-color="#9dc0ff"/>
+    </linearGradient>
+  </defs>
+
+  <!-- The orbit the conversation travels -->
+  <circle cx="32" cy="32" r="23" fill="none" stroke="#ffffff" stroke-width="1.5" opacity="0.3"/>
+
+  <!-- The thread itself, with the newest message at its leading tip -->
+  <g class="thread">
+    <path d="M 32 55 A 23 23 0 1 1 55 32" fill="none" stroke="url(#to-thread)"
+          stroke-width="5" stroke-linecap="round"/>
+    <circle cx="55" cy="32" r="5" fill="#f59e0b"/>
+  </g>
+
+  <!-- Root message -->
+  <circle cx="32" cy="32" r="8.5" fill="url(#to-core)"/>
+</svg>

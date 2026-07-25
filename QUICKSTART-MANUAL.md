@@ -62,6 +62,67 @@ In the admin console:
 4. **Users**: create your accounts, give everyone `ichat-user`, and assign `ichat-admin` to at
    least one — otherwise nobody can reach `/admin`.
 
+### Branding the login page
+
+The sign-in page is served by Keycloak, not by this app, so it does not inherit any of the app's
+styling. Without a theme your users go from the product's landing page straight to stock Keycloak
+and back — which is the moment a self-hosted deployment looks least like a product. The repository
+ships a login theme (`keycloak/themes/intellistream`) that matches the app: same navy chrome, same
+orbit mark, same self-hosted Figtree, light and dark from `prefers-color-scheme`.
+
+**Where themes live.** `$KEYCLOAK_HOME/themes/<name>/<type>/` — for a distribution unzipped under
+`/opt/keycloak`, that is `/opt/keycloak/themes/intellistream/login/`. Keycloak scans this directory
+at runtime; installing a theme here needs **no `kc.sh build`** and no rebuild of the optimized
+image. (Only themes packaged as a JAR under `providers/` require `kc.sh build`.)
+
+```bash
+sudo cp -r /path/to/repo/keycloak/themes/intellistream /opt/keycloak/themes/
+sudo chown -R root:keycloak /opt/keycloak/themes/intellistream
+sudo find /opt/keycloak/themes/intellistream -type d -exec chmod 750 {} +
+sudo find /opt/keycloak/themes/intellistream -type f -exec chmod 640 {} +
+```
+
+Keycloak only ever reads a theme, so it does not need write access. On an SELinux host, files
+copied into `/opt/keycloak` inherit the right label; files *moved* in from a home directory keep
+the old one — run `sudo restorecon -R /opt/keycloak/themes` if the server logs a permission error
+it should not be getting.
+
+**Selecting it for the realm.** Three equivalent routes; use whichever matches how you manage the
+realm.
+
+| Route | What to do |
+| --- | --- |
+| Admin console | Pick **`ichat-realm`** in the realm selector (top left — the setting on `master` does nothing for your users), then **Realm settings → Themes → Login theme → `intellistream` → Save**. The dropdown only lists themes present on disk, so if `intellistream` is missing, Keycloak did not see the directory — check the path and the permissions above, then restart. |
+| Realm import | `"loginTheme": "intellistream"` as a top-level key of the realm object. That is how `keycloak/realm.json` in this repo sets it, so a fresh `kc.sh import` comes up already themed. |
+| `kcadm` | `kcadm.sh config credentials --server https://auth.your-domain --realm master --user admin`<br>`kcadm.sh update realms/ichat-realm -s loginTheme=intellistream` |
+
+The realm also supplies the wordmark under the logo: it renders **Realm settings → General → HTML
+Display name**, so set that to your own name (`<strong>IntelliStream</strong> Chat` in the bundled
+realm) rather than editing the theme.
+
+**Theme caching in production — the part that will confuse you once.** `kc.sh start` caches
+resolved themes and compiled FreeMarker templates in memory, and serves theme resources (CSS, the
+font, the logo) with `Cache-Control: max-age=2592000` — thirty days. So after you edit a theme on a
+production server:
+
+- **Restart Keycloak.** Nothing short of that clears the theme and template caches.
+- **Expect stale CSS in browsers that already loaded the page.** The 30-day max-age is on the
+  client, and a restart cannot reach it. Rename the changed file (`intellistream.css` →
+  `intellistream.2.css`, updated in `theme.properties`) so the URL changes; that is the only
+  reliable invalidation. Hard-reloading works for you and not for your users.
+- Do **not** solve this by turning the caches off in production. `--spi-theme-cache-themes=false
+  --spi-theme-cache-templates=false --spi-theme-static-max-age=-1` are development settings, and
+  they are what `docker-compose.yml` passes to `start-dev` so a theme edit shows up on a browser
+  reload. (`start-dev` already defaults to them; the compose file states them because that default
+  is invisible from the file and disappears the moment the command becomes `start`.) On a real
+  server they mean re-reading and re-compiling the login page from disk on every request.
+
+A note on the theme itself, if you plan to fork it: it overrides exactly one FreeMarker template
+(`footer.ftl`, which Keycloak ships empty precisely so themes can fill it in) and does everything
+else through `theme.properties` and one stylesheet. Keep it that way. A theme that copies
+`login.ftl` or `template.ftl` keeps rendering your copy after an upgrade changes the originals, and
+the failure mode is silent — a new required action or credential type simply stops appearing.
+
 ## 3. Install the app
 
 Two scripts do everything from here. Both are idempotent and both take `--dry-run`, which prints

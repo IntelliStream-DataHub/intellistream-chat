@@ -1,8 +1,9 @@
 {
   "realm": "ichat-realm",
   "displayName": "IntelliStream Chat",
-  "displayNameHtml": "<strong>IntelliStream Chat</strong> Chat",
+  "displayNameHtml": "<strong>IntelliStream</strong> Chat",
   "enabled": true,
+  "loginTheme": "intellistream",
   "registrationAllowed": true,
   "loginWithEmailAllowed": true,
   "ssoSessionIdleTimeout": 28800,
