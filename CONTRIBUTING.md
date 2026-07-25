@@ -6,7 +6,7 @@ sizes are welcome.
 
 ## Ground rules
 
-- **Read `CLAUDE.md` first.** It captures the conventions that aren't obvious from the code —
+- **Read `AGENT.md` first.** It captures the conventions that aren't obvious from the code —
   the two security filter chains, the read-vs-write channel access split, the STOMP
   authorization model, the server-side Markdown sanitization, the embedded-Lucene search, and
   the "don'ts" (no SPA framework, no ILIKE search, no H2 in tests, no `ddl-auto=update`).

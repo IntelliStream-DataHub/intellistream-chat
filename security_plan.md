@@ -105,7 +105,7 @@ Each finding is tagged by severity: **[H]** high, **[M]** medium, **[L]** low,
 
 ### Next steps
 - Decide the API auth story (bearer-only vs. cookie-bearer hybrid) and document it in
-  `CLAUDE.md`. Add an IT that calls `/api/channels` with no Authorization header and asserts
+  `AGENT.md`. Add an IT that calls `/api/channels` with no Authorization header and asserts
   the documented behaviour.
 - Tighten cookie attributes (`SameSite=Strict`, `Secure` when HTTPS).
 
@@ -347,7 +347,7 @@ Each finding is tagged by severity: **[H]** high, **[M]** medium, **[L]** low,
 | # | Item | Severity | Status |
 |---|------|----------|--------|
 | 1 | STOMP SUBSCRIBE authorization (block snooping on private channels) | **H** | ✅ done — `StompAuthorizationConfig` |
-| 2 | API auth story (cookie vs. bearer) — document & test | **H** | ✅ documented in `CLAUDE.md` |
+| 2 | API auth story (cookie vs. bearer) — document & test | **H** | ✅ documented in `AGENT.md` |
 | 3 | Per-user rate limiting (REST + STOMP) | **H** | ✅ done — `RateLimiter` (in-memory; replace for multi-instance) |
 | 4 | Default security headers (CSP, nosniff, HSTS, Referrer-Policy) | **H** | ✅ done in `SecurityConfig` |
 | 5 | MIME sniffing on upload + nosniff on download | **M** | ✅ done — `AttachmentService.sniffContentType` + `X-Content-Type-Options` header |
@@ -356,8 +356,8 @@ Each finding is tagged by severity: **[H]** high, **[M]** medium, **[L]** low,
 | 8 | Service-level invariant: thread reply inherits parent channel | **M** | ✅ enforced by `MessageService.replyInThread` (`channel = parent.getChannel()`); covered by `SecurityBoundaryIT` |
 | 9 | Cookie attributes (`SameSite=Strict`, `Secure`) | **M** | ✅ `SameSite=Strict` on JSESSIONID + CSRF cookie; `Secure` should be added in HTTPS deploys via `server.servlet.session.cookie.secure=true` |
 | 10 | Strict CSP — extract inline `<script>` first | **M** | ✅ done — moved to `theme-loader.js` / `profile.js` |
-| 11 | Decide public-channel read posture (member-only vs. anyone-authenticated) | **M** | ✅ documented in `CLAUDE.md`; current behavior kept |
-| 12 | OWASP dependency scanner + dependency upgrades | **M** | ⚠️ deferred — listed under roadmap in `CLAUDE.md` for opt-in |
+| 11 | Decide public-channel read posture (member-only vs. anyone-authenticated) | **M** | ✅ documented in `AGENT.md`; current behavior kept |
+| 12 | OWASP dependency scanner + dependency upgrades | **M** | ⚠️ deferred — listed under roadmap in `AGENT.md` for opt-in |
 | 13 | Validate usernames during OIDC provisioning | **L** | ✅ done — `UserService.sanitizeUsername` |
 | 14 | Generic error envelope, redact identifiers | **L** | ✅ done — `ApiExceptionHandler` returns `{code, message, traceId}` with full detail logged server-side only |
 | 15 | Reject unknown multipart fields with 400 | **L** | ✅ done in `AttachmentRestController` |

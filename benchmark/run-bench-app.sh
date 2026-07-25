@@ -34,4 +34,4 @@ exec "$JAVA" \
   -Dichat.ws.inbound-threads="${INBOUND:-48}" \
   -Dichat.ws.outbound-threads="${OUTBOUND:-96}" \
   "$@" \
-  -jar "$ROOT"/build/libs/intellistream-chat-*-SNAPSHOT.jar >"$LOG" 2>&1
+  -jar "$(ls -1t "$ROOT"/build/libs/intellistream-chat-*.jar | grep -v -- '-plain\.jar$' | head -1)" >"$LOG" 2>&1

@@ -5,12 +5,19 @@ plugins {
 }
 
 group = "ai.intellistream"
-version = "0.1.0-SNAPSHOT"
+version = "1.0.0"
 
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(25)
     }
+}
+
+// Generates META-INF/build-info.properties, which Boot exposes as a BuildProperties bean.
+// This is where the About dialog gets the version and build time from, so the number a user
+// reads in the UI is the one Gradle stamped rather than a constant someone forgot to bump.
+springBoot {
+    buildInfo()
 }
 
 repositories {
@@ -95,6 +102,25 @@ dependencies {
 // JS/CSS bundling (Closure Compiler / Closure Stylesheets) — declarative bundles built from
 // manifest files; see assets.gradle and ASSETS.md. Kept in Groovy so it stays line-for-line
 // comparable with the datahub-console original it was ported from.
+// Measure what this machine does, in one command:
+//
+//   ./gradlew benchmark
+//   ./gradlew benchmark -Pconns=400 -Pduration=60
+//
+// Drives real WebSocket clients through the full write path and prints messages/second,
+// latency and peak resource use. Needs the compose stack up (podman compose up -d) and
+// nothing else on 127.0.0.1:8080. The published numbers and the method are in scalability.md.
+tasks.register<Exec>("benchmark") {
+    group = "verification"
+    description = "Benchmark message throughput on this machine (needs podman compose up -d)"
+    dependsOn("bootJar")
+    workingDir = projectDir
+    commandLine("./benchmark/self-test.sh")
+    environment("CONNS", (project.findProperty("conns") ?: "200").toString())
+    environment("DURATION", (project.findProperty("duration") ?: "30").toString())
+    project.findProperty("kcHost")?.let { environment("KC_HOST", it.toString()) }
+}
+
 apply(from = "assets.gradle")
 
 tasks.withType<Test> {

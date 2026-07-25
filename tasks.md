@@ -295,7 +295,7 @@ multi-tenant loops to a single un-routed pass (chat is single-tenant, one data d
   have each sweep log "[dry-run] would delete …" per item plus a per-run count, so an operator
   can watch the orphan/desync backlog before arming destructive deletes.
 - [ ] **CLEAN-5 · Single-instance guard before these sweeps ship** low **[NEW caveat]** —
-  `@EnableScheduling` runs on every node and CLAUDE.md already flags per-process state, so two
+  `@EnableScheduling` runs on every node and AGENT.md already flags per-process state, so two
   nodes would race the purges/reconcile. Only matters once the app runs multi-node — a Postgres
   advisory-lock guard is the fix, deferred with the rest of horizontal-scaling (see the
   `horizontal-scalability-plan` memory). Single-node deploys can ignore this.

@@ -16,13 +16,15 @@
       "publicClient": false,
       "secret": "DAJpMxDkLxHidawHQXu8MMlmjEiKQRZzWRiLzFBQ",
       "redirectUris": [
-        "http://localhost:8080/*"
+        "http://localhost:8080/*",
+        "http://127.0.0.1:8080/*"
       ],
       "webOrigins": [
-        "http://localhost:8080"
+        "http://localhost:8080",
+        "http://127.0.0.1:8080"
       ],
       "standardFlowEnabled": true,
-      "directAccessGrantsEnabled": false,
+      "directAccessGrantsEnabled": true,
       "protocol": "openid-connect",
       "attributes": {
         "post.logout.redirect.uris": "http://localhost:8080/*"
@@ -98,7 +100,9 @@
   ],
   "roles": {
     "realm": [
-      { "name": "ichat-user" },
+      {
+        "name": "ichat-user"
+      },
       {
         "name": "admin"
       },

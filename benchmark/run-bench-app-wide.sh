@@ -50,7 +50,7 @@ CMD=("$JAVA" -Xmx"$HEAP" -XX:+UseZGC --enable-native-access=ALL-UNNAMED
      -Dichat.ws.socket-buffer-bytes="$SOCKBUF"
      -Dichat.ws.binary-buffer-bytes="$BINBUF"
      -Dichat.write-behind.enabled=false
-     -jar "$ROOT"/build/libs/intellistream-chat-*-SNAPSHOT.jar)
+     -jar "$(ls -1t "$ROOT"/build/libs/intellistream-chat-*.jar | grep -v -- '-plain\.jar$' | head -1)")
 
 : > "$LOG"
 if [ -n "$BUDGET" ]; then

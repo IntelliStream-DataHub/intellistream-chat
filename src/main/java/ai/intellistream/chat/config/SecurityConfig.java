@@ -223,7 +223,14 @@ public class SecurityConfig {
         if (ctx != null && !ctx.isEmpty() && path.startsWith(ctx)) {
             path = path.substring(ctx.length());
         }
-        if (!(path.startsWith("/api/") || path.startsWith("/ws/"))) return false;
+        // "/ws" exactly, not just "/ws/": the STOMP endpoint is registered at "/ws" with no
+        // trailing slash, so a startsWith("/ws/") test never matched the handshake itself. A
+        // bearer-authenticated client then fell through to the browser chain and was answered
+        // with a 302 to the login page, which looks like a broken token rather than a routing
+        // bug. Browsers never hit it because they authenticate with the session cookie.
+        boolean isApi = path.startsWith("/api/") || path.equals("/api");
+        boolean isWs = path.equals("/ws") || path.startsWith("/ws/");
+        if (!(isApi || isWs)) return false;
         var auth = request.getHeader("Authorization");
         return auth != null && auth.regionMatches(true, 0, "Bearer ", 0, 7);
     }

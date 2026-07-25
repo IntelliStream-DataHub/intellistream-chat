@@ -26,8 +26,14 @@ you. We'll credit reporters in the release notes unless you prefer to remain ano
 
 ## Supported versions
 
-IntelliStream Chat is pre-1.0 and ships from `main`. Security fixes land on `main`; there is no
-back-port branch yet. Run a recent build.
+| Version | Supported |
+|---|---|
+| 1.0.x | Yes |
+| < 1.0 | No |
+
+Security fixes land on `main` and go out in the next 1.0.x patch release. There is no long-term
+support branch for older minors yet; when 1.1 ships, this table will say how long 1.0.x keeps
+getting fixes. Run a current 1.0.x build.
 
 ## Operator responsibilities
 

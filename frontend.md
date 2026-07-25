@@ -170,6 +170,47 @@ location ~* ^/(css|js|img|fonts)/ {
 }
 ```
 
+### Compression
+
+The app does not compress; do it at the edge. The bundles are the bulk of a cold page load and
+they are highly compressible text.
+
+```nginx
+gzip              on;
+gzip_vary         on;          # so caches key on Accept-Encoding
+gzip_min_length   1024;        # below this the header costs more than the saving
+gzip_comp_level   5;           # 5 is the knee; 9 burns CPU for a percent or two
+gzip_proxied      any;
+gzip_types        text/plain text/css application/javascript application/json
+                  image/svg+xml application/manifest+json;
+```
+
+Three things not to compress:
+
+- **`woff2` fonts.** Already Brotli-compressed internally. Re-compressing spends CPU to make them
+  very slightly larger. `font/woff2` is deliberately absent from `gzip_types` above.
+- **PNG, JPEG, WebP.** Same reason.
+- **The WebSocket at `/ws`.** `gzip` does not apply to an upgraded connection anyway, but do not
+  reach for `permessage-deflate` on the proxy either: chat frames are a few hundred bytes, so the
+  per-frame compression context costs more memory per connection than it saves in bandwidth, and
+  memory per connection is the thing that decides how many users fit on the box.
+
+If you have `ngx_brotli` built in, add it alongside rather than instead of gzip; clients that do
+not send `br` still need `gzip`:
+
+```nginx
+brotli            on;
+brotli_comp_level 5;
+brotli_types      text/plain text/css application/javascript application/json image/svg+xml;
+```
+
+**On BREACH.** Compressing HTML that contains a CSRF token is the textbook setup for the BREACH
+attack, and this app does put its CSRF token in a `<meta>` tag. The attack additionally needs
+attacker-controlled input reflected into the *same* response, which the app does not do: pages are
+server-rendered from the viewer's own data and message bodies are sanitised HTML rendered from
+storage, not echoed from the request. Compress the HTML. If you later add a feature that reflects a
+query parameter into the page, revisit this rather than assuming it still holds.
+
 Don't add security headers at the edge that the app already sets — it sends its own CSP,
 `X-Content-Type-Options`, `Referrer-Policy` and `frame-ancestors`, and a second, differently-worded
 copy from the proxy is how you end up debugging a CSP that nobody wrote on purpose. HSTS is the

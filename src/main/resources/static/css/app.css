@@ -3578,3 +3578,74 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
 }
 .notification-toast-cta:hover:not(:disabled) { background: var(--hover); }
 .notification-toast-cta:disabled { opacity: 0.6; cursor: default; }
+
+/* ---------- About dialog ----------
+   Opened from the avatar dropdown. Deliberately a dialog and not a route: it is glanced at
+   while doing something else, and navigating away would lose the reader's place in the
+   channel. Definition lists rather than a table so it reflows sanely on a phone. */
+.about-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(0, 0, 0, 0.45);
+}
+.about-dialog {
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 10px);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.3);
+  width: min(560px, 100%);
+  max-height: min(80vh, 720px);
+  display: flex;
+  flex-direction: column;
+}
+.about-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1.1rem;
+  border-bottom: 1px solid var(--border);
+}
+.about-head h2 { margin: 0; font-size: var(--fs-lg); }
+.about-body { padding: 1.1rem; overflow-y: auto; }
+.about-body h3 {
+  margin: 1.4rem 0 0.5rem;
+  font-size: var(--fs-sm);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.about-body h3:first-of-type { margin-top: 1rem; }
+.about-version { margin: 0; font-size: var(--fs-lg); font-weight: 600; }
+.about-built { margin: 0.2rem 0 0; color: var(--muted); font-size: var(--fs-sm); }
+.about-note {
+  margin: 1.2rem 0 0;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  border-left: 2px solid var(--border);
+  padding-left: 0.7rem;
+}
+.about-loading { color: var(--muted); margin: 0; }
+.about-licence { margin: 0; font-size: var(--fs-sm); color: var(--muted); line-height: 1.5; }
+.about-licence a { color: var(--accent); }
+/* Two columns on desktop, stacked on narrow screens. Values wrap; long version strings
+   (JVM build ids) must not push the dialog wider than the viewport. */
+.about-dl {
+  display: grid;
+  grid-template-columns: minmax(7.5rem, auto) 1fr;
+  gap: 0.35rem 1rem;
+  margin: 0;
+  font-size: var(--fs-sm);
+}
+.about-dl dt { color: var(--muted); }
+.about-dl dd { margin: 0; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+@media (max-width: 480px) {
+  .about-dl { grid-template-columns: 1fr; gap: 0.1rem 0; }
+  .about-dl dd { margin-bottom: 0.5rem; }
+}

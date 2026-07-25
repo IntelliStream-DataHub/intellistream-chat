@@ -129,6 +129,19 @@ function openMenu(anchor, opts = {}) {
         menuEl.appendChild(adminLink);
     }
 
+    const aboutItem = document.createElement('button');
+    aboutItem.type = 'button';
+    aboutItem.className = 'presence-menu-item presence-menu-link';
+    aboutItem.setAttribute('role', 'menuitem');
+    // textContent, not innerHTML: the app title is admin-editable branding, so treating it
+    // as markup would turn "set the workspace name" into stored XSS against every user.
+    const aboutLabel = document.createElement('span');
+    aboutLabel.className = 'presence-menu-label';
+    aboutLabel.textContent = 'About ' + appName();
+    aboutItem.appendChild(aboutLabel);
+    aboutItem.addEventListener('click', () => { closeMenu(); openAbout(); });
+    menuEl.appendChild(aboutItem);
+
     // Sign out — submits the hidden #logout-form so the POST keeps the
     // Thymeleaf-injected CSRF token (a plain fetch would have to re-plumb it).
     const divider2 = document.createElement('div');
@@ -249,4 +262,152 @@ export function init() {
 
     document.addEventListener('click', dismissOnOutsideClick);
     document.addEventListener('keydown', handleKeyNav);
+}
+
+
+// ---------------------------------------------------------------- About ----
+// A dialog rather than a page: it is a thing you glance at while doing something
+// else (quoting a version into a bug report), and a route would lose your place in
+// the channel. Rendered on demand and thrown away on close, so it can never show a
+// stale version after a deploy.
+
+function appName() {
+    // The topbar logo text is the server-rendered app title (Thymeleaf escaped it on the way
+    // out); reading it back as textContent gives the configured name with no extra plumbing.
+    return document.querySelector('.logo-text')?.textContent?.trim() || 'IntelliStream Chat';
+}
+
+let aboutEl = null;
+
+function closeAbout() {
+    if (!aboutEl) return;
+    aboutEl.remove();
+    aboutEl = null;
+    document.removeEventListener('keydown', aboutKeydown);
+}
+
+function aboutKeydown(e) {
+    if (e.key === 'Escape') closeAbout();
+}
+
+/** Rows are built with textContent, never innerHTML: every value here is server data. */
+function row(dl, term, value) {
+    if (value === null || value === undefined || value === '') return;
+    const dt = document.createElement('dt');
+    dt.textContent = term;
+    const dd = document.createElement('dd');
+    dd.textContent = String(value);
+    dl.append(dt, dd);
+}
+
+function formatUptime(seconds) {
+    const d = Math.floor(seconds / 86400);
+    const h = Math.floor((seconds % 86400) / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (d) return d + 'd ' + h + 'h ' + m + 'm';
+    if (h) return h + 'h ' + m + 'm';
+    return m + 'm';
+}
+
+async function openAbout() {
+    closeAbout();
+    aboutEl = document.createElement('div');
+    aboutEl.className = 'about-backdrop';
+    aboutEl.innerHTML =
+        '<div class="about-dialog" role="dialog" aria-modal="true" aria-labelledby="about-title">' +
+          '<header class="about-head">' +
+            '<h2 id="about-title"></h2>' +
+            '<button type="button" class="icon-btn about-close" aria-label="Close">' +
+              '<svg class="icon"><use href="#icon-close"/></svg>' +
+            '</button>' +
+          '</header>' +
+          '<div class="about-body"><p class="about-loading">Loading…</p></div>' +
+        '</div>';
+    document.body.appendChild(aboutEl);
+    aboutEl.querySelector('#about-title').textContent = 'About ' + appName();
+    aboutEl.querySelector('.about-close').addEventListener('click', closeAbout);
+    aboutEl.addEventListener('click', (e) => { if (e.target === aboutEl) closeAbout(); });
+    document.addEventListener('keydown', aboutKeydown);
+    aboutEl.querySelector('.about-close').focus();
+
+    const body = aboutEl.querySelector('.about-body');
+    let data;
+    try {
+        const res = await fetch('/api/about', { headers: headers() });
+        if (!res.ok) throw new Error(res.status + ' ' + res.statusText);
+        data = await res.json();
+    } catch (err) {
+        body.textContent = 'Could not load version information: ' + err.message;
+        return;
+    }
+    if (!aboutEl) return; // closed while the request was in flight
+
+    body.textContent = '';
+
+    const version = document.createElement('p');
+    version.className = 'about-version';
+    version.textContent = 'Version ' + (data.version || 'unknown');
+    body.appendChild(version);
+
+    if (data.buildTime) {
+        const built = document.createElement('p');
+        built.className = 'about-built';
+        built.textContent = 'Built ' + new Date(data.buildTime).toLocaleString();
+        body.appendChild(built);
+    }
+
+    if (data.server) {
+        const h = document.createElement('h3');
+        h.textContent = 'Server';
+        const dl = document.createElement('dl');
+        dl.className = 'about-dl';
+        row(dl, 'Java', data.server.javaVersion + ' (' + data.server.javaVendor + ')');
+        row(dl, 'JVM', data.server.jvm);
+        row(dl, 'OS', data.server.os + ' / ' + data.server.arch);
+        row(dl, 'CPUs', data.server.availableProcessors);
+        row(dl, 'Max heap', data.server.maxHeapMb + ' MB');
+        row(dl, 'Uptime', formatUptime(data.server.uptimeSeconds));
+        row(dl, 'Time zone', data.server.timeZone);
+        body.append(h, dl);
+    }
+
+    if (data.components && data.components.length) {
+        const h = document.createElement('h3');
+        h.textContent = 'Components';
+        const dl = document.createElement('dl');
+        dl.className = 'about-dl';
+        for (const c of data.components) row(dl, c.name, c.version || 'unknown');
+        body.append(h, dl);
+    }
+
+    if (data.license) {
+        const h = document.createElement('h3');
+        h.textContent = 'Licence';
+        const lic = document.createElement('p');
+        lic.className = 'about-licence';
+        // Built from nodes, not a template string: the anchor is the only markup here and the
+        // surrounding text stays inert.
+        lic.append(document.createTextNode((data.copyright ? data.copyright + '. ' : '') + 'Released under the '));
+        if (data.licenseUrl) {
+            const a = document.createElement('a');
+            a.href = data.licenseUrl;
+            a.target = '_blank';
+            a.rel = 'noopener noreferrer';
+            a.textContent = data.license;
+            lic.appendChild(a);
+        } else {
+            lic.append(document.createTextNode(data.license));
+        }
+        lic.append(document.createTextNode('. Bundled third-party components keep their own terms; '
+            + 'see THIRD-PARTY-NOTICES.md in the source distribution.'));
+        body.append(h, lic);
+    }
+
+    if (!data.server) {
+        // Say why the detail is missing rather than leaving a suspiciously short dialog.
+        const note = document.createElement('p');
+        note.className = 'about-note';
+        note.textContent = 'Server and component details are shown to workspace administrators.';
+        body.appendChild(note);
+    }
 }

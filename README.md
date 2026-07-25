@@ -7,6 +7,52 @@ sign-on. One JVM process, one Postgres database, one systemd unit.
 Built on Java 25, Spring Boot 4, PostgreSQL 18, Keycloak and embedded Apache Lucene. A stack chosen
 for how well it ages, not for how new it is.
 
+## Quick start
+
+Four commands to a running workspace on your own machine.
+
+```bash
+# 1. Clone
+git clone https://github.com/intellistream/intellistream-chat.git
+cd intellistream-chat
+
+# 2. Install Java 25 and Podman
+#    Fedora / RHEL / AlmaLinux
+sudo dnf install -y java-25-openjdk-devel podman podman-compose
+#    Ubuntu / Debian
+sudo apt install -y openjdk-25-jdk podman podman-compose
+
+# 3. Start Postgres 18 and Keycloak 26
+podman compose up -d
+
+# 4. Run it
+./gradlew bootRun
+```
+
+Open <http://localhost:8080> and sign in as `alice` / `alice`. The Keycloak admin console is on
+<http://localhost:8081> with `admin` / `admin`. First `podman compose up` takes 15 to 30 seconds
+while Keycloak imports the `ichat-realm` realm and its two test users, `alice` and `bob`.
+
+Docker works too if you already have it; the compose file is plain OCI.
+
+**Deploying to a server rather than trying it out?** That is a different job, and it has its own
+guides: [`QUICKSTART-MANUAL.md`](QUICKSTART-MANUAL.md) for PostgreSQL and Keycloak on the host plus
+the installer script and the hardened systemd unit, [`QUICKSTART-COMPOSE.md`](QUICKSTART-COMPOSE.md)
+for containers all the way down, and [`frontend.md`](frontend.md) for the reverse proxy and TLS.
+
+### It fits on a very small machine
+
+Measured, not estimated: the whole application boots and serves inside a hard
+`MemoryMax=900M` / `CPUQuota=100%` cgroup, peaking at **490 MB** with `-Xmx320m` while posting,
+threading and searching. One core, well under a gigabyte, and no second service to run because the
+search index is embedded and the message broker is in-process.
+
+That is enough for a workspace of around a thousand people. The arithmetic is the measured
+per-connection cost from [`scalability.md`](scalability.md): 82 KB per WebSocket connection, so a
+thousand people connected at once is roughly 82 MB on top of the base footprint. The message rate
+is not the constraint either, a thousand-person workspace produces a handful of messages a second
+and one core handles far more than that. Memory is what you size for, and a 1 GB VM has room.
+
 ## Why this exists
 
 Workplace chat is important infrastructure. We should stop handing the keys to a vendor whose
@@ -86,7 +132,7 @@ codebase is small, conventional and covered:
 - **404 tests across 44 classes** (29 integration, 15 unit), running in 1–2 minutes. Integration
   tests run against a real PostgreSQL via Testcontainers — never H2, which silently accepts SQL that
   Postgres rejects.
-- **Conventions are written down.** [`CLAUDE.md`](CLAUDE.md) documents the decisions you cannot infer
+- **Conventions are written down.** [`AGENT.md`](AGENT.md) documents the decisions you cannot infer
   from the code: the two security filter chains, `requireMember` vs `requireWriteAccess`, why
   broadcast happens after commit, why there is no SockJS. Read it before your first change.
 - **Security posture is explicit.** A strict CSP with no inline script, two separate filter chains,
@@ -96,10 +142,11 @@ codebase is small, conventional and covered:
 - **One artifact, one unit file.** `./gradlew assemble` produces a single runnable jar. Deployment is
   copying it and `systemctl restart`.
 
-**Maturity:** this is 1.0 software under active development. It is tested and audited, but it
-has not had years of production exposure across many deployments. Read the code before trusting it
-with anything sensitive, follow the hardening checklist in [`SECURITY.md`](SECURITY.md) before
-exposing an instance, and keep backups.
+**Maturity:** 1.0, under active development. Tested and audited: 404 tests across 44 classes, the
+integration suite runs against a real PostgreSQL, and the installer is verified end to end on
+AlmaLinux 10.2 with SELinux enforcing. What it has not had is years of production exposure across
+many deployments, so read the code before trusting it with anything sensitive, follow the hardening
+checklist in [`SECURITY.md`](SECURITY.md) before exposing an instance, and keep backups.
 
 ## Use as a starting point
 
@@ -121,7 +168,7 @@ scratch. A feature typically touches one service, one controller, one migration 
    | `intellistream-chat` | Gradle artifact, systemd unit, `/opt` path |
 
    Then regenerate `V1__init.sql`.
-2. **Read `CLAUDE.md` and keep it current.** It is the conventions document for the project, and it
+2. **Read `AGENT.md` and keep it current.** It is the conventions document for the project, and it
    is worth more to a new contributor than any amount of generated API documentation. Update it as
    your fork diverges.
 3. **Write the change down before writing it.** Acceptance criteria beat prose: *"polls auto-close
@@ -195,7 +242,10 @@ brew services start podman    # or: podman machine init && podman machine start
 
 If `java` doesn't end up on `PATH`, follow the post-install instructions Homebrew prints (`echo 'export PATH="/opt/homebrew/opt/openjdk@25/bin:$PATH"' >> ~/.zshrc` on Apple silicon).
 
-## Quick start — development
+## Quick start — development (detail)
+
+The short version is at the top of this file. What follows is the same flow with the optional paths: the prod profile, an external database, and Vault.
+
 
 For exploring the app, hacking on it, or quick local testing. Two commands once the prerequisites above are installed:
 
@@ -349,7 +399,7 @@ PrivateDevices=true
 # `open(2)` on any of these returns ENOENT to the service — they literally
 # do not exist from the JVM's point of view. Without these directives,
 # ProtectSystem=strict only stops writes; everything below is still readable.
-# Verified on AlmaLinux 10.1: with this list, /etc/cron.d/*, /var/log/dnf.log,
+# Verified on AlmaLinux 10.2: with this list, /etc/cron.d/*, /var/log/dnf.log,
 # /var/log/messages and /var/lib/* are all GONE inside the namespace.
 InaccessiblePaths=/var/log /var/spool /var/lib
 InaccessiblePaths=/etc/cron.d /etc/cron.daily /etc/cron.hourly /etc/cron.weekly /etc/cron.monthly /etc/crontab /etc/anacrontab

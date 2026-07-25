@@ -61,7 +61,7 @@ application-secret.properties
 
 # --- Claude Code / agent state ---
 # Per-project agent memory + runtime metadata. Personal to whoever drove the
-# session; project-wide docs that should be shared belong in CLAUDE.md.
+# session; project-wide docs that should be shared belong in AGENT.md.
 .claude/
 MEMORY.md
 

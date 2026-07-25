@@ -1,6 +1,12 @@
-# IntelliStream Chat — Claude Code project guide
+# IntelliStream Chat — agent and contributor guide
 
-IntelliStream Chat — Spring Boot 4 chat application (Slack/Mattermost-style). Read this before making changes; it captures conventions that aren't obvious from the code.
+IntelliStream Chat — Spring Boot 4 chat application (Slack/Mattermost-style). Read this before making
+changes; it captures the conventions that aren't obvious from the code.
+
+This file is deliberately tool agnostic. Coding agents look for a project guide under various names
+(`AGENT.md`, `AGENTS.md`, `CLAUDE.md`); this is the canonical one, and if your tool wants a different
+filename, point it here rather than forking the content. A second copy is a second source of truth,
+and the stale one always wins an argument eventually.
 
 Quick starts: `QUICKSTART-COMPOSE.md` (containers) · `QUICKSTART-MANUAL.md` (native + systemd).
 Production proxy (nginx/haproxy, sizing, the SameSite gotcha): `frontend.md`.
@@ -41,7 +47,7 @@ App: http://localhost:8080 · Keycloak: http://localhost:8081 · Test users: `al
 ## Layout
 
 The tree below is a sketch — `service/` and `web/dto/` keep growing; treat the directory listing
-as authoritative and CLAUDE.md as a starting orientation.
+as authoritative and AGENT.md as a starting orientation.
 
 ```
 src/main/java/ai/intellistream/chat/
