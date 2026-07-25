@@ -102,6 +102,11 @@ public class SecurityConfig {
                                               ClientRegistrationRepository clientRegistrationRepository,
                                               @Value("${spring.security.oauth2.client.provider.keycloak.issuer-uri}")
                                               String keycloakIssuerUri) throws Exception {
+        // Fail here rather than at the first login attempt. A blank client secret is a valid
+        // property value, so without this the app starts, reports healthy, and then nobody can
+        // sign in — see OidcClientSecretCheck.
+        OidcClientSecretCheck.verify(clientRegistrationRepository.findByRegistrationId("keycloak"));
+
         var csrfHandler = new CsrfTokenRequestAttributeHandler();
         csrfHandler.setCsrfRequestAttributeName("_csrf");
 

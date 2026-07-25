@@ -102,7 +102,7 @@ export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="threadorb
 SPRING_PROFILES_ACTIVE=prod ./gradlew bootRun
 ```
 
-`KEYCLOAK_CLIENT_SECRET` has no default outside the dev profile (`application.yml` deliberately leaves it empty so a missing prod secret fails fast instead of silently using a baked-in dev value), so it must be set explicitly.
+`KEYCLOAK_CLIENT_SECRET` has no default (`application.yml` deliberately leaves it empty rather than falling back to the secret baked into `keycloak/realm.json`), so it must be set explicitly. The app **refuses to start** without it — an empty string is a valid property value, so previously the context came up, `/actuator/health` returned 200, and then every login died at the token exchange and bounced to `/login?error` with nothing in the log. See `OidcClientSecretCheck`.
 
 ### Quick start — without Podman (external Postgres + Keycloak)
 
