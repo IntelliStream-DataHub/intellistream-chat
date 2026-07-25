@@ -100,6 +100,36 @@ everything else follows from it.
 Every one of those is replaceable behind an existing seam — see
 [What's intentionally under-engineered](#whats-intentionally-under-engineered-so-a-fork-can-swap-it).
 
+### Why not Rust
+
+A fair question for a self-hosted server in 2026, and the answer is not that Rust is worse.
+
+**Maintenance is the dominant lifetime cost, not CPU.** This is a chat server. It will spend years
+being modified by whoever is around, and the pool of people who can safely change a Spring Boot
+codebase is very much larger than the pool who can safely change an async Rust one. That gap is the
+single biggest number in the total cost, and it does not appear in any benchmark.
+
+**The performance argument does not survive the measurements.** One machine does 17,066 messages a
+second end to end and holds 100,000 concurrent connections in 11.2 GiB, and a small deployment runs
+in under 500 MB. Look at where that came from: the write path went from 109 to ~17,000 messages a
+second, and essentially none of it was the language. The first 14.5× was a mis-wired thread pool.
+The fan-out cliff at 100k connections was an LRU cache sized to 1,024. WAL fsync, which everyone
+assumed was the wall, turned out to be worth 7%. A rewrite in a faster language would have
+optimised a runtime that was never the constraint, and left every one of those defects in place.
+
+**The libraries are the product.** Spring Security's OIDC support, Hibernate and Flyway, and
+embedded Lucene are decades of accumulated correctness in exactly the areas where a bug is a
+security incident or a data-loss event. Rust has credible equivalents for some of this and thinner
+coverage for the rest, particularly enterprise SSO. Writing those parts yourself is not a saving.
+
+**Where Rust would genuinely win:** memory per connection, cold start, and no GC pauses at the
+tail. If you were building an edge relay holding a million sockets and doing almost nothing with
+them, that would be the right trade and Java would be the wrong one. That is a different program
+from this one, where every message is persisted, rendered, sanitised, indexed and fanned out, and
+where the interesting costs are in Postgres and Lucene rather than in the language runtime.
+
+The honest summary: Rust would make the cheap part cheaper and the expensive part more expensive.
+
 ## Performance
 
 Measured on one Broadwell 12-core / 31 GB virtual machine with the load generator running 

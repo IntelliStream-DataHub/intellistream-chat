@@ -235,11 +235,20 @@
     color: var(--text);
   }
   header.site .brand:hover { text-decoration: none; }
+  /* Ten items is more than fits at 1280px. Links must not wrap (a two-line "Quick start" in a
+     sticky header looks broken), so they stay on one line and the least useful ones drop out as
+     the viewport narrows rather than the whole bar reflowing. */
   header.site nav {
     margin-left: auto;
     display: flex;
-    gap: 22px;
-    font-size: 0.95em;
+    align-items: center;
+    gap: 18px;
+    font-size: 0.92em;
+  }
+  header.site nav a { white-space: nowrap; }
+  @media (max-width: 1180px) {
+    header.site nav { gap: 14px; }
+    header.site nav a.secondary { display: none; }
   }
   header.site nav a { color: var(--muted); }
   header.site nav a:hover { color: var(--text); text-decoration: none; }
@@ -492,11 +501,12 @@
       <a href="#quickstart">Quick start</a>
       <a href="#screenshots">Screens</a>
       <a href="#why">Why</a>
-      <a href="#foundation">Extend</a>
-      <a href="#features">Features</a>
+      <a class="secondary" href="#foundation">Extend</a>
+      <a class="secondary" href="#features">Features</a>
       <a href="#performance">Performance</a>
-      <a href="#stack">Stack</a>
-      <a href="#install">Install</a>
+      <a class="secondary" href="#stack">Stack</a>
+      <a class="secondary" href="#why-not-rust">Rust?</a>
+      <a href="#secrets">Secrets</a>
       <!-- TODO: replace href with the real GitHub URL -->
       <a class="gh" href="https://github.com/" rel="noopener">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
@@ -559,7 +569,12 @@ sudo dnf install -y java-25-openjdk-devel podman podman-compose
 
 # Ubuntu / Debian
 sudo apt install -y openjdk-25-jdk podman podman-compose</code></pre>
-      <p class="qs-note">Docker works too if you already have it, the compose file is plain OCI.</p>
+      <p class="qs-note">
+        Docker works too if you already have it, the compose file is plain OCI.
+        On RHEL 9, AlmaLinux 9, Rocky 9, Ubuntu 24.04 LTS and older Debian, OpenJDK 25 is not
+        in the default archives yet; install it with <a href="https://sdkman.io" rel="noopener">SDKMAN</a>
+        or from Adoptium. Gradle itself is not required, <code>./gradlew</code> fetches it on first use.
+      </p>
     </div>
 
     <div class="qs-step">
@@ -880,28 +895,108 @@ sudo apt install -y openjdk-25-jdk podman podman-compose</code></pre>
   </div>
 </section>
 
-<section id="install">
+<section id="why-not-rust">
   <div class="wrap">
-    <h2><span class="marker"></span>Install prerequisites</h2>
-    <p class="intro">Java 25 and Podman. Gradle is not required, <code>./gradlew</code> downloads it on first use. Skip Podman if you intend to point at an external Postgres + Keycloak (see step 5 of Quick start).</p>
-
-    <div class="qs-step">
-      <h3>Fedora 40+ / RHEL 10+ / AlmaLinux 10+ / Rocky 10+</h3>
-<pre><code>sudo dnf install -y java-25-openjdk-devel podman podman-compose
-java -version    # should report "openjdk 25"</code></pre>
-      <p class="qs-note">On RHEL 9 / AlmaLinux 9 / Rocky 9, OpenJDK 25 is not packaged yet, install via <a href="https://sdkman.io/" rel="noopener">sdkman</a> (<code>sdk install java 25-zulu</code>) and use the system's Podman.</p>
-    </div>
-
-    <div class="qs-step">
-      <h3>Ubuntu 24.10+ / Debian trixie</h3>
-<pre><code>sudo apt install -y openjdk-25-jdk podman podman-compose
-java -version</code></pre>
-      <p class="qs-note">On Ubuntu 24.04 LTS or older Debian releases OpenJDK 25 isn't in the default archives yet, either upgrade to a newer release or install Java 25 via <a href="https://sdkman.io/" rel="noopener">sdkman</a> (<code>sdk install java 25-zulu</code>).</p>
-    </div>
+    <h2><span class="marker"></span>Why not Rust</h2>
+    <p class="intro">
+      A fair question for a self hosted server in 2026, and the answer is not that Rust is worse.
+    </p>
+    <p>
+      <strong>Maintenance is the dominant lifetime cost, not CPU.</strong> This is a chat server. It
+      will spend years being modified by whoever is around, and the pool of people who can safely
+      change a Spring Boot codebase is very much larger than the pool who can safely change an async
+      Rust one. That gap is the single biggest number in the total cost, and it appears in no
+      benchmark.
+    </p>
+    <p>
+      <strong>The performance argument does not survive the measurements.</strong> One machine does
+      17,066 messages a second end to end and holds 100,000 connections in 11.2 GiB, and a small
+      deployment runs in under 500 MB. Look at where that came from: the write path went from 109 to
+      about 17,000 messages a second and essentially none of it was the language. The first 14.5x
+      was a mis wired thread pool. The fan out cliff at 100k connections was an LRU cache sized to
+      1,024. WAL fsync, which everyone assumed was the wall, was worth 7%. A rewrite in a faster
+      language would have optimised a runtime that was never the constraint and left every one of
+      those defects in place.
+    </p>
+    <p>
+      <strong>The libraries are the product.</strong> Spring Security's OIDC support, Hibernate and
+      Flyway, and embedded Lucene are decades of accumulated correctness in exactly the areas where a
+      bug is a security incident or a data loss event. Rust has credible equivalents for some of
+      this and thinner coverage for the rest, particularly enterprise SSO. Writing those parts
+      yourself is not a saving.
+    </p>
+    <p>
+      <strong>Where Rust would genuinely win:</strong> memory per connection, cold start, and no GC
+      pauses at the tail. If you were building an edge relay holding a million sockets and doing
+      almost nothing with them, that is the right trade and Java is the wrong one. That is a
+      different program from this one, where every message is persisted, rendered, sanitised,
+      indexed and fanned out, and the interesting costs are in Postgres and Lucene rather than in
+      the language runtime.
+    </p>
+    <p>
+      Rust would make the cheap part cheaper and the expensive part more expensive.
+    </p>
   </div>
 </section>
 
+<section id="secrets" class="band">
+  <div class="wrap">
+    <h2><span class="marker"></span>Secrets: Vault and OpenBao</h2>
+    <p class="intro">
+      Optional. Off unless you turn it on, and the app runs perfectly well without it, reading
+      credentials from the environment. Turn it on when you would rather the database password
+      and the OIDC client secret did not sit in a file on the host.
+    </p>
 
+    <p>
+      At startup, before Spring builds any beans, the app fetches one KV v2 record and layers it
+      over everything else, so what Vault says wins over the environment and over
+      <code>application.yml</code>. It reads five keys, and ignores anything else in the record:
+    </p>
+
+<pre><code>db.username              -&gt; spring.datasource.username
+db.password              -&gt; spring.datasource.password
+keycloak.client-id       -&gt; OIDC client id
+keycloak.client-secret   -&gt; OIDC client secret
+keycloak.issuer-uri      -&gt; OIDC issuer</code></pre>
+
+    <div class="qs-step">
+      <h3><span class="num">1</span>Point the app at your Vault</h3>
+<pre><code>ICHAT_VAULT_ENABLED=true
+ICHAT_VAULT_URI=https://vault.example.com:8200
+ICHAT_VAULT_TOKEN=&lt;token&gt;
+ICHAT_VAULT_PATH=intellistream-chat     # optional, this is the default</code></pre>
+      <p class="qs-note">
+        <code>ICHAT_VAULT_PATH</code> is a KV v2 path. The default resolves to
+        <code>secret/data/intellistream-chat</code>; pass something like
+        <code>mymount/myapp/secrets</code> to use a different mount. If you enable this and leave
+        the URI or token unset, startup fails immediately rather than quietly falling back to the
+        environment, because a silent fallback is how a production instance ends up running on a
+        development password.
+      </p>
+    </div>
+
+    <div class="qs-step">
+      <h3><span class="num">2</span>Try it locally</h3>
+<pre><code>podman compose --profile openbao up -d
+./scripts/seed-vault.sh</code></pre>
+      <p class="qs-note">
+        The OpenBao container is profile gated, so a plain <code>podman compose up -d</code> skips
+        it. The seed script writes the five keys and is idempotent; KV v2 keeps a version history,
+        so a bad seed is recoverable with <code>bao kv rollback</code>.
+      </p>
+    </div>
+
+    <p class="qs-more">
+      <strong>The dev container is not a deployment.</strong> It runs in memory with a single root
+      token, so everything vanishes on restart and the token is in the compose file. For production
+      use a sealed deployment with auto unseal, and authenticate with AppRole or Kubernetes auth
+      rather than a long lived token. Token auth is what the app implements today; if you need
+      AppRole, <code>VaultEnvironmentPostProcessor</code> is about sixty lines and is the only
+      place that talks to Vault.
+    </p>
+  </div>
+</section>
 
 <footer>
   <div class="wrap">
