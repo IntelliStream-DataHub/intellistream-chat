@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 Olav Gjerde
+ * Copyright 2026 IntelliStream AS
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,7 +19,11 @@ package ai.intellistream.chat.service;
 import ai.intellistream.chat.domain.Channel;
 import ai.intellistream.chat.domain.ChannelMember;
 import ai.intellistream.chat.domain.ChannelRole;
+import java.time.Duration;
 import ai.intellistream.chat.domain.ChannelType;
+import ai.intellistream.chat.security.RateLimitExceededException;
+import ai.intellistream.chat.security.RateLimiter;
+import ai.intellistream.chat.domain.ChannelCreationPolicy;
 import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.repository.AttachmentRepository;
 import ai.intellistream.chat.repository.ChannelMemberRepository;
@@ -45,6 +49,8 @@ public class ChannelService {
     private final MessageIndexService messageIndex;
     private final AttachmentService attachmentService;
     private final ChannelAccessCache accessCache;
+    private final AppSettingsService appSettings;
+    private final RateLimiter rateLimiter;
 
     public ChannelService(ChannelRepository channelRepository,
                           ChannelMemberRepository memberRepository,
@@ -53,7 +59,9 @@ public class ChannelService {
                           MessageIndexService messageIndex,
                           // @Lazy breaks the ChannelService <-> AttachmentService construction cycle.
                           @Lazy AttachmentService attachmentService,
-                          ChannelAccessCache accessCache) {
+                          ChannelAccessCache accessCache,
+                          AppSettingsService appSettings,
+                          RateLimiter rateLimiter) {
         this.accessCache = accessCache;
         this.channelRepository = channelRepository;
         this.memberRepository = memberRepository;
@@ -61,10 +69,25 @@ public class ChannelService {
         this.attachmentRepository = attachmentRepository;
         this.messageIndex = messageIndex;
         this.attachmentService = attachmentService;
+        this.appSettings = appSettings;
+        this.rateLimiter = rateLimiter;
     }
 
     @Transactional
+    /**
+     * Create a channel.
+     *
+     * <p>Two gates, and they answer different questions. The <b>policy</b> answers "is this
+     * workspace one where members may create channels at all", which an admin sets and which
+     * mirrors how Slack and Mattermost model it. The <b>rate limit</b> answers "is this account
+     * behaving", and applies even under the permissive policy, because the abuse case is not a
+     * member creating a channel, it is one account creating four hundred of them in a minute.
+     * Neither subsumes the other: tightening the policy to admins-only should not be the only
+     * defence available, and a rate limit alone would still let a spam wave create one channel per
+     * account per minute indefinitely.
+     */
     public Channel create(String name, String description, ChannelType type, User creator) {
+        requireMayCreateChannel(creator);
         var slug = slugify(name);
         channelRepository.findBySlug(slug).ifPresent(c -> {
             throw new IllegalStateException("Channel slug already exists: " + slug);
@@ -72,6 +95,27 @@ public class ChannelService {
         var channel = channelRepository.save(new Channel(slug, name, description, type, creator));
         memberRepository.save(new ChannelMember(channel, creator, ChannelRole.ADMIN));
         return channel;
+    }
+
+    /**
+     * Enforce the workspace policy and the per-account burst limit.
+     *
+     * <p>The limiter is checked <em>after</em> the policy so that a member in an admins-only
+     * workspace gets told the workspace does not allow it, rather than being told to slow down
+     * about something they were never permitted to do.
+     */
+    private void requireMayCreateChannel(User creator) {
+        if (appSettings.channelCreationPolicy() == ChannelCreationPolicy.ADMINS_ONLY && !creator.isAdmin()) {
+            throw new AccessDeniedException(
+                    "Only workspace administrators may create channels in this workspace.");
+        }
+        // Deliberately modest. A person creating channels is doing it a handful of times an hour
+        // at most; a script is doing it hundreds of times a minute. Ten an hour separates those
+        // two populations without ever being reached by ordinary use.
+        if (!rateLimiter.tryAcquire(creator.getUsername(), "channel-create", 10, Duration.ofHours(1))) {
+            throw new RateLimitExceededException(
+                    "Too many channels created recently. Try again later.");
+        }
     }
 
     @Transactional(readOnly = true)

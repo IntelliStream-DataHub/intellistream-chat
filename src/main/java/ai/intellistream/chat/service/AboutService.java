@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 Olav Gjerde
+ * Copyright 2026 IntelliStream AS
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -61,7 +61,7 @@ public class AboutService {
      */
     private static final String LICENSE = "Apache License 2.0";
     private static final String LICENSE_URL = "https://www.apache.org/licenses/LICENSE-2.0";
-    private static final String COPYRIGHT = "Copyright 2026 Olav Gjerde";
+    private static final String COPYRIGHT = "Copyright 2026 IntelliStream AS";
 
     private final ObjectProvider<BuildProperties> buildProperties;
     private final DataSource dataSource;

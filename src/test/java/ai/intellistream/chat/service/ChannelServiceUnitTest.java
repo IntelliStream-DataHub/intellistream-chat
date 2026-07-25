@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 Olav Gjerde
+ * Copyright 2026 IntelliStream AS
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -46,7 +46,9 @@ class ChannelServiceUnitTest {
                 mock(ai.intellistream.chat.repository.AttachmentRepository.class),
                 mock(ai.intellistream.chat.search.MessageIndexService.class),
                 mock(ai.intellistream.chat.service.AttachmentService.class),
-                new ai.intellistream.chat.service.ChannelAccessCache(60, 1024));
+                new ai.intellistream.chat.service.ChannelAccessCache(60, 1024),
+                permissiveSettings(),
+                new ai.intellistream.chat.security.RateLimiter());
         var creator = new User("sub", "alice", "a@e", "Alice");
 
         var channel = service.create("  Hello, World!  ", "description", ChannelType.PUBLIC, creator);
@@ -68,10 +70,23 @@ class ChannelServiceUnitTest {
                 mock(ai.intellistream.chat.repository.AttachmentRepository.class),
                 mock(ai.intellistream.chat.search.MessageIndexService.class),
                 mock(ai.intellistream.chat.service.AttachmentService.class),
-                new ai.intellistream.chat.service.ChannelAccessCache(60, 1024));
+                new ai.intellistream.chat.service.ChannelAccessCache(60, 1024),
+                permissiveSettings(),
+                new ai.intellistream.chat.security.RateLimiter());
         var creator = new User("sub", "alice", "a@e", "Alice");
 
         assertThatThrownBy(() -> service.create("!!!", null, ChannelType.PUBLIC, creator))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /**
+     * Settings stub that permits channel creation. These tests are about slug rules, not about the
+     * creation policy, so they assert the permissive default rather than restating the gate.
+     */
+    private static ai.intellistream.chat.service.AppSettingsService permissiveSettings() {
+        var settings = mock(ai.intellistream.chat.service.AppSettingsService.class);
+        when(settings.channelCreationPolicy())
+                .thenReturn(ai.intellistream.chat.domain.ChannelCreationPolicy.EVERYONE);
+        return settings;
     }
 }

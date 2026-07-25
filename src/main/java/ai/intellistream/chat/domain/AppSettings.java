@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 Olav Gjerde
+ * Copyright 2026 IntelliStream AS
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,8 @@
 package ai.intellistream.chat.domain;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
@@ -61,6 +63,14 @@ public class AppSettings {
     @Column(name = "expose_user_emails", nullable = false)
     private boolean exposeUserEmails = true;
 
+    /**
+     * Who may create channels. Defaults to {@link ChannelCreationPolicy#EVERYONE}, which is what
+     * every deployment did before this column existed, so the migration changes no behaviour.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "channel_creation", nullable = false, length = 16)
+    private ChannelCreationPolicy channelCreation = ChannelCreationPolicy.EVERYONE;
+
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt = Instant.now();
 
@@ -95,5 +105,9 @@ public class AppSettings {
     public void setExposeUserEmails(boolean expose) {
         this.exposeUserEmails = expose;
         this.updatedAt = Instant.now();
+    }
+
+    public void setChannelCreation(ChannelCreationPolicy policy) {
+        this.channelCreation = policy == null ? ChannelCreationPolicy.EVERYONE : policy;
     }
 }

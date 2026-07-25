@@ -235,9 +235,10 @@
     color: var(--text);
   }
   header.site .brand:hover { text-decoration: none; }
-  /* Ten items is more than fits at 1280px. Links must not wrap (a two-line "Quick start" in a
-     sticky header looks broken), so they stay on one line and the least useful ones drop out as
-     the viewport narrows rather than the whole bar reflowing. */
+  /* Ten flat links did not fit at 1280px, and dropping the "least useful" ones as the viewport
+     narrowed meant half the page was unreachable from the header on a laptop. The sections are
+     now grouped behind two disclosure buttons, so the bar carries four items at every width and
+     nothing has to be hidden to make it fit. */
   header.site nav {
     margin-left: auto;
     display: flex;
@@ -246,15 +247,77 @@
     font-size: 0.92em;
   }
   header.site nav a { white-space: nowrap; }
-  @media (max-width: 1180px) {
-    header.site nav { gap: 14px; }
-    header.site nav a.secondary { display: none; }
-  }
   header.site nav a { color: var(--muted); }
   header.site nav a:hover { color: var(--text); text-decoration: none; }
 
-  @media (max-width: 640px) {
-    header.site nav a:not(.gh) { display: none; }
+  /* ---------- Header dropdowns ----------
+     Progressive enhancement, in two layers. The panel is display:none by default; without the
+     script the browser opens it on hover and on :focus-within, so it is reachable by mouse and
+     by Tab with JS off or still loading. The script adds `js` to <html> and takes over: from
+     then on the panel is driven by aria-expanded alone, because hover-open and click-toggle
+     fight each other (click focuses the button, :focus-within re-opens what you just closed).
+     Touch gets the same click path as the mouse, which is why hover is not the primary trigger. */
+  .navgroup { position: relative; display: inline-flex; }
+  .navgroup-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font: inherit;
+    color: var(--muted);
+    background: none;
+    border: 0;
+    padding: 4px 2px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .navgroup-btn:hover { color: var(--text); }
+  .navgroup-btn .chev {
+    width: 10px; height: 10px;
+    fill: none; stroke: currentColor; stroke-width: 2.2;
+    stroke-linecap: round; stroke-linejoin: round;
+    transition: transform 120ms ease;
+  }
+  .navgroup-btn[aria-expanded="true"] { color: var(--text); }
+  .navgroup-btn[aria-expanded="true"] .chev { transform: rotate(180deg); }
+
+  .navmenu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 10px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    min-width: 190px;
+    margin: 0;
+    padding: 6px;
+    list-style: none;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(16, 89, 132, 0.16);
+  }
+  html:not(.js) .navgroup:hover > .navmenu,
+  html:not(.js) .navgroup:focus-within > .navmenu,
+  html.js .navgroup-btn[aria-expanded="true"] + .navmenu { display: block; }
+  .navmenu a {
+    display: block;
+    padding: 8px 12px;
+    border-radius: 6px;
+    color: var(--text);
+  }
+  .navmenu a:hover,
+  .navmenu a:focus-visible { background: var(--brand-soft); color: var(--brand-deep); text-decoration: none; }
+  .navmenu .hint { display: block; font-size: 0.85em; color: var(--muted); margin-top: 1px; }
+  .navmenu a:hover .hint, .navmenu a:focus-visible .hint { color: var(--muted); }
+
+  /* The bar is short enough now that only the two grouped buttons ever need to go, and they go
+     late. Below 520px the header is the brand, Docs and GitHub, which is the useful minimum. */
+  @media (max-width: 760px) {
+    header.site nav { gap: 14px; }
+    header.site nav .navgroup { display: none; }
+  }
+  @media (max-width: 520px) {
+    header.site nav a.demote { display: none; }
   }
 
   .gh {
@@ -497,16 +560,38 @@
       </svg>
       IntelliStream Chat
     </a>
-    <nav>
-      <a href="#quickstart">Quick start</a>
-      <a href="#screenshots">Screens</a>
-      <a href="#why">Why</a>
-      <a class="secondary" href="#foundation">Extend</a>
-      <a class="secondary" href="#features">Features</a>
-      <a href="#performance">Performance</a>
-      <a class="secondary" href="#stack">Stack</a>
-      <a class="secondary" href="#why-not-rust">Rust?</a>
-      <a href="#secrets">Secrets</a>
+    <nav aria-label="Main">
+      <a class="demote" href="#quickstart">Quick start</a>
+
+      <div class="navgroup">
+        <button type="button" id="navbtn-product" class="navgroup-btn"
+                aria-haspopup="true" aria-expanded="false" aria-controls="navmenu-product">
+          Product
+          <svg class="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>
+        </button>
+        <ul class="navmenu" id="navmenu-product" role="menu" aria-labelledby="navbtn-product">
+          <li role="none"><a role="menuitem" href="#screenshots">Screens<span class="hint">What it looks like</span></a></li>
+          <li role="none"><a role="menuitem" href="#why">Why<span class="hint">Why this exists</span></a></li>
+          <li role="none"><a role="menuitem" href="#features">Features<span class="hint">What is in the box</span></a></li>
+          <li role="none"><a role="menuitem" href="#foundation">Extend<span class="hint">Fork it as a starting point</span></a></li>
+        </ul>
+      </div>
+
+      <div class="navgroup">
+        <button type="button" id="navbtn-tech" class="navgroup-btn"
+                aria-haspopup="true" aria-expanded="false" aria-controls="navmenu-tech">
+          Technical
+          <svg class="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>
+        </button>
+        <ul class="navmenu" id="navmenu-tech" role="menu" aria-labelledby="navbtn-tech">
+          <li role="none"><a role="menuitem" href="#performance">Performance<span class="hint">What one machine does</span></a></li>
+          <li role="none"><a role="menuitem" href="#stack">Stack<span class="hint">The pieces it is built from</span></a></li>
+          <li role="none"><a role="menuitem" href="#secrets">Secrets<span class="hint">Vault and OpenBao</span></a></li>
+          <li role="none"><a role="menuitem" href="#why-not-rust">Why not Rust<span class="hint">The language question</span></a></li>
+        </ul>
+      </div>
+
+      <a href="docs.html">Docs</a>
       <!-- TODO: replace href with the real GitHub URL -->
       <a class="gh" href="https://github.com/" rel="noopener">
         <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
@@ -1009,6 +1094,84 @@ ICHAT_VAULT_PATH=intellistream-chat     # optional, this is the default</code></
 </footer>
 
 <script>
+// Tell the stylesheet the script is live, so the header dropdowns switch from their
+// CSS-only hover/:focus-within fallback to being driven by aria-expanded.
+document.documentElement.classList.add('js');
+
+// Header dropdowns. Disclosure buttons over a role="menu" list: click or Enter/Space toggles
+// (a real <button>, so the keyboard activation is the browser's), Arrow keys walk the items,
+// Escape closes and hands focus back to the button, and moving focus or clicking elsewhere
+// closes whatever is open. With the script absent the CSS fallback above still opens the panel
+// on hover and on focus, so every link in it stays reachable.
+(function () {
+  var groups = Array.prototype.slice.call(document.querySelectorAll('.navgroup'));
+  if (!groups.length) return;
+
+  var open = null;
+
+  function items(g) {
+    return Array.prototype.slice.call(g.querySelectorAll('[role="menuitem"]'));
+  }
+  function close(g, refocus) {
+    var btn = g.querySelector('.navgroup-btn');
+    btn.setAttribute('aria-expanded', 'false');
+    if (open === g) open = null;
+    if (refocus) btn.focus();
+  }
+  function closeAll(refocus) {
+    groups.forEach(function (g) { close(g, refocus && open === g); });
+  }
+  function show(g, focusIndex) {
+    if (open && open !== g) close(open, false);
+    g.querySelector('.navgroup-btn').setAttribute('aria-expanded', 'true');
+    open = g;
+    if (typeof focusIndex === 'number') {
+      var list = items(g);
+      if (list.length) list[(focusIndex + list.length) % list.length].focus();
+    }
+  }
+
+  groups.forEach(function (g) {
+    var btn = g.querySelector('.navgroup-btn');
+
+    btn.addEventListener('click', function () {
+      if (btn.getAttribute('aria-expanded') === 'true') close(g, false); else show(g);
+    });
+
+    btn.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); show(g, 0); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); show(g, -1); }
+      else if (e.key === 'Escape') { close(g, false); }
+    });
+
+    g.addEventListener('keydown', function (e) {
+      var list = items(g);
+      var at = list.indexOf(document.activeElement);
+      if (e.key === 'Escape') { e.preventDefault(); close(g, true); return; }
+      if (at < 0) return;
+      if (e.key === 'ArrowDown') { e.preventDefault(); list[(at + 1) % list.length].focus(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); list[(at - 1 + list.length) % list.length].focus(); }
+      else if (e.key === 'Home') { e.preventDefault(); list[0].focus(); }
+      else if (e.key === 'End') { e.preventDefault(); list[list.length - 1].focus(); }
+    });
+
+    // Following a link should leave the menu shut behind you; same-page anchors do not reload.
+    items(g).forEach(function (a) {
+      a.addEventListener('click', function () { close(g, false); });
+    });
+
+    // Tabbing out of the group closes it. relatedTarget is null when focus leaves the document,
+    // which we also treat as "gone".
+    g.addEventListener('focusout', function (e) {
+      if (!e.relatedTarget || !g.contains(e.relatedTarget)) close(g, false);
+    });
+  });
+
+  document.addEventListener('pointerdown', function (e) {
+    if (open && !open.contains(e.target)) closeAll(false);
+  });
+}());
+
 // Carousel controls. The track is a scroll-snap container, so this only nudges scrollLeft
 // and keeps the dots in step; with JS disabled the strip still scrolls and every screenshot
 // is reachable.

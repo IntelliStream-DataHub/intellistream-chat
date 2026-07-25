@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 Olav Gjerde
+ * Copyright 2026 IntelliStream AS
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 package ai.intellistream.chat.service;
 
 import ai.intellistream.chat.domain.AppSettings;
+import ai.intellistream.chat.domain.ChannelCreationPolicy;
 import ai.intellistream.chat.repository.AppSettingsRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -77,5 +78,22 @@ public class AppSettingsService {
         var s = current();
         s.setExposeUserEmails(expose);
         return s;
+    }
+
+    /**
+     * Who may create channels. Read on every create, so it goes through the same cached settings
+     * lookup the branding does rather than a query per attempt.
+     */
+    @Transactional(readOnly = true)
+    public ChannelCreationPolicy channelCreationPolicy() {
+        return current().getChannelCreation();
+    }
+
+    /** Admin action. Null or unrecognised input falls back to the permissive default. */
+    @Transactional
+    public ChannelCreationPolicy setChannelCreationPolicy(ChannelCreationPolicy policy) {
+        var settings = current();
+        settings.setChannelCreation(policy);
+        return repo.save(settings).getChannelCreation();
     }
 }
