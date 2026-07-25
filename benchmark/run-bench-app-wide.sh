@@ -38,7 +38,11 @@ export KEYCLOAK_ISSUER_URI="http://${KC_HOST}:8081/realms/threadorbit"
 export BENCH_SERVER_ADDRESS=0.0.0.0
 # The generator sends Origin: http://<dstIP>:<port>, so every loopback address it uses must match.
 export BENCH_ALLOWED_ORIGINS="http://127.0.0.*:${PORT},http://localhost:${PORT}"
-export BENCH_LUCENE_DIR=./data/lucene-bench-wide
+# Per-run index directory by default. Lucene takes an OS-level write lock, which a still-exiting
+# JVM keeps holding after its listening socket has closed — so back-to-back runs sharing one
+# directory fail on LockObtainFailedException even when the port looks free. Deleting write.lock
+# doesn't help; the lock lives with the process, not the file.
+export BENCH_LUCENE_DIR=${BENCH_LUCENE_DIR:-./data/lucene-bench-wide}
 
 CMD=("$JAVA" -Xmx"$HEAP" -XX:+UseZGC --enable-native-access=ALL-UNNAMED
      -Dserver.port="$PORT"

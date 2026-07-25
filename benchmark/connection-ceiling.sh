@@ -29,6 +29,7 @@ LOG=$ROOT/build/ceiling-$LABEL.log
 established() { ss -tanH 2>/dev/null | awk -v p=":$PORT\$" '$1=="ESTAB" && $4 ~ p' | wc -l; }
 
 PID=$(PORT="$PORT" HEAP="$HEAP" BUDGET="$BUDGET" SOCKBUF="$SOCKBUF" BINBUF="$BINBUF" \
+      BENCH_LUCENE_DIR="./data/lucene-ceiling-$LABEL" \
       LOG="$LOG" "$HERE/run-bench-app-wide.sh" | tail -1)
 [ -n "$PID" ] || { echo "server did not start"; exit 1; }
 echo "  budget=$BUDGET heap=$HEAP buffers=${SOCKBUF}/${BINBUF} pid=$PID"
@@ -52,4 +53,9 @@ PEAK=$(awk -F, 'NR>1 && $2+0>m {m=$2+0} END {print m+0}' "$SAMPLES")
 PEAK_RSS=$(awk -F, -v p="$PEAK" 'NR>1 && $2+0==p {print $3; exit}' "$SAMPLES")
 if kill -0 "$PID" 2>/dev/null; then SURVIVED="yes (budget not exhausted — raise --conns)"; else SURVIVED="no (OOM-killed at the budget)"; fi
 echo "RESULT $LABEL: peak_established=$PEAK  rss_at_peak=$(( ${PEAK_RSS:-0} / 1024 ))MB  survived=$SURVIVED"
+# Wait for it to actually exit. The listening socket closes before the JVM releases Lucene's
+# index lock, so a run that starts the moment the port frees up dies on "Lock held by another
+# program" — which is exactly how the tuned half of this A/B failed the first time.
 kill "$PID" 2>/dev/null || true
+for _ in $(seq 1 60); do kill -0 "$PID" 2>/dev/null || break; sleep 1; done
+kill -9 "$PID" 2>/dev/null || true

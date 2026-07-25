@@ -15,9 +15,10 @@ its limit" setup).
   broadcast → receive). That is **~160× the 109 posts/s this box started at**, and well past the
   10,000 posts/s target.
 - **Fan-out: ~136,000 deliveries/second** into 50-member rooms, 0 dropped, p50 under 250 ms.
-- **Concurrent open sockets held:** **10k** fully healthy · **50k** established and held ·
-  **~70k** is this box's hard ceiling (memory + connect throughput). **100k / 250k are not
-  reachable co-located on this box** — see [Reaching 100k–250k](#reaching-100k250k).
+- **50,000 concurrent connections, held *and* served**: 50,000/50,000 established with 0 failures,
+  **49,154 deliveries/s with nothing dropped** at p50 250 ms. The earlier pass recorded this tier
+  as "held but not served" (1.3k deliveries/s at p50 33 s, 97% backlog) — that was the
+  single-threaded inbound channel, not the socket count.
 - **The original diagnosis in this document was wrong**, and instructively so. The write path was
   never limited by Lucene commits, WAL fsync, or the broker. **Every inbound chat message was
   being handled on a single thread** — a mis-wired STOMP channel executor — so the whole server
@@ -107,16 +108,43 @@ an order of magnitude more than this document previously credited it with.
 
 ### Connection scalability (echo path — WS + broker only)
 
-Unchanged from the earlier pass; these are memory-bound, not throughput-bound.
+| Tier | Established | Setup p50 | Deliveries/s | Dropped | Delivery p50 | Server peak RSS |
+|-----:|:-----------:|:---------:|-------------:|--------:|-------------:|:---------------:|
+| **10k** | 10,000 / 10,000 (0 fail) | 13.5 s | — | — | — | 5.0 GB |
+| **50k** | **50,000 / 50,000 (0 fail)** | **4.8 ms** | **49,154** | **0.00%** | **250 ms** | 12.3 GB |
+| **100k** | **100,000 / 100,000 (0 fail)** | 4.7 ms | 17,670 | 64.13% | 10.9 s | 11.6 GB |
 
-| Tier | Established | Connect time | Server peak RSS |
-|-----:|:-----------:|:------------:|:---------------:|
-| **10k** | 10,000 / 10,000 (0 fail) | 13.5 s | 5.0 GB |
-| **50k** | 50,000 / 50,000 (0 fail) | 40.6 s | 10.0 GB |
-| **~70k** | ceiling | — | ~28 GB (box) |
-| **100k** | **not reached** | timed out | RAM exhausted |
+**50k is the operating ceiling; 100k is a capacity result, not a working one.** At 50k every one
+of 3,000,000 expected deliveries arrived, at p50 250 ms and 1045% CPU. At 100k the sockets are all
+there and cheap — 11.6 GB, with 3 GB still free on the box — but only 717,370 of 2,000,000
+deliveries landed inside the window and latency went to double-digit seconds.
 
-**Cost ≈ 150–200 KB of server RSS per connection.** On a 31 GB box that's the ~70k wall.
+Treat the 100k *delivery* numbers as a measurement of a saturated box rather than a property of the
+server: CPU was 1137% of an available 1200% with the generator competing for the same cores, and
+free memory bottomed out at 2 GB. What 100k establishes is that **connection capacity is no longer
+the constraint it was** — the previous pass couldn't get past ~70,800 upgrades before exhausting
+28 of 31 GB, and this run held 100,000 in 11.6 GB.
+
+### Per-connection cost
+
+| | |
+|---|---:|
+| Marginal RSS per connection (measured slope, 8192-byte buffers) | **32.8 KB** |
+| What the earlier pass inferred (total RSS ÷ connections at the wall) | 150–200 KB |
+
+The old figure wasn't wrong so much as a different quantity: total RSS divided by connections
+includes the JVM's fixed footprint and, more importantly, ZGC heap that is committed but not live.
+The slope between two loaded points is what actually determines how many more connections fit, and
+it is roughly 5× smaller. A run holding 50k at `-Xmx14g` showed 12.3 GB RSS; the same server needs
+nowhere near that to hold them.
+
+**Measure the client before believing a connection failure.** A first attempt at this tier
+reported 34,887 established and 15,113 "failures" — all of them the *generator* exhausting its
+~64k ephemeral source ports against a single `(dstIP, dstPort)` pair, with setup p50 climbing to
+4.5 s as it thrashed. Spreading the same run across four loopback destination IPs
+(`--dst-hosts 127.0.0.1,…,127.0.0.4`, server bound `0.0.0.0`) gave 50,000/50,000 with **setup p50
+of 4.8 ms** — a thousandfold difference in connect latency, entirely client-side. The server had
+refused nothing in either run.
 
 ## How the ceiling was actually found
 
