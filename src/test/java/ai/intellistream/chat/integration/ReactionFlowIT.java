@@ -64,7 +64,7 @@ class ReactionFlowIT {
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         registry.add("spring.flyway.enabled", () -> "true");
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "validate");
-        registry.add("intellistream.search.lucene-dir", () -> "build/test-lucene/ReactionFlowIT");
+        registry.add("ichat.search.lucene-dir", () -> "build/test-lucene/ReactionFlowIT");
     }
 
     @Autowired UserRepository users;

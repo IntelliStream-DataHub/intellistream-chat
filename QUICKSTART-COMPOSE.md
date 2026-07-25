@@ -27,8 +27,8 @@ This starts:
 | Keycloak | `keycloak:26.0`              | port `8081` (see note)  | admin console: `admin` / `admin` |
 
 Keycloak imports the `intellistream` realm from `keycloak/realm.json` on first boot (takes
-15–30 s — watch `podman compose logs -f keycloak` for `Imported realm intellistream`). The realm
-ships an OIDC client (`intellistream-chat`) and two test users: **`alice`/`alice`** and **`bob`/`bob`**.
+15–30 s — watch `podman compose logs -f keycloak` for `Imported realm ichat-realm`). The realm
+ships an OIDC client (`ichat-client`) and two test users: **`alice`/`alice`** and **`bob`/`bob`**.
 
 > **Note — bind address:** the compose file binds Keycloak to a LAN IP so phones on the same
 > network can log in during mobile testing. If you don't need that, change the `keycloak`
@@ -42,7 +42,7 @@ An optional OpenBao (Vault) dev server is profile-gated — only started with
 
 ```bash
 # The OIDC client secret is baked into the dev realm file; export it for the app:
-export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="intellistream-chat") | .secret' keycloak/realm.json)
+export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="ichat-client") | .secret' keycloak/realm.json)
 
 ./gradlew bootRun
 ```
@@ -72,4 +72,4 @@ podman compose down -v     # also wipe the volume — full reset, realm re-impor
 - **`invalid_client` on login** — `KEYCLOAK_CLIENT_SECRET` isn't exported in the shell running
   `bootRun` (step 2).
 - **Login redirect loops** — Keycloak was still importing the realm; wait for
-  `Imported realm intellistream` in its logs.
+  `Imported realm ichat-realm` in its logs.

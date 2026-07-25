@@ -9,7 +9,7 @@
     <th:block th:replace="~{fragments/assets :: css('app')}"/>
     <meta name="_csrf" th:content="${_csrf != null ? _csrf.token : ''}"/>
     <meta name="_csrf_header" th:content="${_csrf != null ? _csrf.headerName : ''}"/>
-    <!-- Workspace-admin flag (realm role chat-admin -> ROLE_ADMIN); read by the avatar
+    <!-- Workspace-admin flag (realm role ichat-admin -> ROLE_ADMIN); read by the avatar
          dropdown to decide whether to offer the Admin console item. Distinct from the
          channel-scoped me-is-admin meta on the chat pages. -->
     <meta name="me-is-workspace-admin" sec:authorize="hasRole('ADMIN')" content="true"/>
@@ -516,7 +516,7 @@
      files instead. Declared in assets.gradle; see ASSETS.md. -->
 <th:block th:replace="~{fragments/assets :: js('chat')}"/>
 <script type="module" th:src="@{/js/chat/index.js}" defer></script>
-<!-- In-browser smoke runner — only loaded when intellistream.dev-tools.enabled=true (auto in
+<!-- In-browser smoke runner — only loaded when ichat.dev-tools.enabled=true (auto in
      the dev profile, off in prod). Type runTests() in the devtools console. -->
 <script th:if="${devToolsEnabled}" type="module" th:src="@{/js/test/index.js}" defer></script>
 </body>

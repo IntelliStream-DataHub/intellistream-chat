@@ -18,6 +18,7 @@ package ai.intellistream.chat.service;
 
 import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.repository.UserRepository;
+import ai.intellistream.chat.security.KeycloakRolesConverter;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
@@ -63,8 +64,13 @@ public class UserService {
         this.messageIndex = messageIndex;
     }
 
-    /** Realm role that maps to {@code ROLE_ADMIN} (see {@link ai.intellistream.chat.security.KeycloakRolesConverter}). */
-    private static final String ADMIN_REALM_ROLE = "chat-admin";
+    /**
+     * The realm role that maps to {@code ROLE_ADMIN}. Referenced from
+     * {@link KeycloakRolesConverter#ADMIN_REALM_ROLE} rather than re-declared: this used to be a
+     * second copy of the literal, and two independently-maintained copies of the string that
+     * decides who is an administrator is exactly the kind of thing that drifts silently.
+     */
+    private static final String ADMIN_REALM_ROLE = KeycloakRolesConverter.ADMIN_REALM_ROLE;
 
     @Transactional
     public User provisionFromOidc(OidcUser oidc) {

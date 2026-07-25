@@ -37,7 +37,7 @@ class VaultEnvironmentPostProcessorTest {
                 "db.password", "s3cret",
                 "keycloak.client-id", "my-client",
                 "keycloak.client-secret", "my-secret",
-                "keycloak.issuer-uri", "https://kc.example.com/realms/intellistream"
+                "keycloak.issuer-uri", "https://kc.example.com/realms/ichat-realm"
         );
 
         var mapped = VaultEnvironmentPostProcessor.mapToSpringPropertiesForTesting(vaultRecord);
@@ -50,9 +50,9 @@ class VaultEnvironmentPostProcessorTest {
                 // issuer-uri is mirrored into both Spring properties so client + resource-server
                 // stay aligned without the Vault record carrying it twice.
                 .containsEntry("spring.security.oauth2.client.provider.keycloak.issuer-uri",
-                        "https://kc.example.com/realms/intellistream")
+                        "https://kc.example.com/realms/ichat-realm")
                 .containsEntry("spring.security.oauth2.resourceserver.jwt.issuer-uri",
-                        "https://kc.example.com/realms/intellistream");
+                        "https://kc.example.com/realms/ichat-realm");
     }
 
     @Test

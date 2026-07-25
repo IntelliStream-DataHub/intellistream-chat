@@ -6,7 +6,7 @@
 # uses its own Lucene directory because Lucene takes an exclusive write lock on the index.
 #
 # The Keycloak client must have http://127.0.0.1:8080/* in its redirect URIs:
-#   curl ... /admin/realms/intellistream/clients/<id>  (see benchmark/README.md)
+#   curl ... /admin/realms/ichat-realm/clients/<id>  (see benchmark/README.md)
 #
 # Usage: benchmark/run-bench-app.sh [extra JVM args...]
 set -euo pipefail
@@ -19,8 +19,8 @@ LOG=${LOG:-$ROOT/build/bench-app.log}
 JFR=${JFR:-}                       # set JFR=/path/to/rec.jfr to profile the run
 
 export SPRING_PROFILES_ACTIVE=bench
-export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[]|select(.clientId=="intellistream-chat").secret' "$ROOT/keycloak/realm.json")
-export KEYCLOAK_ISSUER_URI="http://${KC_HOST}:8081/realms/intellistream"
+export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[]|select(.clientId=="ichat-client").secret' "$ROOT/keycloak/realm.json")
+export KEYCLOAK_ISSUER_URI="http://${KC_HOST}:8081/realms/ichat-realm"
 export BENCH_SERVER_ADDRESS=127.0.0.1
 export BENCH_ALLOWED_ORIGINS='http://127.0.0.*:8080,http://localhost:8080'
 
@@ -31,7 +31,7 @@ exec "$JAVA" \
   -Xmx"$HEAP" -XX:+UseZGC --enable-native-access=ALL-UNNAMED \
   "${JFR_OPT[@]}" \
   -Dspring.datasource.hikari.maximum-pool-size="${POOL:-50}" \
-  -Dintellistream.ws.inbound-threads="${INBOUND:-48}" \
-  -Dintellistream.ws.outbound-threads="${OUTBOUND:-96}" \
+  -Dichat.ws.inbound-threads="${INBOUND:-48}" \
+  -Dichat.ws.outbound-threads="${OUTBOUND:-96}" \
   "$@" \
   -jar "$ROOT"/build/libs/intellistream-chat-*-SNAPSHOT.jar >"$LOG" 2>&1

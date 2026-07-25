@@ -77,7 +77,7 @@ public class ReminderScheduler {
         this.self = self;
     }
 
-    @Scheduled(fixedDelayString = "${intellistream.reminders.poll-ms:30000}")
+    @Scheduled(fixedDelayString = "${ichat.reminders.poll-ms:30000}")
     public int fireDue() {
         return runOnce(Instant.now());
     }

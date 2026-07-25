@@ -82,7 +82,7 @@ public class User {
     private Instant lastActiveAt;
 
     /**
-     * Cached chat-admin flag, refreshed from the {@code chat-admin} Keycloak realm role on
+     * Cached ichat-admin flag, refreshed from the {@code ichat-admin} Keycloak realm role on
      * every login. Read-by-default for other-user lookups (hovercard, admin console rows) so
      * we don't round-trip Keycloak per request. The authoritative source remains Spring's
      * {@code ROLE_ADMIN} authority on the live request — never make access decisions from

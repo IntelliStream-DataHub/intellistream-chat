@@ -79,8 +79,8 @@ public class CleanupTasks {
     }
 
     /** CLEAN-1 + CLEAN-2: delete on-disk attachment/avatar files that no DB row references. */
-    @Scheduled(fixedDelayString = "${intellistream.cleanup.file-sweep-ms:3600000}",
-               initialDelayString = "${intellistream.cleanup.initial-delay-ms:300000}")
+    @Scheduled(fixedDelayString = "${ichat.cleanup.file-sweep-ms:3600000}",
+               initialDelayString = "${ichat.cleanup.initial-delay-ms:300000}")
     public void sweepOrphanFiles() {
         if (!props.isEnabled()) return;
         sweepDir("attachments", attachmentService.storageRoot(), () -> {
@@ -136,8 +136,8 @@ public class CleanupTasks {
     }
 
     /** CLEAN-3: reconcile the Lucene index with the messages table — index the missing, drop the stale. */
-    @Scheduled(fixedDelayString = "${intellistream.cleanup.reconcile-ms:3600000}",
-               initialDelayString = "${intellistream.cleanup.initial-delay-ms:300000}")
+    @Scheduled(fixedDelayString = "${ichat.cleanup.reconcile-ms:3600000}",
+               initialDelayString = "${ichat.cleanup.initial-delay-ms:300000}")
     @Transactional(readOnly = true)
     public void reconcileSearchIndex() {
         if (!props.isEnabled()) return;

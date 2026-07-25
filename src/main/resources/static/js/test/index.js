@@ -15,7 +15,7 @@
  */
 
 /**
- * In-browser smoke runner. Loaded only when intellistream.dev-tools.enabled=true (auto in
+ * In-browser smoke runner. Loaded only when ichat.dev-tools.enabled=true (auto in
  * the dev Spring profile, never in prod). Type `runTests()` in the browser console
  * to execute every registered check against the LIVE page and deployment.
  *

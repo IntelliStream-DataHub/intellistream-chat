@@ -23,8 +23,8 @@ import org.springframework.stereotype.Component;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Per-stage timers for the message write path, published as {@code intellistream.write.stage}
- * tagged by {@code stage}. Scrape {@code /actuator/metrics/intellistream.write.stage?tag=stage:persist}
+ * Per-stage timers for the message write path, published as {@code ichat.write.stage}
+ * tagged by {@code stage}. Scrape {@code /actuator/metrics/ichat.write.stage?tag=stage:persist}
  * during a load run to get the cost breakdown of a single post — which stage actually owns the
  * latency — instead of inferring it from a flame graph.
  *
@@ -83,7 +83,7 @@ public class WritePathMetrics {
     }
 
     private static Timer stage(MeterRegistry registry, String stage) {
-        return Timer.builder("intellistream.write.stage")
+        return Timer.builder("ichat.write.stage")
                 .description("Per-stage cost of handling one inbound chat message")
                 .tag("stage", stage)
                 .register(registry);

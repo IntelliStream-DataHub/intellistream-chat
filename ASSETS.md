@@ -21,7 +21,7 @@ directives; the build turns that into one minified file served from the site roo
 - **Dev vs prod:** `AssetService` reads the registry. Prod serves the one minified bundle at a
   **content-versioned URL** (`/js/chat.bundle.min.js?v=<sha256-prefix>`) so browsers can cache
   it indefinitely yet always fetch fresh code after a deploy. Dev
-  (`intellistream.assets.unbundled=true`, set in `application-dev.properties`) serves the original
+  (`ichat.assets.unbundled=true`, set in `application-dev.properties`) serves the original
   source files, so edits show on refresh with **no rebuild**.
 
 ## Current bundles

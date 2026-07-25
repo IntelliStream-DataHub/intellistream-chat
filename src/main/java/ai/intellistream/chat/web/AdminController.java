@@ -44,7 +44,7 @@ import java.util.UUID;
 /**
  * Admin-only console: branding form (title + logo upload) plus read-only listings of
  * channels and users with last-active timestamps. Gated on {@code ROLE_ADMIN}, which is
- * granted exclusively by the Keycloak {@code chat-admin} realm role.
+ * granted exclusively by the Keycloak {@code ichat-admin} realm role.
  */
 @Controller
 public class AdminController {
@@ -75,7 +75,7 @@ public class AdminController {
                            ChannelMemberRepository members,
                            MessageRepository messages,
                            CurrentUser currentUser,
-                           @Value("${intellistream.branding.dir}") String brandingDirPath) {
+                           @Value("${ichat.branding.dir}") String brandingDirPath) {
         this.settings = settings;
         this.channels = channels;
         this.users = users;

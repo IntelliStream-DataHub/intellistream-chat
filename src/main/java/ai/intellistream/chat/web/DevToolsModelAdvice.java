@@ -26,7 +26,7 @@ import org.springframework.web.bind.annotation.ModelAttribute;
  * smoke-test runner via {@code <script th:if="${devToolsEnabled}" ... >}.
  *
  * <p>Off by default so a misconfigured production deploy never accidentally ships
- * the test runner. The {@code dev} profile sets {@code intellistream.dev-tools.enabled=true}
+ * the test runner. The {@code dev} profile sets {@code ichat.dev-tools.enabled=true}
  * in {@code application-dev.properties}; operators can also flip the flag at runtime
  * via the env var without redeploying.
  */
@@ -35,7 +35,7 @@ public class DevToolsModelAdvice {
 
     private final boolean enabled;
 
-    public DevToolsModelAdvice(@Value("${intellistream.dev-tools.enabled:false}") boolean enabled) {
+    public DevToolsModelAdvice(@Value("${ichat.dev-tools.enabled:false}") boolean enabled) {
         this.enabled = enabled;
     }
 

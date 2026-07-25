@@ -60,8 +60,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         classes = IntegrationTestApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.NONE,
         properties = {
-                "intellistream.attachments.dir=build/test-attachments-security",
-                "intellistream.search.lucene-dir=build/test-lucene/SecurityBoundaryIT"
+                "ichat.attachments.dir=build/test-attachments-security",
+                "ichat.search.lucene-dir=build/test-lucene/SecurityBoundaryIT"
         }
 )
 class SecurityBoundaryIT {

@@ -26,7 +26,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Pins the rule the user requested: only the Keycloak realm role {@code chat-admin} grants
+ * Pins the rule the user requested: only the Keycloak realm role {@code ichat-admin} grants
  * Spring authority {@code ROLE_ADMIN}. Realm role {@code admin} (and any other role) is
  * deliberately ignored — Keycloak's built-in superuser role does not unlock the chat admin.
  */
@@ -53,7 +53,7 @@ class KeycloakRolesConverterTest {
 
     @Test
     void chatAdminGrantsRoleAdmin() {
-        assertThat(hasRoleAdmin(jwtWith(List.of("chat-admin")))).isTrue();
+        assertThat(hasRoleAdmin(jwtWith(List.of("ichat-admin")))).isTrue();
     }
 
     @Test
@@ -63,8 +63,8 @@ class KeycloakRolesConverterTest {
 
     @Test
     void bothRolesStillGrantRoleAdmin() {
-        // Even when 'admin' is on the JWT alongside 'chat-admin', the chat-admin entry is what counts.
-        assertThat(hasRoleAdmin(jwtWith(List.of("admin", "chat-admin", "user")))).isTrue();
+        // Even when 'admin' is on the JWT alongside 'ichat-admin', the ichat-admin entry is what counts.
+        assertThat(hasRoleAdmin(jwtWith(List.of("admin", "ichat-admin", "user")))).isTrue();
     }
 
     @Test

@@ -58,7 +58,7 @@ public class AttachmentService {
                              ChannelService channelService,
                              // @Lazy breaks the AttachmentService <-> MessageService construction cycle.
                              @org.springframework.context.annotation.Lazy MessageService messageService,
-                             @Value("${intellistream.attachments.dir:./data/attachments}") String storageDir) {
+                             @Value("${ichat.attachments.dir:./data/attachments}") String storageDir) {
         this.attachmentRepository = attachmentRepository;
         this.messageRepository = messageRepository;
         this.channelService = channelService;

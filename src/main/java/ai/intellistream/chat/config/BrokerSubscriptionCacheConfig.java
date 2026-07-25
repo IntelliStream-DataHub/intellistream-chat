@@ -64,7 +64,7 @@ public class BrokerSubscriptionCacheConfig {
     public BrokerSubscriptionCacheConfig(
             @org.springframework.beans.factory.annotation.Qualifier("simpleBrokerMessageHandler")
             org.springframework.beans.factory.ObjectProvider<AbstractBrokerMessageHandler> brokerMessageHandler,
-            @Value("${intellistream.ws.subscription-cache-limit:16384}") int cacheLimit) {
+            @Value("${ichat.ws.subscription-cache-limit:16384}") int cacheLimit) {
         this.brokerMessageHandler = brokerMessageHandler;
         this.cacheLimit = cacheLimit;
     }

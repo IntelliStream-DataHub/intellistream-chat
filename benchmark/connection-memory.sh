@@ -26,16 +26,16 @@ start_server() {
   if [ -n "$old" ]; then kill "$old" 2>/dev/null || true
     for _ in $(seq 1 60); do kill -0 "$old" 2>/dev/null || break; sleep 1; done; fi
   export SPRING_PROFILES_ACTIVE=bench
-  export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[]|select(.clientId=="intellistream-chat").secret' "$ROOT/keycloak/realm.json")
-  export KEYCLOAK_ISSUER_URI="http://${KC_HOST}:8081/realms/intellistream"
+  export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[]|select(.clientId=="ichat-client").secret' "$ROOT/keycloak/realm.json")
+  export KEYCLOAK_ISSUER_URI="http://${KC_HOST}:8081/realms/ichat-realm"
   export BENCH_SERVER_ADDRESS=127.0.0.1
   export BENCH_ALLOWED_ORIGINS='http://127.0.0.*:8080,http://localhost:8080'
   : > "$log"
   nohup "$JAVA" -Xmx"$HEAP" -XX:+UseZGC --enable-native-access=ALL-UNNAMED \
     -Dspring.datasource.hikari.maximum-pool-size=20 \
-    -Dintellistream.ws.socket-buffer-bytes="$SOCKBUF" \
-    -Dintellistream.ws.binary-buffer-bytes="$BINBUF" \
-    -Dintellistream.write-behind.enabled=false \
+    -Dichat.ws.socket-buffer-bytes="$SOCKBUF" \
+    -Dichat.ws.binary-buffer-bytes="$BINBUF" \
+    -Dichat.write-behind.enabled=false \
     -jar "$ROOT"/build/libs/intellistream-chat-*-SNAPSHOT.jar >"$log" 2>&1 &
   for _ in $(seq 1 150); do grep -q "Started ChatApplication" "$log" 2>/dev/null && break; sleep 1; done
 }

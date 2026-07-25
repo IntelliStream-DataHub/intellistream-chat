@@ -95,7 +95,7 @@ public class SearchService {
 
     /**
      * Search every message in every channel — including ones the viewer hasn't joined.
-     * Only available to platform admins (Keycloak realm role {@code chat-admin} → Spring authority {@code ROLE_ADMIN}).
+     * Only available to platform admins (Keycloak realm role {@code ichat-admin} → Spring authority {@code ROLE_ADMIN}).
      */
     @Transactional(readOnly = true)
     public List<Message> searchEverywhere(User viewer, String query, int limit) {

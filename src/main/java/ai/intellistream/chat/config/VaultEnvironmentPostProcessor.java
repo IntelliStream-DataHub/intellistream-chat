@@ -32,7 +32,7 @@ import java.util.Map;
 
 /**
  * Optional secret-backend integration for HashiCorp Vault / OpenBao. When
- * {@code intellistream.vault.enabled=true} (env {@code INTELLISTREAM_VAULT_ENABLED}), this runs before
+ * {@code ichat.vault.enabled=true} (env {@code ICHAT_VAULT_ENABLED}), this runs before
  * any auto-configuration reads {@code spring.datasource.*} or the OAuth client config — fetches
  * a single KV-v2 record from Vault / OpenBao and pushes the values into the
  * {@link ConfigurableEnvironment} as a high-priority {@link MapPropertySource}, so
@@ -55,11 +55,11 @@ import java.util.Map;
  *
  * <p>Configuration keys (resolved from env-vars + {@code application.yml} like everything else):
  * <ul>
- *   <li>{@code intellistream.vault.enabled} — gate. Off → no-op.</li>
- *   <li>{@code intellistream.vault.uri} — Vault/OpenBao base URL, e.g. {@code http://localhost:8200}.</li>
- *   <li>{@code intellistream.vault.token} — token credential. AppRole / Kubernetes auth is a
+ *   <li>{@code ichat.vault.enabled} — gate. Off → no-op.</li>
+ *   <li>{@code ichat.vault.uri} — Vault/OpenBao base URL, e.g. {@code http://localhost:8200}.</li>
+ *   <li>{@code ichat.vault.token} — token credential. AppRole / Kubernetes auth is a
  *       follow-up; tokens cover dev + most single-host deployments.</li>
- *   <li>{@code intellistream.vault.path} — KV-v2 path. Default {@code intellistream-chat} maps to
+ *   <li>{@code ichat.vault.path} — KV-v2 path. Default {@code intellistream-chat} maps to
  *       {@code secret/data/intellistream-chat}; pass {@code mymount/myapp/secrets} to override the
  *       mount.</li>
  * </ul>
@@ -77,18 +77,18 @@ public class VaultEnvironmentPostProcessor implements EnvironmentPostProcessor {
 
     @Override
     public void postProcessEnvironment(ConfigurableEnvironment env, SpringApplication application) {
-        if (!Boolean.parseBoolean(env.getProperty("intellistream.vault.enabled", "false"))) {
+        if (!Boolean.parseBoolean(env.getProperty("ichat.vault.enabled", "false"))) {
             return;
         }
-        var uri = env.getProperty("intellistream.vault.uri");
-        var token = env.getProperty("intellistream.vault.token");
-        var path = env.getProperty("intellistream.vault.path", "intellistream-chat");
+        var uri = env.getProperty("ichat.vault.uri");
+        var token = env.getProperty("ichat.vault.token");
+        var path = env.getProperty("ichat.vault.path", "intellistream-chat");
         if (uri == null || uri.isBlank() || token == null || token.isBlank()) {
             // Fail loud rather than silently fall back — an operator who set "enabled=true" expects
             // their secrets to come from Vault. A misconfigured URI/token should crash fast at boot
             // so the deploy notices instead of the app quietly running on the dev defaults.
             throw new IllegalStateException(
-                    "intellistream.vault.enabled=true but intellistream.vault.uri or intellistream.vault.token is missing");
+                    "ichat.vault.enabled=true but ichat.vault.uri or ichat.vault.token is missing");
         }
         log.info("Vault integration active — fetching secrets from {} at path {}", uri, path);
 

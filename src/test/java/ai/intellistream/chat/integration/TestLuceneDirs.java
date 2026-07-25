@@ -32,7 +32,7 @@ final class TestLuceneDirs {
     private TestLuceneDirs() {}
 
     static void register(DynamicPropertyRegistry registry) {
-        registry.add("intellistream.search.lucene-dir", () -> {
+        registry.add("ichat.search.lucene-dir", () -> {
             try {
                 return Files.createTempDirectory("chat-lucene-it-").toString();
             } catch (IOException e) {
@@ -41,7 +41,7 @@ final class TestLuceneDirs {
         });
         // Synchronous indexing in tests: a posted message is immediately searchable + committed,
         // so post-then-search assertions stay deterministic (prod defaults to async/batched).
-        registry.add("intellistream.search.async-indexing", () -> "false");
+        registry.add("ichat.search.async-indexing", () -> "false");
         // Write-behind is switched off for the whole test source set in
         // src/test/resources/application.properties — see the reasoning there.
     }

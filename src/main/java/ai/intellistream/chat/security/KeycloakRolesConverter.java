@@ -33,14 +33,20 @@ import java.util.Set;
 /**
  * Maps Keycloak {@code realm_access.roles} into Spring Security authorities.
  *
- * <p>Only the {@code chat-admin} realm role is recognised — it grants
- * {@code ROLE_ADMIN} (the authority every admin-only path in this app checks).
- * Other realm roles, including Keycloak's built-in {@code admin}, are
- * deliberately ignored: the Keycloak realm admin is not a chat admin.
+ * <p>Every role this application consumes is prefixed {@code ichat-}, so a role granted for some
+ * other purpose in a shared realm can never be mistaken for a grant here. Today that means exactly
+ * one role is recognised: {@code ichat-admin} grants {@code ROLE_ADMIN}, the authority every
+ * admin-only path in this app checks.
+ *
+ * <p>Every other realm role is ignored, and the one that matters is Keycloak's own {@code admin}:
+ * administering the identity provider is not the same as administering this chat, and conflating
+ * them would hand the chat's admin console to whoever operates Keycloak. {@code
+ * KeycloakRolesConverterTest} pins both directions — {@code ichat-admin} grants, bare {@code admin}
+ * does not, and the two together still grant.
  */
 public class KeycloakRolesConverter implements Converter<Jwt, AbstractAuthenticationToken> {
 
-    public static final String ADMIN_REALM_ROLE = "chat-admin";
+    public static final String ADMIN_REALM_ROLE = "ichat-admin";
 
     private final JwtGrantedAuthoritiesConverter scopes = new JwtGrantedAuthoritiesConverter();
 

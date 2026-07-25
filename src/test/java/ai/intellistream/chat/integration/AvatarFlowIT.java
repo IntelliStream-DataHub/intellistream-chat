@@ -57,7 +57,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
         classes = IntegrationTestApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.NONE,
         properties = {
-                "intellistream.search.lucene-dir=build/test-lucene/AvatarFlowIT"
+                "ichat.search.lucene-dir=build/test-lucene/AvatarFlowIT"
         }
 )
 class AvatarFlowIT {
@@ -94,7 +94,7 @@ class AvatarFlowIT {
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         registry.add("spring.flyway.enabled", () -> "true");
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "validate");
-        registry.add("intellistream.avatars.dir", () -> avatarsDir.toString());
+        registry.add("ichat.avatars.dir", () -> avatarsDir.toString());
     }
 
     @Autowired UserRepository users;

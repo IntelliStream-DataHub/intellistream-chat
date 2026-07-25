@@ -40,7 +40,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
      * let any malicious site (visited by a logged-in user) negotiate a WebSocket against
      * the chat server — combined with cookie-based auth, that's a CSWSH primitive. Lock it
      * down to the deploy host(s); production deployments should set
-     * {@code intellistream.allowed-origins=https://chat.example.com} explicitly.
+     * {@code ichat.allowed-origins=https://chat.example.com} explicitly.
      * {@code SameSite=Strict} on the session cookie is a parallel defence — removing the
      * wildcard is the belt to its braces.
      *
@@ -57,14 +57,14 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final int binaryBufferBytes;
     private final int socketBufferBytes;
 
-    public WebSocketConfig(@Value("${intellistream.allowed-origins:http://localhost:8080,http://127.0.0.1:8080}")
+    public WebSocketConfig(@Value("${ichat.allowed-origins:http://localhost:8080,http://127.0.0.1:8080}")
                            String allowedOriginsCsv,
-                           @Value("${intellistream.ws.inbound-threads:0}") int inboundThreads,
-                           @Value("${intellistream.ws.inbound-queue:100000}") int inboundQueue,
-                           @Value("${intellistream.ws.outbound-threads:0}") int outboundThreads,
-                           @Value("${intellistream.ws.outbound-queue:200000}") int outboundQueue,
-                           @Value("${intellistream.ws.binary-buffer-bytes:8192}") int binaryBufferBytes,
-                           @Value("${intellistream.ws.socket-buffer-bytes:8192}") int socketBufferBytes) {
+                           @Value("${ichat.ws.inbound-threads:0}") int inboundThreads,
+                           @Value("${ichat.ws.inbound-queue:100000}") int inboundQueue,
+                           @Value("${ichat.ws.outbound-threads:0}") int outboundThreads,
+                           @Value("${ichat.ws.outbound-queue:200000}") int outboundQueue,
+                           @Value("${ichat.ws.binary-buffer-bytes:8192}") int binaryBufferBytes,
+                           @Value("${ichat.ws.socket-buffer-bytes:8192}") int socketBufferBytes) {
         this.binaryBufferBytes = binaryBufferBytes;
         this.socketBufferBytes = socketBufferBytes;
         this.allowedOrigins = Arrays.stream(allowedOriginsCsv.split(","))

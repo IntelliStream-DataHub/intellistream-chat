@@ -35,7 +35,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 /**
  * End-to-end coverage for the optional Vault / OpenBao secret backend. Spins up a real
  * Vault dev-mode container, writes a KV-v2 record with credentials, boots the Spring
- * context with {@code intellistream.vault.enabled=true}, and asserts that
+ * context with {@code ichat.vault.enabled=true}, and asserts that
  * {@code spring.datasource.password} (and friends) come back from Vault — not from the
  * {@code application.yml} default.
  *
@@ -66,7 +66,7 @@ class VaultIntegrationIT {
                 "db.password=vault-pass",
                 "keycloak.client-id=vault-client",
                 "keycloak.client-secret=vault-client-secret",
-                "keycloak.issuer-uri=https://vault-issuer.example/realms/intellistream");
+                "keycloak.issuer-uri=https://vault-issuer.example/realms/ichat-realm");
     }
 
     @AfterAll
@@ -87,9 +87,9 @@ class VaultIntegrationIT {
             // The Vault record carries one issuer-uri; it must end up in BOTH Spring slots so
             // the OIDC client and the JWT resource server agree.
             assertThat(env.getProperty("spring.security.oauth2.client.provider.keycloak.issuer-uri"))
-                    .isEqualTo("https://vault-issuer.example/realms/intellistream");
+                    .isEqualTo("https://vault-issuer.example/realms/ichat-realm");
             assertThat(env.getProperty("spring.security.oauth2.resourceserver.jwt.issuer-uri"))
-                    .isEqualTo("https://vault-issuer.example/realms/intellistream");
+                    .isEqualTo("https://vault-issuer.example/realms/ichat-realm");
             // The intellistream-vault property source registered itself by name so an operator can
             // verify the override fired by hitting /actuator/env.
             assertThat(env.getPropertySources().contains(VaultEnvironmentPostProcessor.SOURCE_NAME)).isTrue();
@@ -119,13 +119,13 @@ class VaultIntegrationIT {
             var app = new SpringApplication(VaultTestApp.class);
             app.setWebApplicationType(WebApplicationType.NONE);
             app.run(
-                    "--intellistream.vault.enabled=true",
-                    "--intellistream.vault.uri=" + VAULT.getHttpHostAddress(),
-                    "--intellistream.vault.token=",
-                    "--intellistream.vault.path=intellistream-chat"
+                    "--ichat.vault.enabled=true",
+                    "--ichat.vault.uri=" + VAULT.getHttpHostAddress(),
+                    "--ichat.vault.token=",
+                    "--ichat.vault.path=intellistream-chat"
             ).close();
         }).isInstanceOf(IllegalStateException.class)
-          .hasMessageContaining("intellistream.vault.enabled=true but intellistream.vault.uri or intellistream.vault.token is missing");
+          .hasMessageContaining("ichat.vault.enabled=true but ichat.vault.uri or ichat.vault.token is missing");
     }
 
     /** Common boot helper — slim context with no DB/JPA so we don't need a Postgres around. */
@@ -133,10 +133,10 @@ class VaultIntegrationIT {
         var app = new SpringApplication(VaultTestApp.class);
         app.setWebApplicationType(WebApplicationType.NONE);
         return app.run(
-                "--intellistream.vault.enabled=" + enabled,
-                "--intellistream.vault.uri=" + VAULT.getHttpHostAddress(),
-                "--intellistream.vault.token=" + DEV_TOKEN,
-                "--intellistream.vault.path=intellistream-chat"
+                "--ichat.vault.enabled=" + enabled,
+                "--ichat.vault.uri=" + VAULT.getHttpHostAddress(),
+                "--ichat.vault.token=" + DEV_TOKEN,
+                "--ichat.vault.path=intellistream-chat"
         );
     }
 

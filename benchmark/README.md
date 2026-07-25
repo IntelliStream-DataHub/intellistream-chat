@@ -31,11 +31,11 @@ the loopback redirect URI:
 KC=http://<keycloak-host>:8081
 TOK=$(curl -s -X POST "$KC/realms/master/protocol/openid-connect/token" \
        -d 'grant_type=password&client_id=admin-cli&username=admin&password=admin' | jq -r .access_token)
-ID=$(curl -s -H "Authorization: Bearer $TOK" "$KC/admin/realms/intellistream/clients?clientId=intellistream-chat" | jq -r '.[0].id')
-CUR=$(curl -s -H "Authorization: Bearer $TOK" "$KC/admin/realms/intellistream/clients/$ID")
+ID=$(curl -s -H "Authorization: Bearer $TOK" "$KC/admin/realms/ichat-realm/clients?clientId=ichat-client" | jq -r '.[0].id')
+CUR=$(curl -s -H "Authorization: Bearer $TOK" "$KC/admin/realms/ichat-realm/clients/$ID")
 echo "$CUR" | jq '.redirectUris += ["http://127.0.0.1:8080/*"] | .webOrigins += ["http://127.0.0.1:8080"]' \
   | curl -s -X PUT -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' -d @- \
-      "$KC/admin/realms/intellistream/clients/$ID"
+      "$KC/admin/realms/ichat-realm/clients/$ID"
 ```
 
 Then:

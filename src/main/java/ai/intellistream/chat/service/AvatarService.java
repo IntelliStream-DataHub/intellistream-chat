@@ -61,7 +61,7 @@ public class AvatarService {
     private final Path storageRoot;
 
     public AvatarService(UserRepository userRepository,
-                         @Value("${intellistream.avatars.dir:./data/avatars}") String storageDir) {
+                         @Value("${ichat.avatars.dir:./data/avatars}") String storageDir) {
         this.userRepository = userRepository;
         this.storageRoot = Path.of(storageDir).toAbsolutePath().normalize();
     }

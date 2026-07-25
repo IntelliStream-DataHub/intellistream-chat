@@ -59,7 +59,7 @@ public class ConversationAttachmentService {
 
     public ConversationAttachmentService(ConversationAttachmentRepository repo,
                                          ConversationService conversations,
-                                         @Value("${intellistream.attachments.dir:./data/attachments}") String storageDir) {
+                                         @Value("${ichat.attachments.dir:./data/attachments}") String storageDir) {
         this.repo = repo;
         this.conversations = conversations;
         this.storageRoot = Path.of(storageDir).toAbsolutePath().normalize();

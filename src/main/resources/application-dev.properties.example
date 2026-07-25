@@ -12,17 +12,17 @@ server.address=127.0.0.1
 
 # Keycloak realm URL used by both the OIDC client and the resource-server JWT validator. Matches
 # the compose stack's Keycloak on :8081. Change the host if you moved Keycloak.
-spring.security.oauth2.client.provider.keycloak.issuer-uri=http://localhost:8081/realms/intellistream
-spring.security.oauth2.resourceserver.jwt.issuer-uri=http://localhost:8081/realms/intellistream
+spring.security.oauth2.client.provider.keycloak.issuer-uri=http://localhost:8081/realms/ichat-realm
+spring.security.oauth2.resourceserver.jwt.issuer-uri=http://localhost:8081/realms/ichat-realm
 
 # STOMP/WebSocket origin allow-list (CSWSH defence). Add the exact origin(s) the app is served
 # from during dev; add your LAN origin here too if you set a LAN server.address above.
-intellistream.allowed-origins=http://localhost:8080,http://127.0.0.1:8080
+ichat.allowed-origins=http://localhost:8080,http://127.0.0.1:8080
 
 # Expose the in-browser smoke runner (channels page loads /js/test/index.js → runTests() in the
 # console). Handy in dev; never enable in production.
-intellistream.dev-tools.enabled=true
+ichat.dev-tools.enabled=true
 
 # Serve the original JS/CSS source files instead of the minified bundles, so front-end edits show
 # on refresh with no rebuild. Production keeps the default (bundled). See ASSETS.md.
-intellistream.assets.unbundled=true
+ichat.assets.unbundled=true

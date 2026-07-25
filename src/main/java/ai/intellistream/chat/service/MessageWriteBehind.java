@@ -125,13 +125,13 @@ public class MessageWriteBehind {
 
     public MessageWriteBehind(DataSource dataSource,
                               MessageIndexService messageIndex,
-                              @Value("${intellistream.write-behind.enabled:true}") boolean enabled,
-                              @Value("${intellistream.write-behind.batch-size:256}") int batchSize,
-                              @Value("${intellistream.write-behind.flush-interval-ms:5}") long flushIntervalMillis,
-                              @Value("${intellistream.write-behind.queue-capacity:100000}") int queueCapacity,
-                              @Value("${intellistream.write-behind.id-block-size:4096}") int idBlockSize,
-                              @Value("${intellistream.write-behind.broadcast-threads:8}") int broadcastThreads,
-                              @Value("${intellistream.write-behind.flush-threads:4}") int flushThreads) {
+                              @Value("${ichat.write-behind.enabled:true}") boolean enabled,
+                              @Value("${ichat.write-behind.batch-size:256}") int batchSize,
+                              @Value("${ichat.write-behind.flush-interval-ms:5}") long flushIntervalMillis,
+                              @Value("${ichat.write-behind.queue-capacity:100000}") int queueCapacity,
+                              @Value("${ichat.write-behind.id-block-size:4096}") int idBlockSize,
+                              @Value("${ichat.write-behind.broadcast-threads:8}") int broadcastThreads,
+                              @Value("${ichat.write-behind.flush-threads:4}") int flushThreads) {
         this.jdbc = new JdbcTemplate(dataSource);
         this.messageIndex = messageIndex;
         this.enabled = enabled;

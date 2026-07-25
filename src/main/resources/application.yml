@@ -7,9 +7,9 @@ spring:
       enabled: true
 
   datasource:
-    url: ${INTELLISTREAM_DB_URL:jdbc:postgresql://localhost:5432/intellistream_chat}
-    username: ${INTELLISTREAM_DB_USERNAME:intellistream}
-    password: ${INTELLISTREAM_DB_PASSWORD:intellistream}
+    url: ${ICHAT_DB_URL:jdbc:postgresql://localhost:5432/intellistream_chat}
+    username: ${ICHAT_DB_USERNAME:intellistream}
+    password: ${ICHAT_DB_PASSWORD:intellistream}
 
   jpa:
     hibernate:
@@ -30,11 +30,11 @@ spring:
       client:
         registration:
           keycloak:
-            client-id: ${KEYCLOAK_CLIENT_ID:intellistream-chat}
+            client-id: ${KEYCLOAK_CLIENT_ID:ichat-client}
             # No default — operators MUST supply the secret via env (or Vault). The previous
             # default was the dev secret baked into keycloak/realm.json; if that string ever
             # leaves the repo it becomes a credential. For local dev, export it from realm.json:
-            #   export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="intellistream-chat") | .secret' keycloak/realm.json)
+            #   export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="ichat-client") | .secret' keycloak/realm.json)
             client-secret: ${KEYCLOAK_CLIENT_SECRET:}
             scope: openid,profile,email
             authorization-grant-type: authorization_code
@@ -45,11 +45,11 @@ spring:
             # Default points at a localhost-bound Keycloak. Local-dev with the bundled
             # docker-compose stack (Keycloak bound to a LAN IP) overrides this in
             # application-dev.properties. Production sets KEYCLOAK_ISSUER_URI explicitly.
-            issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/intellistream}
+            issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/ichat-realm}
             user-name-attribute: preferred_username
       resourceserver:
         jwt:
-          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/intellistream}
+          issuer-uri: ${KEYCLOAK_ISSUER_URI:http://localhost:8081/realms/ichat-realm}
 
   thymeleaf:
     cache: false
@@ -74,19 +74,19 @@ server:
       # request is treated as secure and the cookie is marked Secure automatically.
       # SameSite is set programmatically via SecurityConfig.sessionCookieSameSite.
 
-intellistream:
+ichat:
   # JS/CSS asset bundles (assets.gradle / ASSETS.md). Default (false) serves the minified,
   # hash-versioned bundles built by `buildAssets`. The dev profile flips this to true to serve
   # the original source files — edit + refresh, no rebuild.
   assets:
-    unbundled: ${INTELLISTREAM_ASSETS_UNBUNDLED:false}
+    unbundled: ${ICHAT_ASSETS_UNBUNDLED:false}
 
   attachments:
-    dir: ${INTELLISTREAM_ATTACHMENTS_DIR:./data/attachments}
+    dir: ${ICHAT_ATTACHMENTS_DIR:./data/attachments}
   avatars:
-    dir: ${INTELLISTREAM_AVATARS_DIR:./data/avatars}
+    dir: ${ICHAT_AVATARS_DIR:./data/avatars}
   branding:
-    dir: ${INTELLISTREAM_BRANDING_DIR:./data/branding}
+    dir: ${ICHAT_BRANDING_DIR:./data/branding}
 
   # Optional Vault / OpenBao secret backend. Off by default — the env-var → application.yml
   # default chain handles credentials. When enabled=true, VaultEnvironmentPostProcessor reads
@@ -100,10 +100,10 @@ intellistream:
   #   keycloak.client-secret  - OIDC client secret
   #   keycloak.issuer-uri     - Keycloak realm URL (used by both client + resource server)
   vault:
-    enabled: ${INTELLISTREAM_VAULT_ENABLED:false}
-    uri: ${INTELLISTREAM_VAULT_URI:}
-    token: ${INTELLISTREAM_VAULT_TOKEN:}
-    path: ${INTELLISTREAM_VAULT_PATH:intellistream-chat}
+    enabled: ${ICHAT_VAULT_ENABLED:false}
+    uri: ${ICHAT_VAULT_URI:}
+    token: ${ICHAT_VAULT_TOKEN:}
+    path: ${ICHAT_VAULT_PATH:intellistream-chat}
 
 logging:
   level:

@@ -38,22 +38,29 @@ reverse proxy in production). Two ways to get the realm:
 ```
 
 **Change the client secret after import** (it's a public dev value from the repo):
-admin console → realm `intellistream` → Clients → `intellistream-chat` → Credentials → Regenerate.
+admin console → realm `ichat-realm` → Clients → `ichat-client` → Credentials → Regenerate.
 
 ### Option B — create the realm by hand
 
 In the admin console:
 
-1. **Create realm** named `intellistream`.
-2. **Clients → Create client**: client ID `intellistream-chat`, type OpenID Connect,
+1. **Create realm** named `ichat-realm`.
+2. **Clients → Create client**: client ID `ichat-client`, type OpenID Connect,
    *Client authentication* ON (confidential).
    - Valid redirect URIs: `https://your-domain/login/oauth2/code/keycloak`
      (for local testing: `http://localhost:8080/login/oauth2/code/keycloak`)
    - Web origins: `https://your-domain`
    - Note the generated secret (Credentials tab).
-3. **Realm roles → Create role**: `admin` — members of this role get the IntelliStream Chat admin
-   console and `scope=all` search.
-4. **Users**: create your accounts; assign the `admin` realm role to at least one.
+3. **Realm roles → Create role**, twice. Every role this app consumes is prefixed `ichat-`:
+   - `ichat-user` — marker for a regular account. The app doesn't read it; it's there so you can
+     filter and set it as the realm's default role for self-registration.
+   - `ichat-admin` — grants the admin console and `scope=all` search (Spring `ROLE_ADMIN`).
+
+   Do **not** use a role named `admin`. Keycloak has its own realm-admin role by that name, and the
+   app ignores it on purpose — administering your Keycloak is not the same as administering this
+   chat. Only `ichat-admin` is honoured, and `KeycloakRolesConverterTest` pins that.
+4. **Users**: create your accounts, give everyone `ichat-user`, and assign `ichat-admin` to at
+   least one — otherwise nobody can reach `/admin`.
 
 ## 3. Build and install the app
 
@@ -73,13 +80,13 @@ directory — the unit below uses `/opt/intellistream-chat`.
 
 ```bash
 # --- database ---
-INTELLISTREAM_DB_URL=jdbc:postgresql://localhost:5432/intellistream_chat
-INTELLISTREAM_DB_USERNAME=intellistream
-INTELLISTREAM_DB_PASSWORD=CHANGE-ME
+ICHAT_DB_URL=jdbc:postgresql://localhost:5432/intellistream_chat
+ICHAT_DB_USERNAME=intellistream
+ICHAT_DB_PASSWORD=CHANGE-ME
 
 # --- Keycloak ---
-KEYCLOAK_ISSUER_URI=https://auth.your-domain/realms/intellistream
-KEYCLOAK_CLIENT_ID=intellistream-chat
+KEYCLOAK_ISSUER_URI=https://auth.your-domain/realms/ichat-realm
+KEYCLOAK_CLIENT_ID=ichat-client
 KEYCLOAK_CLIENT_SECRET=CHANGE-ME
 
 # --- HTTP: bind localhost; terminate TLS in nginx/caddy in front (see frontend.md) ---
@@ -87,10 +94,10 @@ SERVER_ADDRESS=127.0.0.1
 SERVER_PORT=8080
 
 # --- data directories (inside WorkingDirectory) ---
-INTELLISTREAM_ATTACHMENTS_DIR=/opt/intellistream-chat/attachments
-INTELLISTREAM_AVATARS_DIR=/opt/intellistream-chat/avatars
-INTELLISTREAM_BRANDING_DIR=/opt/intellistream-chat/branding
-INTELLISTREAM_SEARCH_LUCENE_DIR=/opt/intellistream-chat/lucene
+ICHAT_ATTACHMENTS_DIR=/opt/intellistream-chat/attachments
+ICHAT_AVATARS_DIR=/opt/intellistream-chat/avatars
+ICHAT_BRANDING_DIR=/opt/intellistream-chat/branding
+ICHAT_SEARCH_LUCENE_DIR=/opt/intellistream-chat/lucene
 ```
 
 ```bash
@@ -99,7 +106,7 @@ sudo chmod 640 /etc/intellistream-chat/intellistream-chat.env
 ```
 
 (Prefer a secret manager? The app has optional Vault/OpenBao support —
-`INTELLISTREAM_VAULT_*`, see `scripts/seed-vault.sh`.)
+`ICHAT_VAULT_*`, see `scripts/seed-vault.sh`.)
 
 ## 5. systemd service
 

@@ -24,7 +24,7 @@ The fastest path is the compose stack — see **`QUICKSTART-COMPOSE.md`**:
 
 ```bash
 podman compose up -d          # Postgres 18 + Keycloak 26 (realm pre-imported)
-export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[]|select(.clientId=="intellistream-chat").secret' keycloak/realm.json)
+export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[]|select(.clientId=="ichat-client").secret' keycloak/realm.json)
 ./gradlew bootRun             # http://localhost:8080 — sign in as alice/alice
 ```
 

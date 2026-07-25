@@ -27,8 +27,8 @@ public class LuceneConfig {
     @Bean
     @ConditionalOnMissingBean
     public MessageIndexService messageIndexService(
-            @Value("${intellistream.search.lucene-dir:./data/lucene}") String dir,
-            @Value("${intellistream.search.async-indexing:true}") boolean async) {
+            @Value("${ichat.search.lucene-dir:./data/lucene}") String dir,
+            @Value("${ichat.search.async-indexing:true}") boolean async) {
         // async batches the NRT refresh + commit off the per-message write path (throughput);
         // tests set it false for immediate, synchronous visibility. See scalability.md.
         return new MessageIndexService(dir, async);

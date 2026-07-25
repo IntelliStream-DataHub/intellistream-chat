@@ -60,10 +60,10 @@ import static org.assertj.core.api.Assertions.assertThat;
         classes = IntegrationTestApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.NONE,
         properties = {
-                "intellistream.write-behind.enabled=true",
-                "intellistream.write-behind.flush-interval-ms=5",
-                "intellistream.write-behind.batch-size=64",
-                "intellistream.search.lucene-dir=build/test-lucene/WriteBehindFlowIT"
+                "ichat.write-behind.enabled=true",
+                "ichat.write-behind.flush-interval-ms=5",
+                "ichat.write-behind.batch-size=64",
+                "ichat.search.lucene-dir=build/test-lucene/WriteBehindFlowIT"
         }
 )
 class WriteBehindFlowIT {

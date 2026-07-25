@@ -108,11 +108,19 @@ compliance-locked, embedded inside another product, an unusual channel taxonomy,
 slash-command surface — this codebase is small enough to fork and shape rather than build from
 scratch. A feature typically touches one service, one controller, one migration and one test class.
 
-1. **Fork the repo and rename.** The package is `ai.intellistream.chat`. Four slugs carry the product
-   name and they are deliberately distinct: the config prefix and Postgres role are `intellistream`,
-   the Keycloak realm is `intellistream`, and the OIDC client, Gradle artifact, systemd unit and
-   `/opt` path are `intellistream-chat`. Environment variables are `INTELLISTREAM_*`. Rename per
-   slug — not with one global search-and-replace — then regenerate `V1__init.sql`.
+1. **Fork the repo and rename.** The name lives in several distinct slugs, on purpose — rename each
+   deliberately rather than with one global search-and-replace:
+
+   | Slug | Used for |
+   |---|---|
+   | `ai.intellistream.chat` | Java package |
+   | `ichat` | config property prefix (`ichat.search.lucene-dir`, …) |
+   | `ICHAT_` | environment variables (`ICHAT_DB_URL`, …) |
+   | `ichat-realm` / `ichat-client` / `ichat-*` roles | Keycloak realm, OIDC client, realm roles |
+   | `intellistream` / `intellistream_chat` | Postgres role and database |
+   | `intellistream-chat` | Gradle artifact, systemd unit, `/opt` path |
+
+   Then regenerate `V1__init.sql`.
 2. **Read `CLAUDE.md` and keep it current.** It is the conventions document for the project, and it
    is worth more to a new contributor than any amount of generated API documentation. Update it as
    your fork diverges.
@@ -192,7 +200,7 @@ If `java` doesn't end up on `PATH`, follow the post-install instructions Homebre
 For exploring the app, hacking on it, or quick local testing. Two commands once the prerequisites above are installed:
 
 ```bash
-podman compose up -d   # Postgres 18 + Keycloak 26, with the 'intellistream' realm pre-imported
+podman compose up -d   # Postgres 18 + Keycloak 26, with the 'ichat-realm' realm pre-imported
 ./gradlew bootRun      # the Spring Boot app on :8080
 ```
 
@@ -203,7 +211,7 @@ If `podman compose` can't find a socket, run once: `systemctl --user enable --no
 To boot with the production profile locally (for verification — the build wires `bootRun` to `--spring.profiles.active=dev` only when `SPRING_PROFILES_ACTIVE` is unset), keep the containers from above running, then:
 
 ```bash
-export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="intellistream-chat") | .secret' keycloak/realm.json)
+export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="ichat-client") | .secret' keycloak/realm.json)
 SPRING_PROFILES_ACTIVE=prod ./gradlew bootRun
 ```
 
@@ -214,23 +222,23 @@ SPRING_PROFILES_ACTIVE=prod ./gradlew bootRun
 Already running Postgres 18 and Keycloak 26 elsewhere (managed cloud, a host install, a shared dev environment)? Skip `podman compose` and point the app at them via env vars:
 
 ```bash
-export INTELLISTREAM_DB_URL=jdbc:postgresql://db.example.com:5432/intellistream_chat
-export INTELLISTREAM_DB_USERNAME=intellistream
-export INTELLISTREAM_DB_PASSWORD=...
-export KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/intellistream
+export ICHAT_DB_URL=jdbc:postgresql://db.example.com:5432/intellistream_chat
+export ICHAT_DB_USERNAME=intellistream
+export ICHAT_DB_PASSWORD=...
+export KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/ichat-realm
 export KEYCLOAK_CLIENT_SECRET=...
 ./gradlew bootRun
 ```
 
 The Keycloak realm definition you'll need is in `keycloak/realm.json` — import it via the admin console (**Realms → Import**) or `bin/kcadm.sh create realms -f keycloak/realm.json`. Once imported, regenerate the client secret (the bundled one is in this public repo) and use the new value for `KEYCLOAK_CLIENT_SECRET`. Flyway runs the schema on first boot — no manual SQL setup beyond `CREATE DATABASE intellistream_chat OWNER intellistream`. See [Without containers (native install)](#without-containers-native-install) for a step-by-step host install of both, and [Keycloak realm](#keycloak-realm) for the realm/client knobs.
 
-To pull `INTELLISTREAM_DB_PASSWORD` and `KEYCLOAK_CLIENT_SECRET` from a Vault / OpenBao KV-v2 record instead of plain env vars:
+To pull `ICHAT_DB_PASSWORD` and `KEYCLOAK_CLIENT_SECRET` from a Vault / OpenBao KV-v2 record instead of plain env vars:
 
 ```bash
-export INTELLISTREAM_VAULT_ENABLED=true
-export INTELLISTREAM_VAULT_URI=https://vault.example.com:8200
-export INTELLISTREAM_VAULT_TOKEN=...
-export INTELLISTREAM_VAULT_PATH=intellistream-chat     # default; maps to secret/data/intellistream-chat
+export ICHAT_VAULT_ENABLED=true
+export ICHAT_VAULT_URI=https://vault.example.com:8200
+export ICHAT_VAULT_TOKEN=...
+export ICHAT_VAULT_PATH=intellistream-chat     # default; maps to secret/data/intellistream-chat
 ./gradlew bootRun
 ```
 
@@ -250,14 +258,14 @@ For a real internet-facing deployment. **Do not skip the hardening steps**: the 
 #    or your managed equivalents. Point the app at them via env vars.
 
 # 3. Configure the production env. Each line below is required.
-export INTELLISTREAM_DB_URL=jdbc:postgresql://db.internal:5432/intellistream_chat
-export INTELLISTREAM_DB_USERNAME=intellistream
-export INTELLISTREAM_DB_PASSWORD=$(openssl rand -base64 32)
-export KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/intellistream
+export ICHAT_DB_URL=jdbc:postgresql://db.internal:5432/intellistream_chat
+export ICHAT_DB_USERNAME=intellistream
+export ICHAT_DB_PASSWORD=$(openssl rand -base64 32)
+export KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/ichat-realm
 export KEYCLOAK_CLIENT_SECRET=$(openssl rand -base64 32)   # rotate from the dev default
 export SERVER_ADDRESS=127.0.0.1                            # bind localhost only; nginx fronts it
 # Cookie Secure flag auto-detects from X-Forwarded-Proto via forward-headers-strategy:
-# framework (already set in application.yml), so no explicit INTELLISTREAM_SECURITY_COOKIE_SECURE
+# framework (already set in application.yml), so no explicit ICHAT_SECURITY_COOKIE_SECURE
 # is needed when nginx forwards X-Forwarded-Proto: https.
 
 # 4. Run behind a TLS-terminating reverse proxy (see frontend.md in this repo):
@@ -388,13 +396,13 @@ The companion env file at `/etc/intellistream-chat/env` (chmod 600, owned by `in
 JAVA_OPTS=-Xms1g -Xmx1g -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/opt/intellistream-chat/data/heapdumps -XX:+UseStringDeduplication -XX:+AlwaysPreTouch -Duser.timezone=UTC
 
 # App config (see "Quick start — production" for the full list)
-INTELLISTREAM_DB_URL=jdbc:postgresql://db.internal:5432/intellistream_chat
-INTELLISTREAM_DB_USERNAME=intellistream
-INTELLISTREAM_DB_PASSWORD=...
-KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/intellistream
+ICHAT_DB_URL=jdbc:postgresql://db.internal:5432/intellistream_chat
+ICHAT_DB_USERNAME=intellistream
+ICHAT_DB_PASSWORD=...
+KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/ichat-realm
 KEYCLOAK_CLIENT_SECRET=...
 SERVER_ADDRESS=127.0.0.1
-# INTELLISTREAM_SECURITY_COOKIE_SECURE is no longer needed — cookies auto-mark Secure based on
+# ICHAT_SECURITY_COOKIE_SECURE is no longer needed — cookies auto-mark Secure based on
 # request.isSecure() (which RemoteIpValve sets from X-Forwarded-Proto). Override at the
 # Servlet API level (server.servlet.session.cookie.secure=true) only if you want to force
 # Secure even on non-forwarded requests — e.g. behind a proxy that doesn't set the header.
@@ -759,7 +767,7 @@ bin/kc.sh start-dev --import-realm --http-port=8081
 Once Keycloak is up at http://localhost:8081 the `intellistream` realm exists with users `alice` / `alice` and `bob` / `bob`. Point the app at it:
 
 ```bash
-export KEYCLOAK_ISSUER_URI=http://localhost:8081/realms/intellistream
+export KEYCLOAK_ISSUER_URI=http://localhost:8081/realms/ichat-realm
 export KEYCLOAK_CLIENT_SECRET=<value from realm.json or a fresh one you rotated to>
 ./gradlew bootRun
 ```
@@ -772,10 +780,10 @@ The bundled `keycloak/realm.json` defines everything `podman compose` and `kc.sh
 
 | Item | Value |
 |---|---|
-| Realm name | `intellistream` |
+| Realm name | `ichat-realm` |
 | Login with email | enabled |
 | Self-registration | enabled |
-| Client id | `intellistream-chat` (confidential, Authorization Code + PKCE) |
+| Client id | `ichat-client` (confidential, Authorization Code + PKCE) |
 | Client secret | `(generated; rotate)` (override via `KEYCLOAK_CLIENT_SECRET` in production) |
 | Valid redirect URIs | `http://localhost:8080/*` |
 | Web origins | `http://localhost:8080` |
@@ -788,11 +796,11 @@ Three realm roles ship in the bundled config:
 
 | Role | Purpose | Granted to |
 |---|---|---|
-| `user` | Marker assigned to every regular account. Not consumed by the chat app itself; handy for filtering in Keycloak. | alice, bob; assign as default to self-registered accounts |
-| `admin` | Keycloak's built-in realm admin. **Intentionally ignored** by the chat app. | (Keycloak internal) |
-| `chat-admin` | Application admin. Required for `/admin` and cross-channel search. Maps to Spring's `ROLE_ADMIN` in `KeycloakRolesConverter`. | alice (in the bundled realm) |
+| `ichat-user` | Marker assigned to every regular account. Not consumed by the chat app itself; handy for filtering in Keycloak. | alice, bob; assign as default to self-registered accounts |
+| `admin` | Keycloak's own realm admin. **Intentionally ignored** by the chat app — it carries no `ichat-` prefix, so it is not one of ours. | (Keycloak internal) |
+| `ichat-admin` | Application admin. Required for `/admin` and cross-channel search. Maps to Spring's `ROLE_ADMIN` in `KeycloakRolesConverter`. | alice (in the bundled realm) |
 
-The split is deliberate: the person who admins your Keycloak instance is not automatically a chat administrator. Promote individual users to `chat-admin` via **Users → pick user → Role mappings → Assign role**.
+Every role this application consumes is prefixed `ichat-`. That is the whole rule, and it exists so a role granted for some other purpose in a shared realm can never be mistaken for a grant in this app. The split is deliberate: the person who admins your Keycloak instance is not automatically a chat administrator. Promote individual users to `ichat-admin` via **Users → pick user → Role mappings → Assign role**.
 
 ### Enabling user registration
 
@@ -807,10 +815,10 @@ Self-registration is already on in the bundled realm. To toggle (or enable on a 
 
 Then make sure new self-registered accounts get the `user` realm role automatically:
 
-1. **Realm settings → User registration** sub-tab (or **Realm roles → default-roles-intellistream**).
-2. Assign realm role `user` (and any others you want every account to have).
+1. **Realm settings → User registration** sub-tab (or **Realm roles → default-roles-ichat-realm**).
+2. Assign realm role `ichat-user` (and any others you want every account to have).
 
-`chat-admin` is deliberately **not** in the default role set and should never be — promote people one at a time, after you've vetted them.
+`ichat-admin` is deliberately **not** in the default role set and should never be — promote people one at a time, after you've vetted them.
 
 ## Configuration
 
@@ -818,33 +826,33 @@ Every override is plain Spring Boot env-var substitution against `application.ym
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `INTELLISTREAM_DB_URL` | `jdbc:postgresql://localhost:5432/intellistream_chat` | JDBC URL for the Postgres instance |
-| `INTELLISTREAM_DB_USERNAME` | `intellistream` | Postgres user |
-| `INTELLISTREAM_DB_PASSWORD` | `intellistream` — **rotate in production** | Postgres password — **set this in production** |
-| `KEYCLOAK_ISSUER_URI` | `http://localhost:8081/realms/intellistream` | Keycloak realm issuer (used by both OIDC client and resource server). Must match the OIDC issuer in `keycloak/realm.json`'s redirect-URI list — change one and the other will reject the redirect with `400 invalid_redirect_uri`. |
-| `KEYCLOAK_CLIENT_ID` | `intellistream-chat` | OIDC client id |
+| `ICHAT_DB_URL` | `jdbc:postgresql://localhost:5432/intellistream_chat` | JDBC URL for the Postgres instance |
+| `ICHAT_DB_USERNAME` | `intellistream` | Postgres user |
+| `ICHAT_DB_PASSWORD` | `intellistream` — **rotate in production** | Postgres password — **set this in production** |
+| `KEYCLOAK_ISSUER_URI` | `http://localhost:8081/realms/ichat-realm` | Keycloak realm issuer (used by both OIDC client and resource server). Must match the OIDC issuer in `keycloak/realm.json`'s redirect-URI list — change one and the other will reject the redirect with `400 invalid_redirect_uri`. |
+| `KEYCLOAK_CLIENT_ID` | `ichat-client` | OIDC client id |
 | `KEYCLOAK_CLIENT_SECRET` | `(generated; rotate in production)` | OIDC client secret — **set this in production** |
 | `SERVER_PORT` | `8080` | HTTP port the Boot app binds to |
 | `SERVER_ADDRESS` | `127.0.0.1` | Network interface to bind. The dev profile overrides this to a LAN IP for cross-device testing; prod typically keeps `127.0.0.1` and fronts the JVM with nginx. |
-| `INTELLISTREAM_ATTACHMENTS_DIR` | `./data/attachments` | Where uploaded message attachments are stored |
-| `INTELLISTREAM_AVATARS_DIR` | `./data/avatars` | Where uploaded avatars are stored |
-| `INTELLISTREAM_BRANDING_DIR` | `./data/branding` | Where the admin-uploaded logo is stored |
+| `ICHAT_ATTACHMENTS_DIR` | `./data/attachments` | Where uploaded message attachments are stored |
+| `ICHAT_AVATARS_DIR` | `./data/avatars` | Where uploaded avatars are stored |
+| `ICHAT_BRANDING_DIR` | `./data/branding` | Where the admin-uploaded logo is stored |
 | _(no env var)_ | _auto_ | The JSESSIONID and CSRF cookies' `Secure` flag is auto-detected from `request.isSecure()` per request. Behind a TLS-terminating proxy with `X-Forwarded-Proto: https`, `forward-headers-strategy: framework` flips request.isSecure() to true and the cookies are marked Secure automatically. To force Secure for every request (e.g. behind a proxy that strips the header), set `server.servlet.session.cookie.secure=true`. |
 
 The Lucene index lives at `./data/lucene` (override with `chat.search.lucene-dir`). Back up the whole `./data/` directory plus the Postgres database and you have everything: messages, attachments, avatars, branding, and the search index.
 
 ### Optional: Vault / OpenBao secret backend
 
-For deployments where shipping `INTELLISTREAM_DB_PASSWORD` and `KEYCLOAK_CLIENT_SECRET` via `EnvironmentFile=` is too coarse, the app can pull them from a [HashiCorp Vault](https://www.vaultproject.io/) / [OpenBao](https://openbao.org/) KV-v2 mount at boot. **Off by default** — `INTELLISTREAM_VAULT_ENABLED=false` skips the integration entirely.
+For deployments where shipping `ICHAT_DB_PASSWORD` and `KEYCLOAK_CLIENT_SECRET` via `EnvironmentFile=` is too coarse, the app can pull them from a [HashiCorp Vault](https://www.vaultproject.io/) / [OpenBao](https://openbao.org/) KV-v2 mount at boot. **Off by default** — `ICHAT_VAULT_ENABLED=false` skips the integration entirely.
 
 When enabled, a `VaultEnvironmentPostProcessor` runs before Spring autoconfiguration reads `spring.datasource.*` / the OAuth client config, fetches one KV-v2 record, and injects the values as a high-priority `MapPropertySource`.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `INTELLISTREAM_VAULT_ENABLED` | `false` | Master switch. |
-| `INTELLISTREAM_VAULT_URI` | _(empty)_ | Base URL (e.g. `http://127.0.0.1:8200`). Required when enabled. |
-| `INTELLISTREAM_VAULT_TOKEN` | _(empty)_ | Token credential. Required when enabled. |
-| `INTELLISTREAM_VAULT_PATH` | `intellistream-chat` | KV-v2 path; default maps to `secret/data/intellistream-chat`. |
+| `ICHAT_VAULT_ENABLED` | `false` | Master switch. |
+| `ICHAT_VAULT_URI` | _(empty)_ | Base URL (e.g. `http://127.0.0.1:8200`). Required when enabled. |
+| `ICHAT_VAULT_TOKEN` | _(empty)_ | Token credential. Required when enabled. |
+| `ICHAT_VAULT_PATH` | `intellistream-chat` | KV-v2 path; default maps to `secret/data/intellistream-chat`. |
 
 If enabled but URI or token is missing, the app **fails fast at boot** with `IllegalStateException` — silently falling back to env-var defaults in a "vault-enabled" deploy would be a security bug.
 
@@ -863,15 +871,15 @@ If enabled but URI or token is missing, the app **fails fast at boot** with `Ill
 ```bash
 podman compose --profile openbao up -d
 KEYCLOAK_CLIENT_SECRET=<value-from-keycloak/realm.json> ./scripts/seed-vault.sh
-INTELLISTREAM_VAULT_ENABLED=true INTELLISTREAM_VAULT_URI=http://127.0.0.1:8200 \
-  INTELLISTREAM_VAULT_TOKEN=intellistream-dev-token ./gradlew bootRun
+ICHAT_VAULT_ENABLED=true ICHAT_VAULT_URI=http://127.0.0.1:8200 \
+  ICHAT_VAULT_TOKEN=intellistream-dev-token ./gradlew bootRun
 ```
 
 Hit `/actuator/env` to verify the `intellistream-vault` property source appeared. The OpenBao dev container uses in-memory storage and a root token — for production, switch to sealed deployment + auto-unseal + AppRole or Kubernetes auth.
 
 ### Upload size cap
 
-Default cap is **50 MiB per upload**. The cap applies per user; admins (anyone with the `chat-admin` realm role) get unlimited.
+Default cap is **50 MiB per upload**. The cap applies per user; admins (anyone with the `ichat-admin` realm role) get unlimited.
 
 To grant a non-admin a higher (or lower) cap:
 
@@ -907,7 +915,7 @@ The admin console at `/admin` lists every user in the workspace, and by default 
 
 There's a per-deployment toggle for this. **Default: on (raw emails visible)** to preserve the existing behaviour for installs upgrading from before the toggle existed. To flip it off:
 
-1. Sign in as an admin (Keycloak `chat-admin` realm role) and open `/admin`.
+1. Sign in as an admin (Keycloak `ichat-admin` realm role) and open `/admin`.
 2. Find the **Privacy** section (right above the Users table).
 3. Uncheck **Show full emails on this page** and click **Save privacy setting**.
 
@@ -921,7 +929,7 @@ The systemd / SELinux / Quick start sections cover the mechanical setup. This is
 
 | | What | Why |
 |---|---|---|
-| ☐ | Rotate `KEYCLOAK_CLIENT_SECRET` (Keycloak admin → **Clients → intellistream-chat → Credentials → Regenerate**) | The bundled secret in `keycloak/realm.json` is in this public repo. |
+| ☐ | Rotate `KEYCLOAK_CLIENT_SECRET` (Keycloak admin → **Clients → ichat-client → Credentials → Regenerate**) | The bundled secret in `keycloak/realm.json` is in this public repo. |
 | ☐ | Restrict the `chat` client's **Valid redirect URIs** + **Web origins** to your real hostname | OIDC redirect-URI matching is your defence against open-redirect token theft. |
 | ☐ | Change `KC_BOOTSTRAP_ADMIN_PASSWORD` from `admin` | Master key to every account in your realm. |
 | ☐ | Enable **Verify email** in Keycloak before opening self-registration | Without it, bots will mass-register. |
@@ -1020,7 +1028,7 @@ Two things are worth knowing if you fork this:
   are sharded by channel, so per-channel ordering holds. The sender doesn't wait for any of it — the
   composer renders an optimistic bubble and reconciles it when the broadcast arrives. The trade is a
   small durability window (one flush interval, ~5 ms) on an abrupt kill, for messages nobody saw.
-  On by default; `intellistream.write-behind.enabled=false` restores commit-per-message.
+  On by default; `ichat.write-behind.enabled=false` restores commit-per-message.
 - **Server concurrency is explicit.** `WebSocketConfig` sets the STOMP channel executors
   unconditionally, and `StompChannelDiagnostics` logs them at startup. This is not incidental: a
   mis-wired executor once put every inbound message on a single thread and capped the whole server

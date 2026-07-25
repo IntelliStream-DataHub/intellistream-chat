@@ -48,12 +48,12 @@ public class RateLimiter {
     private final ConcurrentMap<String, Deque<Long>> windows = new ConcurrentHashMap<>();
 
     /**
-     * Master switch. Defaults on. Setting {@code intellistream.ratelimit.enabled=false} (the load-test
+     * Master switch. Defaults on. Setting {@code ichat.ratelimit.enabled=false} (the load-test
      * {@code bench} profile does this) makes every acquire succeed, so a benchmark driving many
      * connections from one user isn't capped by the per-user limits it's not trying to measure.
      * Never disable in production.
      */
-    @org.springframework.beans.factory.annotation.Value("${intellistream.ratelimit.enabled:true}")
+    @org.springframework.beans.factory.annotation.Value("${ichat.ratelimit.enabled:true}")
     private boolean enabled = true;
 
     /**

@@ -28,7 +28,7 @@ import java.time.Duration;
  *
  * <p><b>Defaults are deliberately safe:</b> {@code dry-run=true}, so out of the box the sweeps run
  * and LOG what they would delete/reindex but change nothing. An operator watches the logged
- * backlog, then sets {@code intellistream.cleanup.dry-run=false} to arm the destructive deletes.
+ * backlog, then sets {@code ichat.cleanup.dry-run=false} to arm the destructive deletes.
  *
  * <p><b>Single-instance only</b> (CLEAN-5): {@code @EnableScheduling} runs on every node, so with
  * multiple nodes these sweeps would race. Disable them ({@code enabled=false}) on all but one node,
@@ -36,7 +36,7 @@ import java.time.Duration;
  * rest of horizontal scaling.
  */
 @Component
-@ConfigurationProperties("intellistream.cleanup")
+@ConfigurationProperties("ichat.cleanup")
 public class CleanupProperties {
 
     /** Master switch for all sweeps. */

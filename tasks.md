@@ -62,7 +62,7 @@ Legend: `[ ]` todo · severity in each heading · `file:line → fix`.
 
 ### DOC-1 · README setup is stale post-rename & setup-breaking  🟠 high
 - `README.md` still references the old `chat` realm/client and `default-roles-chat`
-  (lines 88, 645, 661, 696) while `keycloak/realm.json` is realm `intellistream` / client `intellistream-chat`; the
+  (lines 88, 645, 661, 696) while `keycloak/realm.json` is realm `ichat-realm` / client `ichat-client`; the
   repo-layout section claims `V1__…V13__…sql` but only `V1__init.sql` exists; line 895 claims
   "every source file carries the Apache header" (false — see OSS-2).
 - **Fix:** correct realm/client names, migration layout, and the header claim.
@@ -336,7 +336,7 @@ multi-tenant loops to a single un-routed pass (chat is single-tenant, one data d
   considered AI-slop, and there are bugs, even serious bugs" plus a Teams rant; it's the first
   thing every visitor reads. Keep the candor deliberately or rework it.
 - [x] **OSS-8 · Relocate the root `index.html`** — it's a 707-line standalone marketing page for
-  intellistream.com, unreferenced by the build (the app's landing page is `templates/landing.html`).
+  intellistream.ai, unreferenced by the build (the app's landing page is `templates/landing.html`).
   Move to `docs/`/`website/` or its own branch so the repo root isn't a marketing artifact.
 
 ### Nice-to-have
@@ -367,7 +367,7 @@ These were probed and found correct; recording them so they aren't re-litigated.
   `requireMember` (read) vs `requireWriteAccess` (write) is applied correctly everywhere **except
   polls** (SEC-4); IDOR is prevented (every by-id service resolves the parent + checks access);
   search authz tiers (channel/joined/admin) are correct; `/admin/**` is `hasRole('ADMIN')`;
-  admin realm-role mapping requires literal `chat-admin` and ignores Keycloak's built-in `admin`.
+  admin realm-role mapping requires literal `ichat-admin` and ignores Keycloak's built-in `admin`.
 - **File handling is safe.** On-disk names are server UUIDs (no path traversal), `resolve()` is
   `startsWith(root)`-checked, downloads `URLEncoder`-escape filenames (no header injection),
   uploads are Tika-sniffed + `nosniff` + inline only for non-SVG images, sizes capped mid-stream.

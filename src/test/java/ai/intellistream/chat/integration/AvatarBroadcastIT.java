@@ -76,7 +76,7 @@ import static org.mockito.Mockito.when;
         classes = IntegrationTestApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.NONE,
         properties = {
-                "intellistream.search.lucene-dir=build/test-lucene/AvatarBroadcastIT"
+                "ichat.search.lucene-dir=build/test-lucene/AvatarBroadcastIT"
         }
 )
 class AvatarBroadcastIT {
@@ -113,7 +113,7 @@ class AvatarBroadcastIT {
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         registry.add("spring.flyway.enabled", () -> "true");
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "validate");
-        registry.add("intellistream.avatars.dir", () -> avatarsDir.toString());
+        registry.add("ichat.avatars.dir", () -> avatarsDir.toString());
     }
 
     @Autowired UserRepository users;

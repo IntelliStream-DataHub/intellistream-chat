@@ -146,7 +146,7 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/", "/css/**", "/js/**", "/img/**", "/webjars/**",
                                          "/actuator/health", "/branding/logo").permitAll()
-                        // Admin console + branding mutations require the chat-admin realm role
+                        // Admin console + branding mutations require the ichat-admin realm role
                         // (mapped to ROLE_ADMIN by KeycloakRolesConverter).
                         .requestMatchers("/admin", "/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
@@ -198,7 +198,7 @@ public class SecurityConfig {
     /**
      * Mirrors {@link KeycloakRolesConverter} for the browser/oauth2Login path: extracts
      * {@code realm_access.roles} from the OIDC id-token claims and adds {@code ROLE_ADMIN}
-     * iff the {@code chat-admin} role is present. Without this, browser sessions would
+     * iff the {@code ichat-admin} role is present. Without this, browser sessions would
      * never carry {@code ROLE_ADMIN} (only the JWT/resource-server chain ran the converter).
      */
     private static GrantedAuthoritiesMapper keycloakAuthoritiesMapper() {

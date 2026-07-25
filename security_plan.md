@@ -27,7 +27,7 @@ refactor) folded in. Outcome:
   `X-Forwarded-Proto: https`, so the cookies are marked Secure automatically; on plain-HTTP
   local dev they aren't, so they round-trip. See the class comment in `SecurityConfig`.
 - **[Was H] No upload cap once streaming was added.** Fixed: per-user 50 MiB default,
-  unlimited for `chat-admin`, override per-user via Keycloak attribute
+  unlimited for `ichat-admin`, override per-user via Keycloak attribute
   `chat_max_upload_bytes` mapped through to the JWT by the protocol mapper in
   `keycloak/realm.json`. `CurrentUser.uploadCapBytes(Principal)` resolves; both
   `AttachmentService.upload` and `ConversationAttachmentService.upload` enforce

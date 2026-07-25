@@ -42,7 +42,7 @@ public class BrandingRestController {
     private final Path brandingDir;
 
     public BrandingRestController(AppSettingsService settings,
-                                  @Value("${intellistream.branding.dir}") String brandingDirPath) {
+                                  @Value("${ichat.branding.dir}") String brandingDirPath) {
         this.settings = settings;
         this.brandingDir = Path.of(brandingDirPath);
     }

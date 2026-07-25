@@ -57,7 +57,7 @@ public class PresenceService {
     public PresenceService(UserPresenceRepository repo,
                            UserRepository users,
                            PresenceTracker tracker,
-                           @Value("${intellistream.presence.away-after-minutes:10}") int awayAfterMinutes) {
+                           @Value("${ichat.presence.away-after-minutes:10}") int awayAfterMinutes) {
         this.repo = repo;
         this.users = users;
         this.tracker = tracker;

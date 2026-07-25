@@ -36,7 +36,7 @@ import java.util.Properties;
  *   <li><b>Production</b> (default): the single minified bundle URL, content-versioned with
  *       {@code ?v=<hash>} so browsers can cache it aggressively yet never serve a stale copy
  *       after a deploy.</li>
- *   <li><b>Development</b> ({@code intellistream.assets.unbundled=true}): the original source files in
+ *   <li><b>Development</b> ({@code ichat.assets.unbundled=true}): the original source files in
  *       order, so editing one and refreshing shows the change immediately (no rebuild).</li>
  * </ul>
  */
@@ -48,7 +48,7 @@ public class AssetService {
     private final boolean unbundled;
     private final Properties registry;
 
-    public AssetService(@Value("${intellistream.assets.unbundled:false}") boolean unbundled) {
+    public AssetService(@Value("${ichat.assets.unbundled:false}") boolean unbundled) {
         this.unbundled = unbundled;
         this.registry = loadRegistry();
     }

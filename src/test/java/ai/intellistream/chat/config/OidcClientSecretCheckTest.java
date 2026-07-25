@@ -34,7 +34,7 @@ class OidcClientSecretCheckTest {
 
     private static ClientRegistration.Builder keycloak() {
         return ClientRegistration.withRegistrationId("keycloak")
-                .clientId("intellistream-chat")
+                .clientId("ichat-client")
                 .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
                 .redirectUri("{baseUrl}/login/oauth2/code/{registrationId}")
                 .authorizationUri("http://kc/auth")
@@ -119,8 +119,8 @@ class OidcClientSecretCheckTest {
 
         // Brace-matched extraction rather than a regex: the client object contains nested objects
         // (attributes, protocol mappers), which a [^{}]* pattern cannot span.
-        var marker = java.util.regex.Pattern.compile("\"clientId\"\\s*:\\s*\"intellistream-chat\"").matcher(json);
-        assertThat(marker.find()).describedAs("intellistream-chat client in realm.json").isTrue();
+        var marker = java.util.regex.Pattern.compile("\"clientId\"\\s*:\\s*\"ichat-client\"").matcher(json);
+        assertThat(marker.find()).describedAs("ichat-client client in realm.json").isTrue();
         int start = json.lastIndexOf('{', marker.start());
         int depth = 0, end = start;
         for (int i = start; i < json.length(); i++) {
@@ -131,7 +131,7 @@ class OidcClientSecretCheckTest {
 
         var secretMatch = java.util.regex.Pattern.compile("\"secret\"\\s*:\\s*\"([^\"]*)\"")
                 .matcher(clientJson);
-        assertThat(secretMatch.find()).describedAs("secret field on the intellistream-chat client").isTrue();
+        assertThat(secretMatch.find()).describedAs("secret field on the ichat-client client").isTrue();
 
         var secret = secretMatch.group(1);
         assertThat(secret).describedAs("dev realm client secret").isNotBlank();

@@ -51,7 +51,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @SpringBootTest(
         classes = IntegrationTestApplication.class,
         webEnvironment = SpringBootTest.WebEnvironment.NONE,
-        properties = "intellistream.attachments.dir=build/test-attachments-edit-delete"
+        properties = "ichat.attachments.dir=build/test-attachments-edit-delete"
 )
 @Transactional
 class MessageEditDeleteReplyIT {

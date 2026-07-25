@@ -9,7 +9,7 @@
     <th:block th:replace="~{fragments/assets :: css('app')}"/>
     <meta name="_csrf" th:content="${_csrf != null ? _csrf.token : ''}"/>
     <meta name="_csrf_header" th:content="${_csrf != null ? _csrf.headerName : ''}"/>
-    <!-- Workspace-admin flag (realm role chat-admin -> ROLE_ADMIN); read by the avatar
+    <!-- Workspace-admin flag (realm role ichat-admin -> ROLE_ADMIN); read by the avatar
          dropdown to decide whether to offer the Admin console item. Distinct from the
          channel-scoped me-is-admin meta on the chat pages. -->
     <meta name="me-is-workspace-admin" sec:authorize="hasRole('ADMIN')" content="true"/>

@@ -65,8 +65,8 @@ public class ChannelAccessCache {
     private final long ttlNanos;
     private final int maxEntries;
 
-    public ChannelAccessCache(@Value("${intellistream.cache.channel-ttl-seconds:60}") long ttlSeconds,
-                              @Value("${intellistream.cache.max-entries:100000}") int maxEntries) {
+    public ChannelAccessCache(@Value("${ichat.cache.channel-ttl-seconds:60}") long ttlSeconds,
+                              @Value("${ichat.cache.max-entries:100000}") int maxEntries) {
         this.ttlNanos = Math.max(1, ttlSeconds) * 1_000_000_000L;
         this.maxEntries = Math.max(1024, maxEntries);
     }

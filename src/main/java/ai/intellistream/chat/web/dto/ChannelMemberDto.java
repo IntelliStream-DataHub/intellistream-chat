@@ -27,9 +27,9 @@ import java.time.Instant;
  * without a second {@code /api/users/{u}} round-trip per row.
  *
  * <p>{@code role} comes from the channel-membership row (ADMIN vs MEMBER); {@code admin}
- * is the workspace-level chat-admin flag stored on the User entity. Two distinct concepts:
+ * is the workspace-level ichat-admin flag stored on the User entity. Two distinct concepts:
  * a channel admin is someone who can invite to <em>that</em> channel; a workspace admin
- * is whoever Keycloak granted the {@code chat-admin} realm role.
+ * is whoever Keycloak granted the {@code ichat-admin} realm role.
  */
 public record ChannelMemberDto(
         String username,

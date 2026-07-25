@@ -62,7 +62,7 @@ public final class OidcClientSecretCheck {
                 login would fail at the token exchange and redirect to /login?error.
 
                 Set KEYCLOAK_CLIENT_SECRET before starting. For the bundled dev realm:
-                  export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[]|select(.clientId=="intellistream-chat").secret' keycloak/realm.json)
+                  export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[]|select(.clientId=="ichat-client").secret' keycloak/realm.json)
                 """.formatted(registration.getRegistrationId(), method.getValue()));
     }
 }

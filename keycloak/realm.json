@@ -1,5 +1,5 @@
 {
-  "realm": "intellistream",
+  "realm": "ichat-realm",
   "displayName": "IntelliStream Chat",
   "displayNameHtml": "<strong>IntelliStream Chat</strong> Chat",
   "enabled": true,
@@ -11,7 +11,7 @@
   "ssoSessionMaxLifespanRememberMe": 28800,
   "clients": [
     {
-      "clientId": "intellistream-chat",
+      "clientId": "ichat-client",
       "enabled": true,
       "publicClient": false,
       "secret": "DAJpMxDkLxHidawHQXu8MMlmjEiKQRZzWRiLzFBQ",
@@ -74,8 +74,8 @@
         }
       ],
       "realmRoles": [
-        "user",
-        "chat-admin"
+        "ichat-user",
+        "ichat-admin"
       ]
     },
     {
@@ -92,21 +92,19 @@
         }
       ],
       "realmRoles": [
-        "user"
+        "ichat-user"
       ]
     }
   ],
   "roles": {
     "realm": [
-      {
-        "name": "user"
-      },
+      { "name": "ichat-user" },
       {
         "name": "admin"
       },
       {
-        "name": "chat-admin",
-        "description": "Application admin (chat-admin) — required to access /admin and platform-wide actions."
+        "name": "ichat-admin",
+        "description": "Application admin (ichat-admin) — required to access /admin and platform-wide actions."
       }
     ]
   }

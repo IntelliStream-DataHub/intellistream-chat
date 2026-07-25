@@ -118,7 +118,7 @@ function openMenu(anchor, opts = {}) {
     statusLink.innerHTML = '<span class="presence-menu-label">Set a status</span>';
     menuEl.appendChild(statusLink);
 
-    // Admin console — only for workspace admins (realm role chat-admin → ROLE_ADMIN;
+    // Admin console — only for workspace admins (realm role ichat-admin → ROLE_ADMIN;
     // the me-is-workspace-admin meta is emitted via sec:authorize on every page).
     if (document.querySelector('meta[name="me-is-workspace-admin"]')?.content === 'true') {
         const adminLink = document.createElement('a');

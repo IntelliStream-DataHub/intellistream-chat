@@ -370,7 +370,7 @@ public class MessageIndexService {
      * empty-index bootstrap rebuild from the source-of-truth {@code messages} table.
      */
     @org.springframework.scheduling.annotation.Scheduled(
-            fixedDelayString = "${intellistream.search.flush-interval-ms:250}")
+            fixedDelayString = "${ichat.search.flush-interval-ms:250}")
     void maintain() {
         try {
             if (pendingRefresh.compareAndSet(true, false)) searcherManager.maybeRefresh(); // visibility

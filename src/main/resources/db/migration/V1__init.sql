@@ -28,7 +28,7 @@ create table users (
     -- Last time we saw any authenticated request from this user. Surfaced on the admin
     -- page; nullable so a never-seen user reads as NULL rather than a fake timestamp.
     last_active_at       timestamptz,
-    -- Cached chat-admin flag, refreshed from the chat-admin Keycloak realm role on every
+    -- Cached ichat-admin flag, refreshed from the ichat-admin Keycloak realm role on every
     -- login (UserService.provisionFromOidc / provisionFromJwt). Local cache so other-user
     -- lookups (hovercard, admin list) don't hit Keycloak per request.
     admin                boolean      not null default false,
