@@ -24,6 +24,25 @@ import lombok.Setter;
 
 import java.time.Instant;
 
+/**
+ * A channel. <b>Deliberately immutable after creation</b> — there are no setters, and adding one
+ * is a decision with consequences beyond this class.
+ *
+ * <p>{@code ChannelAccessCache} hands cached {@code Channel} instances to STOMP SUBSCRIBE
+ * authorization, which calls {@code ChannelService.requireMember} — and that short-circuits to
+ * "allowed" for {@link ChannelType#PUBLIC}. A mutable {@code type} therefore means a
+ * PUBLIC→PRIVATE change leaves a stale cached copy authorizing non-members to subscribe to a
+ * now-private channel until the cache TTL expires.
+ *
+ * <p>These fields previously carried Lombok {@code @Setter} with no caller, which made that hazard
+ * live-but-unreached while the cache's own documentation claimed the entity was immutable. If you
+ * need to rename a channel or change its type, add a method on {@code ChannelService} that
+ * performs the change <em>and</em> calls {@code ChannelAccessCache.evictChannel} — don't reinstate
+ * a bare setter. {@code ChannelImmutabilityTest} enforces this.
+ *
+ * <p>Persistence is unaffected: {@code @Id} is on the field, so Hibernate uses field access and
+ * never needs setters.
+ */
 @Entity
 @Table(name = "channels", uniqueConstraints = {
         @UniqueConstraint(name = "uk_channels_slug", columnNames = "slug")
@@ -39,15 +58,12 @@ public class Channel {
     @Column(nullable = false, length = 80)
     private String slug;
 
-    @Setter
     @Column(nullable = false, length = 120)
     private String name;
 
-    @Setter
     @Column(length = 500)
     private String description;
 
-    @Setter
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     private ChannelType type;

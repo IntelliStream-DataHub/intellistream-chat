@@ -35,20 +35,20 @@ import java.util.function.LongFunction;
  *       <em>positive</em> write-access answers are cached — a "yes" cannot silently become a "no",
  *       while a user who has just joined is never held back by a cached "no", because negatives are
  *       never stored.</li>
- *   <li>No code mutates a {@link Channel} after creation. Note that this is a property of the
- *       <em>callers</em>, not of the entity: {@code Channel} carries Lombok {@code @Setter} on
- *       {@code name}, {@code description} and <b>{@code type}</b>, so it is perfectly mutable. An
- *       earlier version of this comment asserted the entity had no setters, which was wrong —
- *       grepping the source for {@code void set} does not show setters Lombok generates.</li>
+ *   <li>{@link Channel} is immutable after creation — it exposes no setters, so a cached copy
+ *       cannot go stale against a rename or a PUBLIC↔PRIVATE flip. This is now enforced by the
+ *       type rather than by convention: {@code ChannelImmutabilityTest} fails if a setter
+ *       reappears. (It briefly was not true — the fields carried Lombok {@code @Setter} with no
+ *       caller, which a source grep for {@code void set} cannot reveal.)</li>
  * </ul>
  *
- * <p><b>Any channel mutator you add must evict here.</b> The sharp edge is {@code setType}: a
- * PUBLIC→PRIVATE flip is an authorization change, and the cached {@code Channel} is what
+ * <p><b>Why immutability is load-bearing.</b> The cached {@code Channel} is what
  * {@code StompAuthorizationConfig} hands to {@code ChannelService.requireMember} when authorizing a
- * STOMP SUBSCRIBE — and {@code requireMember} short-circuits to "allowed" for PUBLIC channels. A
- * stale cached copy would let a non-member subscribe to a newly-private channel for up to the TTL.
- * Call {@link #evictChannel} from any such mutator, and {@link #evictMember} from any future
- * membership-removal path. The TTL bounds the damage; it is not the guarantee.
+ * STOMP SUBSCRIBE, and {@code requireMember} short-circuits to "allowed" for PUBLIC channels. If a
+ * channel could be flipped to PRIVATE, a stale cached copy would let a non-member subscribe to it
+ * for up to the TTL. So a channel change must go through a {@code ChannelService} method that also
+ * calls {@link #evictChannel}; likewise a future membership-removal path must call
+ * {@link #evictMember}. The TTL bounds the damage; it is not the guarantee.
  *
  * <p>Entries are capped; on overflow the map is cleared wholesale rather than evicted one by one.
  * Rebuilding costs one query per active channel, which is trivially cheaper than maintaining LRU
