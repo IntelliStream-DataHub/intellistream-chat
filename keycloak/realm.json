@@ -63,6 +63,7 @@
   ],
   "users": [
     {
+      "id": "856199a6-37da-4ce5-82d7-9a3a3ea58359",
       "username": "alice",
       "enabled": true,
       "email": "alice@example.com",
@@ -81,6 +82,7 @@
       ]
     },
     {
+      "id": "8a17163a-a71d-4d41-af39-19dd3794bd54",
       "username": "bob",
       "enabled": true,
       "email": "bob@example.com",
