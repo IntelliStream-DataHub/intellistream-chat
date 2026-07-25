@@ -16,8 +16,10 @@
 
 package ai.intellistream.chat.web;
 
+import ai.intellistream.chat.domain.ConversationAttachment;
 import ai.intellistream.chat.domain.ConversationType;
 import ai.intellistream.chat.domain.User;
+import ai.intellistream.chat.moderation.StorageQuotaService;
 import ai.intellistream.chat.security.CurrentUser;
 import ai.intellistream.chat.security.RateLimitExceededException;
 import ai.intellistream.chat.security.RateLimiter;
@@ -78,6 +80,7 @@ public class ConversationRestController {
     private final ConversationReactionService reactions;
     private final SimpMessagingTemplate broker;
     private final RateLimiter rateLimiter;
+    private final StorageQuotaService quotas;
 
     public ConversationRestController(ConversationService conversations,
                                       UserService userService,
@@ -86,7 +89,9 @@ public class ConversationRestController {
                                       ConversationAttachmentService attachments,
                                       ConversationReactionService reactions,
                                       SimpMessagingTemplate broker,
-                                      RateLimiter rateLimiter) {
+                                      RateLimiter rateLimiter,
+                                      StorageQuotaService quotas) {
+        this.quotas = quotas;
         this.conversations = conversations;
         this.userService = userService;
         this.currentUser = currentUser;
@@ -228,12 +233,18 @@ public class ConversationRestController {
     public ResponseEntity<Void> deleteMessage(@PathVariable Long messageId, Principal principal) {
         var me = currentUser.resolve(principal);
         requireRate(me, "dm-msg-delete", 30);
-        // Capture attachment storage keys BEFORE the delete cascades the rows away, then reap the
-        // files after deleteMessage's tx commits (it's @Transactional, so it has committed once it
-        // returns). deleteMessage does the authz — on failure it throws and no files are touched.
-        var keys = attachments.storageKeysForMessage(messageId);
+        // Capture the attachment rows BEFORE the delete cascades them away: the storage keys so the
+        // files can be reaped, and the (uploader, size) pairs so the bytes can be credited back.
+        // Neither survives the cascade — the file on disk names no owner — and a DM delete is a
+        // hard delete, so the bytes really are freed and the credit is owed. Both are applied after
+        // deleteMessage's tx commits (it's @Transactional, so it has committed once it returns).
+        // deleteMessage does the authz — on failure it throws and neither is touched.
+        var doomed = attachments.forMessage(messageId);
+        var keys = doomed.stream().map(ConversationAttachment::getStorageKey).toList();
+        var credits = ConversationAttachmentService.creditsFor(doomed);
         var deleted = conversations.deleteMessage(messageId, me);
         attachments.deleteFiles(keys);
+        quotas.releaseAll(credits);
         broker.convertAndSend("/topic/conversations/" + deleted.getConversation().getId(),
                 ConversationEvent.messageDeleted(deleted.getConversation().getId(), deleted.getId()));
         return ResponseEntity.noContent().build();

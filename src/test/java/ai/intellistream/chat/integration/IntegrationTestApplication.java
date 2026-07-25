@@ -85,6 +85,20 @@ public class IntegrationTestApplication {
      * supply the collaborator directly against a throwaway registry — the tests assert on
      * behaviour, not on the timers.
      */
+    /**
+     * {@code ChannelService} takes a {@code RateLimiter} for the channel-creation burst guard. The
+     * {@code security} package is outside this context's scan, deliberately, so the bean is
+     * supplied here rather than by widening it.
+     *
+     * <p>A real limiter, not a mock: it is in-memory and per-process, so it costs nothing, and a
+     * mock returning false by default would fail every test that creates a channel while a mock
+     * returning true would quietly disable the very guard an IT might be written to check.
+     */
+    @Bean
+    public ai.intellistream.chat.security.RateLimiter rateLimiter() {
+        return new ai.intellistream.chat.security.RateLimiter();
+    }
+
     @Bean
     public ai.intellistream.chat.metrics.WritePathMetrics writePathMetrics() {
         return new ai.intellistream.chat.metrics.WritePathMetrics(

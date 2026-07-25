@@ -91,6 +91,7 @@ class HovercardAndDmFlowIT {
     @Autowired UserService userService;
     @Autowired ConversationService conversations;
     @Autowired ai.intellistream.chat.service.ConversationAttachmentService convAttachments;
+    @Autowired ai.intellistream.chat.moderation.StorageQuotaService quotas;
     @Autowired ai.intellistream.chat.service.ConversationReactionService convReactions;
     @Autowired MarkdownRenderer markdown;
 
@@ -116,7 +117,7 @@ class HovercardAndDmFlowIT {
         userController = new UserRestController(userService, currentUser, new RateLimiter());
         conversationController = new ConversationRestController(
                 conversations, userService, currentUser, markdown,
-                convAttachments, convReactions, broker, new RateLimiter());
+                convAttachments, convReactions, broker, new RateLimiter(), quotas);
         conversationWs = new ConversationWebSocketController(conversations, markdown, currentUser, broker, new RateLimiter());
     }
 

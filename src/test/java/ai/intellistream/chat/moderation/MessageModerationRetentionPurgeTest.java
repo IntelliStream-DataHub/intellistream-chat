@@ -51,18 +51,23 @@ import static org.mockito.Mockito.when;
 class MessageModerationRetentionPurgeTest {
 
     private final MessageRepository messages = mock(MessageRepository.class);
+    private final ai.intellistream.chat.repository.AttachmentRepository attachments =
+            mock(ai.intellistream.chat.repository.AttachmentRepository.class);
     private final MessageIndexService index = mock(MessageIndexService.class);
     private final AuditService audit = mock(AuditService.class);
+    private final ai.intellistream.chat.service.AttachmentService files =
+            mock(ai.intellistream.chat.service.AttachmentService.class);
+    private final StorageQuotaService quotas = mock(StorageQuotaService.class);
 
     private final Instant cutoff = Instant.now().minus(30, ChronoUnit.DAYS);
 
     /** {@code self} stands in for the Spring transactional proxy; see the sibling service test. */
     private RetentionPurgeScheduler scheduler(boolean enabled, int retentionDays,
                                               int batchSize, int maxBatches) {
-        var inner = new RetentionPurgeScheduler(messages, index, audit, null,
-                enabled, retentionDays, batchSize, maxBatches);
-        return new RetentionPurgeScheduler(messages, index, audit, inner,
-                enabled, retentionDays, batchSize, maxBatches);
+        var inner = new RetentionPurgeScheduler(messages, attachments, index, audit, files, quotas,
+                null, enabled, retentionDays, batchSize, maxBatches);
+        return new RetentionPurgeScheduler(messages, attachments, index, audit, files, quotas,
+                inner, enabled, retentionDays, batchSize, maxBatches);
     }
 
     private RetentionPurgeScheduler scheduler() {

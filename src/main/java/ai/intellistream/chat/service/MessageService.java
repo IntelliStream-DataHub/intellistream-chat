@@ -51,6 +51,7 @@ public class MessageService {
     private final MessageIndexService messageIndex;
     private final ai.intellistream.chat.metrics.WritePathMetrics metrics;
     private final MessageWriteBehind writeBehind;
+    private final ai.intellistream.chat.moderation.StorageQuotaService quotas;
     /** Self-proxy, so the dispatcher can enter a {@code @Transactional} method for real. */
     private final MessageService self;
 
@@ -64,9 +65,11 @@ public class MessageService {
                           MessageIndexService messageIndex,
                           ai.intellistream.chat.metrics.WritePathMetrics metrics,
                           MessageWriteBehind writeBehind,
+                          ai.intellistream.chat.moderation.StorageQuotaService quotas,
                           @org.springframework.context.annotation.Lazy MessageService self) {
         this.metrics = metrics;
         this.writeBehind = writeBehind;
+        this.quotas = quotas;
         this.self = self;
         this.messageRepository = messageRepository;
         this.attachmentRepository = attachmentRepository;
@@ -382,7 +385,13 @@ public class MessageService {
      * Removes any thread replies and attachment rows in dependency order so the
      * Hibernate session stays consistent (the DB also has on-delete-cascade FKs,
      * but cascaded rows that the session still holds would error on the next flush).
-     * Orphaned files on disk are best-effort cleaned up after the DB delete commits.
+     * Orphaned files on disk are best-effort cleaned up after the DB delete commits,
+     * and their bytes are credited back to whoever uploaded them at the same point.
+     *
+     * <p>This is the <em>hard</em> delete — the author's or channel admin's, not moderation's
+     * reversible one. The bytes really do leave the disk here, which is what makes crediting them
+     * back correct; the admin soft delete deliberately does not credit, because nothing is freed
+     * until the retention purge runs.
      */
     @Transactional
     public DeletedMessage delete(Long messageId, User actor) {
@@ -400,6 +409,10 @@ public class MessageService {
 
         var fileKeys = new ArrayList<String>();
         var indexedIds = new ArrayList<Long>();
+        // The rows are the only record of who uploaded each file and how big it was — the file on
+        // disk carries neither. Collected here, while they still exist, and turned into per-account
+        // credits below; by the time the post-commit hooks run there would be nothing left to read.
+        var doomedAttachments = new ArrayList<ai.intellistream.chat.domain.Attachment>();
 
         // Replies first — gather attachments + reactions, delete dependents, then the replies.
         // Soft-deleted replies are included: parent_id cascades on delete, so they are going
@@ -409,6 +422,7 @@ public class MessageService {
             indexedIds.add(reply.getId());
             var replyAttachments = attachmentRepository.findByMessageOrderByCreatedAtAsc(reply);
             replyAttachments.forEach(a -> fileKeys.add(a.getStorageKey()));
+            doomedAttachments.addAll(replyAttachments);
             attachmentRepository.deleteAll(replyAttachments);
             reactionRepository.deleteAll(reactionRepository.findByMessageOrderByCreatedAtAsc(reply));
             mentionRepository.deleteAllByMessage(reply);
@@ -418,6 +432,7 @@ public class MessageService {
         // Then this message's own attachments + reactions.
         var ownAttachments = attachmentRepository.findByMessageOrderByCreatedAtAsc(message);
         ownAttachments.forEach(a -> fileKeys.add(a.getStorageKey()));
+        doomedAttachments.addAll(ownAttachments);
         attachmentRepository.deleteAll(ownAttachments);
         reactionRepository.deleteAll(reactionRepository.findByMessageOrderByCreatedAtAsc(message));
         mentionRepository.deleteAllByMessage(message);
@@ -431,10 +446,37 @@ public class MessageService {
         // fail silently.
         var indexedIdsSnapshot = List.copyOf(indexedIds);
         var fileKeysSnapshot = List.copyOf(fileKeys);
+        // Computed now (the entities are still attached and their authors resolvable), applied
+        // after the commit for the same reason the file cleanup waits: a delete that rolls back
+        // must not hand back bytes that are still stored. Registered last so a failing index purge
+        // or file reap cannot skip it — afterCommit guards each hook, but order still decides what
+        // a thrown-and-logged failure costs, and an uncredited account is the one that ends up
+        // unable to upload.
+        var credits = AttachmentService.creditsFor(doomedAttachments);
         afterCommit(() -> messageIndex.deleteAll(indexedIdsSnapshot));
         afterCommit(() -> attachmentService.deleteFiles(fileKeysSnapshot));
+        afterCommit(() -> self.creditBack(credits));
 
         return new DeletedMessage(messageId, channelId, parentId);
+    }
+
+    /**
+     * Hand the freed bytes back, in a transaction of its own.
+     *
+     * <p>The {@code REQUIRES_NEW} is the entire point, and it is not defensive. An {@code afterCommit}
+     * hook runs while the finished transaction's resources are still bound to the thread, so a plain
+     * {@code REQUIRED} write there <em>joins a transaction that has already committed</em>: the UPDATE
+     * is issued, nothing ever commits it, and the connection is released. No exception, no log line,
+     * no decrement — the failure is completely silent, which is why the other post-commit hooks in
+     * this class are filesystem and Lucene work and none of them touch the database. Suspending and
+     * starting a real transaction is what makes this a durable write.
+     *
+     * <p>Goes through {@code self} for the usual reason: a direct call would bypass the proxy and
+     * with it the propagation, putting the silent-loss behaviour straight back.
+     */
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
+    public void creditBack(java.util.Map<Long, Long> credits) {
+        quotas.releaseAll(credits);
     }
 
     /**

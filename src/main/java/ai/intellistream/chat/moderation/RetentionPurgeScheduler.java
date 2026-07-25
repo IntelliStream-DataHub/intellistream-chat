@@ -17,8 +17,11 @@
 package ai.intellistream.chat.moderation;
 
 import ai.intellistream.chat.domain.AdminAudit;
+import ai.intellistream.chat.domain.Attachment;
+import ai.intellistream.chat.repository.AttachmentRepository;
 import ai.intellistream.chat.repository.MessageRepository;
 import ai.intellistream.chat.search.MessageIndexService;
+import ai.intellistream.chat.service.AttachmentService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -77,10 +80,20 @@ import java.util.List;
  * <h2>What goes with the row</h2>
  *
  * Attachments, reactions, mentions, polls and already-removed replies are removed by the schema's
- * {@code on delete cascade}. Attachment <em>files</em> are not: they are left for the CLEAN-1
- * orphan sweep, which deletes on-disk files no row references. The Lucene document was dropped
- * when the message was soft-deleted; the purge deletes it again as cheap insurance, since after
- * this point no reconcile can ever find the message to repair the index from.
+ * {@code on delete cascade}. Attachment <em>files</em> are not — nothing in the database can delete
+ * a file — so this class reaps them itself, and credits their bytes back to whoever uploaded them.
+ * The Lucene document was dropped when the message was soft-deleted; the purge deletes it again as
+ * cheap insurance, since after this point no reconcile can ever find the message to repair the
+ * index from.
+ *
+ * <p><b>This is where storage is actually reclaimed, and therefore where the quota credit belongs.</b>
+ * The admin's "remove these messages" is a soft delete: the row stays, the files stay, not one byte
+ * is freed. Crediting the account there would be a lie with a consequence — it would let an account
+ * delete and re-upload its way past a quota that nothing had actually released, which is the one
+ * failure a quota exists to prevent. The bytes are handed back here, at the moment they stop
+ * occupying the volume, and not before. (Leaving the files to the CLEAN-1 orphan sweep, as an
+ * earlier draft did, had the same shape of problem: the volume stays full for as long as it takes
+ * that sweep to run, and the credit has nowhere honest to happen at all.)
  *
  * <p>One nuance of the cascade: a reply removed <em>later</em> than its parent can be reaped early,
  * riding its parent's deletion before its own window has elapsed. It has been invisible since it
@@ -96,8 +109,12 @@ public class RetentionPurgeScheduler {
     private static final Logger log = LoggerFactory.getLogger(RetentionPurgeScheduler.class);
 
     private final MessageRepository messages;
+    private final AttachmentRepository attachments;
     private final MessageIndexService messageIndex;
     private final AuditService audit;
+    /** Only for {@code deleteFiles} — it owns the storage root and the "never escape it" check. */
+    private final AttachmentService attachmentFiles;
+    private final StorageQuotaService quotas;
     /** Self-proxy so each batch's {@code REQUIRES_NEW} actually takes effect — a direct call
      *  would run inside whatever transaction the scheduler thread has, which is none, making the
      *  "one transaction per batch" guarantee accidental rather than real. */
@@ -109,16 +126,22 @@ public class RetentionPurgeScheduler {
     private final int maxBatches;
 
     public RetentionPurgeScheduler(MessageRepository messages,
+                                   AttachmentRepository attachments,
                                    MessageIndexService messageIndex,
                                    AuditService audit,
+                                   AttachmentService attachmentFiles,
+                                   StorageQuotaService quotas,
                                    @Lazy RetentionPurgeScheduler self,
                                    @Value("${ichat.moderation.purge-enabled:true}") boolean enabled,
                                    @Value("${ichat.moderation.retention-days:30}") int retentionDays,
                                    @Value("${ichat.moderation.purge-batch-size:500}") int batchSize,
                                    @Value("${ichat.moderation.purge-max-batches:200}") int maxBatches) {
         this.messages = messages;
+        this.attachments = attachments;
         this.messageIndex = messageIndex;
         this.audit = audit;
+        this.attachmentFiles = attachmentFiles;
+        this.quotas = quotas;
         this.self = self;
         this.enabled = enabled;
         this.retentionDays = retentionDays;
@@ -155,12 +178,23 @@ public class RetentionPurgeScheduler {
                     break;
                 }
                 batches++;
+                // Read the attachment rows before the delete removes them. `attachments.message_id`
+                // is `on delete cascade`, so once the batch commits the storage key, the size and
+                // the uploader are all gone together — the file left on disk names none of them,
+                // and there is no later pass that could work out whose bytes these were.
+                var doomed = attachments.findByMessageIdsIncludingReplies(batch);
                 purged += self.purgeBatch(batch);
-                // After the commit. The rows are gone for good now, so an index doc that somehow
+                // Everything below runs after the batch's commit: purgeBatch is REQUIRES_NEW, so it
+                // has committed by the time it returns. Nothing here may run before it — a file
+                // deleted for a row that then failed to delete is a message that renders with a
+                // broken attachment forever.
+                //
+                // The index first. The rows are gone for good now, so an index doc that somehow
                 // survived the soft delete has no other way of ever being cleaned up: the
                 // reconcile sweep repairs the index from the messages table, and these ids are no
                 // longer in it.
                 dropFromIndex(batch);
+                reapAttachments(doomed);
             }
         } catch (RuntimeException e) {
             // Log and record what was achieved rather than propagating into the scheduler, where
@@ -200,6 +234,40 @@ public class RetentionPurgeScheduler {
             log.warn("Purged {} message(s) but failed to drop them from the search index; those "
                     + "docs are now unreachable by the reconcile sweep and will need a rebuild",
                     ids.size(), e);
+        }
+    }
+
+    /**
+     * Take the files off disk and hand their bytes back to the accounts that uploaded them.
+     *
+     * <p>Two steps, each guarded, because they fail independently and neither should cost the other.
+     * The credit is a database write in its own transaction (the purge's has already committed —
+     * that is the point), so a connection blip can lose it while the files are gone. That leaves the
+     * account charged for storage it no longer occupies, and {@code UserStorage} offers only an
+     * atomic delta, never an absolute set, so nothing here can put the number right afterwards.
+     * Hence the ERROR: the drift is small, permanent and invisible unless someone is told, and the
+     * only repair is an operator raising the account's quota override. Failing the whole run instead
+     * would be worse — the rows are already gone, so a retry would find nothing to credit either.
+     */
+    private void reapAttachments(List<Attachment> doomed) {
+        if (doomed.isEmpty()) {
+            return;
+        }
+        try {
+            attachmentFiles.deleteFiles(doomed.stream().map(Attachment::getStorageKey).toList());
+        } catch (RuntimeException e) {
+            // deleteFiles already swallows per-file IOExceptions; this is the unexpected residue.
+            // Caught so it cannot skip the credit below, which is the half nothing else can repair.
+            log.warn("Purged {} attachment(s) but failed to remove their files; they are orphans "
+                    + "on disk until the CLEAN-1 sweep runs", doomed.size(), e);
+        }
+        try {
+            quotas.releaseAll(AttachmentService.creditsFor(doomed));
+        } catch (RuntimeException e) {
+            log.error("Purged {} attachment(s) and freed their files, but failed to credit the "
+                    + "bytes back; the uploading accounts stay charged for storage they no longer "
+                    + "use and there is no reconcile that can fix it. Adjust the affected quota "
+                    + "overrides by hand if an account is now stuck.", doomed.size(), e);
         }
     }
 }

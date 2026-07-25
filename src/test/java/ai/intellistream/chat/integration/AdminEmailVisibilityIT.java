@@ -107,7 +107,7 @@ class AdminEmailVisibilityIT {
                 mock(ai.intellistream.chat.moderation.BanService.class),
                 mock(ai.intellistream.chat.moderation.MessageModerationService.class),
                 storageQuotas,
-                mock(ai.intellistream.chat.moderation.AuditService.class));
+                auditMock());
         // Capture the existing value so the suite is reentrant — every test restores it on teardown.
         originalSetting = settings.current().isExposeUserEmails();
     }
@@ -219,5 +219,17 @@ class AdminEmailVisibilityIT {
         assertThat(bobRow.get("email")).isNotEqualTo(bob.getEmail());
         // Format is the stable "first-2-chars + … + domain" pattern.
         assertThat(bobRow.get("email")).asString().contains("…@example.com");
+    }
+
+    /**
+     * A mock that answers {@code recent(...)} with an empty page rather than Mockito's default
+     * null. The admin index renders the audit trail, so a bare mock makes every test in this class
+     * fail on an NPE that has nothing to do with what they are testing.
+     */
+    private static ai.intellistream.chat.moderation.AuditService auditMock() {
+        var audit = mock(ai.intellistream.chat.moderation.AuditService.class);
+        when(audit.recent(org.mockito.ArgumentMatchers.any()))
+                .thenReturn(org.springframework.data.domain.Page.empty());
+        return audit;
     }
 }

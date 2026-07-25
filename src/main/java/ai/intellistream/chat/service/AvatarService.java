@@ -16,7 +16,9 @@
 
 package ai.intellistream.chat.service;
 
+import ai.intellistream.chat.attachments.AttachmentBytes;
 import ai.intellistream.chat.domain.User;
+import ai.intellistream.chat.moderation.StorageQuotaService;
 import ai.intellistream.chat.repository.UserRepository;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
@@ -58,11 +60,14 @@ public class AvatarService {
     private static final Set<String> RESIZABLE_TYPES = Set.of("image/png", "image/jpeg", "image/jpg");
 
     private final UserRepository userRepository;
+    private final StorageQuotaService quotas;
     private final Path storageRoot;
 
     public AvatarService(UserRepository userRepository,
+                         StorageQuotaService quotas,
                          @Value("${ichat.avatars.dir:./data/avatars}") String storageDir) {
         this.userRepository = userRepository;
+        this.quotas = quotas;
         this.storageRoot = Path.of(storageDir).toAbsolutePath().normalize();
     }
 
@@ -83,6 +88,24 @@ public class AvatarService {
      * scale to fit {@link #MAX_DIMENSION}, and re-encode in-place — typical 5 MiB photos
      * compress to under 50 KiB after this. GIF and WebP pass through (animation-preserving
      * resize would need extra deps). Sniffs the leading bytes for a truthful content type.
+     *
+     * <h2>Storage limits: the volume yes, the per-account quota no</h2>
+     * The free-space reserve applies. An avatar is a write to a shared volume like any other, and
+     * the reason {@code min-free-bytes} exists — leaving Postgres room for a WAL segment and Lucene
+     * room to finish a merge — does not care what the bytes are for. Skipping the check here would
+     * have made the profile page the one endpoint that can consume the last megabytes of the disk.
+     *
+     * <p>The per-account quota deliberately does not. An avatar is <em>one</em> file per account,
+     * replaced rather than accumulated, capped at 5 MiB before resize and typically under 50 KiB
+     * after: total avatar storage is bounded by the number of accounts, not by anyone's behaviour,
+     * so metering it protects nothing a quota is for. Against that, charging it would coupling two
+     * unrelated things in the way users notice — an account that filled its quota with attachments
+     * could no longer fix a wrong or offensive profile picture, and could not even <em>clear</em> it
+     * (replacing a file means writing the new one before deleting the old). It would also make the
+     * admin storage screen's per-account number stop meaning "what this person has shared". Charging
+     * would additionally need a credit on every replace, off a best-effort post-commit delete of the
+     * previous file — a decrement that can silently not happen, which is precisely the drift the
+     * accounting is built to avoid.
      */
     @Transactional
     public User upload(User user, String declaredContentType, InputStream in) throws IOException {
@@ -93,18 +116,28 @@ public class AvatarService {
         if (!ALLOWED_TYPES.contains(resolvedType)) {
             throw new IllegalArgumentException("Avatar must be a PNG, JPEG, WEBP, or GIF image");
         }
+        // Probes the avatar directory, not the attachment one — they can be separate volumes, and
+        // the only free space that matters is the one about to be written to.
+        quotas.requireHeadroom(storageRoot);
 
         var rawBytes = readAllCapped(buffered, MAX_BYTES);
         var storedBytes = maybeResize(rawBytes, resolvedType);
 
         var newKey = UUID.randomUUID().toString();
         var target = storageRoot.resolve(newKey);
-        try {
-            Files.write(target, storedBytes);
-        } catch (IOException | RuntimeException e) {
-            Files.deleteIfExists(target);
-            throw e;
-        }
+        // Through AttachmentBytes rather than Files.write so an avatar gets the same disk-failure
+        // treatment as an attachment: no partial file survives any failure path, and an ENOSPC /
+        // EDQUOT write is re-thrown as StorageUnavailableException, which ApiExceptionHandler
+        // answers 507 with an explanation instead of 500 with a stack trace — a full volume is an
+        // operator problem and 500 sends whoever is on call looking in the wrong place. The local
+        // try/catch this replaces called deleteIfExists and re-threw, so a cleanup that itself
+        // failed replaced the real reason for the failure with a misleading one.
+        //
+        // The unmetered overload is the right one here despite its javadoc's warning, because these
+        // bytes really are charged to nobody — see the quota discussion above. MAX_BYTES is passed
+        // anyway: readAllCapped has already enforced it, and repeating it costs nothing and keeps
+        // the ceiling true at the point the file is actually created.
+        AttachmentBytes.streamToFile(new ByteArrayInputStream(storedBytes), target, MAX_BYTES);
 
         // Pull a managed instance so the change is flushed inside this transaction.
         var managed = userRepository.findById(user.getId())

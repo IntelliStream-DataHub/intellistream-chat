@@ -78,11 +78,19 @@ public class ConversationAttachmentService {
         return storageRoot;
     }
 
-    /** Storage keys of a message's attachments — call BEFORE deleting the message (the FK cascade
-     *  removes the rows). Pair with {@link #deleteFiles} after the delete commits. */
+    /**
+     * A message's attachment rows — call BEFORE deleting the message (the FK cascade removes them).
+     *
+     * <p>Returns the rows rather than just their storage keys because a delete owes two things to
+     * two different places: the files have to be reaped from disk ({@link #deleteFiles}) and the
+     * bytes have to be credited back to whoever uploaded them ({@link #creditsFor} →
+     * {@code StorageQuotaService.releaseAll}). Both are recorded only on these rows, so both have
+     * to be read in one pass while they still exist; afterwards the file on disk names no owner.
+     * Apply either only once the delete has committed.
+     */
     @Transactional(readOnly = true)
-    public List<String> storageKeysForMessage(Long messageId) {
-        return repo.findStorageKeysByMessageId(messageId);
+    public List<ConversationAttachment> forMessage(Long messageId) {
+        return repo.findByMessageIdWithAuthor(messageId);
     }
 
     /**
@@ -188,6 +196,13 @@ public class ConversationAttachmentService {
      * (3) the viewer is a current member of that conversation. All three failure modes
      * throw {@link NoSuchElementException} so the controller can answer 404 uniformly,
      * never disclosing whether the attachment exists at all to a non-member.
+     *
+     * <p>There is no removed-message check to make here, unlike
+     * {@link AttachmentService#requireForDownload}: a DM has no soft delete. {@code ConversationMessage}
+     * carries no {@code deletedAt} — moderation's reversible removal covers channel messages only —
+     * so {@code ConversationService.deleteMessage} destroys the row, the cascade destroys this one,
+     * and the lookup above already 404s. If a soft delete is ever added to DMs, this method needs
+     * the same gate its channel twin has.
      */
     @Transactional(readOnly = true)
     public ConversationAttachment requireForDownload(Long conversationId, Long attachmentId, User viewer) {

@@ -16,6 +16,7 @@
 
 package ai.intellistream.chat.service;
 
+import ai.intellistream.chat.domain.Attachment;
 import ai.intellistream.chat.domain.Channel;
 import ai.intellistream.chat.domain.ChannelMember;
 import ai.intellistream.chat.domain.ChannelRole;
@@ -51,6 +52,9 @@ public class ChannelService {
     private final ChannelAccessCache accessCache;
     private final AppSettingsService appSettings;
     private final RateLimiter rateLimiter;
+    private final ai.intellistream.chat.moderation.StorageQuotaService quotas;
+    /** Self-proxy, so {@link #creditBack} really gets its own transaction — see its javadoc. */
+    private final ChannelService self;
 
     public ChannelService(ChannelRepository channelRepository,
                           ChannelMemberRepository memberRepository,
@@ -61,7 +65,11 @@ public class ChannelService {
                           @Lazy AttachmentService attachmentService,
                           ChannelAccessCache accessCache,
                           AppSettingsService appSettings,
-                          RateLimiter rateLimiter) {
+                          RateLimiter rateLimiter,
+                          ai.intellistream.chat.moderation.StorageQuotaService quotas,
+                          @Lazy ChannelService self) {
+        this.quotas = quotas;
+        this.self = self;
         this.accessCache = accessCache;
         this.channelRepository = channelRepository;
         this.memberRepository = memberRepository;
@@ -235,12 +243,19 @@ public class ChannelService {
     @Transactional
     public void destroy(Channel channel, User actor) {
         requireAdmin(channel, actor);
-        // Capture the channel's message ids + attachment storage keys before the delete cascades
-        // the rows away, then purge the Lucene docs and reap the files after commit — otherwise
-        // both leak forever (the index bloats, disk fills) since rebuildIfEmpty never reconciles
-        // a non-empty index. Mirrors MessageService.delete.
+        // Capture the channel's message ids + attachment rows before the delete cascades them away,
+        // then purge the Lucene docs, reap the files and credit the bytes back after commit —
+        // otherwise all three leak forever (the index bloats, the disk fills, and everyone who ever
+        // posted a file here stays charged for it) since rebuildIfEmpty never reconciles a
+        // non-empty index and there is no reconcile at all for storage usage. Mirrors
+        // MessageService.delete.
         var messageIds = messageRepository.findIdsByChannel(channel);
-        var fileKeys = attachmentRepository.findStorageKeysByChannel(channel);
+        var doomedAttachments = attachmentRepository.findByChannelWithAuthor(channel);
+        var fileKeys = doomedAttachments.stream().map(Attachment::getStorageKey).toList();
+        // Unlike a single message's attachments, a channel's belong to everyone who ever posted in
+        // it — hence the per-account map rather than one uploader. Read here for the usual reason:
+        // after the cascade the rows naming those accounts are gone.
+        var credits = AttachmentService.creditsFor(doomedAttachments);
         channelRepository.delete(channel);
         var channelId = channel.getId();
         // Destroy is the one event that can invalidate a cached channel or a cached "may write"
@@ -248,6 +263,22 @@ public class ChannelService {
         afterCommit(() -> accessCache.evictChannel(channelId));
         afterCommit(() -> messageIndex.deleteAll(messageIds));
         afterCommit(() -> attachmentService.deleteFiles(fileKeys));
+        afterCommit(() -> self.creditBack(credits));
+    }
+
+    /**
+     * Hand the freed bytes back, in a transaction of its own.
+     *
+     * <p>{@code REQUIRES_NEW} is load-bearing. An {@code afterCommit} hook runs while the finished
+     * transaction's resources are still bound to the thread, so a plain {@code REQUIRED} write there
+     * joins a transaction that has <em>already committed</em>: the UPDATE is issued, nothing commits
+     * it, the connection is released, and the decrement quietly never happened. That is why every
+     * other hook registered above is Lucene or filesystem work — none of them touch the database.
+     * Same reasoning, and the same wording, as {@code MessageService.creditBack}.
+     */
+    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
+    public void creditBack(java.util.Map<Long, Long> credits) {
+        quotas.releaseAll(credits);
     }
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ChannelService.class);

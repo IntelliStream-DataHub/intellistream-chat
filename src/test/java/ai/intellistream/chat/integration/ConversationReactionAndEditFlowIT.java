@@ -88,6 +88,7 @@ class ConversationReactionAndEditFlowIT {
     @Autowired UserService userService;
     @Autowired ConversationService conversations;
     @Autowired ConversationAttachmentService convAttachments;
+    @Autowired ai.intellistream.chat.moderation.StorageQuotaService quotas;
     @Autowired ConversationReactionService convReactions;
     @Autowired MarkdownRenderer markdown;
 
@@ -102,7 +103,7 @@ class ConversationReactionAndEditFlowIT {
         currentUser = mock(CurrentUser.class);
         broker = mock(SimpMessagingTemplate.class);
         controller = new ConversationRestController(conversations, userService, currentUser,
-                markdown, convAttachments, convReactions, broker, new RateLimiter());
+                markdown, convAttachments, convReactions, broker, new RateLimiter(), quotas);
     }
 
     private User newUser(String label) {

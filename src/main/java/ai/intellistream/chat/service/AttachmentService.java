@@ -172,12 +172,43 @@ public class AttachmentService {
         }
     }
 
+    /**
+     * The download gate: an attachment is fetchable only while the message carrying it is live and
+     * the viewer may read its channel.
+     *
+     * <h2>Why the removal check is here and not only in the feed</h2>
+     * Hiding a removed message from the message list does not take its files out of circulation. The
+     * download URL is a bare {@code /api/attachments/{id}} — it outlives the message in browser
+     * history, in link unfurls, and in whatever the first person who saw it pasted somewhere else.
+     * Without this check "clear everything this account wrote" leaves the account's photos and
+     * documents served to anyone who kept a link, which is the part of the removal a user actually
+     * cares about. Membership was never the whole question.
+     *
+     * <h2>No admin exemption, deliberately</h2>
+     * An admin who genuinely needs a removed attachment has {@code MessageModerationService.restoreOne}:
+     * it brings the message back through the ordinary path <em>and</em> writes an audit row naming
+     * who did it. An admin-only download would instead make the one access nobody can see afterwards
+     * the one aimed at content the workspace decided to remove — the exact inversion of what the
+     * audit trail is for. Keeping one rule for everybody also means the leaked link stops working
+     * for everybody the moment the message is removed, which is what the person who asked for the
+     * removal believes happened.
+     *
+     * <p>Removal is checked before membership so it holds regardless of channel type: a PUBLIC
+     * channel short-circuits {@link ChannelService#requireMember}, and checking in the other order
+     * would leave the gate open on exactly the channels with the widest audience.
+     */
     @Transactional(readOnly = true)
     public Attachment requireForDownload(Long attachmentId, User viewer) {
         var attachment = attachmentRepository.findById(attachmentId)
                 .orElseThrow(() -> new ai.intellistream.chat.security.ResourceNotFoundException("Attachment not found: " + attachmentId));
-        var channel = attachment.getMessage().getChannel();
-        channelService.requireMember(channel, viewer);
+        var message = attachment.getMessage();
+        // 404, not 403: to everyone outside moderation a removed message does not exist, and the
+        // soft delete is an implementation detail of making the removal reversible — it should not
+        // become a way to tell "was removed" apart from "never existed".
+        if (message.isDeleted()) {
+            throw new ai.intellistream.chat.security.ResourceNotFoundException("Attachment not found: " + attachmentId);
+        }
+        channelService.requireMember(message.getChannel(), viewer);
         return attachment;
     }
 

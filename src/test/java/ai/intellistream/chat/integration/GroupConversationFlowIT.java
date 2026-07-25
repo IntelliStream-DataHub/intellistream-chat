@@ -93,6 +93,7 @@ class GroupConversationFlowIT {
     @Autowired UserService userService;
     @Autowired ConversationService conversations;
     @Autowired ConversationAttachmentService convAttachments;
+    @Autowired ai.intellistream.chat.moderation.StorageQuotaService quotas;
     @Autowired ai.intellistream.chat.service.ConversationReactionService convReactions;
     @Autowired MarkdownRenderer markdown;
 
@@ -108,7 +109,7 @@ class GroupConversationFlowIT {
         currentUser = mock(CurrentUser.class);
         broker = mock(SimpMessagingTemplate.class);
         controller = new ConversationRestController(conversations, userService, currentUser,
-                markdown, convAttachments, convReactions, broker, new RateLimiter());
+                markdown, convAttachments, convReactions, broker, new RateLimiter(), quotas);
         ws = new ConversationWebSocketController(conversations, markdown, currentUser,
                 broker, new RateLimiter());
     }

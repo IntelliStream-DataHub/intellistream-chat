@@ -30,10 +30,19 @@ public interface ConversationAttachmentRepository extends JpaRepository<Conversa
 
     List<ConversationAttachment> findByMessageInOrderByCreatedAtAsc(Collection<ConversationMessage> messages);
 
-    /** Storage keys for a message's attachments — captured before a delete so the files can be reaped. */
-    @org.springframework.data.jpa.repository.Query(
-            "select a.storageKey from ConversationAttachment a where a.message.id = :messageId")
-    List<String> findStorageKeysByMessageId(Long messageId);
+    /**
+     * A message's attachments with their uploader loaded — captured before a delete so the files
+     * can be reaped and their bytes credited back. Rows, not storage keys: the key names the file
+     * but says nothing about who is being charged for it or how much, and the delete cascade takes
+     * that away with the row.
+     */
+    @org.springframework.data.jpa.repository.Query("""
+            select a from ConversationAttachment a
+            join fetch a.message m
+            join fetch m.author
+            where m.id = :messageId
+            """)
+    List<ConversationAttachment> findByMessageIdWithAuthor(Long messageId);
 
     /** Every DM attachment storage key — part of the live set for the orphan sweep (CLEAN-1). */
     @org.springframework.data.jpa.repository.Query("select a.storageKey from ConversationAttachment a")
