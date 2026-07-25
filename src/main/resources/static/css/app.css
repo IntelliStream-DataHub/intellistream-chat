@@ -835,23 +835,38 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   width: 24px;
   height: 24px;
 }
-.channel-admin-dropdown #invite-form {
+/* Invite form — the field and its submit read as one control, so the button sits at the end of
+   the row rather than under it. Was id-scoped to #invite-form, which meant the group panel's
+   identical form (#group-add-member-form) matched nothing and stacked its button underneath. */
+.channel-admin-dropdown .invite-form {
   display: flex;
-  gap: 0.4rem;
+  gap: 0.5rem;
   align-items: end;
-  margin-bottom: 0.8rem;
+  margin-bottom: 1rem;
 }
-.channel-admin-dropdown #invite-form label {
+.channel-admin-dropdown .invite-form label {
   display: grid;
-  gap: 0.2rem;
+  gap: 0.25rem;
   font-size: var(--fs-sm);
   color: var(--muted);
   flex: 1;
+  min-width: 0;
 }
-.channel-admin-dropdown #invite-form input { font-size: var(--fs-md); }
-.channel-admin-dropdown #invite-form button {
-  padding: 0.4rem 0.8rem;
-  font-size: var(--fs-sm);
+.channel-admin-dropdown .invite-form input { font-size: var(--fs-md); }
+/* Icon-only submit: square, matched to the input's height so the row has a flat baseline.
+   The action is named by title + aria-label, since there is no visible text to read. */
+.channel-admin-dropdown .invite-form .invite-submit {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  padding: 0;
+  border-radius: var(--radius-sm);
+}
+.channel-admin-dropdown .invite-form .invite-submit .icon {
+  width: 18px;
+  height: 18px;
 }
 .channel-admin-dropdown h4 {
   margin: 0 0 0.4rem;
@@ -870,11 +885,17 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   max-height: 240px;
   overflow-y: auto;
 }
-.channel-admin-dropdown .members li {
+/* The server-rendered member list only. The two JS-rendered lists opt into the column layout
+   with .members-cols and must keep it — these rules are more specific and would otherwise put
+   the row back on flex and re-break the alignment. */
+.channel-admin-dropdown .members:not(.members-cols) li {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   font-size: var(--fs-md);
+  padding: 0.2rem 0;
+}
+.channel-admin-dropdown .members.members-cols > li {
   padding: 0.2rem 0;
 }
 .channel-admin-dropdown .members .avatar {
@@ -883,7 +904,7 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   font-size: var(--fs-xs);
   border-radius: 50%;
 }
-.channel-admin-dropdown .members small {
+.channel-admin-dropdown .members:not(.members-cols) small {
   margin-left: auto;
   color: var(--muted);
   font-size: var(--fs-xs);
@@ -1646,12 +1667,68 @@ button.icon-btn > .icon {
   gap: 0.5rem;
   font-size: var(--fs-md);
 }
-.members small {
+/* Only the bare <small> in the server-rendered member list (the role word). Anything with a
+   class — the handle, the two pills — styles itself, and must not inherit the muted colour;
+   that is what made the ADMIN pill grey-on-blue instead of white-on-blue, since `.members small`
+   outranks `.dm-admin-tag` on specificity. */
+.members small:not([class]) {
   color: var(--muted);
   margin-left: auto;
   text-transform: uppercase;
   font-size: var(--fs-xs);
   letter-spacing: 0.05em;
+}
+
+/* ---------- Members list, column-aligned ----------
+   Grid + subgrid, not a <table>. The rows do need to line up in columns, but a membership list
+   is a list, not tabular data: a table would have a screen reader announcing rows, columns and
+   headers that do not exist, and would need headers invented to justify itself. Subgrid buys the
+   same alignment while the <ul>/<li> semantics stay honest.
+
+   The bug this replaces: the row was a flex line and every <small> in it got margin-left:auto.
+   Flexbox distributes free space equally among auto margins, so the handle's position depended
+   on how many badges its row happened to have — one <small> pushed it to the far right, three
+   put it a third of the way across, 175px apart in the same panel. Columns cannot drift like
+   that, because the track widths are resolved once for the whole list. */
+.members.members-cols {
+  grid-template-columns: auto minmax(0, auto) auto 1fr;
+  column-gap: 0.5rem;
+  align-items: center;
+}
+.members.members-cols > li {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-column: 1 / -1;
+  align-items: center;
+}
+/* The "Loading…" / "No members yet." placeholder is not a member row and has no columns. */
+.members.members-cols > li.dm-empty {
+  display: block;
+}
+.members-cols .member-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.members-cols .member-handle {
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  /* Deliberately not uppercased: this is the login identifier, and @ALICE is not the account
+     @alice. The old shared rule case-folded it, which reads as a different handle and is wrong
+     the moment anyone copies it. */
+  text-transform: none;
+}
+/* Badges and the promote/demote control, right-aligned as a group in the last track. */
+.members-cols .member-meta {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.members-cols .member-meta:empty {
+  display: none;
 }
 
 /* ---------- Search dropdown ---------- */
@@ -3502,6 +3579,11 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
 }
 .channel-role-toggle:hover { background: var(--bg); }
 .channel-role-toggle:disabled { opacity: 0.5; cursor: progress; }
+/* Inside the meta group the spacing is the flex gap, and the group is already right-aligned as a
+   whole — the ad-hoc margins here would push its members apart again. */
+.member-meta .dm-admin-tag,
+.member-meta .channel-role-tag { margin-left: 0; }
+.member-meta .channel-role-toggle { margin-left: 0; }
 .group-header-icon {
   color: var(--muted);
   margin-right: 0.4rem;

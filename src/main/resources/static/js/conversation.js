@@ -710,16 +710,21 @@
           avatarVersion: m.avatarVersion,
         });
         const label = document.createElement('span');
+        label.className = 'member-name';
         label.textContent = name;
         const handle = document.createElement('small');
+        handle.className = 'member-handle';
         handle.textContent = '@' + m.username;
-        li.append(av, label, handle);
+        // Same column contract as the channel members panel — see chat/index.js.
+        const meta = document.createElement('span');
+        meta.className = 'member-meta';
+        li.append(av, label, handle, meta);
         if (m.admin) {
           const badge = document.createElement('small');
           badge.className = 'dm-admin-tag';
           badge.title = 'Workspace administrator';
           badge.textContent = 'admin';
-          li.appendChild(badge);
+          meta.appendChild(badge);
         }
         list.appendChild(li);
       }

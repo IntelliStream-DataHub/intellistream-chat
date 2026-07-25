@@ -264,7 +264,7 @@
     <svg class="icon"><use href="#icon-close"/></svg>
 </button>
                     </header>
-                    <ul class="members" id="channel-members-list">
+                    <ul class="members members-cols" id="channel-members-list">
                         <li class="dm-empty">Loading…</li>
                     </ul>
                 </section>
@@ -281,11 +281,14 @@
     <svg class="icon"><use href="#icon-close"/></svg>
 </button>
                     </header>
-                    <form id="invite-form" th:data-channel-id="${activeChannel.id}">
+                    <form id="invite-form" class="invite-form" th:data-channel-id="${activeChannel.id}">
                         <label>Invite user (username)
                             <input name="username" required autocomplete="off"/>
                         </label>
-                        <button type="submit">Invite</button>
+                        <button type="submit" class="invite-submit"
+                                title="Invite to channel" aria-label="Invite to channel">
+                            <svg class="icon" aria-hidden="true"><use href="#icon-user-plus"/></svg>
+                        </button>
                     </form>
                     <h4>Members</h4>
                     <ul class="members">

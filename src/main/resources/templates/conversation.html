@@ -177,14 +177,17 @@
     <svg class="icon"><use href="#icon-close"/></svg>
 </button>
                     </header>
-                    <form id="group-add-member-form">
+                    <form id="group-add-member-form" class="invite-form">
                         <label>Invite user (username)
                             <input name="username" required autocomplete="off"/>
                         </label>
-                        <button type="submit">Add to group</button>
+                        <button type="submit" class="invite-submit"
+                                title="Invite to group" aria-label="Invite to group">
+                            <svg class="icon" aria-hidden="true"><use href="#icon-user-plus"/></svg>
+                        </button>
                     </form>
                     <h4>In this group</h4>
-                    <ul class="members" id="group-members-list">
+                    <ul class="members members-cols" id="group-members-list">
                         <li class="dm-empty">Loading…</li>
                     </ul>
                 </section>

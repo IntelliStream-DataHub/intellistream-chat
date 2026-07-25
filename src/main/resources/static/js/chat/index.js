@@ -263,23 +263,30 @@ presenceMenu.init();
           avatarVersion: m.avatarVersion,
         });
         const label = document.createElement('span');
+        label.className = 'member-name';
         label.textContent = name;
         const handle = document.createElement('small');
+        handle.className = 'member-handle';
         handle.textContent = '@' + m.username;
-        li.append(av, label, handle);
+        // Badges and the role control share the last grid track, so they go in one wrapper
+        // rather than each claiming a column — that is what keeps the name and handle columns
+        // in the same place whether or not a given member has any badges.
+        const meta = document.createElement('span');
+        meta.className = 'member-meta';
+        li.append(av, label, handle, meta);
         if (m.role === 'ADMIN') {
           const role = document.createElement('small');
           role.className = 'channel-role-tag';
           role.title = 'Channel administrator';
           role.textContent = 'channel admin';
-          li.appendChild(role);
+          meta.appendChild(role);
         }
         if (m.admin) {
           const ws = document.createElement('small');
           ws.className = 'dm-admin-tag';
           ws.title = 'Workspace administrator';
           ws.textContent = 'admin';
-          li.appendChild(ws);
+          meta.appendChild(ws);
         }
         // Promote/demote toggle. Only the channel-admin viewer sees it, never on their
         // own row (no self-demote — also blocks the "last admin" footgun before it can
@@ -316,7 +323,7 @@ presenceMenu.init();
               toggle.disabled = false;
             }
           });
-          li.appendChild(toggle);
+          meta.appendChild(toggle);
         }
         membersList.appendChild(li);
       }
@@ -401,8 +408,13 @@ presenceMenu.init();
     return collapsed.length > max ? collapsed.slice(0, max - 1) + '…' : collapsed;
   };
 
-  const wireSearchDropdown = (input, scopeChannelIdFn) => {
+  const wireSearchDropdown = (input, scopeChannelIdFn, opts) => {
     if (!input) return;
+    // Which edge the panel hangs from. The in-room field is narrow (200px) and sits at the right
+    // of the channel header, while the panel has a 320px floor — left-anchoring ran it past the
+    // window and clipped ~22px off every result at 1440px wide. The global field is wide and
+    // sits mid-header, where left-anchoring is already correct.
+    const anchorRight = !!(opts && opts.anchorRight);
     let dropdown = null;
     let debounce = null;
     let activeIndex = -1;
@@ -422,7 +434,13 @@ presenceMenu.init();
       if (!dropdown) return;
       const r = input.getBoundingClientRect();
       dropdown.style.top = (r.bottom + 4) + 'px';
-      dropdown.style.left = r.left + 'px';
+      if (anchorRight) {
+        dropdown.style.right = '10px';
+        dropdown.style.left = 'auto';
+      } else {
+        dropdown.style.left = r.left + 'px';
+        dropdown.style.right = 'auto';
+      }
       dropdown.style.minWidth = Math.max(r.width, 320) + 'px';
     };
 
@@ -557,7 +575,8 @@ presenceMenu.init();
   document.getElementById('channel-search-form')?.addEventListener('submit', (e) => e.preventDefault());
 
   wireSearchDropdown(document.getElementById('global-search-input'), null);
-  wireSearchDropdown(document.getElementById('channel-search-input'), () => activeChannelId);
+  wireSearchDropdown(document.getElementById('channel-search-input'), () => activeChannelId,
+      { anchorRight: true });
   document.getElementById('channel-search-clear')?.addEventListener('click', () => {
     const inp = document.getElementById('channel-search-input');
     if (inp) inp.value = '';
