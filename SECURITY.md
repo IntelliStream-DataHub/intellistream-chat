@@ -39,7 +39,7 @@ development but **must** be changed before exposing an instance:
   (the app fails fast if it's unset in the `prod` profile).
 - **Remove the demo users** (`alice`, `bob`) and the `admin/admin` Keycloak bootstrap account.
 - **Terminate TLS in front of the app** and keep it bound to loopback (`SERVER_ADDRESS=127.0.0.1`)
-  behind the proxy — see `nginx_example.conf`. The app trusts `X-Forwarded-*` from its upstream.
+  behind the proxy — see [`frontend.md`](frontend.md). The app trusts `X-Forwarded-*` from its upstream.
 - **Set a concrete upload body cap** at the edge (`client_max_body_size`) — workspace admins have
   no application-side upload ceiling.
 - **Back up** the database and the `data/` directory (attachments, avatars, Lucene index).

@@ -3,6 +3,7 @@
 ThreadOrbit — Spring Boot 4 chat application (Slack/Mattermost-style). Read this before making changes; it captures conventions that aren't obvious from the code.
 
 Quick starts: `QUICKSTART-COMPOSE.md` (containers) · `QUICKSTART-MANUAL.md` (native + systemd).
+Production proxy (nginx/haproxy, sizing, the SameSite gotcha): `frontend.md`.
 
 ## Stack
 

@@ -155,11 +155,19 @@ export SERVER_ADDRESS=127.0.0.1                            # bind localhost only
 # framework (already set in application.yml), so no explicit THREADORBIT_SECURITY_COOKIE_SECURE
 # is needed when nginx forwards X-Forwarded-Proto: https.
 
-# 4. Run behind a TLS-terminating reverse proxy (see nginx_example.conf in this repo):
+# 4. Run behind a TLS-terminating reverse proxy (see frontend.md in this repo):
 java -jar build/libs/chat-*.jar
 ```
 
 Then complete the [production hardening checklist](#production-hardening-checklist) below before flipping DNS.
+
+## Production: reverse proxy
+
+[`frontend.md`](frontend.md) covers what to put in front of the JVM: complete nginx and
+haproxy configs, how to size `worker_connections`/`maxconn` for a connection-heavy workload,
+the upstream ephemeral-port limit that bites long before the app runs out of memory, and the
+one deployment mistake that silently breaks login (Keycloak must share a registrable domain
+with the app, because the session cookie is `SameSite=Strict`).
 
 ## Production: systemd + JVM tuning
 
@@ -813,7 +821,7 @@ The systemd / SELinux / Quick start sections cover the mechanical setup. This is
 | ☐ | Change `KC_BOOTSTRAP_ADMIN_PASSWORD` from `admin` | Master key to every account in your realm. |
 | ☐ | Enable **Verify email** in Keycloak before opening self-registration | Without it, bots will mass-register. |
 | ☐ | Configure SMTP under Realm settings → Email | Otherwise password reset and email verification silently no-op. |
-| ☐ | Set `client_max_body_size` in nginx | Edge ceiling above the app's per-user 50 MiB cap. |
+| ☐ | Set `client_max_body_size` in nginx | Edge ceiling above the app's per-user 50 MiB cap — and the only ceiling for admins. See [`frontend.md`](frontend.md). |
 | ☐ | Schedule Postgres + `./data/` backups; verify restores work | The whole product fits in `pg_dump` + that directory. |
 | ☐ | Enable CVE scanning in CI (OWASP `dependency-check`, Dependabot, etc.) | Hibernate / Tomcat / Jackson ship CVEs over any deploy's lifetime. |
 | ☐ | Replace the in-memory `RateLimiter` before scaling past one replica | Per-process limits don't compose across N replicas. |

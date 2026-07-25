@@ -82,7 +82,7 @@ KEYCLOAK_ISSUER_URI=https://auth.your-domain/realms/threadorbit
 KEYCLOAK_CLIENT_ID=threadorbit
 KEYCLOAK_CLIENT_SECRET=CHANGE-ME
 
-# --- HTTP: bind localhost; terminate TLS in nginx/caddy in front (see nginx_example.conf) ---
+# --- HTTP: bind localhost; terminate TLS in nginx/caddy in front (see frontend.md) ---
 SERVER_ADDRESS=127.0.0.1
 SERVER_PORT=8080
 
@@ -148,8 +148,9 @@ journalctl -u threadorbit -f        # watch startup: Flyway migrations, then Tom
 
 ## 6. Reverse proxy + smoke test
 
-Put nginx (or caddy) in front for TLS — `nginx_example.conf` in the repo is a working
-template (it forwards `X-Forwarded-Proto`, which the app trusts via
+Put nginx (or caddy) in front for TLS — [`frontend.md`](frontend.md) has a working
+config for nginx and haproxy, plus the sizing and cookie gotchas (it forwards
+`X-Forwarded-Proto`, which the app trusts via
 `forward-headers-strategy: framework`, and proxies the `/ws` WebSocket endpoint).
 
 Then browse to `https://your-domain`, sign in through Keycloak, create a channel, and post a
