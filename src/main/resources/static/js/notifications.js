@@ -29,6 +29,66 @@
   let stack = null;
   let askedThisSession = false;
 
+  // ---------- Alert sound ----------
+  // Synthesised with the Web Audio API rather than shipped as a file. It is ~40 lines against a
+  // binary asset with a licence to track and a request to serve, it cannot 404, and the CSP does
+  // not have to grant media-src. The cost is that it must be *composed* here rather than chosen,
+  // so it is deliberately plain: two short notes, a rise, quiet.
+  //
+  // Per-device, not per-account, and stored in localStorage: whether you want a noise depends on
+  // the room you are sitting in, not on who you are. Slack and Mattermost both treat it that way.
+  const SOUND_KEY = 'ichat.notification-sound';
+  const soundEnabled = () => localStorage.getItem(SOUND_KEY) !== 'off';
+  const setSoundEnabled = (on) => localStorage.setItem(SOUND_KEY, on ? 'on' : 'off');
+
+  let audioCtx = null;
+  // Browsers refuse to start an AudioContext until the user has interacted with the page, and a
+  // context created before that starts 'suspended' and stays silent. So it is created on the
+  // first real gesture and reused — not on the first notification, which is exactly the moment
+  // there has been no gesture and the sound would be dropped.
+  const unlockAudio = () => {
+    if (audioCtx) return;
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    try {
+      audioCtx = new Ctx();
+    } catch (e) {
+      audioCtx = null;
+    }
+  };
+  ['pointerdown', 'keydown'].forEach((evt) => {
+    document.addEventListener(evt, unlockAudio, { once: true, passive: true });
+  });
+
+  const playChime = () => {
+    if (!soundEnabled() || !audioCtx) return;
+    // A context can be suspended again by the browser (backgrounded tab, media policy). Resuming
+    // is async, so the notes are scheduled off the resulting time rather than "now".
+    const start = (t0) => {
+      // Two notes a fourth apart. Short, with an exponential decay, because a notification that
+      // rings is one the user turns off.
+      [[880, 0], [1174.66, 0.08]].forEach(([freq, delay]) => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = freq;
+        const at = t0 + delay;
+        // Ramp in over 8ms instead of starting at full gain: a hard start is an audible click.
+        gain.gain.setValueAtTime(0.0001, at);
+        gain.gain.exponentialRampToValueAtTime(0.12, at + 0.008);
+        gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.22);
+        osc.connect(gain).connect(audioCtx.destination);
+        osc.start(at);
+        osc.stop(at + 0.24);
+      });
+    };
+    if (audioCtx.state === 'suspended') {
+      audioCtx.resume().then(() => start(audioCtx.currentTime)).catch(() => {});
+    } else {
+      start(audioCtx.currentTime);
+    }
+  };
+
   function ensureStack() {
     if (stack) return stack;
     stack = document.createElement('div');
@@ -124,7 +184,13 @@
     if (!opts || !opts.author) return;
     ensureStack().appendChild(buildToast(opts));
     fireOsNotification(opts);
+    // Independent of the OS-notification permission on purpose. Denying desktop alerts is a
+    // statement about banners, not about sound, and the two are separately useful: the sound is
+    // what reaches you when the window is behind something else.
+    playChime();
   }
 
-  window.MentionNotifications = { show, permissionState };
+  window.MentionNotifications = {
+    show, permissionState, playChime, soundEnabled, setSoundEnabled,
+  };
 })();

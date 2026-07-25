@@ -20,4 +20,5 @@
 //= require mention-inbox.js
 //= require presence.js
 //= require idle-logout.js
+//= require notifications.js
 //= require conversation.js

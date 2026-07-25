@@ -81,6 +81,7 @@ public class ConversationRestController {
     private final SimpMessagingTemplate broker;
     private final RateLimiter rateLimiter;
     private final StorageQuotaService quotas;
+    private final ConversationAlertPublisher alerts;
 
     public ConversationRestController(ConversationService conversations,
                                       UserService userService,
@@ -90,8 +91,10 @@ public class ConversationRestController {
                                       ConversationReactionService reactions,
                                       SimpMessagingTemplate broker,
                                       RateLimiter rateLimiter,
-                                      StorageQuotaService quotas) {
+                                      StorageQuotaService quotas,
+                                      ConversationAlertPublisher alerts) {
         this.quotas = quotas;
+        this.alerts = alerts;
         this.conversations = conversations;
         this.userService = userService;
         this.currentUser = currentUser;
@@ -312,6 +315,7 @@ public class ConversationRestController {
         var saved = conversations.post(conv, me, body.body());
         var dto = ConversationMessageDto.from(saved, markdown.render(saved.getBodyMarkdown()));
         broker.convertAndSend("/topic/conversations/" + id, dto);
+        alerts.alert(conv, saved);
         return dto;
     }
 

@@ -667,6 +667,21 @@ presenceMenu.init();
           showSlashNotice(n.text || '', n.level || 'info');
         } catch (e) { /* ignore malformed */ }
       });
+      // Direct messages and group messages. On this page the user is never looking at the
+      // conversation the alert is about, so there is no "are they already reading it" case to
+      // suppress — that check lives on the conversation page, which can be showing it.
+      stomp.subscribe('/user/queue/conversation-alerts', (frame) => {
+        try {
+          const a = JSON.parse(frame.body);
+          if (!window.MentionNotifications) return;
+          window.MentionNotifications.show({
+            author: a.author,
+            channel: a.type === 'DIRECT' ? 'a direct message' : a.title,
+            snippet: a.preview,
+            url: '/conversations/' + a.conversationId,
+          });
+        } catch (e) { /* ignore malformed */ }
+      });
       if (window.Presence) window.Presence.attachStomp(stomp);
     };
 

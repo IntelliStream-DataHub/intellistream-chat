@@ -98,6 +98,23 @@
             </form>
         </section>
 
+        <!--/* Stored in localStorage, not on the account, so it is per device: whether you want
+               a noise depends on the room you are sitting in, not on who you are. Rendered
+               unchecked and corrected by profile.js on load, because the server does not know
+               the answer and a checkbox that flips after paint is better than one that lies. */-->
+        <section class="profile-section">
+            <h2>Notifications</h2>
+            <p class="profile-help">
+                Applies to this browser only. Mentions and direct messages always show a toast —
+                this controls whether they also make a sound.
+            </p>
+            <label class="notification-sound-toggle">
+                <input type="checkbox" id="notification-sound"/>
+                <span>Play a sound for mentions and direct messages</span>
+            </label>
+            <button type="button" class="linklike" id="notification-sound-preview">Preview</button>
+        </section>
+
         <section class="profile-section">
             <h2>Account</h2>
             <dl class="profile-fields">

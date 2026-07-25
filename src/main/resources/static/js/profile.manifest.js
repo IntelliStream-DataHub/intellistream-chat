@@ -16,4 +16,5 @@
 
 //= require presence.js
 //= require idle-logout.js
+//= require notifications.js
 //= require profile.js

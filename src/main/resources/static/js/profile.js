@@ -284,4 +284,28 @@
       setFeedback('Network error. Please try again.', 'error');
     }
   });
+
+  // ---------- Notification sound ----------
+  // The state lives in localStorage (notifications.js owns the key), so the checkbox is
+  // corrected here rather than rendered checked by the server, which cannot know it.
+  const soundBox = document.getElementById('notification-sound');
+  const soundPreview = document.getElementById('notification-sound-preview');
+  if (soundBox && window.MentionNotifications) {
+    soundBox.checked = window.MentionNotifications.soundEnabled();
+    soundBox.addEventListener('change', () => {
+      window.MentionNotifications.setSoundEnabled(soundBox.checked);
+      // Play on enable, so "did that work" is answered immediately. The click that ticked the
+      // box is also the gesture that unlocks audio, so this is the first moment it can be heard.
+      if (soundBox.checked) window.MentionNotifications.playChime();
+    });
+  }
+  soundPreview?.addEventListener('click', () => {
+    if (!window.MentionNotifications) return;
+    if (!window.MentionNotifications.soundEnabled()) {
+      // Previewing a sound that is switched off would be a lie about what happens on a mention.
+      soundBox.checked = true;
+      window.MentionNotifications.setSoundEnabled(true);
+    }
+    window.MentionNotifications.playChime();
+  });
 })();

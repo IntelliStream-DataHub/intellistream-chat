@@ -449,6 +449,24 @@
         handleFrame(payload);
       } catch (e) { /* ignore malformed frame */ }
     });
+    // Messages in the user's OTHER conversations. The one on screen is handled by the topic
+    // subscription above, so it is filtered out here — and so is the case where this tab is
+    // showing that conversation and focused, because a notification for something the user is
+    // visibly reading is the fastest way to make them turn notifications off.
+    stomp.subscribe('/user/queue/conversation-alerts', (frame) => {
+      try {
+        const a = JSON.parse(frame.body);
+        if (!window.MentionNotifications) return;
+        const isCurrent = String(a.conversationId) === String(conversationId);
+        if (isCurrent && document.visibilityState === 'visible' && document.hasFocus()) return;
+        window.MentionNotifications.show({
+          author: a.author,
+          channel: a.type === 'DIRECT' ? 'a direct message' : a.title,
+          snippet: a.preview,
+          url: '/conversations/' + a.conversationId,
+        });
+      } catch (e) { /* ignore malformed */ }
+    });
     if (window.Presence) window.Presence.attachStomp(stomp);
   };
   // Surface failures so the user can spot a CSP / handshake / auth issue in devtools

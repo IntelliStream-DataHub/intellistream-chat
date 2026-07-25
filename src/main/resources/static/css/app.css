@@ -1982,6 +1982,26 @@ button.icon-btn > .icon {
 .profile-fields dt { color: var(--muted); }
 .profile-fields dd { margin: 0; color: var(--text); }
 
+/* Checkbox and its text on one line. Labels in this app default to a stacked grid, which is
+   right for a field with a caption above it and wrong for a checkbox, where the text is what
+   you click. */
+.notification-sound-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  cursor: pointer;
+  font-size: var(--fs-md);
+}
+.notification-sound-toggle input {
+  width: auto;
+  margin: 0;
+  flex: none;
+}
+#notification-sound-preview {
+  margin-top: 0.5rem;
+  font-size: var(--fs-sm);
+}
+
 /* ---------- Admin console ---------- */
 .admin-content {
   flex: 1;
