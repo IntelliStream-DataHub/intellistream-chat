@@ -28,22 +28,27 @@ import java.util.function.LongFunction;
  * this?" and "may this user write to it?". Both were a database round trip per message, together
  * roughly 40% of the handler's time under load.
  *
- * <p><b>Why this is safe here.</b> Two properties of the domain make it sound rather than a
- * gamble:
+ * <p><b>Why this is safe today, and exactly what that depends on.</b>
  * <ul>
- *   <li>{@link Channel} is immutable once created — the entity exposes no setters, so there is no
- *       rename or PUBLIC↔PRIVATE flip that a cached copy could go stale against. A channel's only
- *       lifecycle events are create and destroy, and destroy invalidates explicitly.</li>
  *   <li>Membership is <b>add-only</b>: {@code join} and {@code invite} add rows, and nothing in the
- *       application removes one short of deleting the whole channel. So only <em>positive</em>
- *       write-access answers are cached — a "yes" cannot silently become a "no", while a user who
- *       has just joined is never held back by a cached "no", because negatives are never stored.
- *   </li>
+ *       application removes one short of deleting the whole channel, which evicts. So only
+ *       <em>positive</em> write-access answers are cached — a "yes" cannot silently become a "no",
+ *       while a user who has just joined is never held back by a cached "no", because negatives are
+ *       never stored.</li>
+ *   <li>No code mutates a {@link Channel} after creation. Note that this is a property of the
+ *       <em>callers</em>, not of the entity: {@code Channel} carries Lombok {@code @Setter} on
+ *       {@code name}, {@code description} and <b>{@code type}</b>, so it is perfectly mutable. An
+ *       earlier version of this comment asserted the entity had no setters, which was wrong —
+ *       grepping the source for {@code void set} does not show setters Lombok generates.</li>
  * </ul>
  *
- * <p>The TTL is therefore not needed for correctness today; it is deliberate insurance against a
- * future membership-removal path whose author forgets to invalidate here. If you add one, call
- * {@link #evictMember} from it and treat the TTL as the backstop it is.
+ * <p><b>Any channel mutator you add must evict here.</b> The sharp edge is {@code setType}: a
+ * PUBLIC→PRIVATE flip is an authorization change, and the cached {@code Channel} is what
+ * {@code StompAuthorizationConfig} hands to {@code ChannelService.requireMember} when authorizing a
+ * STOMP SUBSCRIBE — and {@code requireMember} short-circuits to "allowed" for PUBLIC channels. A
+ * stale cached copy would let a non-member subscribe to a newly-private channel for up to the TTL.
+ * Call {@link #evictChannel} from any such mutator, and {@link #evictMember} from any future
+ * membership-removal path. The TTL bounds the damage; it is not the guarantee.
  *
  * <p>Entries are capped; on overflow the map is cleared wholesale rather than evicted one by one.
  * Rebuilding costs one query per active channel, which is trivially cheaper than maintaining LRU
