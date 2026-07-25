@@ -599,8 +599,140 @@
     });
   })();
 
+  // ---------- Popover ----------
+  // Anchored dialog hung off a button, for occasional actions that would otherwise sit in the
+  // sidebar flow pushing the lists down and competing with them for attention.
+  //
+  // A popover has obligations an inline <details> block doesn't: it has to close on Escape and
+  // on a click elsewhere, or it strands the user with a floating panel and no obvious way out;
+  // and focus has to move into it on open and back to the button on close, or a keyboard user
+  // tabs into a form they can't see and never gets back.
+  //
+  // Lives here rather than in a page script because both the channel and conversation pages
+  // need it, and a second copy is how the two drift apart.
+  const wirePopover = (buttonId, popoverId, firstFieldSelector) => {
+    const button = document.getElementById(buttonId);
+    const popover = document.getElementById(popoverId);
+    if (!button || !popover) return null;
+
+    const isOpen = () => !popover.hidden;
+    const close = ({ refocus = true } = {}) => {
+      if (!isOpen()) return;
+      popover.hidden = true;
+      button.setAttribute('aria-expanded', 'false');
+      if (refocus) button.focus();
+    };
+    const open = () => {
+      popover.hidden = false;
+      button.setAttribute('aria-expanded', 'true');
+      popover.querySelector(firstFieldSelector)?.focus();
+    };
+
+    button.addEventListener('click', (e) => {
+      e.stopPropagation();   // don't let the outside-click handler immediately re-close it
+      isOpen() ? close() : open();
+    });
+    popover.addEventListener('click', (e) => e.stopPropagation());
+    document.addEventListener('click', () => close({ refocus: false }));
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && isOpen()) close();
+    });
+    return { open, close, isOpen };
+  };
+
+  // ---------- New conversation (direct or group) ----------
+  // One popover for both, because from the user's side it is one intent: message these people.
+  // The split into two endpoints is ours, not theirs — one recipient is a direct message, more
+  // than one is a group. The name field only appears once it is a group, since that is the only
+  // case that needs one, and asking up front for a title most conversations never use is what
+  // made the old inline form feel like a chore.
+  //
+  // Wired here rather than in each page script because the channel and conversation pages carry
+  // the identical markup; two copies is how they drift.
+  const wireNewConversation = () => {
+    const form = document.getElementById('new-conversation-form');
+    if (!form) return;
+    const popover = wirePopover('sidebar-dm-btn', 'sidebar-dm-popover', 'input[name="members"]');
+
+    const membersInput = form.querySelector('input[name="members"]');
+    const titleLabel = form.querySelector('.new-conversation-title');
+    const titleInput = form.querySelector('input[name="title"]');
+    const hint = form.querySelector('#new-conversation-hint');
+    const submit = form.querySelector('#new-conversation-submit');
+
+    const names = () => (membersInput.value || '')
+        .split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
+
+    const syncMode = () => {
+      const isGroup = names().length > 1;
+      titleLabel.hidden = !isGroup;
+      submit.textContent = isGroup ? 'Create group' : 'Start';
+      hint.textContent = isGroup
+          ? 'A group needs a name.'
+          : 'One name starts a direct message. Add more to make a group.';
+    };
+    membersInput.addEventListener('input', syncMode);
+
+    const csrfToken = document.querySelector('meta[name="_csrf"]')?.content;
+    const csrfHeader = document.querySelector('meta[name="_csrf_header"]')?.content;
+    const headers = () => {
+      const h = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+      if (csrfToken && csrfHeader) h[csrfHeader] = csrfToken;
+      return h;
+    };
+
+    const fail = (msg) => {
+      hint.textContent = msg;
+      hint.classList.add('form-hint-error');
+      submit.disabled = false;
+    };
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      hint.classList.remove('form-hint-error');
+      const members = names();
+      if (!members.length) return;
+
+      const isGroup = members.length > 1;
+      const title = (titleInput.value || '').trim();
+      if (isGroup && !title) { fail('A group needs a name.'); titleInput.focus(); return; }
+
+      submit.disabled = true;
+      try {
+        const res = isGroup
+            ? await fetch('/api/conversations/group', {
+                method: 'POST', headers: headers(),
+                body: JSON.stringify({ title, members }),
+              })
+            : await fetch('/api/conversations/direct', {
+                method: 'POST', headers: headers(),
+                body: JSON.stringify({ username: members[0] }),
+              });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          // The server reports unresolved names generically on purpose, so it can't be used
+          // as a username-existence oracle. Pass its wording through rather than inventing one.
+          fail(err.message || err.error || 'Could not start that conversation.');
+          return;
+        }
+        const dto = await res.json();
+        popover?.close({ refocus: false });
+        window.location.href = '/conversations/' + dto.id;
+      } catch (err) {
+        fail('Could not start that conversation.');
+      }
+    });
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', wireNewConversation);
+  } else {
+    wireNewConversation();
+  }
+
   // ---------- Public surface ----------
   window.ChatKit = {
+    wirePopover,
     hashCode,
     avatarColor,
     backfillAvatarColors,

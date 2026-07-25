@@ -626,33 +626,8 @@
     });
   }
 
-  // Group-create form in the sidebar — mirrors chat.js. Kept inline rather than in a
-  // shared module because both pages load both files would be wasteful for one form.
-  document.getElementById('sidebar-create-group-btn')?.addEventListener('click', () => {
-    document.getElementById('sidebar-create-group-toggle')?.click();
-  });
-  document.getElementById('create-group-form-sidebar')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    const title = (fd.get('title') || '').toString().trim();
-    const members = (fd.get('members') || '').toString()
-        .split(/[,\s]+/)
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0);
-    if (!title || members.length === 0) return;
-    const res = await fetch('/api/conversations/group', {
-      method: 'POST',
-      headers: headers(),
-      body: JSON.stringify({ title, members }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ message: res.statusText }));
-      alert('Could not create group: ' + (err.message || err.error || res.statusText));
-      return;
-    }
-    const dto = await res.json();
-    window.location.href = '/conversations/' + dto.id;
-  });
+  // The "New message" popover beside the Direct messages header wires itself in chat-kit.js —
+  // this page and the channel page carry identical markup, and this was the second copy.
 
   // Auto-scroll to the bottom on first paint. Re-runs after a tick and once images
   // load, since avatars / inline images can grow content height *after* the initial

@@ -145,10 +145,33 @@
         <div class="sidebar-section">
             <h2>
                 Direct messages
-                <button type="button" class="add-btn" id="sidebar-create-group-btn"
-                        title="Create group conversation" aria-label="Create group conversation">
-                    <svg class="icon icon-sm"><use href="#icon-plus"/></svg>
-                </button>
+                <!--/* Same popover treatment as create-channel above, and for the same reason:
+                       starting a conversation is occasional, and the form sitting in the sidebar
+                       flow pushed the list down and competed with it. */-->
+                <span class="popover-anchor">
+                    <button type="button" class="add-btn" id="sidebar-dm-btn"
+                            title="New message" aria-label="New message"
+                            aria-haspopup="dialog" aria-expanded="false"
+                            aria-controls="sidebar-dm-popover">
+                        <svg class="icon icon-sm"><use href="#icon-plus"/></svg>
+                    </button>
+                    <div class="sidebar-popover" id="sidebar-dm-popover" role="dialog"
+                         aria-label="New message" hidden>
+                        <form id="new-conversation-form" class="create-channel-form">
+                            <label>To
+                                <input name="members" required autocomplete="off"
+                                       placeholder="alice, bob"/>
+                            </label>
+                            <label class="new-conversation-title" hidden>Group name
+                                <input name="title" maxlength="120"/>
+                            </label>
+                            <p class="form-hint" id="new-conversation-hint">
+                                One name starts a direct message. Add more to make a group.
+                            </p>
+                            <button type="submit" id="new-conversation-submit">Start</button>
+                        </form>
+                    </div>
+                </span>
             </h2>
             <ul class="dm-list" id="sidebar-dm-list">
                 <li th:each="d : ${conversations}"
@@ -170,20 +193,10 @@
                     </a>
                 </li>
                 <li th:if="${conversations == null or conversations.isEmpty()}" class="dm-empty">
-                    Hover an avatar to start one.
+                    No direct messages yet — use + to start one.
                 </li>
             </ul>
 
-            <details class="create-channel" id="sidebar-create-group-details">
-                <summary id="sidebar-create-group-toggle">+ New group</summary>
-                <form id="create-group-form-sidebar" class="create-channel-form">
-                    <label>Title <input name="title" required maxlength="120"/></label>
-                    <label>Members
-                        <input name="members" required placeholder="alice, bob, carol"/>
-                    </label>
-                    <button type="submit">Create group</button>
-                </form>
-            </details>
         </div>
       </div>
     </aside>

@@ -57,72 +57,10 @@ presenceMenu.init();
 
   // Sidebar "+" opens the create-channel form as a popover anchored to the button. Bound here
   // rather than inline because the CSP forbids inline handlers (script-src 'self').
-  //
-  // A popover has obligations a <details> block didn't: it has to close on Escape and on a click
-  // elsewhere, or it strands the user with a floating panel and no obvious way out; and focus has
-  // to move into it on open and back to the button on close, or a keyboard user tabs into a form
-  // they can't see and never gets back.
-  const wirePopover = (buttonId, popoverId, firstFieldSelector) => {
-    const button = document.getElementById(buttonId);
-    const popover = document.getElementById(popoverId);
-    if (!button || !popover) return;
-
-    const isOpen = () => !popover.hidden;
-    const close = ({ refocus = true } = {}) => {
-      if (!isOpen()) return;
-      popover.hidden = true;
-      button.setAttribute('aria-expanded', 'false');
-      if (refocus) button.focus();
-    };
-    const open = () => {
-      popover.hidden = false;
-      button.setAttribute('aria-expanded', 'true');
-      popover.querySelector(firstFieldSelector)?.focus();
-    };
-
-    button.addEventListener('click', (e) => {
-      e.stopPropagation();   // don't let the outside-click handler immediately re-close it
-      isOpen() ? close() : open();
-    });
-    popover.addEventListener('click', (e) => e.stopPropagation());
-    document.addEventListener('click', () => close({ refocus: false }));
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && isOpen()) close();
-    });
-    // A submit navigates away on success; on failure the form stays open with the message.
-    return { close };
-  };
-
-  wirePopover('sidebar-create-add-btn', 'sidebar-create-popover', 'input[name="name"]');
-
-  // ---------- Group conversation create ----------
-  // Tiny <details>-driven form. The "+" beside the "Direct messages" header opens the
-  // form; submit POSTs to /api/conversations/group and navigates to the new room.
-  document.getElementById('sidebar-create-group-btn')?.addEventListener('click', () => {
-    document.getElementById('sidebar-create-group-toggle')?.click();
-  });
-  document.getElementById('create-group-form-sidebar')?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const fd = new FormData(e.target);
-    const title = (fd.get('title') || '').toString().trim();
-    const members = (fd.get('members') || '').toString()
-        .split(/[,\s]+/)        // accept commas and whitespace as separators
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0);
-    if (!title || members.length === 0) return;
-    const res = await fetch('/api/conversations/group', {
-      method: 'POST',
-      headers: headers(),
-      body: JSON.stringify({ title, members }),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ message: res.statusText }));
-      alert('Could not create group: ' + (err.message || err.error || res.statusText));
-      return;
-    }
-    const dto = await res.json();
-    window.location.href = '/conversations/' + dto.id;
-  });
+  // wirePopover lives in chat-kit.js — both pages need it. The "New message" popover beside the
+  // Direct messages header wires itself there too, for the same reason.
+  window.ChatKit.wirePopover('sidebar-create-add-btn', 'sidebar-create-popover',
+      'input[name="name"]');
 
   // ---------- Enter-to-send (Slack/Mattermost-style) ----------
   // Wired at document level so it survives any failure in the larger composer-setup

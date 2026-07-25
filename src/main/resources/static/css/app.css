@@ -2382,6 +2382,16 @@ body.lightbox-open { overflow: hidden; }
 }
 .sidebar-popover[hidden] { display: none; }
 
+/* Hint under the "New message" field. Doubles as the error slot, so a failed create explains
+   itself in place rather than in an alert() the user has to dismiss before fixing anything. */
+.sidebar-popover .form-hint {
+  margin: 0.1rem 0 0.2rem;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  line-height: 1.4;
+}
+.sidebar-popover .form-hint-error { color: var(--danger); }
+
 /* .create-channel-form is styled for the dark sidebar it used to sit in — translucent white fills
    and --sb-text labels. On a light popover that is white text on a white panel. Re-skin it for the
    light surface, exactly as .empty-state already does for the same form in the content area. */
