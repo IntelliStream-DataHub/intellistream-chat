@@ -3771,6 +3771,93 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
    Opened from the avatar dropdown. Deliberately a dialog and not a route: it is glanced at
    while doing something else, and navigating away would lose the reader's place in the
    channel. Definition lists rather than a table so it reflows sanely on a phone. */
+/* ---------- Poll builder modal ---------- */
+/* Deliberately the same shell as the About dialog — same backdrop, same panel, same header —
+   so the app has one modal, not two that drifted. */
+.poll-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: rgba(0, 0, 0, 0.45);
+}
+.poll-modal {
+  width: min(30rem, 100%);
+  max-height: 85vh;
+  overflow-y: auto;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 10px);
+  box-shadow: var(--shadow-3);
+}
+.poll-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+.poll-modal-head h2 { margin: 0; font-size: var(--fs-lg); }
+.poll-modal-body { display: grid; gap: 0.7rem; padding: 1rem; }
+.poll-field { display: grid; gap: 0.3rem; font-size: var(--fs-sm); color: var(--muted); }
+.poll-field input { font-size: var(--fs-md); }
+.poll-options-label { font-size: var(--fs-sm); color: var(--muted); }
+.poll-option-rows { display: grid; gap: 0.45rem; }
+.poll-option-row { display: flex; align-items: center; gap: 0.4rem; }
+.poll-option-row input { flex: 1; min-width: 0; font-size: var(--fs-md); }
+.poll-option-remove[hidden] { display: none; }
+.poll-add-option {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.6rem;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.poll-add-option:hover { background: var(--bg); }
+.poll-add-option[hidden] { display: none; }
+.poll-locked-note {
+  margin: 0;
+  padding: 0.5rem 0.6rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+}
+.poll-locked-note[hidden] { display: none; }
+.poll-modal-error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--fs-sm);
+}
+.poll-modal-error[hidden] { display: none; }
+.poll-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.2rem;
+}
+.poll-modal-cancel {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: 0.45rem 0.9rem;
+  cursor: pointer;
+}
+.poll-modal-submit:disabled { opacity: 0.6; cursor: progress; }
+
 .about-backdrop {
   position: fixed;
   inset: 0;

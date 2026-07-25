@@ -27,6 +27,7 @@
 import { meta, csrfToken, csrfHeader, activeChannelId, headers } from './shared.js';
 import * as chrome from './chrome.js';
 import { initSearchBox } from './search-box.js';
+import { openPollModal } from './poll-modal.js';
 import * as presenceMenu from './presence-menu.js';
 
 chrome.init();
@@ -325,6 +326,23 @@ presenceMenu.init();
       }
     });
   }
+
+  // ---------- Poll builder ----------
+  // The button fills the composer with the command and submits it, rather than posting by
+  // itself: creation then travels the one path — slash dispatch, rate limit, broadcast — that
+  // a typed /poll already travels, instead of a parallel one that can drift from it.
+  document.getElementById('composer-poll')?.addEventListener('click', () => {
+    openPollModal({
+      onSubmit: async (command) => {
+        const input = document.getElementById('composer-input');
+        if (!input) throw new Error('Composer is not available here.');
+        input.value = command;
+        input._autoResize?.();
+        composer?.requestSubmit ? composer.requestSubmit() : composer?.dispatchEvent(
+            new Event('submit', { cancelable: true, bubbles: true }));
+      },
+    });
+  });
 
   // ---------- Search (live dropdown) ----------
   // The box itself lives in chat/search-box.js — the conversation page needs the same one.
@@ -1583,20 +1601,16 @@ presenceMenu.init();
   // they're emoji reactions, not votes. Mobile: each option is a full-width ≥44px button so
   // it's a comfortable tap target on phones; the bar fills the button's background instead
   // of sitting beside it.
-  // Rebuild the command that would have created this poll. A label containing a literal pipe is
-  // re-escaped, so round-tripping an edit through the parser gives back the same labels.
-  const pollCommandFor = (poll) => {
-    const parts = [poll.question, ...(poll.options || []).map((o) => o.label)];
-    return '/poll ' + parts.map((p) => String(p).replace(/\|/g, '\\|')).join(' | ');
-  };
-
   const renderPollWidget = (poll) => {
     const root = document.createElement('div');
     root.className = 'poll-widget';
     root.dataset.pollId = poll.id;
-    // Stashed so startEdit can rebuild the /poll command without another fetch. The command is
-    // the only representation that contains the options — the stored body is just the question.
-    root.dataset.pollCommand = pollCommandFor(poll);
+    // Stashed so startEdit can populate the builder without another fetch: the stored message
+    // body is only the question, so the options exist nowhere else on the page.
+    root.dataset.poll = JSON.stringify({
+      question: poll.question,
+      options: (poll.options || []).map((o) => ({ label: o.label, votes: o.voteCount || 0 })),
+    });
 
     const q = document.createElement('div');
     q.className = 'poll-question';
@@ -1921,11 +1935,29 @@ presenceMenu.init();
     const right = li.querySelector(':scope > div');
     const body = right.querySelector('.message-body');
     if (!body) return;
-    // A poll is edited as the command that created it. Offering "📊 Poll: Question" instead
-    // would let the author change the wording and never the choices — an edit box that looks
-    // like it works and cannot do the thing you opened it for.
+    // A poll is edited in the poll builder, not as text. The command form still works — it is
+    // what gets sent — but asking someone to edit pipe-separated syntax to fix a typo is asking
+    // them to learn the syntax to use the feature.
     const pollEl = li.querySelector('.poll-widget');
-    const original = (pollEl && pollEl.dataset.pollCommand) || li.dataset.bodyMarkdown || '';
+    if (pollEl && pollEl.dataset.poll) {
+      const poll = JSON.parse(pollEl.dataset.poll);
+      const votes = (poll.options || []).reduce((n, o) => n + (o.votes || 0), 0);
+      openPollModal({
+        poll,
+        lockOptions: votes > 0,
+        onSubmit: async (command) => {
+          const res = await fetch('/api/messages/' + li.dataset.id, {
+            method: 'PATCH', headers: headers(), body: JSON.stringify({ body: command }),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.message || err.error || 'Could not save that poll.');
+          }
+        },
+      });
+      return;
+    }
+    const original = li.dataset.bodyMarkdown || '';
     const wrap = document.createElement('div');
     wrap.className = 'message-edit';
     wrap.innerHTML =
