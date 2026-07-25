@@ -92,6 +92,25 @@ public class User {
     @Column(nullable = false)
     private boolean admin = false;
 
+    /**
+     * When set, this account is suspended: authenticated but not allowed to use the chat.
+     *
+     * <p>Local to this application on purpose. Keycloak decides whether the account can obtain a
+     * token at all; this decides whether a principal holding one may act. Both are needed, and
+     * neither is sufficient: disabling in Keycloak leaves an already-open WebSocket posting until
+     * its token expires, and setting this alone does not stop them getting a fresh token.
+     * {@code BanService} drives the pair.
+     */
+    @Column(name = "suspended_at")
+    private Instant suspendedAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "suspended_by")
+    private User suspendedBy;
+
+    @Column(name = "suspension_note", length = 500)
+    private String suspensionNote;
+
     public User(String subject, String username, String email, String displayName) {
         this.subject = subject;
         this.username = username;
@@ -122,5 +141,27 @@ public class User {
 
     public void touchActive(Instant now) {
         this.lastActiveAt = now;
+    }
+
+    /** True when this account is suspended. Read on every authenticated request. */
+    public boolean isSuspended() {
+        return suspendedAt != null;
+    }
+
+    /**
+     * Suspend or restore. Deliberately a pair of intention-revealing methods rather than setters:
+     * suspension is an authorization state, and {@code setSuspendedAt(null)} at a call site reads
+     * like a field assignment rather than like unbanning somebody.
+     */
+    public void suspend(User by, String note) {
+        this.suspendedAt = Instant.now();
+        this.suspendedBy = by;
+        this.suspensionNote = note;
+    }
+
+    public void unsuspend() {
+        this.suspendedAt = null;
+        this.suspendedBy = null;
+        this.suspensionNote = null;
     }
 }

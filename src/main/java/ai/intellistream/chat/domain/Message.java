@@ -111,4 +111,32 @@ public class Message {
     public boolean isThreadReply() {
         return parent != null;
     }
+
+    /**
+     * Soft delete. A removed message keeps its row and drops out of every read path; a scheduled
+     * purge deletes it for real after the retention window.
+     *
+     * <p>Hard-deleting on the admin's click would make "clear everything this account wrote"
+     * irreversible the instant it is pressed, and the first ban is sometimes the wrong ban.
+     */
+    @Column(name = "deleted_at")
+    private java.time.Instant deletedAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "deleted_by")
+    private User deletedBy;
+
+    public boolean isDeleted() {
+        return deletedAt != null;
+    }
+
+    public void softDelete(User by) {
+        this.deletedAt = java.time.Instant.now();
+        this.deletedBy = by;
+    }
+
+    public void restore() {
+        this.deletedAt = null;
+        this.deletedBy = null;
+    }
 }
