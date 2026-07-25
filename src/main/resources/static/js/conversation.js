@@ -341,6 +341,8 @@
   // open an in-page lightbox via the document-level delegate that ships in chat.js — but
   // chat.js isn't loaded here, so wire a minimal local delegate further below.
   function buildAttachmentLink(a) {
+    // Tombstone: the file was deleted from the file manager, the message stayed.
+    if (a.deletedAt) return window.ChatKit.buildRemovedAttachmentEl(a);
     const isImage = (a.contentType || '').startsWith('image/');
     const link = document.createElement('a');
     link.href = a.downloadUrl;

@@ -106,6 +106,7 @@ public interface AttachmentRepository extends JpaRepository<Attachment, Long> {
             join fetch m.channel
             where m.author = :owner
               and lower(a.filename) like :pattern escape '!'
+              and a.deletedAt is null
             order by a.createdAt desc, a.id desc
             """)
     List<Attachment> findUploadedBy(
@@ -119,6 +120,7 @@ public interface AttachmentRepository extends JpaRepository<Attachment, Long> {
             join a.message m
             where m.author = :owner
               and lower(a.filename) like :pattern escape '!'
+              and a.deletedAt is null
             """)
     long countUploadedBy(
             @org.springframework.data.repository.query.Param("owner") ai.intellistream.chat.domain.User owner,
@@ -129,6 +131,7 @@ public interface AttachmentRepository extends JpaRepository<Attachment, Long> {
             select coalesce(sum(a.sizeBytes), 0) from Attachment a
             join a.message m
             where m.author = :owner
+              and a.deletedAt is null
             """)
     long sumBytesUploadedBy(
             @org.springframework.data.repository.query.Param("owner") ai.intellistream.chat.domain.User owner);

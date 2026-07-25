@@ -62,6 +62,53 @@ public class ConversationAttachment {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt = Instant.now();
 
+    @Column(name = "deleted_at")
+    private Instant deletedAt;
+
+    /**
+     * Who removed the file. Kept so the message can say "deleted by alice" in place of the
+     * attachment — a file that vanishes with no explanation reads as a bug in the application
+     * rather than as somebody's decision.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "deleted_by")
+    private User deletedBy;
+
+    /**
+     * The deleter's name as it was, copied so rendering a message never touches this LAZY
+     * association — open-in-view is off, and reading it in a DTO throws. It is also the right
+     * semantics for a tombstone: a later rename should not rewrite history.
+     */
+    @Column(name = "deleted_by_username", length = 120)
+    private String deletedByUsername;
+
+    /**
+     * Tombstone this attachment: the bytes go, the row stays. Recording the decision is all this
+     * does — crediting the quota and reaping the file belong to the caller, inside and after the
+     * transaction respectively.
+     */
+    public void softDelete(User by) {
+        this.deletedAt = Instant.now();
+        this.deletedBy = by;
+        this.deletedByUsername = by == null ? null : by.getUsername();
+    }
+
+    public boolean isDeleted() {
+        return deletedAt != null;
+    }
+
+    public Instant getDeletedAt() {
+        return deletedAt;
+    }
+
+    public User getDeletedBy() {
+        return deletedBy;
+    }
+
+    public String getDeletedByUsername() {
+        return deletedByUsername;
+    }
+
     protected ConversationAttachment() {}
 
     public ConversationAttachment(ConversationMessage message, String filename, String contentType,

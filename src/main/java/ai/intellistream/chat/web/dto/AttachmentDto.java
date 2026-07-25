@@ -27,16 +27,27 @@ public record AttachmentDto(
         String contentType,
         long sizeBytes,
         String downloadUrl,
-        Instant createdAt
+        Instant createdAt,
+        /**
+         * Set when the uploader removed the file from the file manager. The message survives an
+         * attachment deletion, so the client needs to render something in the file's place —
+         * these two fields are that something. Null for a live attachment.
+         */
+        Instant deletedAt,
+        String deletedBy
 ) {
     public static AttachmentDto from(Attachment a) {
+        boolean gone = a.isDeleted();
         return new AttachmentDto(
                 a.getId(),
                 a.getFilename(),
                 a.getContentType(),
                 a.getSizeBytes(),
-                "/api/attachments/" + a.getId() + "/download",
-                a.getCreatedAt()
-        );
+                // No link for a tombstone: the bytes are gone, and offering a download that
+                // 404s is worse than offering none.
+                gone ? null : "/api/attachments/" + a.getId() + "/download",
+                a.getCreatedAt(),
+                a.getDeletedAt(),
+                gone ? a.getDeletedByUsername() : null);
     }
 }

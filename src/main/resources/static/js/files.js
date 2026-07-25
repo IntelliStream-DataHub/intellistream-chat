@@ -255,8 +255,8 @@
   async function remove(file, button) {
     const ok = window.confirm(
         'Delete “' + file.filename + '”?\n\n'
-        + 'This also deletes the message that posted it, for everyone. '
-        + 'It cannot be undone.');
+        + 'The message stays and will show that the file was deleted, by you, just now. '
+        + 'The file itself cannot be recovered.');
     if (!ok) return;
     button.disabled = true;
     showError('');

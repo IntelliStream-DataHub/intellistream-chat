@@ -65,6 +65,7 @@ public interface ConversationAttachmentRepository extends JpaRepository<Conversa
             join fetch m.conversation
             where m.author = :owner
               and lower(a.filename) like :pattern escape '!'
+              and a.deletedAt is null
             order by a.createdAt desc, a.id desc
             """)
     List<ConversationAttachment> findUploadedBy(
@@ -78,6 +79,7 @@ public interface ConversationAttachmentRepository extends JpaRepository<Conversa
             join a.message m
             where m.author = :owner
               and lower(a.filename) like :pattern escape '!'
+              and a.deletedAt is null
             """)
     long countUploadedBy(
             @org.springframework.data.repository.query.Param("owner") ai.intellistream.chat.domain.User owner,
@@ -88,6 +90,7 @@ public interface ConversationAttachmentRepository extends JpaRepository<Conversa
             select coalesce(sum(a.sizeBytes), 0) from ConversationAttachment a
             join a.message m
             where m.author = :owner
+              and a.deletedAt is null
             """)
     long sumBytesUploadedBy(
             @org.springframework.data.repository.query.Param("owner") ai.intellistream.chat.domain.User owner);

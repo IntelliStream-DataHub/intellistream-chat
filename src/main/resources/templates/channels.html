@@ -232,14 +232,26 @@
                             </div>
                             <div th:if="${!msg.attachments.isEmpty()}" class="message-attachments">
                                 <th:block th:each="a : ${msg.attachments}">
-                                    <a th:if="${#strings.startsWith(a.contentType, 'image/')}"
+                                    <!--/* Tombstone: the uploader deleted the file from the file
+                                           manager and the message stayed. Not a link — the bytes
+                                           are gone, and a download that 404s is worse than none. */-->
+                                    <span th:if="${a.deletedAt != null}" class="attachment attachment-removed"
+                                          th:title="|Deleted ${#temporals.format(a.deletedAt, 'd MMM yyyy, HH:mm')}${a.deletedBy != null ? ' by ' + a.deletedBy : ''}|">
+                                        <svg class="icon attachment-icon" aria-hidden="true"><use href="#icon-paperclip"/></svg>
+                                        <span class="attachment-info">
+                                            <span class="attachment-name" th:text="${a.filename}">file</span>
+                                            <span class="attachment-meta"
+                                                  th:text="|Deleted ${#temporals.format(a.deletedAt, 'd MMM yyyy, HH:mm')}${a.deletedBy != null ? ' by ' + a.deletedBy : ''}|">removed</span>
+                                        </span>
+                                    </span>
+                                    <a th:if="${a.deletedAt == null and #strings.startsWith(a.contentType, 'image/')}"
                                        class="attachment-image"
                                        th:href="@{${a.downloadUrl}}"
                                        target="_blank" rel="noopener"
                                        th:title="${a.filename}">
                                         <img th:src="@{${a.downloadUrl}}" th:alt="${a.filename}" loading="lazy"/>
                                     </a>
-                                    <a th:unless="${#strings.startsWith(a.contentType, 'image/')}"
+                                    <a th:if="${a.deletedAt == null and !#strings.startsWith(a.contentType, 'image/')}"
                                        class="attachment"
                                        th:href="@{${a.downloadUrl}}"
                                        th:attr="data-content-type=${a.contentType}"

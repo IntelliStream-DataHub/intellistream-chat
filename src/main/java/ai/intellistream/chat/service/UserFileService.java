@@ -100,6 +100,7 @@ public class UserFileService {
     private final ConversationMemberRepository conversationMembers;
     private final MessageService messageService;
     private final ConversationService conversationService;
+    private final AttachmentService channelAttachments;
     private final ConversationAttachmentService conversationAttachments;
     private final StorageQuotaService quotas;
 
@@ -109,6 +110,7 @@ public class UserFileService {
                            ConversationMemberRepository conversationMembers,
                            MessageService messageService,
                            ConversationService conversationService,
+                           AttachmentService channelAttachments,
                            ConversationAttachmentService conversationAttachments,
                            StorageQuotaService quotas) {
         this.channelFiles = channelFiles;
@@ -117,6 +119,7 @@ public class UserFileService {
         this.conversationMembers = conversationMembers;
         this.messageService = messageService;
         this.conversationService = conversationService;
+        this.channelAttachments = channelAttachments;
         this.conversationAttachments = conversationAttachments;
         this.quotas = quotas;
     }
@@ -288,29 +291,26 @@ public class UserFileService {
         var attachment = channelFiles.findById(attachmentId).orElseThrow(UserFileService::notYours);
         var message = attachment.getMessage();
         requireOwner(owner, message.getAuthor());
+        if (attachment.isDeleted()) throw notYours();   // already a tombstone; nothing to remove
 
-        var block = blockReasonFor(message, repliesTo(message));
+        var block = blockReasonFor(message);
         if (block != null) {
             throw new FileDeleteRefusedException(block);
         }
 
         var filename = attachment.getFilename();
-        // Every attachment on the message, not just the one that was clicked: the delete takes the
-        // message, so it takes its siblings too. One upload makes one message today, but reporting
-        // only the clicked file's size would understate what was freed the moment that stops
-        // holding, and "the number the UI showed" is how a quota discrepancy gets noticed.
-        var bytes = channelFiles.findByMessageOrderByCreatedAtAsc(message).stream()
-                .mapToLong(Attachment::getSizeBytes).sum();
+        var bytes = attachment.getSizeBytes();
+        var storageKey = attachment.getStorageKey();
         var messageId = message.getId();
         var channelId = message.getChannel().getId();
         var parentId = message.getParent() == null ? null : message.getParent().getId();
 
-        // Joins this transaction: the attachment rows go, the Lucene documents are dropped after
-        // the commit, the files are reaped after the commit, and quotas.releaseAll runs *inside*
-        // it. Re-checks author-or-channel-admin itself, so the ownership check above is the file
-        // manager's own rule (only the uploader, never a channel admin, manages someone's files
-        // from here) rather than a substitute for it.
-        messageService.delete(messageId, owner);
+        // The message stays. Only the attachment is tombstoned, so the caption survives, replies
+        // survive, and the message can say what happened to the file instead of leaving a gap.
+        attachment.softDelete(owner);
+        // In this transaction, next to the tombstone — see the class note on afterCommit.
+        quotas.releaseAll(AttachmentService.creditsFor(List.of(attachment)));
+        afterCommit(() -> channelAttachments.deleteFiles(List.of(storageKey)));
 
         return new DeletedFile(Scope.CHANNEL, attachmentId, filename, bytes,
                 messageId, channelId, parentId, null);
@@ -320,27 +320,17 @@ public class UserFileService {
         var attachment = conversationFiles.findById(attachmentId).orElseThrow(UserFileService::notYours);
         var message = attachment.getMessage();
         requireOwner(owner, message.getAuthor());
+        if (attachment.isDeleted()) throw notYours();
 
         var filename = attachment.getFilename();
+        var bytes = attachment.getSizeBytes();
+        var storageKey = attachment.getStorageKey();
         var messageId = message.getId();
         var conversationId = message.getConversation().getId();
 
-        // Read the rows before the delete cascades them away: the storage keys so the files can be
-        // reaped, and the (uploader, size) pairs so the bytes can be credited. Neither survives the
-        // cascade — a file on disk names no owner. One read for both, so an upload landing between
-        // two reads can't leave a file reaped-but-uncredited or credited-but-unreaped.
-        var doomed = conversationFiles.findByMessageIdWithAuthor(messageId);
-        var keys = doomed.stream().map(ConversationAttachment::getStorageKey).toList();
-        var credits = ConversationAttachmentService.creditsFor(doomed);
-        long bytes = doomed.stream().mapToLong(ConversationAttachment::getSizeBytes).sum();
-
-        // Joins this transaction and re-checks authorization; a DM has no soft delete and no
-        // threads, so there is no refusal case on this side.
-        conversationService.deleteMessage(messageId, owner);
-        // In this transaction, not after it: the delete and the refund then commit together and the
-        // recorded usage cannot disagree with the rows. See the class-level note about afterCommit.
-        quotas.releaseAll(credits);
-        afterCommit(() -> conversationAttachments.deleteFiles(keys));
+        attachment.softDelete(owner);
+        quotas.releaseAll(ConversationAttachmentService.creditsFor(List.of(attachment)));
+        afterCommit(() -> conversationAttachments.deleteFiles(List.of(storageKey)));
 
         return new DeletedFile(Scope.CONVERSATION, attachmentId, filename, bytes,
                 messageId, null, null, conversationId);
@@ -378,7 +368,7 @@ public class UserFileService {
             var channel = message.getChannel();
             var parent = message.getParent();
             long replies = parent == null ? replyCounts.getOrDefault(message.getId(), 0L) : 0L;
-            var block = blockReasonFor(message, replies);
+            var block = blockReasonFor(message);
             // Anchor on the thread parent for a reply: the channel page's ?m= anchor rejects
             // thread-reply ids and would silently fall back to "latest 50", losing the link's point.
             var anchorId = parent == null ? message.getId() : parent.getId();
@@ -440,18 +430,11 @@ public class UserFileService {
      * The single place the delete policy is decided, so the listing's badge and the endpoint's
      * refusal can never drift apart. Returns null when the file may be deleted.
      */
-    private static String blockReasonFor(ai.intellistream.chat.domain.Message message, long replyCount) {
+    private static String blockReasonFor(ai.intellistream.chat.domain.Message message) {
         if (message.isDeleted()) {
             return "The message holding this file was removed by a moderator. That removal is "
                     + "reversible, so the file is kept — and still counted against your storage — "
                     + "until the retention window expires and the purge deletes it for good.";
-        }
-        if (replyCount > 0) {
-            return "This file was posted on a message with " + replyCount
-                    + (replyCount == 1 ? " reply" : " replies")
-                    + ". Deleting the file deletes its message, and that would take those replies "
-                    + "with it — they are not yours to remove. Open the thread and delete the "
-                    + "replies first if you really want the file gone.";
         }
         return null;
     }

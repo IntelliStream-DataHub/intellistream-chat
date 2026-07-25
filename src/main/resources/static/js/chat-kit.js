@@ -599,6 +599,36 @@
     });
   })();
 
+  // ---------- Removed attachment ----------
+  // A file deleted from the file manager leaves its message standing, so the message has to say
+  // what happened. Rendered as plain text, not a link: the bytes are gone, and a download that
+  // 404s is worse than no download. Named and dated because "a file used to be here" invites the
+  // question this answers.
+  const formatRemovedAt = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return isNaN(d) ? '' : d.toLocaleString([], {
+      year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+  };
+
+  const buildRemovedAttachmentEl = (a) => {
+    const el = document.createElement('span');
+    el.className = 'attachment attachment-removed';
+    el.innerHTML =
+        '<svg class="icon attachment-icon" aria-hidden="true"><use href="#icon-paperclip"/></svg>' +
+        '<span class="attachment-info">' +
+          '<span class="attachment-name"></span>' +
+          '<span class="attachment-meta"></span>' +
+        '</span>';
+    el.querySelector('.attachment-name').textContent = a.filename || 'File';
+    const when = formatRemovedAt(a.deletedAt);
+    el.querySelector('.attachment-meta').textContent =
+        'Deleted' + (when ? ' ' + when : '') + (a.deletedBy ? ' by ' + a.deletedBy : '');
+    el.title = el.querySelector('.attachment-meta').textContent;
+    return el;
+  };
+
   // ---------- Popover ----------
   // Anchored dialog hung off a button, for occasional actions that would otherwise sit in the
   // sidebar flow pushing the lists down and competing with them for attention.
@@ -733,6 +763,7 @@
   // ---------- Public surface ----------
   window.ChatKit = {
     wirePopover,
+    buildRemovedAttachmentEl,
     hashCode,
     avatarColor,
     backfillAvatarColors,

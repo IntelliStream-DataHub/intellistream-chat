@@ -1540,6 +1540,8 @@ presenceMenu.init();
   };
 
   const buildAttachmentLink = (a) => {
+    // Tombstone: the file was deleted from the file manager, the message stayed.
+    if (a.deletedAt) return window.ChatKit.buildRemovedAttachmentEl(a);
     const isImage = (a.contentType || '').startsWith('image/');
     const link = document.createElement('a');
     link.href = a.downloadUrl;

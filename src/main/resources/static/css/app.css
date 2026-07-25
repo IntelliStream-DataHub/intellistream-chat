@@ -2414,6 +2414,19 @@ body.lightbox-open { overflow: hidden; }
 }
 .sidebar-popover[hidden] { display: none; }
 
+/* A deleted attachment keeps the shape of the thing it replaced, so the eye reads "a file was
+   here" rather than "something is broken", but it is visibly inert: muted, dashed, no pointer,
+   no download affordance. */
+.attachment.attachment-removed {
+  border-style: dashed;
+  color: var(--muted);
+  cursor: default;
+  opacity: 0.85;
+}
+.attachment.attachment-removed .attachment-name {
+  text-decoration: line-through;
+}
+
 /* ---------- Search field with an in-field clear ---------- */
 /* The clear control sits inside the box because it acts on the text in it; beside the box it
    reads as another action on the page. Hidden while the field is empty — a clear button with

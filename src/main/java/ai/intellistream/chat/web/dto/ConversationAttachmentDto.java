@@ -32,17 +32,24 @@ public record ConversationAttachmentDto(
         String contentType,
         long sizeBytes,
         String downloadUrl,
-        Instant createdAt
+        Instant createdAt,
+        /** See {@link AttachmentDto} — same tombstone, same reason. Null for a live attachment. */
+        Instant deletedAt,
+        String deletedBy
 ) {
     public static ConversationAttachmentDto from(ConversationAttachment a) {
         var convId = a.getMessage().getConversation().getId();
+        boolean gone = a.isDeleted();
         return new ConversationAttachmentDto(
                 a.getId(),
                 a.getFilename(),
                 a.getContentType(),
                 a.getSizeBytes(),
-                "/api/conversations/" + convId + "/attachments/" + a.getId() + "/download",
-                a.getCreatedAt()
+                gone ? null
+                     : "/api/conversations/" + convId + "/attachments/" + a.getId() + "/download",
+                a.getCreatedAt(),
+                a.getDeletedAt(),
+                gone ? a.getDeletedByUsername() : null
         );
     }
 }

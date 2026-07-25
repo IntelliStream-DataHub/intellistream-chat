@@ -48,6 +48,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -93,6 +94,7 @@ class UserFileManagerIT {
     @Autowired ChannelService channels;
     @Autowired MessageService messages;
     @Autowired MessageRepository messageRepo;
+    @Autowired ai.intellistream.chat.repository.ConversationMessageRepository conversationMessageRepo;
     @Autowired AttachmentService attachments;
     @Autowired AttachmentRepository attachmentRepo;
     @Autowired ConversationService conversations;
@@ -217,8 +219,13 @@ class UserFileManagerIT {
         // After the commit, read back through a fresh transaction: the statement was not merely
         // issued, it was committed. This is the assertion the afterCommit bug fails.
         assertThat(usedBy(alice)).isZero();
-        assertThat(messageRepo.findById(messageId)).isEmpty();
-        assertThat(attachmentRepo.findById(attachment.getId())).isEmpty();
+        // The message stays; the attachment becomes a tombstone. The quota assertions above are
+        // the point of this test and are unchanged by that — what changed is that the row it
+        // credits for survives, carrying who removed it and when.
+        assertThat(messageRepo.findById(messageId)).isPresent();
+        var tomb = attachmentRepo.findById(attachment.getId()).orElseThrow();
+        assertThat(tomb.isDeleted()).isTrue();
+        assertThat(tomb.getDeletedByUsername()).isEqualTo(alice.getUsername());
         // The bytes left the disk too — a credit for bytes that are still stored is just a leak
         // with better bookkeeping.
         assertThat(file).doesNotExist();
@@ -245,8 +252,11 @@ class UserFileManagerIT {
         Tx.commit();
 
         assertThat(usedBy(alice)).isZero();
-        assertThat(conversationAttachmentRepo.findById(attachment.getId())).isEmpty();
-        assertThat(messageRepo.findById(messageId)).isEmpty();
+        var tomb = conversationAttachmentRepo.findById(attachment.getId()).orElseThrow();
+        assertThat(tomb.isDeleted()).isTrue();
+        assertThat(tomb.getDeletedByUsername()).isEqualTo(alice.getUsername());
+        assertThat(conversationMessageRepo.findById(messageId))
+                .describedAs("the DM that carried it is untouched").isPresent();
         assertThat(file).doesNotExist();
     }
 
@@ -312,7 +322,7 @@ class UserFileManagerIT {
     // ------------------------------------------------------------------ delete: the policy
 
     @Test
-    void refusesToDeleteAFileWhoseMessageHasRepliesAndSaysWhy() throws IOException {
+    void deletingAFileLeavesItsMessageAndEveryReplyStanding() throws IOException {
         var alice = newUser("alice");
         var bob = newUser("bob");
         var room = newChannel(alice);
@@ -323,19 +333,27 @@ class UserFileManagerIT {
         messages.replyInThread(messageId, bob, "thanks!");
         Tx.commit();
 
-        // The listing warns first...
+        // This used to be refused: deleting the file deleted its message, and that cascade would
+        // have taken bob's reply with it. Tombstoning the attachment instead means the replies
+        // were never at risk, so the refusal had nothing left to protect — and the files most
+        // worth removing are exactly the ones people replied to.
         var row = files.list(alice, "spec", 0).files().get(0);
-        assertThat(row.deletable()).isFalse();
-        assertThat(row.blockedReason()).contains("1 reply");
+        assertThat(row.deletable()).isTrue();
+        assertThat(row.blockedReason()).isNull();
 
-        // ...and the endpoint refuses, so the badge is not the only thing standing between bob's
-        // reply and a cascade that would take it.
-        assertThatThrownBy(() -> files.delete(alice, UserFileService.Scope.CHANNEL, attachment.getId()))
-                .isInstanceOf(UserFileService.FileDeleteRefusedException.class)
-                .hasMessageContaining("reply");
+        files.delete(alice, UserFileService.Scope.CHANNEL, attachment.getId());
+        Tx.commit();
+
         TestTx.freshRead(() -> {
-            assertThat(attachmentRepo.findById(attachment.getId())).isPresent();
-            assertThat(usedBy(alice)).isEqualTo(100);
+            var kept = attachmentRepo.findById(attachment.getId()).orElseThrow();
+            assertThat(kept.isDeleted()).describedAs("the row survives as a tombstone").isTrue();
+            assertThat(kept.getDeletedByUsername()).isEqualTo(alice.getUsername());
+            assertThat(messageRepo.findById(messageId))
+                    .describedAs("the message that posted it is untouched").isPresent();
+            assertThat(messageRepo.countRepliesIncludingDeletedByParentIds(List.of(messageId)))
+                    .describedAs("bob's reply is still there")
+                    .anySatisfy(r -> assertThat(((Number) r[1]).longValue()).isEqualTo(1L));
+            assertThat(usedBy(alice)).describedAs("and the bytes came back").isZero();
         });
     }
 
