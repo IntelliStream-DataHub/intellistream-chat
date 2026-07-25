@@ -290,31 +290,48 @@ co-located generator. Remaining levers, in impact order:
 3. **Move the load generator off-box.** At this point the co-located client is a first-order
    measurement error, not a rounding one.
 
-## Per-connection memory
+## Per-connection memory, and a tuning idea that didn't survive measurement
 
-Measured by connecting 10,000 sockets to a freshly started instance and taking the RSS and
-heap-used delta either side (small `-Xmx` so the JVM can't hide the growth in slack heap):
+A connection costs roughly **33–50 KB of RSS**, measured as the slope between two loaded points.
+That range is wide because the measurement is noisy, and the noise turns out to be the story.
 
-| | Before | After buffer tuning |
+### The idea
+
+Tomcat allocates a read and a write buffer per socket, 8 KB each by default, and the WebSocket
+container allocates a further 8 KB *binary* message buffer per session. This protocol is STOMP
+over text frames — nothing here ever sends a binary message — and chat frames are a few hundred
+bytes. That looked like ~20 KB per connection reserved for traffic that never arrives, and
+`threadorbit.ws.socket-buffer-bytes` / `threadorbit.ws.binary-buffer-bytes` were added to shrink it.
+
+### It doesn't hold up
+
+An A/B in an identical 3 GB cgroup with an identical `-Xmx`, same generator, only the buffer sizes
+differing:
+
+| Slope computed from | 8192-byte buffers | 2048-byte buffers |
 |---|---:|---:|
-| Off-heap per connection | 39.4 KB | **19.6 KB** |
-| Heap per connection | ~31 KB | ~31 KB |
-| Total RSS delta per connection | ~70 KB | ~70 KB |
+| first loaded sample → peak | 32.7 KB/conn | 36.2 KB/conn |
+| first loaded sample → last sample | 56.6 KB/conn | 49.3 KB/conn |
 
-The off-heap number is the one that moved, and it moved for a specific reason. Tomcat allocates a
-read buffer and a write buffer per socket, 8 KB each by default, and the WebSocket container
-allocates a further 8 KB *binary* message buffer per session. This protocol is STOMP over text
-frames — nothing here ever sends a binary message — and chat frames are a few hundred bytes, so
-roughly 20 KB per connection was reserved for traffic that never arrives. `threadorbit.ws.socket-buffer-bytes`
-and `threadorbit.ws.binary-buffer-bytes` (both 2 KB by default now) recover it.
+Two ways of drawing a line through the same two runs disagree by 70% *and* disagree about which
+configuration is better. An earlier attempt at 10k saw total RSS unchanged at ~70 KB/conn for both.
+Whatever the buffers cost, it is smaller than the run-to-run variation from ZGC deciding when to
+commit heap — so **the saving is not measurable, and the defaults are back to Tomcat's 8192**. The
+properties remain, because they are legitimate knobs for a deployment that knows its message sizes.
 
-**Total RSS at 10k did not change**, because the heap simply expanded into the space the buffers
-gave up. That doesn't make the saving fictional — heap is bounded by `-Xmx` and off-heap isn't, so
-freeing 20 KB per connection of *unbounded* allocation is what raises the connection ceiling on a
-fixed heap. It does mean the ceiling improvement is inferred rather than measured: confirming it
-means running to the ~70k wall, which needs the generator on another box to be meaningful at all.
-Treat "~150–200 KB/connection" from the earlier pass as what it was — total RSS divided by
-connections at the ceiling, including heap headroom — and the ~70 KB here as the marginal cost.
+An earlier revision of this document claimed off-heap fell from 39.4 KB to 19.6 KB per connection.
+That came from sampling `GC.heap_info` after `GC.run` to split heap from off-heap, which does not
+reliably report the live set under ZGC — the same method also reported per-connection heap rising
+from 31 KB to 51 KB between two runs of identical code. It should not have been published as a
+result. Settling this properly needs Native Memory Tracking
+(`-XX:NativeMemoryTracking=summary` plus `jcmd VM.native_memory`), which attributes off-heap
+directly instead of inferring it from a subtraction.
+
+### What is solid
+
+- **~33–50 KB marginal RSS per connection**, which is what makes 100k cost 11.6 GB.
+- The earlier pass's **"150–200 KB/connection" is not comparable** — that divided total RSS by
+  connections at the wall, folding in the JVM's fixed footprint and committed-but-unused heap.
 
 ## OS / kernel tuning applied
 

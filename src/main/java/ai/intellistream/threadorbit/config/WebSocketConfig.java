@@ -63,8 +63,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                            @Value("${threadorbit.ws.inbound-queue:100000}") int inboundQueue,
                            @Value("${threadorbit.ws.outbound-threads:0}") int outboundThreads,
                            @Value("${threadorbit.ws.outbound-queue:200000}") int outboundQueue,
-                           @Value("${threadorbit.ws.binary-buffer-bytes:2048}") int binaryBufferBytes,
-                           @Value("${threadorbit.ws.socket-buffer-bytes:2048}") int socketBufferBytes) {
+                           @Value("${threadorbit.ws.binary-buffer-bytes:8192}") int binaryBufferBytes,
+                           @Value("${threadorbit.ws.socket-buffer-bytes:8192}") int socketBufferBytes) {
         this.binaryBufferBytes = binaryBufferBytes;
         this.socketBufferBytes = socketBufferBytes;
         this.allowedOrigins = Arrays.stream(allowedOriginsCsv.split(","))
@@ -167,15 +167,13 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
      * past 60s (heartbeats are traffic, so a live client never trips this — only a truly dead
      * one whose heartbeats have stopped). 60s > the 10s heartbeat interval by design.
      *
-     * <p>Also sizes the per-session buffers, which is a memory decision rather than a correctness
-     * one: every open connection holds them for its whole life, so at tens of thousands of
-     * connections they are a real fraction of the process. The binary buffer is dropped to near
-     * nothing because this protocol is STOMP over <em>text</em> frames — nothing here ever sends a
-     * binary message, and the default 8 KB is 8 KB per connection reserved for traffic that will
-     * never arrive. The text buffer is left at the container default: Spring reassembles partial
-     * messages above it (its own {@code messageSizeLimit} is the real ceiling on a message), so
-     * this only bounds a single frame fragment, and shrinking it would fragment ordinary sends for
-     * no memory win worth having.
+     * <p>Also exposes the per-session binary message buffer as a knob. It defaults to the
+     * container's 8 KB: shrinking it <em>looks</em> like free memory, since this protocol is STOMP
+     * over text frames and no binary message is ever sent, but an A/B against 2 KB could not
+     * measure any difference in per-connection RSS — the effect is smaller than the run-to-run
+     * variation from ZGC deciding when to commit heap. See the per-connection memory section of
+     * {@code scalability.md}. The knob stays for a deployment that knows its message sizes and has
+     * measured its own workload; the default does not claim a saving that isn't there.
      */
     @Bean
     public ServletServerContainerFactoryBean createWebSocketContainer() {
@@ -190,9 +188,10 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
      *
      * <p>Tomcat allocates both for every connection, 8 KB each by default — sizing appropriate to
      * request/response HTTP traffic, not to a chat socket that sits open for hours exchanging
-     * frames of a few hundred bytes. At 10k connections that default is ~160 MB of buffer the
-     * workload never fills. Configurable rather than hard-coded because a deployment that pushes
-     * genuinely large messages may want the headroom back.
+     * frames of a few hundred bytes, so on paper 10k connections hold ~160 MB of buffer the
+     * workload never fills. In practice a controlled A/B could not detect the difference (see
+     * {@code scalability.md}), so the default matches Tomcat's and this remains a tunable rather
+     * than an optimisation.
      */
     @Bean
     public org.springframework.boot.web.server.WebServerFactoryCustomizer<
