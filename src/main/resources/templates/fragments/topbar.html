@@ -1,0 +1,72 @@
+<!--
+  Copyright 2026 IntelliStream AS
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<body>
+<!--/*
+  The application top bar: logo, global message search, mention bell, avatar link, sign-out form.
+
+  Rendered by every signed-in page through this one fragment. It used to be copied into each
+  template, which is how the direct-message page ended up with an empty <div class="topbar-center">
+  and no message search at all — a whole feature missing from a page because a block was copied
+  before that feature existed. Nothing here is parameterised: `me` and `appTitle` are on the model
+  for every page that renders it.
+*/-->
+<th:block th:fragment="topbar">
+<header class="topbar">
+    <div class="topbar-left">
+        <button type="button" id="sidebar-toggle" class="sidebar-toggle"
+                aria-label="Toggle channel list" aria-controls="app-sidebar" aria-expanded="false">
+            <span class="sidebar-toggle-bar"></span>
+            <span class="sidebar-toggle-bar"></span>
+            <span class="sidebar-toggle-bar"></span>
+        </button>
+        <a th:href="@{/channels}" class="logo">
+            <th:block th:replace="~{fragments/logo :: mark('logo-mark')}"/>
+            <span class="logo-text" th:text="${appTitle}">IntelliStream Chat</span>
+        </a>
+    </div>
+    <div class="topbar-center">
+        <form class="search-form" id="global-search-form">
+            <span class="search-field">
+                <input type="search" id="global-search-input"
+                       placeholder="Search messages…" minlength="2" required/>
+                <button type="button" class="search-clear" tabindex="-1" hidden
+                        title="Clear search" aria-label="Clear search">
+                    <svg class="icon icon-sm" aria-hidden="true"><use href="#icon-close"/></svg>
+                </button>
+            </span>
+            <button type="submit">Search</button>
+        </form>
+    </div>
+    <div class="topbar-right">
+        <div class="topbar-bell" id="topbar-bell">
+            <button type="button" id="topbar-bell-btn" class="topbar-bell-btn"
+                    aria-haspopup="dialog" aria-expanded="false" aria-controls="topbar-bell-panel"
+                    title="Mentions" aria-label="Mentions">
+                <svg class="icon"><use href="#icon-bell"/></svg>
+                <span class="topbar-bell-count" id="topbar-bell-count" hidden>0</span>
+            </button>
+            <div class="topbar-bell-panel" id="topbar-bell-panel" role="dialog"
+                 aria-label="Mentions" hidden>
+                <header class="topbar-bell-header">
+                    <h3>Mentions</h3>
+                    <button type="button" id="topbar-bell-mark-all" class="topbar-bell-action"
+                            title="Mark every channel with unread mentions as read">Mark all as read</button>
+                </header>
+</th:block>
+</body>
+</html>

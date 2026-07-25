@@ -1,0 +1,159 @@
+<!--
+  Copyright 2026 IntelliStream AS
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<body>
+<!--/*
+  The left sidebar: channel search, the curated channel shortlist, the direct-message list, and
+  the two creation popovers.
+
+  ONE COPY, ON PURPOSE. Both pages carried their own version and they had already drifted: the
+  conversation page was missing the channel search, the create-channel popover and the "N more
+  channels" line, and it used different ids for the same two lists, so any script that looked one
+  of them up worked on one page and silently did nothing on the other.
+
+  No parameters. `sidebar`, `conversations`, `activeChannelId` and `activeConversationId` are all
+  on the model for every page that renders this — HomeController sets the inactive ones to null
+  explicitly rather than omitting them, so a highlight cannot depend on which page you are on.
+*/-->
+<th:block th:fragment="sidebar">
+<aside class="sidebar" id="app-sidebar">
+      <div class="sidebar-inner">
+        <div class="sidebar-search">
+            <span class="search-field">
+                <input type="search" id="sidebar-filter" placeholder="Search channels…"
+                       autocomplete="off" aria-label="Search channels"/>
+                <button type="button" class="search-clear" tabindex="-1" hidden
+                        title="Clear search" aria-label="Clear search">
+                    <svg class="icon icon-sm" aria-hidden="true"><use href="#icon-close"/></svg>
+                </button>
+            </span>
+        </div>
+
+        <!--/* The sidebar is a shortlist, not a directory: the channels with the most people and
+               the ones with the most going on. Everything else is found through the search box
+               above, which renders its results in the main content area where there is room to
+               show them. Each group is rendered by the same fragment so the two can't drift. */-->
+        <div class="sidebar-section">
+            <h2>
+                Largest
+                <!--/* The create form hangs off this button as a popover rather than sitting in
+                       the sidebar flow: it's an occasional action, and inline it pushed the
+                       channel list down and competed with it for attention. */-->
+                <span class="popover-anchor">
+                    <button type="button" class="add-btn" id="sidebar-create-add-btn"
+                            title="Create channel" aria-label="Create channel"
+                            aria-haspopup="dialog" aria-expanded="false"
+                            aria-controls="sidebar-create-popover">
+                        <svg class="icon icon-sm"><use href="#icon-plus"/></svg>
+                    </button>
+                    <div class="sidebar-popover" id="sidebar-create-popover" role="dialog"
+                         aria-label="Create channel" hidden>
+                        <form id="create-channel-form-sidebar" class="create-channel-form">
+                            <label>Name <input name="name" required maxlength="120"/></label>
+                            <label>Description <input name="description" maxlength="500"/></label>
+                            <label>Type
+                                <select name="type">
+                                    <option value="PUBLIC">Public</option>
+                                    <option value="PRIVATE">Private</option>
+                                </select>
+                            </label>
+                            <button type="submit">Create</button>
+                        </form>
+                    </div>
+                </span>
+            </h2>
+            <ul class="channel-list" id="sidebar-channel-list"
+                th:replace="~{fragments/channel-group :: group(${sidebar.largest}, ${activeChannelId}, 'sidebar-channel-list')}"></ul>
+        </div>
+
+        <div class="sidebar-section" th:if="${!sidebar.mostActive.isEmpty()}">
+            <h2>Most active</h2>
+            <ul class="channel-list"
+                th:replace="~{fragments/channel-group :: group(${sidebar.mostActive}, ${activeChannelId}, 'sidebar-active-list')}"></ul>
+        </div>
+
+        <div class="sidebar-section">
+            <p class="sidebar-more" th:if="${sidebar.hiddenCount > 0}">
+                <span th:text="${sidebar.hiddenCount}">0</span>
+                more channel<span th:if="${sidebar.hiddenCount != 1}">s</span> —
+                <button type="button" class="linklike" id="sidebar-browse-all">search to find them</button>
+            </p>
+        </div>
+
+        <div class="sidebar-section">
+            <h2>
+                Direct messages
+                <!--/* Same popover treatment as create-channel above, and for the same reason:
+                       starting a conversation is occasional, and the form sitting in the sidebar
+                       flow pushed the list down and competed with it. */-->
+                <span class="popover-anchor">
+                    <button type="button" class="add-btn" id="sidebar-dm-btn"
+                            title="New message" aria-label="New message"
+                            aria-haspopup="dialog" aria-expanded="false"
+                            aria-controls="sidebar-dm-popover">
+                        <svg class="icon icon-sm"><use href="#icon-plus"/></svg>
+                    </button>
+                    <div class="sidebar-popover" id="sidebar-dm-popover" role="dialog"
+                         aria-label="New message" hidden>
+                        <form id="new-conversation-form" class="create-channel-form">
+                            <label>To
+                                <input name="members" required autocomplete="off"
+                                       placeholder="alice, bob"/>
+                            </label>
+                            <label class="new-conversation-title" hidden>Group name
+                                <input name="title" maxlength="120"/>
+                            </label>
+                            <p class="form-hint" id="new-conversation-hint">
+                                One name starts a direct message. Add more to make a group.
+                            </p>
+                            <button type="submit" id="new-conversation-submit">Start</button>
+                        </form>
+                    </div>
+                </span>
+            </h2>
+            <ul class="dm-list" id="sidebar-dm-list">
+                <li th:each="d : ${conversations}"
+                    th:with="active=${activeConversationId != null and activeConversationId == d.id}"
+                    th:classappend="${d.unreadCount > 0 ? 'has-unread' : ''}"
+                    th:attr="data-active=${active},data-conv-id=${d.id},data-conv-type=${d.type.name()}">
+                    <a th:href="@{'/conversations/' + ${d.id}}"
+                       th:classappend="${active ? 'active' : ''}">
+                        <span class="avatar" th:data-author="${d.otherUsername ?: ''}">
+                            <img th:if="${d.otherHasAvatar}" class="avatar-image" alt=""
+                                 th:src="@{/api/users/{u}/avatar(u=${d.otherUsername},v=${d.otherAvatarVersion})}"/>
+                            <span class="avatar-letter"
+                                  th:text="${#strings.toUpperCase(#strings.substring(d.title, 0, 1))}">U</span>
+                        </span>
+                        <span class="dm-name" th:text="${d.title}">name</span>
+                        <svg th:if="${d.type.name() == 'GROUP'}" class="icon icon-sm dm-group-tag"
+                             title="Group conversation"><use href="#icon-group"/></svg>
+                        <span class="unread-badge"
+                              th:if="${d.unreadCount > 0}"
+                              th:text="${d.unreadCount > 99 ? '99+' : d.unreadCount}">3</span>
+                    </a>
+                </li>
+                <li th:if="${conversations == null or conversations.isEmpty()}" class="dm-empty">
+                    No direct messages yet — use + to start one.
+                </li>
+            </ul>
+
+        </div>
+      </div>
+    </aside>
+</th:block>
+</body>
+</html>

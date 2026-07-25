@@ -221,6 +221,10 @@ public class HomeController {
         model.addAttribute("sidebar", sidebarService.curatedFor(me, null));
         model.addAttribute("conversations", listDirectConversations(me));
         model.addAttribute("activeConversationId", conversation.getId());
+        // Null here, but present: the shared sidebar fragment reads both ids to decide which row
+        // is highlighted, and a page that silently omits one is how the two sidebars drifted apart
+        // in the first place.
+        model.addAttribute("activeChannelId", null);
         model.addAttribute("activeConversation", ConversationDto.of(conversation, other));
         model.addAttribute("messages", messages);
         model.addAttribute("isAdmin", me.isAdmin());
