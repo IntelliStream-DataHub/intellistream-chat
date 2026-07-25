@@ -593,6 +593,7 @@
           <li><a href="#pg-sync-commit">synchronous_commit</a></li>
           <li><a href="#pg-autovacuum">Autovacuum on messages</a></li>
           <li><a href="#pg-values">Starting values by RAM</a></li>
+          <li><a href="#pg-zfs">Running on ZFS</a></li>
           <li><a href="#pg-cargo-cult">What not to bother with</a></li>
           <li><a href="#pg-monitor">What to monitor</a></li>
         </ol>
@@ -2204,6 +2205,153 @@ keycloak.issuer-uri      -&gt; both the OIDC client and the resource server issu
     Everything above except <code>shared_buffers</code>, <code>max_connections</code> and
     <code>track_io_timing</code> can be changed with <code>ALTER SYSTEM</code> plus
     <code>SELECT pg_reload_conf()</code>. Those three want a restart.
+  </p>
+</section>
+
+<section class="doc" id="pg-zfs">
+
+  <h3><span class="marker"></span>Running on ZFS</h3>
+  <p>
+    ZFS changes several of the answers above, because it is copy on write. A block is never
+    overwritten in place: the new version is written elsewhere and the pointer is switched when the
+    transaction group commits. Nothing is ever half old and half new. That single property is what
+    makes the settings below safe, and it is worth understanding rather than copying, because every
+    one of them becomes wrong the day you move the data to ext4 or XFS.
+  </p>
+
+  <h4>Dataset layout</h4>
+  <p>
+    Give Postgres its own dataset, and give the WAL a second one. They want opposite things: the
+    heap is read and written in 8 KB pages at random offsets, the WAL is appended sequentially in
+    large runs. One dataset cannot be tuned for both.
+  </p>
+<pre><code>zfs create -o recordsize=8K   -o compression=zstd-1 -o atime=off -o xattr=sa  tank/pgdata
+zfs create -o recordsize=128K -o compression=zstd-1 -o atime=off -o xattr=sa  tank/pgwal</code></pre>
+
+  <div class="tw">
+  <table class="cfg">
+    <thead><tr><th>Property</th><th>Value</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>recordsize</code></td><td><code>8K</code> on the data dataset</td>
+        <td>
+          The single most important one. Postgres reads and writes 8 KB pages; ZFS defaults to a
+          128 KB record. Leave the default and every 8 KB page write reads, modifies and rewrites a
+          128 KB record, a sixteenfold write amplification that no amount of Postgres tuning
+          recovers. Set it before you put data on the dataset, it applies only to newly written
+          blocks.
+        </td>
+      </tr>
+      <tr>
+        <td><code>recordsize</code></td><td><code>128K</code> on the WAL dataset</td>
+        <td>
+          The WAL is written sequentially in 16 MB segments, so large records are what you want.
+          This is why the WAL deserves its own dataset rather than inheriting 8K.
+        </td>
+      </tr>
+      <tr>
+        <td><code>compression</code></td><td><code>zstd-1</code></td>
+        <td>
+          The standard choice here. Postgres pages compress well, and at level 1 zstd is fast
+          enough that the saved I/O more than pays for the CPU. Higher zstd levels cost latency on
+          the write path for a ratio that does not matter at this data size. The compression also
+          makes the 8K recordsize cheaper, since a compressed record occupies fewer sectors.
+        </td>
+      </tr>
+      <tr>
+        <td><code>atime</code></td><td><code>off</code></td>
+        <td>Otherwise every read schedules a metadata write. Nothing here uses access times.</td>
+      </tr>
+      <tr>
+        <td><code>xattr</code></td><td><code>sa</code></td>
+        <td>Stores extended attributes inline instead of in a hidden directory, saving an I/O per lookup.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h4>Postgres settings that change on ZFS</h4>
+  <div class="tw">
+  <table class="cfg">
+    <thead><tr><th>Setting</th><th>On ZFS</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>full_page_writes</code></td><td><code>off</code></td>
+        <td>
+          The reason this setting exists is the torn page: a crash midway through an 8 KB page
+          write leaves the page half old and half new, and the copy in the WAL is what repairs it.
+          Copy on write makes that impossible, so the protection buys nothing and the cost is
+          real, every page touched for the first time after a checkpoint is written to the WAL in
+          full. Turning it off is the largest single reduction in WAL volume available here.
+          <br><br>
+          <b>The condition is the filesystem, not the distribution.</b> Both the data and the WAL
+          must be on ZFS. If either ever moves to ext4, XFS or a plain block device, turn this back
+          on first, because the failure it prevents is silent corruption discovered later.
+        </td>
+      </tr>
+      <tr>
+        <td><code>wal_init_zero</code></td><td><code>off</code></td>
+        <td>
+          Postgres pre-fills new WAL segments with zeroes so the space is really allocated. On a
+          copy on write filesystem that just writes 16 MB of zeroes that will never be read.
+        </td>
+      </tr>
+      <tr>
+        <td><code>wal_recycle</code></td><td><code>off</code></td>
+        <td>
+          Recycling renames an old segment instead of creating one, which on a normal filesystem
+          keeps the blocks warm and sequential. Under copy on write the rewritten segment lands
+          somewhere new regardless, so recycling only defeats readahead.
+        </td>
+      </tr>
+      <tr>
+        <td><code>shared_buffers</code></td><td>smaller than the usual quarter</td>
+        <td>
+          ZFS caches in the ARC, so the ordinary rule double caches: the same page sits in
+          shared_buffers and again in ARC, and you have bought half the memory twice. Start at
+          around an eighth of the memory available to Postgres and give the rest to the ARC, which
+          is better at eviction than Postgres is. Cap the ARC explicitly
+          (<code>zfs_arc_max</code>) so it does not compete with the JVM on a shared host.
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <h4>Two knobs people set that you should think about first</h4>
+  <p>
+    <code>logbias=throughput</code> on the data dataset is often recommended and is genuinely
+    situational: it stops synchronous writes going through the ZIL twice, which helps when
+    <code>synchronous_commit</code> is on and there is no separate log device, and hurts latency
+    when there is one. Measure it, do not inherit it. <code>primarycache=metadata</code> is the
+    other, and it only makes sense if you have already decided to give Postgres a large
+    shared_buffers and want ARC out of the way, which is the opposite of the advice above. Pick one
+    strategy or the other rather than half of each.
+  </p>
+
+  <h4>The application's own data</h4>
+  <p>
+    Attachments and the search index deserve the same treatment, and one of them has a sharp edge.
+    A dataset quota on the attachments directory is the right backstop, it is what turns "the host
+    filled up" into "one upload failed", and the app handles that cleanly, refusing the write and
+    returning 507 rather than leaving a partial file behind.
+  </p>
+  <p>
+    <b>Give the Lucene index its own dataset, not a subdirectory of the attachments one.</b> If a
+    write to the index fails because the attachments quota is exhausted, Lucene's IndexWriter marks
+    itself failed and closes, and every subsequent index update throws until the process restarts.
+    Search then silently stops reflecting new messages while the rest of the application carries on
+    working normally. Separate datasets mean a full attachment volume cannot take search down with
+    it. Default recordsize is fine for both.
+  </p>
+  <p>
+    A ZFS snapshot of the Postgres dataset is crash consistent, which is to say Postgres will
+    replay the WAL and come up cleanly from one, the same as it would after a power cut. That makes
+    snapshots a good fast restore point and not a backup: they share the pool they protect against,
+    and a snapshot of the database and a snapshot of the Lucene index are not atomic with each
+    other. Keep taking <code>pg_dump</code> or <code>pg_basebackup</code> off the machine. The
+    index does not need backing up at all, it rebuilds from the messages table on startup when the
+    directory is empty.
   </p>
 </section>
 
