@@ -74,20 +74,18 @@
     <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
     <aside class="sidebar" id="app-sidebar">
       <div class="sidebar-inner">
+        <!--/* Same curated shortlist as the channel page — see channels.html. Both pages get a
+               SidebarView from HomeController, so both render it through the same fragment. */-->
         <div class="sidebar-section">
-            <h2>Channels</h2>
-            <ul class="channel-list">
-                <li th:each="c : ${sidebar}" th:if="${c.joined}"
-                    th:attr="data-name=${#strings.toLowerCase(c.name)}">
-                    <a th:href="@{'/channels/' + ${c.id}}">
-                        <span class="hash">#</span>
-                        <span class="channel-name" th:text="${c.name}">name</span>
-                        <svg th:if="${c.type.name() == 'PRIVATE'}" class="icon icon-sm" title="Private">
-                            <use href="#icon-lock"/>
-                        </svg>
-                    </a>
-                </li>
-            </ul>
+            <h2>Largest</h2>
+            <ul class="channel-list"
+                th:replace="~{fragments/channel-group :: group(${sidebar.largest}, null, 'dm-sidebar-largest')}"></ul>
+        </div>
+
+        <div class="sidebar-section" th:if="${!sidebar.mostActive.isEmpty()}">
+            <h2>Most active</h2>
+            <ul class="channel-list"
+                th:replace="~{fragments/channel-group :: group(${sidebar.mostActive}, null, 'dm-sidebar-active')}"></ul>
         </div>
 
         <div class="sidebar-section">
