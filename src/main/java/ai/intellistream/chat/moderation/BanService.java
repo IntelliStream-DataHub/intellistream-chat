@@ -123,10 +123,12 @@ public class BanService {
      * @param target the account to suspend; re-read inside the transaction, so a detached or stale
      *               instance from the caller is fine
      * @param note   why, for other administrators; truncated to 500 chars, never shown to the user
-     * @return the managed, now-suspended user
+     * @return the managed user plus a human-readable outcome, including whether the Keycloak
+     *         write-through applied — an admin must be able to tell "suspended" from
+     *         "suspended here, but they can still get a fresh token"
      */
     @Transactional
-    public User suspend(User admin, User target, String note) {
+    public Result suspend(User admin, User target, String note) {
         var managed = load(admin, target);
         if (Objects.equals(admin.getId(), managed.getId())) {
             throw new PublicBadRequestException("You cannot suspend your own account.");
@@ -136,7 +138,7 @@ public class BanService {
                     "Administrators cannot be suspended here — remove their admin role in Keycloak first.");
         }
         if (managed.isSuspended()) {
-            return managed;
+            return new Result(managed, managed.getUsername() + " is already suspended.");
         }
 
         // Registry before the write; see the class javadoc on ordering. The undo is registered
@@ -156,7 +158,10 @@ public class BanService {
         audit.recordOnUser(admin, AdminAudit.SUSPEND, managed,
                 detail("suspended; closed " + closed + " live session(s); " + idp.detail()
                         + (managed.getSuspensionNote() == null ? "" : "; note: " + managed.getSuspensionNote())));
-        return managed;
+        var summary = managed.getUsername() + " suspended; " + closed + " live session(s) closed."
+                + (idp.failed() ? " Keycloak was NOT updated: " + idp.detail()
+                                + " They can still obtain a fresh token until this is fixed." : "");
+        return new Result(managed, summary);
     }
 
     /**
@@ -164,10 +169,10 @@ public class BanService {
      * alone and nothing is recorded.
      */
     @Transactional
-    public User unsuspend(User admin, User target) {
+    public Result unsuspend(User admin, User target) {
         var managed = load(admin, target);
         if (!managed.isSuspended()) {
-            return managed;
+            return new Result(managed, managed.getUsername() + " is not suspended.");
         }
         managed.unsuspend();
         users.save(managed);
@@ -183,7 +188,9 @@ public class BanService {
         // actually committed. A rollback here leaves the registry saying "suspended", which is what
         // the database still says too.
         afterCommit(() -> suspensions.unsuspend(managed));
-        return managed;
+        var summary = managed.getUsername() + " restored."
+                + (idp.failed() ? " Keycloak was NOT re-enabled: " + idp.detail() : "");
+        return new Result(managed, summary);
     }
 
     /**
@@ -239,4 +246,13 @@ public class BanService {
             }
         });
     }
+
+    /**
+     * What happened, in words an administrator can act on.
+     *
+     * <p>The summary exists because "suspended" and "suspended here, but Keycloak still issues
+     * them tokens" are materially different outcomes and the console must not present them
+     * identically. The audit row records the same detail; this is the half a human reads.
+     */
+    public record Result(User user, String summary) {}
 }

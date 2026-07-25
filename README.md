@@ -600,7 +600,7 @@ If you co-locate Postgres on the host, keep `PGDATA` under the default `/var/lib
 - **Markdown** message bodies — server-side render with CommonMark + GFM tables + autolinks, sanitized with jsoup, fenced-code syntax highlighting via highlight.js, and link previews / embedded YouTube.
 - **Full-text search** powered by an embedded **Apache Lucene** index. Three scopes: per-channel, across all channels you've joined, and (admin-only) everywhere.
 - **Themes** (8 built-in palettes) chosen on the profile page.
-- **Admin console** at `/admin` for users with the Keycloak `admin` realm role.
+- **Admin console** at `/admin` for users with the Keycloak `ichat-admin` realm role. A bare `admin` role is deliberately ignored: administering the identity provider is not the same as administering this chat.
 
 ## Stack
 
@@ -920,7 +920,7 @@ Every override is plain Spring Boot env-var substitution against `application.ym
 | `ICHAT_BRANDING_DIR` | `./data/branding` | Where the admin-uploaded logo is stored |
 | _(no env var)_ | _auto_ | The JSESSIONID and CSRF cookies' `Secure` flag is auto-detected from `request.isSecure()` per request. Behind a TLS-terminating proxy with `X-Forwarded-Proto: https`, `forward-headers-strategy: framework` flips request.isSecure() to true and the cookies are marked Secure automatically. To force Secure for every request (e.g. behind a proxy that strips the header), set `server.servlet.session.cookie.secure=true`. |
 
-The Lucene index lives at `./data/lucene` (override with `chat.search.lucene-dir`). Back up the whole `./data/` directory plus the Postgres database and you have everything: messages, attachments, avatars, branding, and the search index.
+The Lucene index lives at `./data/lucene` (override with `ichat.search.lucene-dir`). Back up the whole `./data/` directory plus the Postgres database and you have everything: messages, attachments, avatars, branding, and the search index.
 
 ### Optional: Vault / OpenBao secret backend
 
@@ -1002,7 +1002,7 @@ There's a per-deployment toggle for this. **Default: on (raw emails visible)** t
 
 When off, each row is rendered server-side as `al…@example.com` (first two letters of the local part, then `…`, then the full domain). The DB still stores the raw value — only the rendering is masked, so flipping the toggle back on doesn't lose anything.
 
-The setting persists in `app_settings.expose_user_emails` (V20 migration). It applies only to the admin page; mention rendering, hovercards, and the user profile API don't expose email at all (and never have).
+The setting persists in `app_settings.expose_user_emails` (created in `V1__init.sql`). It applies only to the admin page; mention rendering, hovercards, and the user profile API don't expose email at all (and never have).
 
 ### Production hardening checklist
 
@@ -1052,7 +1052,7 @@ The first run pulls `postgres:18-alpine` (~80 MB); subsequent runs reuse the cac
 ### Test layers
 
 - **Unit** (`src/test/java/.../service/`, `.../security/`) — pure-logic branches: Markdown rendering + sanitization, slug rules, search input validation, role conversion. No Docker.
-- **Integration** (`src/test/java/.../integration/`) — `IntegrationTestApplication` boots a slimmed Spring context (no security / OAuth2 / web autoconfig) against Testcontainers Postgres and exercises the service layer end-to-end. Each IT class registers its own `chat.search.lucene-dir` via `TestLuceneDirs.register(...)` so cached Spring contexts don't fight over the Lucene lock.
+- **Integration** (`src/test/java/.../integration/`) — `IntegrationTestApplication` boots a slimmed Spring context (no security / OAuth2 / web autoconfig) against Testcontainers Postgres and exercises the service layer end-to-end. Each IT class registers its own `ichat.search.lucene-dir` via `TestLuceneDirs.register(...)` so cached Spring contexts don't fight over the Lucene lock.
 - **Controller-shaped ITs** (`AvatarBroadcastIT`, `HovercardAndDmFlowIT`, `MentionBroadcastIT`) wire a controller manually with mocked `CurrentUser` / `SimpMessagingTemplate` to assert broadcast wiring without a full web layer.
 - **Security boundary ITs** (`SecurityBoundaryIT`, `InternetExposureSecurityIT`) pin the auth/authz invariants — see `security_plan.md`.
 

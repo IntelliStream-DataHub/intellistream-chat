@@ -86,7 +86,7 @@ class BanServiceTest {
     void suspendMarksTheAccountAndRecordsWhoDidIt() {
         when(evictor.closeAllFor(2L)).thenReturn(3);
 
-        var result = service.suspend(admin, target, "  spamming  ");
+        var result = service.suspend(admin, target, "  spamming  ").user();
 
         assertThat(result.isSuspended()).isTrue();
         assertThat(result.getSuspendedBy()).isSameAs(admin);
@@ -157,7 +157,7 @@ class BanServiceTest {
     void unsuspendClearsTheStateAndRecordsIt() {
         service.suspend(admin, target, "spam");
 
-        var result = service.unsuspend(admin, target);
+        var result = service.unsuspend(admin, target).user();
 
         assertThat(result.isSuspended()).isFalse();
         assertThat(result.getSuspendedBy()).isNull();

@@ -55,6 +55,9 @@ dependencies {
     implementation("org.commonmark:commonmark:$commonmarkVersion")
     implementation("org.commonmark:commonmark-ext-gfm-tables:$commonmarkVersion")
     implementation("org.commonmark:commonmark-ext-autolink:$commonmarkVersion")
+    // The composer has always had a strikethrough button that wraps the selection in ~~,
+    // but without this extension the tildes rendered literally. See MarkdownRenderer.
+    implementation("org.commonmark:commonmark-ext-gfm-strikethrough:$commonmarkVersion")
 
     implementation("org.jsoup:jsoup:1.22.2")
 

@@ -17,6 +17,7 @@
 package ai.intellistream.chat.service;
 
 import org.commonmark.ext.autolink.AutolinkExtension;
+import org.commonmark.ext.gfm.strikethrough.StrikethroughExtension;
 import org.commonmark.ext.gfm.tables.TablesExtension;
 import org.commonmark.parser.Parser;
 import org.commonmark.renderer.html.HtmlRenderer;
@@ -44,7 +45,11 @@ public class MarkdownRenderer {
     @Autowired
     public MarkdownRenderer(MentionService mentionService) {
         this.mentionService = mentionService;
-        var extensions = List.of(TablesExtension.create(), AutolinkExtension.create());
+        // Strikethrough is not optional decoration: the composer toolbar has always had an S
+        // button that wraps the selection in ~~, so without the extension the app shipped a
+        // control that produced literal tildes in the rendered message.
+        var extensions = List.of(TablesExtension.create(), AutolinkExtension.create(),
+                StrikethroughExtension.create());
         this.parser = Parser.builder().extensions(extensions).build();
         this.renderer = HtmlRenderer.builder().extensions(extensions).build();
         // NB: `span` is deliberately stripped (removeTags — Safelist.basic() allows it by default).
@@ -53,7 +58,10 @@ public class MarkdownRenderer {
         // they didn't actually @-mention (N29).
         this.safelist = Safelist.basic()
                 .removeTags("span")
-                .addTags("h1", "h2", "h3", "h4", "h5", "h6", "pre", "table", "thead", "tbody", "tr", "th", "td")
+                // `del` carries the strikethrough extension's output. Safelist.basic() allows
+                // `strike` but not `del`, so without this the sanitizer would quietly remove
+                // the very markup the extension was added to produce.
+                .addTags("h1", "h2", "h3", "h4", "h5", "h6", "pre", "table", "thead", "tbody", "tr", "th", "td", "del")
                 .addAttributes("a", "rel", "target")
                 .addAttributes("code", "class")
                 .addAttributes("pre", "class");

@@ -50,7 +50,7 @@
   .perf b { display: block; font-size: 1.9rem; line-height: 1.1; color: var(--brand); font-variant-numeric: tabular-nums; letter-spacing: -.01em; }
   .band .perf { background: rgba(255,255,255,.06); border-color: rgba(255,255,255,.16); }
   .band .perf b { color: var(--peach); }
-  .band .perf span { color: var(--band-muted); }
+  .band .perf span { color: #d3e4ee; }   /* --band-muted measured 3.20:1 at 14px */
   .perf span { display: block; margin-top: 6px; color: var(--muted); font-size: .88rem; line-height: 1.45; }
   .maturity { border-left: 3px solid var(--brand); background: var(--brand-soft); padding: 14px 18px; border-radius: 0 8px 8px 0; }
 
@@ -63,7 +63,9 @@
   /* Everything inside a band needs its own light-on-dark treatment: the base rules are written
      for the white sections, so a card, a code block or a step badge dropped on the teal keeps a
      pale background and becomes unreadable (or, for pre, white-on-white). */
-  .band code { background: rgba(255,255,255,.10); border-color: rgba(255,255,255,.18); color: var(--peach); }
+  /* Darkening the chip instead of lightening the text: peach on a 10% white wash measured
+     3.85:1, and a darker backdrop lifts it past AA without changing the accent colour. */
+  .band code { background: rgba(0,0,0,.26); border-color: rgba(255,255,255,.18); color: var(--peach); }
   .band pre {
     background: rgba(0,0,0,.22);
     border-color: rgba(255,255,255,.16);
@@ -112,7 +114,7 @@
   .qs-small h3 { margin: 0 0 8px; font-size: 1.05rem; }
   .qs-small p { margin: 0 0 8px; font-size: .95rem; }
   .qs-small p:last-child { margin-bottom: 0; }
-  .qs-small strong { color: var(--peach); }
+  .qs-small strong { color: #ffd9bd; }   /* peach was 4.13:1 on the band; this is ~7:1 */
   .qs-more { margin-top: 26px; padding-top: 18px; border-top: 1px solid rgba(255,255,255,.18); font-size: .95rem; }
 
 
@@ -831,7 +833,7 @@ sudo apt install -y openjdk-25-jdk podman podman-compose</code></pre>
 
     <div class="qs-step">
       <h3><span class="num">5</span>Keep the test suite green</h3>
-      <p class="qs-note"><code>./gradlew test</code> runs in 1&ndash;2 minutes against Testcontainers Postgres. Make Claude Code add a unit test <em>and</em> an IT for every feature it ships, the existing ~190 tests across 21 classes are the floor, not the ceiling.</p>
+      <p class="qs-note"><code>./gradlew test</code> runs in 1&ndash;2 minutes against Testcontainers Postgres. Add a unit test <em>and</em> an integration test for every feature, the existing tests are the floor, not the ceiling.</p>
     </div>
 
     <p class="intro" style="margin-top: 36px;">
@@ -872,7 +874,7 @@ sudo apt install -y openjdk-25-jdk podman podman-compose</code></pre>
       </div>
       <div class="feature">
         <h3>Attachments &amp; avatars</h3>
-        <p>Streamed multipart uploads (no buffering), images open in a lightbox, profile pictures resized server-side and broadcast on change.</p>
+        <p>Uploads streamed straight to disk as raw request bodies, not multipart (no buffering), images open in a lightbox, profile pictures resized server-side and broadcast on change.</p>
       </div>
       <div class="feature">
         <h3>Notifications</h3>
@@ -1145,6 +1147,9 @@ document.documentElement.classList.add('js');
     });
 
     g.addEventListener('keydown', function (e) {
+      // The button's own handler runs first and this one sees the same event bubbling up; without
+      // this guard ArrowDown opens the panel, focuses item 0, and is then re-read as "move down".
+      if (e.target === btn) return;
       var list = items(g);
       var at = list.indexOf(document.activeElement);
       if (e.key === 'Escape') { e.preventDefault(); close(g, true); return; }

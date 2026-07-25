@@ -91,13 +91,23 @@ class AdminEmailVisibilityIT {
     private AdminController controller;
 
     private static final AtomicInteger SEQ = new AtomicInteger();
+    @org.springframework.beans.factory.annotation.Autowired
+    private ai.intellistream.chat.moderation.StorageQuotaService storageQuotas;
+
     private boolean originalSetting;
 
     @BeforeEach
     void wire() {
         currentUser = mock(CurrentUser.class);
+        // This IT is about email masking, so the moderation collaborators are mocks: it never
+        // exercises them, and wiring real ones would drag Keycloak and the quota accounting into
+        // a test that has nothing to do with either.
         controller = new AdminController(settings, channels, users, members, messages,
-                currentUser, "/tmp/chat-test-branding");
+                currentUser, "/tmp/chat-test-branding",
+                mock(ai.intellistream.chat.moderation.BanService.class),
+                mock(ai.intellistream.chat.moderation.MessageModerationService.class),
+                storageQuotas,
+                mock(ai.intellistream.chat.moderation.AuditService.class));
         // Capture the existing value so the suite is reentrant — every test restores it on teardown.
         originalSetting = settings.current().isExposeUserEmails();
     }

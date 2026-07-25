@@ -109,6 +109,29 @@
         </section>
 
         <section class="admin-section">
+            <h2>Permissions</h2>
+            <p class="admin-help">
+                Who may create channels. Slack and Mattermost both default this to everyone and let
+                an admin tighten it; so does this. Tighten it when open registration meets a spam
+                wave — a per-account limit of ten new channels an hour is always in force regardless
+                of this setting, so ordinary use never reaches it.
+            </p>
+            <form th:action="@{/admin/channel-creation}" method="post" class="admin-form">
+                <label>
+                    <input type="radio" name="policy" value="EVERYONE"
+                           th:checked="${channelCreation == 'EVERYONE'}"/>
+                    Everyone can create channels
+                </label>
+                <label>
+                    <input type="radio" name="policy" value="ADMINS_ONLY"
+                           th:checked="${channelCreation == 'ADMINS_ONLY'}"/>
+                    Only administrators
+                </label>
+                <button type="submit">Save permission</button>
+            </form>
+        </section>
+
+        <section class="admin-section">
             <h2>Privacy</h2>
             <p class="admin-help">
                 Show full email addresses in the user table below. Off masks them to
@@ -127,26 +150,111 @@
 
         <section class="admin-section">
             <h2>Users <small th:text="'(' + ${#lists.size(userRows)} + ')'">(0)</small></h2>
+            <p class="admin-help">
+                Suspending an account blocks it here immediately and closes its open connections; if
+                Keycloak write-through is enabled it is disabled there too, and you are told when
+                that part did not work. Removing someone's messages is reversible until the
+                retention window expires, so a mistaken ban is recoverable.
+            </p>
+            <p class="admin-help" th:if="${totalStorageBytes != null}">
+                Attachments in use: <strong th:text="${#numbers.formatDecimal(totalStorageBytes / 1048576.0, 1, 1)} + ' MB'">0 MB</strong>.
+                Default quota per person:
+                <strong th:text="${defaultQuotaBytes &lt; 0 ? 'unlimited' : #numbers.formatDecimal(defaultQuotaBytes / 1048576.0, 1, 0) + ' MB'}">2048 MB</strong>.
+            </p>
             <div class="admin-table-wrap">
             <table class="admin-table">
                 <thead>
-                <tr><th>Username</th><th>Display name</th><th>Email</th><th>Last active</th><th>Joined</th></tr>
+                <tr>
+                    <th>Username</th><th>Display name</th><th>Email</th>
+                    <th>Storage</th><th>Last active</th><th>Status</th><th>Actions</th>
+                </tr>
                 </thead>
                 <tbody>
-                <tr th:each="u : ${userRows}">
+                <tr th:each="u : ${userRows}" th:classappend="${u.suspended} ? 'is-suspended' : ''">
                     <td th:text="${u.username}">alice</td>
                     <td th:text="${u.displayName}">Alice Anderson</td>
                     <td th:text="${u.email}">alice@example.com</td>
+                    <td>
+                        <span th:text="${#numbers.formatDecimal(u.bytesUsed / 1048576.0, 1, 1)} + ' MB'">0.0 MB</span>
+                        <small th:if="${u.effectiveQuotaBytes &gt;= 0}"
+                               th:text="' / ' + ${#numbers.formatDecimal(u.effectiveQuotaBytes / 1048576.0, 1, 0)} + ' MB'"> / 2048 MB</small>
+                        <small th:if="${u.quotaBytes != null}" class="admin-badge" title="Overrides the workspace default">custom</small>
+                    </td>
                     <td th:text="${u.lastActiveAt != null ? #temporals.format(u.lastActiveAt, 'yyyy-MM-dd HH:mm') : '—'}">—</td>
-                    <td th:text="${#temporals.format(u.createdAt, 'yyyy-MM-dd')}">2026-01-01</td>
+                    <td>
+                        <span th:if="${u.admin}" class="admin-badge">admin</span>
+                        <span th:if="${u.suspended}" class="admin-badge is-danger"
+                              th:title="${u.suspensionNote}">suspended</span>
+                        <span th:unless="${u.admin or u.suspended}">—</span>
+                    </td>
+                    <td class="admin-actions">
+                        <!-- Admins are deliberately not suspendable from here: a suspended admin is
+                             locked out of this console by the same enforcement, so two admins could
+                             suspend each other and leave the workspace with no way back in except
+                             SQL. Remove the ichat-admin role in Keycloak first. -->
+                        <form th:unless="${u.admin or u.suspended}" method="post"
+                              th:action="@{'/admin/users/' + ${u.id} + '/suspend'}" class="admin-inline-form">
+                            <input type="text" name="note" placeholder="reason (optional)" maxlength="500"/>
+                            <button type="submit" class="admin-danger">Suspend</button>
+                        </form>
+                        <form th:if="${u.suspended}" method="post"
+                              th:action="@{'/admin/users/' + ${u.id} + '/unsuspend'}" class="admin-inline-form">
+                            <button type="submit">Restore access</button>
+                        </form>
+                        <form method="post" th:action="@{'/admin/users/' + ${u.id} + '/messages/purge'}"
+                              class="admin-inline-form"
+                              onsubmit="return confirm('Remove every message from this account? This is reversible until the retention window expires.');">
+                            <button type="submit" class="admin-danger">Clear messages</button>
+                        </form>
+                        <form method="post" th:action="@{'/admin/users/' + ${u.id} + '/messages/restore'}"
+                              class="admin-inline-form">
+                            <button type="submit">Undo clear</button>
+                        </form>
+                        <form method="post" th:action="@{'/admin/users/' + ${u.id} + '/quota'}"
+                              class="admin-inline-form">
+                            <input type="number" name="quotaMb" min="0" step="1" placeholder="MB"
+                                   th:value="${u.quotaBytes != null ? u.quotaBytes / 1048576 : ''}"
+                                   title="Blank resets to the workspace default"/>
+                            <button type="submit">Set quota</button>
+                        </form>
+                    </td>
                 </tr>
                 <tr th:if="${#lists.isEmpty(userRows)}">
-                    <td colspan="5" class="admin-empty">No users yet.</td>
+                    <td colspan="7" class="admin-empty">No users yet.</td>
                 </tr>
                 </tbody>
             </table>
             </div>
         </section>
+
+        <section class="admin-section">
+            <h2>Audit trail <small th:text="'(newest ' + ${#lists.size(auditRows)} + ')'">(newest 0)</small></h2>
+            <p class="admin-help">
+                Append-only. Nothing in the application edits or deletes these rows: a trail an
+                administrator can quietly revise answers no question worth asking. A blank actor is
+                the scheduled retention purge rather than a person.
+            </p>
+            <div class="admin-table-wrap">
+            <table class="admin-table">
+                <thead>
+                <tr><th>When</th><th>Who</th><th>Action</th><th>Target</th><th>Detail</th></tr>
+                </thead>
+                <tbody>
+                <tr th:each="a : ${auditRows}">
+                    <td th:text="${#temporals.format(a.createdAt, 'yyyy-MM-dd HH:mm')}">2026-01-01 00:00</td>
+                    <td th:text="${a.actor != null ? a.actor.username : 'system'}">system</td>
+                    <td th:text="${a.action}">user.suspend</td>
+                    <td th:text="${a.targetUser != null ? a.targetUser.username : (a.targetRef ?: '—')}">—</td>
+                    <td class="admin-detail" th:text="${a.detail}">—</td>
+                </tr>
+                <tr th:if="${#lists.isEmpty(auditRows)}">
+                    <td colspan="5" class="admin-empty">Nothing recorded yet.</td>
+                </tr>
+                </tbody>
+            </table>
+            </div>
+        </section>
+
     </div>
 </main>
 

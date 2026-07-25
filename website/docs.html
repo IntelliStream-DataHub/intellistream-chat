@@ -1,0 +1,2454 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Documentation — IntelliStream Chat</title>
+<meta name="description" content="Using IntelliStream Chat, the full ichat.* and ICHAT_* configuration reference, and how to tune PostgreSQL for a chat workload that batches its writes.">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><circle cx='32' cy='32' r='23' fill='none' stroke='%238aa8e0' stroke-width='1.5' opacity='0.35'/><path d='M 32 55 A 23 23 0 1 1 55 32' fill='none' stroke='%231c58d9' stroke-width='5' stroke-linecap='round'/><circle cx='55' cy='32' r='5' fill='%23f59e0b'/><circle cx='32' cy='32' r='8.5' fill='%231c58d9'/></svg>">
+<style>
+  /* Same tokens as index.html, copied rather than imported: both pages ship as single
+     self-contained files, so there is no shared stylesheet to link. If you restyle one,
+     restyle the other. */
+  :root {
+    --bg: #ffffff;
+    --bg-elev: #f5f6f6;
+    --bg-code: #eef2f4;
+    --border: #dbe4e9;
+    --text: #12242e;
+    --muted: #5a7180;
+    --brand: #105984;
+    --brand-deep: #005984;
+    --brand-soft: rgba(16, 89, 132, 0.07);
+    --link: #105984;
+    --peach: #ffc49a;
+    --accent-ink: #14532d;
+    --green: #0f7a4f;
+    --band: #105984;
+    --band-2: #0b4467;
+    --band-text: #ffffff;
+    --band-muted: #98bbc8;
+    --bead: #ffc49a;
+    --max-w: 1040px;
+    /* Docs run two columns, so they get a wider shell than the landing page. The prose
+       column still lands at ~830px, which is where a technical paragraph reads best. */
+    --max-w-docs: 1180px;
+    --header-h: 58px;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  a { color: var(--link); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  code, pre, kbd {
+    font-family: "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.9em;
+  }
+  code {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    color: var(--brand-deep);
+    /* Property keys like server.servlet.session.cookie.secure are one unbreakable word and are
+       wider than a 360px phone, so the page scrolls sideways without this. Does not affect
+       `pre`, where white-space: pre forbids wrapping and the block scrolls on its own. */
+    overflow-wrap: anywhere;
+  }
+  pre {
+    background: var(--bg-code);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 18px;
+    overflow-x: auto;
+    margin: 0 0 18px;
+    line-height: 1.5;
+  }
+  pre code { background: none; border: 0; padding: 0; color: var(--text); }
+  kbd {
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    border-bottom-width: 2px;
+    border-radius: 5px;
+    padding: 1px 6px;
+    color: var(--text);
+    font-size: 0.82em;
+    white-space: nowrap;
+  }
+
+  .wrap { max-width: var(--max-w); margin: 0 auto; padding: 0 24px; }
+
+  /* ---------- Header (shared with index.html) ---------- */
+
+  .orbit-thread { transform-origin: 32px 32px; transform-box: view-box; animation: orbit-spin 12s linear infinite; }
+  @keyframes orbit-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .orbit-thread { animation: none; } }
+
+  header.site {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: saturate(180%) blur(8px);
+    -webkit-backdrop-filter: saturate(180%) blur(8px);
+    border-bottom: 1px solid var(--border);
+  }
+  header.site .wrap {
+    max-width: var(--max-w-docs);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding-top: 14px;
+    padding-bottom: 14px;
+  }
+  header.site .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 600;
+    color: var(--text);
+  }
+  header.site .brand:hover { text-decoration: none; }
+  header.site nav {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    font-size: 0.92em;
+  }
+  header.site nav a { white-space: nowrap; color: var(--muted); }
+  header.site nav a:hover { color: var(--text); text-decoration: none; }
+  header.site nav a[aria-current="page"] { color: var(--text); font-weight: 600; }
+
+  .navgroup { position: relative; display: inline-flex; }
+  .navgroup-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font: inherit;
+    color: var(--muted);
+    background: none;
+    border: 0;
+    padding: 4px 2px;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .navgroup-btn:hover { color: var(--text); }
+  .navgroup-btn .chev {
+    width: 10px; height: 10px;
+    fill: none; stroke: currentColor; stroke-width: 2.2;
+    stroke-linecap: round; stroke-linejoin: round;
+    transition: transform 120ms ease;
+  }
+  .navgroup-btn[aria-expanded="true"] { color: var(--text); }
+  .navgroup-btn[aria-expanded="true"] .chev { transform: rotate(180deg); }
+  .navmenu {
+    display: none;
+    position: absolute;
+    top: calc(100% + 10px);
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 20;
+    min-width: 190px;
+    margin: 0;
+    padding: 6px;
+    list-style: none;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(16, 89, 132, 0.16);
+  }
+  html:not(.js) .navgroup:hover > .navmenu,
+  html:not(.js) .navgroup:focus-within > .navmenu,
+  html.js .navgroup-btn[aria-expanded="true"] + .navmenu { display: block; }
+  .navmenu a { display: block; padding: 8px 12px; border-radius: 6px; color: var(--text); }
+  .navmenu a:hover, .navmenu a:focus-visible { background: var(--brand-soft); color: var(--brand-deep); text-decoration: none; }
+  .navmenu .hint { display: block; font-size: 0.85em; color: var(--muted); margin-top: 1px; }
+
+  @media (max-width: 760px) {
+    header.site nav { gap: 14px; }
+    header.site nav .navgroup { display: none; }
+  }
+  @media (max-width: 520px) {
+    header.site nav a.demote { display: none; }
+  }
+
+  .gh {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-elev);
+    border: 1px solid var(--border);
+    color: var(--text) !important;
+    padding: 6px 12px;
+    border-radius: 6px;
+    font-weight: 500;
+  }
+  .gh:hover { border-color: var(--brand); text-decoration: none; }
+  .gh svg { width: 16px; height: 16px; fill: currentColor; }
+
+  /* ---------- Page intro (a short band, not the landing page's full hero) ---------- */
+
+  .docs-hero {
+    background: linear-gradient(160deg, var(--band), var(--band-2));
+    color: var(--band-text);
+    padding: 54px 0 48px;
+  }
+  .docs-hero .wrap { max-width: var(--max-w-docs); }
+  .docs-hero h1 {
+    margin: 0 0 14px;
+    font-size: clamp(2rem, 4.2vw, 2.9rem);
+    line-height: 1.14;
+    letter-spacing: -0.02em;
+  }
+  .docs-hero p {
+    margin: 0;
+    max-width: 62ch;
+    color: #e2eef4;
+    font-size: 1.06rem;
+  }
+  .docs-hero code {
+    background: rgba(0, 0, 0, 0.26);
+    border-color: rgba(255, 255, 255, 0.18);
+    color: var(--peach);
+  }
+  .docs-hero a { color: var(--peach); }
+
+  /* ---------- Two-column shell ---------- */
+
+  .docs {
+    max-width: var(--max-w-docs);
+    margin: 0 auto;
+    padding: 0 24px 72px;
+    display: grid;
+    grid-template-columns: 236px minmax(0, 1fr);
+    gap: 52px;
+    align-items: start;
+  }
+
+  .toc {
+    position: sticky;
+    top: calc(var(--header-h) + 24px);
+    max-height: calc(100vh - var(--header-h) - 48px);
+    overflow-y: auto;
+    margin-top: 42px;
+    padding-bottom: 20px;
+    font-size: 0.9rem;
+  }
+  .toc > summary {
+    cursor: pointer;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--brand);
+    font-weight: 700;
+    margin-bottom: 12px;
+  }
+  .toc ol { list-style: none; margin: 0; padding: 0; }
+  .toc > ol > li { margin-bottom: 16px; }
+  .toc > ol > li > a {
+    display: block;
+    font-weight: 650;
+    color: var(--text);
+    padding: 3px 0;
+  }
+  .toc ol ol { margin: 4px 0 0; border-left: 2px solid var(--border); }
+  .toc ol ol a {
+    display: block;
+    padding: 4px 0 4px 14px;
+    margin-left: -2px;
+    border-left: 2px solid transparent;
+    color: var(--muted);
+    line-height: 1.35;
+  }
+  .toc ol ol a:hover { color: var(--text); text-decoration: none; }
+  .toc a[aria-current="true"] {
+    color: var(--brand-deep);
+    border-left-color: var(--brand);
+    font-weight: 600;
+  }
+
+  main { min-width: 0; }
+
+  /* ---------- Content rhythm ---------- */
+
+  .part {
+    background: linear-gradient(160deg, var(--band), var(--band-2));
+    color: var(--band-text);
+    border-radius: 14px;
+    padding: 30px 32px;
+    margin: 46px 0 34px;
+    scroll-margin-top: calc(var(--header-h) + 20px);
+  }
+  .part:first-child { margin-top: 42px; }
+  .part h2 { margin: 0 0 10px; font-size: 1.6rem; letter-spacing: -0.01em; color: var(--band-text); }
+  .part p { margin: 0; color: #e2eef4; max-width: 68ch; }
+  .part p + p { margin-top: 12px; }
+  .part code {
+    background: rgba(0, 0, 0, 0.26);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: var(--peach);
+  }
+  .part a { color: var(--peach); }
+  .part .eyebrow {
+    display: block;
+    font-size: 0.76rem;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--peach);
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+
+  section.doc {
+    padding: 26px 0 12px;
+    border-top: 1px solid var(--border);
+    scroll-margin-top: calc(var(--header-h) + 20px);
+  }
+  section.doc:first-of-type { border-top: 0; }
+  section.doc h3 {
+    font-size: 1.28rem;
+    margin: 0 0 14px;
+    letter-spacing: -0.01em;
+    scroll-margin-top: calc(var(--header-h) + 20px);
+  }
+  section.doc h3 .marker {
+    display: inline-block;
+    width: 4px;
+    height: 0.9em;
+    background: var(--peach);
+    border-radius: 2px;
+    margin-right: 12px;
+    vertical-align: -0.06em;
+  }
+  section.doc h4 {
+    font-size: 1rem;
+    margin: 26px 0 10px;
+    color: var(--brand-deep);
+    scroll-margin-top: calc(var(--header-h) + 20px);
+  }
+  section.doc p, section.doc li { max-width: 78ch; }
+  section.doc p { margin: 0 0 14px; }
+  section.doc ul, section.doc ol { margin: 0 0 16px; padding-left: 22px; }
+  section.doc li { margin-bottom: 7px; }
+  section.doc li > ul { margin-top: 7px; }
+
+  .lede { color: var(--muted); }
+
+  /* ---------- Tables ---------- */
+
+  .tw { overflow-x: auto; margin: 0 0 20px; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 520px;
+    font-size: 0.92rem;
+  }
+  th, td {
+    text-align: left;
+    padding: 9px 14px 9px 0;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  th {
+    font-size: 0.76rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--brand);
+    font-weight: 700;
+    border-bottom-color: var(--brand-soft);
+  }
+  td code { white-space: nowrap; }
+  td:last-child, th:last-child { padding-right: 0; }
+  tbody tr:last-child td { border-bottom: 0; }
+  table.nowrap-1 td:first-child { white-space: nowrap; }
+
+  /* ---------- Callouts ---------- */
+
+  .note, .warn, .measured {
+    border-left: 3px solid var(--brand);
+    background: var(--brand-soft);
+    padding: 14px 18px;
+    border-radius: 0 8px 8px 0;
+    margin: 0 0 20px;
+    max-width: 78ch;
+  }
+  .note p, .warn p, .measured p { margin: 0; max-width: none; }
+  .note p + p, .warn p + p, .measured p + p { margin-top: 10px; }
+  .warn { border-left-color: #b45309; background: rgba(180, 83, 9, 0.07); }
+  .measured { border-left-color: var(--green); background: rgba(15, 122, 79, 0.07); }
+  .measured b, .note b, .warn b { color: var(--text); }
+  .tag {
+    display: inline-block;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    font-weight: 700;
+    color: var(--green);
+    margin-bottom: 6px;
+  }
+  .warn .tag { color: #8a4204; }
+  .note .tag { color: var(--brand); }
+
+  dl.keys { margin: 0 0 18px; }
+  dl.keys dt { font-weight: 600; margin-top: 14px; }
+  dl.keys dd { margin: 4px 0 0; color: var(--text); max-width: 78ch; }
+
+  footer {
+    padding: 34px 0 48px;
+    color: var(--muted);
+    font-size: 0.92em;
+    text-align: center;
+    border-top: 1px solid var(--border);
+  }
+  footer .wrap { max-width: var(--max-w-docs); }
+  footer a { color: var(--muted); }
+  footer a:hover { color: var(--text); }
+  footer .sep { margin: 0 10px; opacity: 0.5; }
+
+  .backtotop {
+    display: inline-block;
+    margin-top: 8px;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+
+  @media (max-width: 900px) {
+    .docs { grid-template-columns: minmax(0, 1fr); gap: 0; }
+    .toc {
+      position: static;
+      max-height: none;
+      overflow: visible;
+      margin: 32px 0 8px;
+      padding: 16px 18px;
+      background: var(--bg-elev);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+    }
+    .toc > summary { margin-bottom: 0; }
+    .toc[open] > summary { margin-bottom: 12px; }
+    .part:first-child { margin-top: 28px; }
+  }
+</style>
+</head>
+<body>
+<svg width="0" height="0" aria-hidden="true" style="position:absolute">
+  <defs>
+    <linearGradient id="orbGrad" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#1c58d9"/><stop offset="1" stop-color="#5d8eff"/>
+    </linearGradient>
+  </defs>
+</svg>
+
+<header class="site">
+  <div class="wrap">
+    <a href="index.html" class="brand">
+      <svg width="28" height="28" viewBox="0 0 64 64" aria-hidden="true">
+        <circle cx="32" cy="32" r="23" fill="none" stroke="#8aa8e0" stroke-width="1.5" opacity=".35"/>
+        <g class="orbit-thread">
+          <path d="M 32 55 A 23 23 0 1 1 55 32" fill="none" stroke="url(#orbGrad)"
+                stroke-width="5" stroke-linecap="round"/>
+          <circle cx="55" cy="32" r="5.0" fill="var(--bead)"/>
+        </g>
+        <circle cx="32" cy="32" r="8.5" fill="url(#orbGrad)"/>
+      </svg>
+      IntelliStream Chat
+    </a>
+    <nav aria-label="Main">
+      <a class="demote" href="index.html#quickstart">Quick start</a>
+
+      <div class="navgroup">
+        <button type="button" id="navbtn-product" class="navgroup-btn"
+                aria-haspopup="true" aria-expanded="false" aria-controls="navmenu-product">
+          Product
+          <svg class="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>
+        </button>
+        <ul class="navmenu" id="navmenu-product" role="menu" aria-labelledby="navbtn-product">
+          <li role="none"><a role="menuitem" href="index.html#screenshots">Screens<span class="hint">What it looks like</span></a></li>
+          <li role="none"><a role="menuitem" href="index.html#why">Why<span class="hint">Why this exists</span></a></li>
+          <li role="none"><a role="menuitem" href="index.html#features">Features<span class="hint">What is in the box</span></a></li>
+          <li role="none"><a role="menuitem" href="index.html#foundation">Extend<span class="hint">Fork it as a starting point</span></a></li>
+        </ul>
+      </div>
+
+      <div class="navgroup">
+        <button type="button" id="navbtn-tech" class="navgroup-btn"
+                aria-haspopup="true" aria-expanded="false" aria-controls="navmenu-tech">
+          Technical
+          <svg class="chev" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>
+        </button>
+        <ul class="navmenu" id="navmenu-tech" role="menu" aria-labelledby="navbtn-tech">
+          <li role="none"><a role="menuitem" href="index.html#performance">Performance<span class="hint">What one machine does</span></a></li>
+          <li role="none"><a role="menuitem" href="index.html#stack">Stack<span class="hint">The pieces it is built from</span></a></li>
+          <li role="none"><a role="menuitem" href="index.html#secrets">Secrets<span class="hint">Vault and OpenBao</span></a></li>
+          <li role="none"><a role="menuitem" href="index.html#why-not-rust">Why not Rust<span class="hint">The language question</span></a></li>
+        </ul>
+      </div>
+
+      <a href="docs.html" aria-current="page">Docs</a>
+      <!-- TODO: replace href with the real GitHub URL -->
+      <a class="gh" href="https://github.com/" rel="noopener">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </nav>
+  </div>
+</header>
+
+<div class="docs-hero" id="top">
+  <div class="wrap">
+    <h1>Documentation</h1>
+    <p>
+      Three parts: what the application does from a user's seat, every configuration key it
+      reads and what changing it costs you, and how to tune the PostgreSQL underneath it.
+      Written against the code, not against intent, so where a screen and its backend disagree
+      this says so.
+    </p>
+  </div>
+</div>
+
+<div class="docs">
+
+<details class="toc" id="toc" open>
+  <summary>On this page</summary>
+  <nav aria-label="Table of contents">
+    <ol>
+      <li>
+        <a href="#using">1. Using the app</a>
+        <ol>
+          <li><a href="#signing-in">Signing in</a></li>
+          <li><a href="#channels">Channels</a></li>
+          <li><a href="#sidebar">The sidebar</a></li>
+          <li><a href="#messages">Messages and Markdown</a></li>
+          <li><a href="#threads">Threads</a></li>
+          <li><a href="#dms">Direct and group messages</a></li>
+          <li><a href="#reactions">Reactions</a></li>
+          <li><a href="#mentions">Mentions and the inbox</a></li>
+          <li><a href="#presence">Presence and status</a></li>
+          <li><a href="#search">Search</a></li>
+          <li><a href="#files">Files and attachments</a></li>
+          <li><a href="#polls">Polls</a></li>
+          <li><a href="#slash">Slash commands</a></li>
+          <li><a href="#profile">Your profile and themes</a></li>
+          <li><a href="#shortcuts">Keyboard shortcuts</a></li>
+          <li><a href="#admin">The admin console</a></li>
+        </ol>
+      </li>
+      <li>
+        <a href="#configuration">2. Configuration</a>
+        <ol>
+          <li><a href="#config-layers">How settings are layered</a></li>
+          <li><a href="#config-http">HTTP and the proxy</a></li>
+          <li><a href="#config-db">Database</a></li>
+          <li><a href="#config-identity">Identity and Keycloak</a></li>
+          <li><a href="#config-storage">Storage and quotas</a></li>
+          <li><a href="#config-search">Search</a></li>
+          <li><a href="#config-write">The write path</a></li>
+          <li><a href="#config-ws">WebSocket tuning</a></li>
+          <li><a href="#config-moderation">Moderation and retention</a></li>
+          <li><a href="#config-cleanup">Background cleanup</a></li>
+          <li><a href="#config-cache">Caches and presence</a></li>
+          <li><a href="#config-ratelimit">Rate limits</a></li>
+          <li><a href="#config-dev">Assets and dev tools</a></li>
+          <li><a href="#config-profiles">Spring profiles</a></li>
+          <li><a href="#config-vault">Vault and OpenBao</a></li>
+          <li><a href="#config-keycloak">The Keycloak realm</a></li>
+        </ol>
+      </li>
+      <li>
+        <a href="#postgres">3. Tuning PostgreSQL</a>
+        <ol>
+          <li><a href="#pg-reality">Postgres is not the bottleneck</a></li>
+          <li><a href="#pg-workload">What the app asks of it</a></li>
+          <li><a href="#pg-memory">Memory settings</a></li>
+          <li><a href="#pg-connections">Connections and the pool</a></li>
+          <li><a href="#pg-checkpoints">Checkpoints and WAL</a></li>
+          <li><a href="#pg-sync-commit">synchronous_commit</a></li>
+          <li><a href="#pg-autovacuum">Autovacuum on messages</a></li>
+          <li><a href="#pg-values">Starting values by RAM</a></li>
+          <li><a href="#pg-cargo-cult">What not to bother with</a></li>
+          <li><a href="#pg-monitor">What to monitor</a></li>
+        </ol>
+      </li>
+    </ol>
+  </nav>
+</details>
+
+<main>
+
+<!-- ==================================================================== PART 1 -->
+
+<div class="part" id="using">
+  <span class="eyebrow">Part one</span>
+  <h2>Using the app</h2>
+  <p>
+    Everything below is a description of the shipped UI. Where the backend can do something the
+    interface does not expose yet, that is called out rather than implied, because the gap between
+    "the service supports it" and "you can click it" is exactly where documentation usually lies.
+  </p>
+</div>
+
+<section class="doc" id="signing-in">
+  <h3><span class="marker"></span>Signing in</h3>
+  <p>
+    There are no passwords in this application. Signed out, you land on a page with two buttons,
+    <b>Sign in with Keycloak</b> and <b>Create account</b>, and both hand you to Keycloak. The
+    second adds <code>action=register</code> to the authorization request so you arrive on the
+    registration form rather than the login form; whether that form is reachable at all depends on
+    whether self-registration is enabled in the realm.
+  </p>
+  <p>
+    Your username, display name and email come from Keycloak on every login and cannot be edited
+    inside the chat. The application creates its own user row the first time it sees you, keyed on
+    the OIDC subject.
+  </p>
+  <p>
+    Sessions last <b>8 hours</b> and the two clocks are kept in step deliberately: Keycloak's SSO
+    session idle timeout and the servlet session timeout are both 8h. The browser also watches for
+    mouse, key, scroll, touch and focus events, and after 8 hours of genuine inactivity it posts to
+    <code>/logout</code> itself rather than leaving a stale tab open until someone clicks something.
+  </p>
+</section>
+
+<section class="doc" id="channels">
+  <h3><span class="marker"></span>Channels</h3>
+  <p>
+    A channel is <b>public</b> or <b>private</b>, and the distinction is narrower than it looks.
+    Public means anyone signed in can <em>read</em> it, search it, and download its attachments
+    without joining. Writing always requires membership, in both kinds. So a public channel you
+    have not joined is readable but the composer is not rendered, and the header offers
+    <b>Join channel</b> instead.
+  </p>
+  <p>
+    Private channels are invisible to non-members: not readable, not searchable, and not returned
+    by channel search. A non-member who reaches one by link gets a short notice telling them to ask
+    an admin for an invitation.
+  </p>
+
+  <h4>Creating one</h4>
+  <p>
+    The <b>+</b> next to the sidebar's first group heading opens the create form, and the same form
+    appears on the channels landing page when you have no channels yet. It takes a name (up to 120
+    characters), an optional description (up to 500), and a public or private choice. The name is
+    slugified for the URL: lowercased, every run of non-alphanumerics collapsed to a hyphen, cut at
+    80 characters. A name with no letters or digits in it is rejected, and so is one whose slug
+    collides with an existing channel.
+  </p>
+  <p>
+    Whoever creates a channel becomes its first channel admin. There is a workspace-level policy
+    controlling who may create channels at all, either everyone or admins only, defaulting to
+    everyone; it is stored in the database and has no admin screen yet, so changing it today means
+    changing the row.
+  </p>
+
+  <h4>Members, invites and roles</h4>
+  <p>
+    The people icon in the channel header opens the member list, which anyone who can read the
+    channel may open. It shows each member's avatar, display name and handle, marks channel admins
+    and workspace admins, and, if <em>you</em> are a channel admin, gives every other row a
+    <b>Make admin</b> or <b>Demote</b> button. The server refuses to demote the last remaining
+    admin, on the grounds that an ownerless private channel cannot be repaired from inside the app.
+  </p>
+  <p>
+    Inviting is done by exact username, from the channel settings panel. Any member can invite, not
+    only admins. There is no bulk invite and no invite link.
+  </p>
+
+  <div class="note">
+    <span class="tag">Not available</span>
+    <p>
+      There is <b>no leave, rename, archive or delete</b> for a channel in the interface. A delete
+      exists in the service layer and is admin-gated, but no endpoint or button reaches it, so
+      removing a channel today is a database operation. Plan channel names accordingly.
+    </p>
+  </div>
+</section>
+
+<section class="doc" id="sidebar">
+  <h3><span class="marker"></span>The sidebar</h3>
+  <p>
+    The sidebar does not list every channel. Above a certain size a flat list stops being
+    navigation and becomes a wall, so it shows two curated groups of at most five, both drawn
+    only from channels you have joined.
+  </p>
+  <ul>
+    <li><b>Largest</b>, the five joined channels with the most members, ties broken alphabetically.</li>
+    <li>
+      <b>Most active</b>, the next five ranked by messages in the last seven days plus your current
+      unread count.
+    </li>
+  </ul>
+  <p>
+    Ranking alone would hide the conversation you actually need, so three things are force-included
+    into <b>Most active</b> regardless of score: any channel with unread messages, any channel with
+    unread mentions, and the channel you are currently reading. A promoted channel displaces the
+    weakest entry, and the group is then re-sorted mentions first, unreads second. The effect is
+    that anything demanding your attention is on screen without you looking for it.
+  </p>
+  <p>
+    Under both groups is a line reading <em>N more channels, search to find them</em>. That is the
+    escape hatch: the sidebar's search box takes two characters or more and queries the server,
+    replacing the main pane with a list of matches showing whether each one is private and whether
+    you have joined. Private channels you are not in never appear, and the empty state says so
+    explicitly rather than letting you wonder.
+  </p>
+  <p>
+    Each row carries a lock icon if the channel is private, a star if you are one of its admins, and
+    an unread badge that switches to the mention style when any of those unreads mention you. Badges
+    stop counting at <code>99+</code>.
+  </p>
+  <div class="warn">
+    <span class="tag">Known limitation</span>
+    <p>
+      Live unread-badge updates over the WebSocket are wired to the <b>Largest</b> group only. A
+      channel sitting in <b>Most active</b> gets the right badge when the page loads, but the number
+      does not tick up in place while you are looking at another channel. Reloading fixes it.
+    </p>
+  </div>
+</section>
+
+<section class="doc" id="messages">
+  <h3><span class="marker"></span>Messages and Markdown</h3>
+  <p>
+    The composer takes up to <b>8,000 characters</b>. <kbd>Enter</kbd> sends,
+    <kbd>Shift</kbd>+<kbd>Enter</kbd> inserts a newline, and the box grows to about 260 pixels
+    before it starts scrolling. A <b>Preview</b> pane below it renders what you have typed, and it
+    renders it <em>on the server</em>, using the same code path that will render the posted message.
+    A preview that looks right is therefore a guarantee, not an approximation.
+  </p>
+
+  <h4>What Markdown actually survives</h4>
+  <p>
+    Bodies are parsed with CommonMark plus GFM tables and autolinking, then sanitized with jsoup
+    before anyone sees them. Sanitization is not a formality here; it is the reason the strict
+    Content-Security-Policy can stay strict. What comes out the other side:
+  </p>
+  <div class="tw">
+  <table>
+    <thead><tr><th>Works</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td><code>**bold**</code>, <code>_italic_</code>, <code>`code`</code></td><td>The toolbar's B, I and <code>{ }</code> buttons insert these.</td></tr>
+      <tr><td>Fenced code blocks</td><td>Syntax highlighted client-side with highlight.js.</td></tr>
+      <tr><td>Headings <code>#</code> through <code>######</code></td><td>Explicitly re-allowed after sanitization.</td></tr>
+      <tr><td>Bullet and numbered lists</td><td></td></tr>
+      <tr><td>Blockquotes <code>&gt;</code></td><td></td></tr>
+      <tr><td>Tables</td><td>GFM pipe syntax.</td></tr>
+      <tr><td><code>[text](url)</code> and bare URLs</td><td>Every link is rewritten to <code>rel="noopener noreferrer nofollow"</code> and opens in a new tab.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>
+    Removed on the way through: raw <code>&lt;script&gt;</code>, <code>&lt;div&gt;</code>,
+    <code>&lt;span&gt;</code>, <code>&lt;img&gt;</code> and inline <code>style</code> attributes.
+    Because images are not on the allowlist, <b>inline Markdown images are stripped</b>; to share a
+    picture, attach it. The one exception to the no-embedding rule is video: a link to YouTube or
+    Vimeo gets a responsive player appended after it, using the privacy-preserving
+    <code>youtube-nocookie</code> host, and those three origins are the only ones the CSP allows in
+    a frame.
+  </p>
+  <div class="warn">
+    <span class="tag">Does not work</span>
+    <p>
+      The toolbar has a strikethrough button that inserts <code>~~text~~</code>, but the GFM
+      strikethrough extension is not registered in the renderer, so the tildes render literally.
+      Treat the button as unimplemented until that changes.
+    </p>
+  </div>
+
+  <h4>Editing, deleting, permalinks</h4>
+  <p>
+    Hovering a message reveals its actions. <b>Edit</b> appears on your own messages only, with no
+    time window, and adds an <em>(edited)</em> marker. <b>Delete</b> appears for the author and for
+    channel admins, and takes the thread replies, attachments, reactions, mentions and search index
+    entries with it. <b>Copy link to message</b> puts a permalink on your clipboard; opening one
+    renders 25 messages either side of the target and shows a banner offering to jump back to the
+    latest.
+  </p>
+  <p>
+    On a touch device there is no hover, so a <b>500 ms long press</b> opens an action sheet from the
+    bottom of the screen with the same actions plus a twelve-emoji quick-reaction strip.
+  </p>
+
+  <h4>Sending, and what you see while it happens</h4>
+  <p>
+    Your own message appears the instant you press Enter, in a pending state, and is reconciled when
+    the server broadcasts it back. That is not cosmetic: the server deliberately does not broadcast
+    a message until its database row has committed, so that nobody is ever shown a line that then
+    failed to persist. The optimistic echo is what hides the few milliseconds that costs. If no
+    confirmation arrives within 12 seconds the bubble is marked failed and offers a <b>Retry</b>.
+  </p>
+  <p>
+    <b>Typing indicators</b> are published at most once every two seconds while your composer has
+    text in it, and expire four seconds after the last one. They exist in channels only.
+  </p>
+  <p>
+    <b>Read state</b> is one timestamp per channel per user. A channel is marked read when you open
+    it, and when a message arrives while the tab is both visible and focused. A background tab is
+    deliberately not counted as reading, so unreads do not evaporate because a window was open
+    behind something else. Your own messages never count toward your unread total.
+  </p>
+  <p>
+    History loads fifty messages at a time as you scroll up. After a reconnect the client backfills
+    forward from the last message it saw, up to 2,500 messages, so a laptop that slept through a
+    meeting catches up rather than showing a hole.
+  </p>
+</section>
+
+<section class="doc" id="threads">
+  <h3><span class="marker"></span>Threads</h3>
+  <p>
+    Threads are a real parent-child relationship on the message, not quoted text, and they are
+    <b>exactly one level deep</b>. Replying to a reply is refused by the server with a message
+    telling you to reply to its parent instead.
+  </p>
+  <p>
+    Start one from the <b>Reply in thread</b> action, or from the <em>N replies</em> indicator that
+    appears under any message that has them. Either opens a panel to the right of the conversation
+    containing the parent, the replies and a reply composer. <kbd>Esc</kbd> closes it. Reply counts
+    update live.
+  </p>
+  <p>
+    Thread replies stay out of the main channel feed, which is the point: the channel keeps its
+    shape while a side discussion runs. Reactions, editing, deleting and permalinks all work inside
+    the panel. Attachments do not, the thread composer has no attach button.
+  </p>
+</section>
+
+<section class="doc" id="dms">
+  <h3><span class="marker"></span>Direct and group messages</h3>
+  <p>
+    Direct messages live in the same sidebar as channels but are a separate model, and they have a
+    deliberately smaller feature surface.
+  </p>
+  <p>
+    A one-to-one DM starts from an <b>avatar hovercard</b>. Hover anyone's avatar, name or handle
+    for about a fifth of a second and a card appears with their status and a <b>Send direct
+    message</b> button. There is no other entry point, which is worth knowing before you go looking
+    for a "new message" button. Conversations are deduplicated by participant pair, so you always
+    return to the same thread with the same person.
+  </p>
+  <p>
+    A <b>group</b> is created from the <b>+</b> beside the Direct messages heading. It takes a title
+    and a list of usernames separated by commas or spaces. At most 50 members can be seeded in one
+    go; more can be added afterwards from the group's member panel, by any existing member. If any
+    username is wrong the error is deliberately vague, <em>one or more of those members could not be
+    found</em>, so the form cannot be used to test whether an account exists.
+  </p>
+
+  <h4>What DMs have, and what they do not</h4>
+  <div class="tw">
+  <table>
+    <thead><tr><th>Have</th><th>Do not have</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Markdown, live preview, format toolbar, emoji picker</td>
+        <td><b>Search.</b> DM content is not in the Lucene index at all.</td>
+      </tr>
+      <tr>
+        <td>Reactions, editing your own messages, deleting</td>
+        <td>Threads</td>
+      </tr>
+      <tr>
+        <td>Attachments, avatars, presence dots, hovercards</td>
+        <td>Mentions and mention notifications</td>
+      </tr>
+      <tr>
+        <td>Unread badges, reconnect backfill, day grouping</td>
+        <td>Typing indicators, polls, slash commands, permalinks</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <p>
+    There is no way to leave a conversation, remove someone from a group, rename a group or delete
+    one. Workspace admins can delete an individual DM message; nobody can delete the conversation.
+  </p>
+</section>
+
+<section class="doc" id="reactions">
+  <h3><span class="marker"></span>Reactions</h3>
+  <p>
+    Click an existing reaction to add or remove yours, or use the <b>Add reaction</b> action to open
+    a picker with a search box and ten category tabs over roughly 650 emoji. Hovering a reaction
+    shows who reacted.
+  </p>
+  <p>
+    <b>You cannot react to your own message.</b> The button is hidden on your own messages and the
+    server refuses the request as well. It is an opinion rather than a technical limit, and it is
+    worth knowing before you file it as a bug.
+  </p>
+  <p>
+    There is no custom or uploaded emoji, and no administration screen for emoji. The rate limit is
+    60 reaction toggles a minute.
+  </p>
+</section>
+
+<section class="doc" id="mentions">
+  <h3><span class="marker"></span>Mentions and the inbox</h3>
+  <p>
+    Write <code>@username</code> in a message. The handle is matched after the message has been
+    sanitized, so a mention cannot be forged by writing the markup by hand, and it is skipped inside
+    inline code and fenced blocks, so a code sample containing an <code>@</code> does not page
+    anyone. A handle that does not resolve to a real user stays plain text.
+  </p>
+  <p>
+    There is <b>no autocomplete</b>. You type the handle. And there is no
+    <code>@channel</code>, <code>@here</code> or <code>@everyone</code>; broadcast mentions do not
+    exist in any form.
+  </p>
+  <p>
+    Mentioning someone who is not a member of a private channel creates nothing, so a mention cannot
+    be used to signal into a room the target cannot read.
+  </p>
+  <p>
+    The <b>bell</b> in the top bar is the mention inbox. It carries a count, and opens a list of
+    your most recent mentions with author, channel, relative time and a snippet, each linking
+    straight to the message in context. <b>Mark all as read</b> clears the lot.
+  </p>
+  <p>
+    Being mentioned raises an in-page toast, and optionally a desktop notification. Permission is
+    not requested on page load; the first toast of a session carries an <b>Enable desktop alerts</b>
+    button instead, so the browser prompt only appears if you ask for it. Notifications are
+    suppressed for the channel you are already looking at in a focused tab.
+  </p>
+  <div class="note">
+    <span class="tag">Worth knowing</span>
+    <p>
+      Mention read state reuses the channel's read timestamp; there is no per-mention flag. Reading
+      a channel therefore clears its mentions from the bell, even the ones you scrolled past.
+    </p>
+  </div>
+</section>
+
+<section class="doc" id="presence">
+  <h3><span class="marker"></span>Presence and custom status</h3>
+  <p>
+    Presence is derived from your WebSocket connection, not from a heartbeat and not from a
+    periodic ping. If you have at least one live session you are connected; if you have none you are
+    offline. On top of that:
+  </p>
+  <ol>
+    <li>A manual choice wins over everything and persists until you change it.</li>
+    <li>Otherwise, no live session means <b>Offline</b>.</li>
+    <li>Otherwise, no activity for longer than the away threshold (10 minutes by default) means <b>Away</b>.</li>
+    <li>Otherwise <b>Active</b>.</li>
+  </ol>
+  <p>
+    Because the away transition is computed rather than pushed, clients re-poll presence once a
+    minute to pick it up. Manual changes broadcast immediately.
+  </p>
+  <p>
+    Click your own avatar in the top bar for the picker: <b>Active</b>, <b>Away</b>, <b>Do not
+    disturb</b>, <b>Appear offline</b>, then <b>View profile</b>, <b>Set a status</b>, <b>Admin
+    console</b> if you have the role, <b>About</b>, and <b>Sign out</b>. It is fully keyboard
+    driven: <kbd>Enter</kbd> or <kbd>Space</kbd> opens it, arrows and <kbd>Home</kbd>/<kbd>End</kbd>
+    move, <kbd>Esc</kbd> closes.
+  </p>
+  <div class="warn">
+    <span class="tag">Does not do what it says</span>
+    <p>
+      <b>Do not disturb</b> changes the colour of your dot and nothing else. No notification is
+      muted anywhere in the client. If you need silence, use the browser's own notification
+      controls.
+    </p>
+  </div>
+  <p>
+    A <b>custom status</b> is an emoji and up to 120 characters of text, set on your profile page,
+    with an optional auto-clear after 30 minutes, an hour, four hours, or the end of the day.
+    Expiry is lazy: once the clear time has passed the status stops being returned, and the stored
+    row is tidied the next time you set or clear one. The emoji is drawn as a small badge over your
+    avatar everywhere. Clearing a status does not reset a manual presence choice, the two are
+    independent.
+  </p>
+</section>
+
+<section class="doc" id="search">
+  <h3><span class="marker"></span>Search</h3>
+  <p>
+    Search runs against an embedded Apache Lucene index on local disk. There is no separate search
+    service to operate, and no Postgres full-text machinery. Indexing happens after the message's
+    transaction commits, so the index never contains a message the database rolled back, and the
+    index rebuilds itself from Postgres on startup if the directory is empty.
+  </p>
+  <p>Three scopes exist, and two of them have an interface:</p>
+  <div class="tw">
+  <table class="nowrap-1">
+    <thead><tr><th>Scope</th><th>Where</th><th>Who</th></tr></thead>
+    <tbody>
+      <tr><td>This channel</td><td>The search box in the channel header</td><td>Anyone who can read the channel</td></tr>
+      <tr><td>Channels you have joined</td><td>The search box in the top bar</td><td>Everyone</td></tr>
+      <tr><td>Everywhere</td><td><b>No interface.</b> <code>GET /api/search?scope=all</code></td><td>Workspace admins only</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>
+    Both boxes drop a results panel rather than navigating to a results page. Each row shows the
+    author, the channel, the time and a highlighted snippet with the matched terms marked. Arrow
+    keys move, <kbd>Enter</kbd> opens, <kbd>Esc</kbd> closes. Opening a result jumps to that message
+    with context around it and flashes it briefly.
+  </p>
+
+  <h4>Query syntax</h4>
+  <ul>
+    <li><b>Two-character minimum.</b> Shorter queries return nothing rather than everything.</li>
+    <li>Words are combined with <b>AND</b>. Every term must appear.</li>
+    <li>
+      <code>@alice</code> anywhere in the query is an <b>author filter</b>, not a search term. It is
+      removed from the text query and applied as an exact, case-insensitive author match, so
+      <code>@alice deploy</code> means "messages by alice containing deploy" and <code>@alice</code>
+      alone means "everything alice wrote".
+    </li>
+    <li>
+      Plain words are matched <b>fuzzily</b>: one edit for three to five characters, two edits for
+      six to thirty-one, exact below and above that. <code>wrold</code> finds <code>world</code>.
+    </li>
+    <li>Quoted <code>"exact phrases"</code>, boolean operators and <code>-exclusion</code> work.</li>
+    <li>
+      <b>Wildcards, prefixes and regular expressions are refused.</b> <code>deploy*</code> returns
+      nothing, silently. So does a query with an unbalanced quote. That is the cost of not letting a
+      user hand the index a query that scans everything.
+    </li>
+  </ul>
+  <p>
+    Results are capped at 100, and you may run 30 searches a minute. The index covers channel
+    message bodies. It does not cover direct messages, attachment contents, or filenames.
+  </p>
+</section>
+
+<section class="doc" id="files">
+  <h3><span class="marker"></span>Files and attachments</h3>
+  <p>
+    Attach with the paperclip in the composer. You can select several files at once; each becomes
+    its own message, and any text you typed becomes the caption of the first one.
+    <b>Drag-and-drop and paste-to-upload do not exist</b>, the file dialog is the only route.
+  </p>
+  <p>
+    Uploads are sent as the raw request body rather than as a multipart form, with the filename and
+    caption riding along in headers. That is a throughput decision: multipart has to scan every byte
+    looking for its boundary, which caps a transfer well below what the network can carry.
+  </p>
+  <div class="tw">
+  <table class="nowrap-1">
+    <thead><tr><th>Limit</th><th>Value</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>Per file</td><td>50 MiB</td><td>Raisable per account through a Keycloak user attribute. Workspace admins are unlimited.</td></tr>
+      <tr><td>Per account, total</td><td>2 GiB</td><td>Configurable, and overridable per user. Admins are exempt.</td></tr>
+      <tr><td>Uploads per minute</td><td>10</td><td>Downloads are capped at 200 a minute.</td></tr>
+      <tr><td>Caption</td><td>8,000 characters</td><td>Same limit as a message body.</td></tr>
+      <tr><td>Avatar</td><td>5 MiB</td><td>Separate and structural, avatars are decoded in memory to resize.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>
+    Uploads are also refused when the attachments volume drops below a configured free-space floor,
+    64 MiB by default. That headroom is not for attachments, it is so Postgres and the Lucene
+    segment merger do not run out of disk at the same moment.
+  </p>
+  <p>
+    The content type is sniffed from the bytes with Apache Tika and the sniffed type wins over
+    whatever the browser claimed. Images render inline and, in channels, open in a full-screen
+    lightbox with download and open-in-new-tab actions; <kbd>Esc</kbd> closes it. Everything else
+    renders as a card with the filename, type and size. Downloads are served as attachments by
+    default, and only real raster images may be displayed inline, which is why SVG is excluded.
+  </p>
+</section>
+
+<section class="doc" id="polls">
+  <h3><span class="marker"></span>Polls</h3>
+  <p>Polls are created with a slash command and are channel-only.</p>
+<pre><code>/poll Where for the offsite? | Lisbon | Tallinn | Somewhere with mountains</code></pre>
+  <p>
+    You need a question and at least two options, up to a maximum of ten. Options are separated by
+    <code>|</code>; escape a literal pipe as <code>\|</code>. The question can be 500 characters,
+    each option 200.
+  </p>
+  <p>
+    The poll posts as a message whose body contains the question in plain text, which is
+    deliberate: it means polls are findable by search. The interactive widget renders on top of
+    that. Each option is a full-width button with a proportional fill bar and its vote count, and
+    once you have voted a <b>Remove vote</b> appears.
+  </p>
+  <p>
+    Voting is <b>single choice</b>. Clicking a different option moves your vote rather than adding
+    one. Votes broadcast to everyone in the channel as they land.
+  </p>
+  <p>
+    There is no closing, no expiry, no anonymity setting, no list of who voted, and no editing a
+    poll after it is posted. If you get the options wrong, delete the message and post another.
+  </p>
+  <p>
+    Usage errors are shown only to you, as a red banner above the composer that clears itself after
+    a few seconds. A malformed <code>/poll</code> never becomes a message in the channel.
+  </p>
+</section>
+
+<section class="doc" id="slash">
+  <h3><span class="marker"></span>Slash commands</h3>
+  <p>
+    There are <b>two</b>. Not two dozen with two documented, two. Anything else beginning with a
+    slash is posted as ordinary text, which means a typo becomes a message rather than an error.
+  </p>
+
+  <h4><code>/poll</code></h4>
+  <p>Covered above.</p>
+
+  <h4><code>/remind</code></h4>
+<pre><code>/remind me in 25m to restart the ingest job
+/remind @bob at 14:00 to review the migration
+/remind in 2d that the certificate expires</code></pre>
+  <p>The shape is <code>/remind [me|@username] &lt;when&gt; [to|that] &lt;text&gt;</code>.</p>
+  <ul>
+    <li>
+      The target defaults to you. Naming <code>@someone</code> makes the delivered message start
+      with their handle, so they get an ordinary mention notification.
+    </li>
+    <li>
+      <code>in N&lt;unit&gt;</code> accepts seconds, minutes, hours and days in the usual
+      abbreviations. The maximum is about a year.
+    </li>
+    <li>
+      <code>at HH:MM</code> accepts 24-hour or 12-hour time and rolls over to tomorrow if today's
+      time has already passed.
+    </li>
+    <li>
+      A confirmation posts into the channel as you, showing the resolved time. The scheduler checks
+      for due reminders every 30 seconds, so delivery is accurate to roughly that.
+    </li>
+  </ul>
+  <p>
+    There is no way to list or cancel a pending reminder, and no UI showing what you have set.
+  </p>
+  <div class="note">
+    <span class="tag">Worth knowing</span>
+    <p>
+      Slash commands are dispatched on the WebSocket path only. If the socket is down the client
+      refuses to fall back to HTTP for a message starting with <code>/</code>, and tells you to try
+      again in a moment, because posting it over HTTP would publish the raw command text into the
+      channel. Slash commands also do not work in direct messages.
+    </p>
+  </div>
+</section>
+
+<section class="doc" id="profile">
+  <h3><span class="marker"></span>Your profile and themes</h3>
+  <p>
+    Reach <code>/profile</code> from the avatar menu. Four sections, of which three are editable.
+  </p>
+  <ul>
+    <li>
+      <b>Profile picture.</b> PNG, JPEG, WEBP or GIF, up to 5 MiB, resized server-side so the longer
+      edge is at most 256 pixels. Changes broadcast, so other people's open tabs swap the image
+      without a reload.
+    </li>
+    <li><b>Status.</b> Emoji, text and auto-clear, described under <a href="#presence">presence</a>.</li>
+    <li>
+      <b>Account.</b> Read only. Username, display name and email come from Keycloak and are changed
+      there.
+    </li>
+    <li>
+      <b>Theme.</b> Eight fixed palettes: default, dark, orange, pink, green, purple, red, cyan.
+      Only <em>dark</em> is dark; the other seven are light variants with different accents.
+      Clicking a tile saves it, there is no save button, and the choice is stored on your user row
+      rather than in the browser, so it follows you between machines.
+    </li>
+  </ul>
+  <div class="note">
+    <span class="tag">Worth knowing</span>
+    <p>
+      There is no automatic light/dark switching and no <em>system</em> option; the theme is
+      whatever you picked. Code blocks use the dark highlight theme only under the <em>dark</em>
+      theme, and the light one under all seven others.
+    </p>
+  </div>
+</section>
+
+<section class="doc" id="shortcuts">
+  <h3><span class="marker"></span>Keyboard shortcuts</h3>
+  <p>The complete list. There is no global command palette and no quick switcher.</p>
+  <div class="tw">
+  <table class="nowrap-1">
+    <thead><tr><th>Key</th><th>Where</th><th>Does</th></tr></thead>
+    <tbody>
+      <tr><td><kbd>Enter</kbd></td><td>Composer, thread reply, inline edit</td><td>Send or save</td></tr>
+      <tr><td><kbd>Shift</kbd>+<kbd>Enter</kbd></td><td>Composer</td><td>Newline</td></tr>
+      <tr><td><kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>B</kbd></td><td>Any composer</td><td>Bold</td></tr>
+      <tr><td><kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>I</kbd></td><td>Any composer</td><td>Italic</td></tr>
+      <tr><td><kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>K</kbd></td><td>Any composer</td><td>Link. <em>Not</em> search.</td></tr>
+      <tr><td><kbd>Ctrl</kbd>/<kbd>Cmd</kbd>+<kbd>E</kbd></td><td>Any composer</td><td>Code, inline or fenced if the selection spans lines</td></tr>
+      <tr><td><kbd>&uarr;</kbd> <kbd>&darr;</kbd></td><td>Search results, avatar menu</td><td>Move selection</td></tr>
+      <tr><td><kbd>Home</kbd> <kbd>End</kbd></td><td>Avatar menu</td><td>First and last item</td></tr>
+      <tr><td><kbd>Esc</kbd></td><td>Almost everything</td><td>Close: thread panel, lightbox, emoji picker, action sheet, member panels, mention inbox, hovercard, sidebar, About, tutorial. Cancels an inline edit and clears the sidebar filter.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>
+    No shortcut exists for strikethrough, quote or list; those are toolbar buttons only. There is no
+    up-arrow-to-edit-your-last-message.
+  </p>
+</section>
+
+<section class="doc" id="admin">
+  <h3><span class="marker"></span>The admin console</h3>
+  <p>
+    <code>/admin</code>, reachable from the avatar menu, and gated on the Keycloak realm role
+    <code>ichat-admin</code>. It has four sections:
+  </p>
+  <ul>
+    <li>
+      <b>Branding.</b> The workspace title, and a logo (PNG, JPEG or WEBP, up to 256 KB) used in the
+      top bar, on the landing page and as the favicon. SVG is rejected on purpose, an uploaded SVG
+      is a script-execution surface. A reset button appears once a custom logo is set.
+    </li>
+    <li><b>Channels.</b> A read-only table of every channel with type, member count, message count and creation date.</li>
+    <li>
+      <b>Privacy.</b> One checkbox controlling whether the user table below shows full email
+      addresses or masks them to <code>al…@example.com</code>. Default is to show them. The database
+      keeps the real value either way, so turning it off and on again loses nothing.
+    </li>
+    <li><b>Users.</b> A read-only table: username, display name, email, last active, joined.</li>
+  </ul>
+  <p>
+    Admins also see more in the <b>About</b> dialog: Java and JVM version, OS and architecture, CPU
+    count, maximum heap, uptime, timezone, and the exact version of every bundled library. That is
+    deliberately admin-only, it is a fingerprint of your deployment.
+  </p>
+  <div class="warn">
+    <span class="tag">Backend without a screen</span>
+    <p>
+      Several capabilities exist in the service layer with no controller and no UI: account
+      suspension, reversible message removal with its retention purge, the admin audit trail,
+      per-user storage quota reporting, the channel creation policy, and admin-wide search. They are
+      configured and operated outside the application today. If you fork this, they are the most
+      obvious thing to wire up, and the reason they are listed here is so nobody spends an afternoon
+      looking for the button.
+    </p>
+  </div>
+  <p>
+    One consequence is visible to users: a suspended account (a <code>users.suspended_at</code>
+    that is set) gets a plain <em>Account suspended</em> page, and API calls get a JSON error, from a
+    filter that runs before anything else.
+  </p>
+</section>
+
+<!-- ==================================================================== PART 2 -->
+
+<div class="part" id="configuration">
+  <span class="eyebrow">Part two</span>
+  <h2>Configuration</h2>
+  <p>
+    Every setting the application reads, with its default and the reason you would touch it. Keys
+    are Spring properties under the <code>ichat.</code> prefix; the ones with an environment
+    variable listed can also be set that way, which is what a systemd unit or a container will use.
+  </p>
+  <p>
+    Properties without an environment variable can still be set from the command line, for example
+    <code>-Dichat.ws.inbound-threads=48</code>, or by adding them to a profile file.
+  </p>
+</div>
+
+<section class="doc" id="config-layers">
+  <h3><span class="marker"></span>How settings are layered</h3>
+  <p>Later entries win over earlier ones:</p>
+  <ol>
+    <li><code>application.yml</code>, the defaults compiled into the jar.</li>
+    <li>The active Spring profile's <code>application-&lt;profile&gt;.properties</code>.</li>
+    <li>Environment variables and <code>-D</code> system properties.</li>
+    <li>Vault or OpenBao, if enabled, which is layered on top of everything for the five keys it owns.</li>
+  </ol>
+  <div class="note">
+    <span class="tag">Worth knowing</span>
+    <p>
+      Spring Boot does <b>not</b> read a <code>.env</code> file. The <code>.env.example</code> in
+      the repository is a template for the mechanisms that do: systemd's
+      <code>EnvironmentFile=</code>, <code>podman run --env-file</code>, or
+      <code>set -a; . ./.env; set +a</code> in a shell.
+    </p>
+  </div>
+  <p>
+    Two settings are non-negotiable and have no knob. <code>spring.jpa.hibernate.ddl-auto</code> is
+    <code>validate</code>, so the application refuses to start against a schema that does not match
+    the entities; schema changes go through Flyway migrations. And
+    <code>spring.jpa.open-in-view</code> is <code>false</code>, which is why lazy associations have
+    to be touched inside a service transaction.
+  </p>
+</section>
+
+<section class="doc" id="config-http">
+  <h3><span class="marker"></span>HTTP and the proxy</h3>
+  <div class="tw">
+  <table class="nowrap-1">
+    <thead><tr><th>Key</th><th>Env</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>server.port</code></td><td><code>SERVER_PORT</code></td><td><code>8080</code></td>
+        <td>The port Tomcat binds.</td>
+      </tr>
+      <tr>
+        <td><code>server.address</code></td><td><code>SERVER_ADDRESS</code></td><td><code>127.0.0.1</code></td>
+        <td>
+          The interface it binds. Loopback by default so that a deploy which forgets to set it is
+          not accidentally on the internet. Keep it loopback and put nginx in front; change it only
+          when you genuinely want the JVM reachable directly.
+        </td>
+      </tr>
+      <tr>
+        <td><code>ichat.allowed-origins</code></td><td>via profile</td><td><code>http://localhost:8080,http://127.0.0.1:8080</code></td>
+        <td>
+          Comma-separated origins accepted for the WebSocket handshake. The <code>prod</code> profile
+          reads it from <code>ICHAT_ALLOWED_ORIGINS</code> and defaults it to empty, which is the safe
+          default: set it to your real public origin or the socket will not open.
+        </td>
+      </tr>
+      <tr>
+        <td><code>server.servlet.session.timeout</code></td><td>&mdash;</td><td><code>8h</code></td>
+        <td>
+          Matches Keycloak's SSO session idle timeout. Keycloak is the authority; change it there
+          first, then bump this to agree, or the servlet session will expire underneath a valid SSO
+          session.
+        </td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <p>
+    <code>server.forward-headers-strategy</code> is set to <code>framework</code>, which is what
+    makes the rest of the proxy story work. A request arriving with
+    <code>X-Forwarded-Proto: https</code> is treated as secure, so the session and CSRF cookies get
+    their <code>Secure</code> flag automatically and no separate setting is needed. If your proxy
+    strips that header you must force it with
+    <code>server.servlet.session.cookie.secure=true</code>.
+  </p>
+</section>
+
+<section class="doc" id="config-db">
+  <h3><span class="marker"></span>Database</h3>
+  <div class="tw">
+  <table class="nowrap-1">
+    <thead><tr><th>Key</th><th>Env</th><th>Default</th></tr></thead>
+    <tbody>
+      <tr><td><code>spring.datasource.url</code></td><td><code>ICHAT_DB_URL</code></td><td><code>jdbc:postgresql://localhost:5432/intellistream_chat</code></td></tr>
+      <tr><td><code>spring.datasource.username</code></td><td><code>ICHAT_DB_USERNAME</code></td><td><code>ichat_role</code></td></tr>
+      <tr><td><code>spring.datasource.password</code></td><td><code>ICHAT_DB_PASSWORD</code></td><td><code>ichat_role</code>, rotate it</td></tr>
+      <tr><td><code>spring.datasource.hikari.maximum-pool-size</code></td><td>&mdash;</td><td><b>unset</b>, so Boot's default of <b>10</b></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="note">
+    <span class="tag">Worth knowing</span>
+    <p>
+      The connection pool is <b>not</b> configured in the shipped files. Every profile therefore
+      runs on HikariCP's Spring Boot default of ten connections. The 50 quoted in
+      <code>scalability.md</code> is what the benchmark harness passes on the command line, not what
+      you get out of the box. Ten is enough for a very large chat workload, see
+      <a href="#pg-connections">connections and the pool</a>, but it is worth knowing which number
+      you are actually running.
+    </p>
+  </div>
+  <p>
+    Flyway is enabled and reads <code>classpath:db/migration</code>. Migrations run before Hibernate
+    validates the schema, and a mismatch is a startup failure rather than a silent difference.
+  </p>
+</section>
+
+<section class="doc" id="config-identity">
+  <h3><span class="marker"></span>Identity and Keycloak</h3>
+  <div class="tw">
+  <table class="nowrap-1">
+    <thead><tr><th>Key</th><th>Env</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>issuer URI (client and resource server)</td><td><code>KEYCLOAK_ISSUER_URI</code></td>
+        <td><code>http://localhost:8081/realms/ichat-realm</code></td>
+        <td>One variable feeds both the OIDC login client and the JWT resource server, so they cannot drift apart.</td>
+      </tr>
+      <tr>
+        <td>client id</td><td><code>KEYCLOAK_CLIENT_ID</code></td><td><code>ichat-client</code></td><td></td>
+      </tr>
+      <tr>
+        <td>client secret</td><td><code>KEYCLOAK_CLIENT_SECRET</code></td><td><b>empty</b></td>
+        <td>
+          Deliberately has no default. The previous default was the development secret from
+          <code>keycloak/realm.json</code>, and a secret with a default is a secret that ends up in
+          production.
+        </td>
+      </tr>
+      <tr>
+        <td><code>ichat.moderation.keycloak-writethrough.enabled</code></td><td>&mdash;</td><td><code>false</code></td>
+        <td>
+          When on, suspending an account in the chat also disables it in Keycloak. Requires the
+          issuer, client id and secret, and fails to start without them.
+        </td>
+      </tr>
+      <tr>
+        <td><code>&hellip;keycloak-writethrough.server-url</code></td><td>&mdash;</td><td>empty</td>
+        <td>Base URL override, for deployments where the admin API is on a different hostname from the issuer.</td>
+      </tr>
+      <tr>
+        <td><code>&hellip;keycloak-writethrough.timeout-millis</code></td><td>&mdash;</td><td><code>5000</code></td>
+        <td></td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <p>
+    A dedicated startup check refuses to boot a confidential client with an empty secret. That
+    matters because an empty string is a perfectly valid property value, so without the check the
+    application would start and then fail at first login with something unhelpful.
+  </p>
+</section>
+
+<section class="doc" id="config-storage">
+  <h3><span class="marker"></span>Storage and quotas</h3>
+  <div class="tw">
+  <table class="nowrap-1">
+    <thead><tr><th>Key</th><th>Env</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><code>ichat.attachments.dir</code></td><td><code>ICHAT_ATTACHMENTS_DIR</code></td><td><code>./data/attachments</code></td><td>Where uploaded files land.</td></tr>
+      <tr><td><code>ichat.avatars.dir</code></td><td><code>ICHAT_AVATARS_DIR</code></td><td><code>./data/avatars</code></td><td></td></tr>
+      <tr><td><code>ichat.branding.dir</code></td><td><code>ICHAT_BRANDING_DIR</code></td><td><code>./data/branding</code></td><td>The admin-uploaded logo.</td></tr>
+      <tr>
+        <td><code>ichat.attachments.user-quota-bytes</code></td><td><code>ICHAT_USER_QUOTA_BYTES</code></td><td><code>2147483648</code> (2 GiB)</td>
+        <td>
+          Total an account may store. A per-account override lives in the database, and negative
+          means unlimited. This is not what stops the volume filling, a filesystem quota is. It
+          stops one account spending everyone else's share first.
+        </td>
+      </tr>
+      <tr>
+        <td><code>ichat.attachments.min-free-bytes</code></td><td><code>ICHAT_MIN_FREE_BYTES</code></td><td><code>67108864</code> (64 MiB)</td>
+        <td>
+          Refuse uploads below this much free space. Raise it if Lucene shares the volume, a segment
+          merge transiently needs room for a second copy of what it is merging. Zero disables the
+          check.
+        </td>
+      </tr>
+      <tr>
+        <td><code>ichat.branding.title</code></td><td>&mdash;</td><td><code>IntelliStream Chat</code></td>
+        <td>The fallback workspace title before an admin sets one.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <p>
+    The per-upload cap of 50 MiB is not a property. It is raised per account through a Keycloak user
+    attribute named <code>chat_max_upload_bytes</code>, mapped into the token by the bundled realm;
+    set it to a byte count, or to <code>-1</code> for unlimited. Workspace admins bypass it.
+  </p>
+  <p>
+    Back up <code>./data/</code> and the Postgres database and you have the whole product:
+    attachments, avatars, branding and the search index, plus every message.
+  </p>
+</section>
+
+<section class="doc" id="config-search">
+  <h3><span class="marker"></span>Search</h3>
+  <div class="tw">
+  <table class="nowrap-1">
+    <thead><tr><th>Key</th><th>Env</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>ichat.search.lucene-dir</code></td><td><code>ICHAT_SEARCH_LUCENE_DIR</code></td><td><code>./data/lucene</code></td>
+        <td>Where the index lives. If it is empty at startup the index is rebuilt from the messages table, so wiping it is a safe repair.</td>
+      </tr>
+      <tr>
+        <td><code>ichat.search.async-indexing</code></td><td>&mdash;</td><td><code>true</code></td>
+        <td>
+          Index off the request thread. Turning it off makes indexing synchronous, which is only
+          useful when you want a test to see a document immediately.
+        </td>
+      </tr>
+      <tr>
+        <td><code>ichat.search.flush-interval-ms</code></td><td>&mdash;</td><td><code>250</code></td>
+        <td>How often pending index writes are made visible to searchers. Lower means fresher results and more commits.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="doc" id="config-write">
+  <h3><span class="marker"></span>The write path</h3>
+  <p>
+    Messages are inserted in batches. Ids are allocated up front in blocks from the sequence, so a
+    message has its real primary key the moment it is accepted; the row is handed to a queue and
+    flushed a few milliseconds later as part of a multi-row insert. Roughly 14,000 transactions a
+    second become about 55 batches a second, and that single change was the largest throughput lever
+    in the whole system.
+  </p>
+  <p>
+    The queue is <b>sharded by channel</b>, so one flusher owns a channel and its messages commit
+    and publish in the order they were accepted, while different channels commit in parallel.
+    Nothing is broadcast or indexed until its batch has committed. Bodies containing an
+    <code>@</code> take the synchronous path instead, because mention rows need the message row to
+    exist for their foreign key.
+  </p>
+  <div class="tw">
+  <table class="nowrap-1">
+    <thead><tr><th>Key</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><code>ichat.write-behind.enabled</code></td><td><code>true</code></td><td>Master switch. Off means every message inserts in its own transaction.</td></tr>
+      <tr><td><code>ichat.write-behind.batch-size</code></td><td><code>256</code></td><td>Maximum rows per insert.</td></tr>
+      <tr><td><code>ichat.write-behind.flush-interval-ms</code></td><td><code>5</code></td><td>How long a row can wait for company. This is also the durability window, see below.</td></tr>
+      <tr><td><code>ichat.write-behind.queue-capacity</code></td><td><code>100000</code></td><td>When full, the caller inserts synchronously. Back-pressure, never a dropped message.</td></tr>
+      <tr><td><code>ichat.write-behind.id-block-size</code></td><td><code>4096</code></td><td>Ids drawn per sequence round trip.</td></tr>
+      <tr><td><code>ichat.write-behind.flush-threads</code></td><td><code>4</code></td><td>Flusher shards. More parallel commits, at the cost of more concurrent transactions.</td></tr>
+      <tr><td><code>ichat.write-behind.broadcast-threads</code></td><td><code>8</code></td><td>Threads doing post-commit fan-out and indexing.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="measured">
+    <span class="tag">The trade, stated plainly</span>
+    <p>
+      An abrupt process kill loses at most one flush window, five milliseconds, of messages. Because
+      broadcast waits for the commit, those messages were never shown to anyone, never indexed and
+      never acknowledged, so nothing has to be un-said. A clean shutdown drains the queue. A failed
+      batch is retried row by row, so one bad row cannot take 255 good ones with it.
+    </p>
+  </div>
+</section>
+
+<section class="doc" id="config-ws">
+  <h3><span class="marker"></span>WebSocket tuning</h3>
+  <div class="tw">
+  <table class="nowrap-1">
+    <thead><tr><th>Key</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>ichat.ws.inbound-threads</code></td><td><code>0</code>, meaning cores &times; 4</td>
+        <td>
+          Threads processing incoming STOMP frames. This is the most load-bearing setting in the
+          application: without a real executor here Spring lands every message handler on the
+          single-threaded heartbeat scheduler and the whole server processes one message at a time.
+          Aim for roughly the size of the database pool it feeds; threads beyond that just queue
+          inside Hikari.
+        </td>
+      </tr>
+      <tr><td><code>ichat.ws.outbound-threads</code></td><td><code>0</code>, meaning cores &times; 4</td><td>Threads writing frames out to clients.</td></tr>
+      <tr><td><code>ichat.ws.inbound-queue</code></td><td><code>100000</code></td><td>Backlog before inbound frames are rejected.</td></tr>
+      <tr><td><code>ichat.ws.outbound-queue</code></td><td><code>200000</code></td><td>Backlog of pending deliveries.</td></tr>
+      <tr>
+        <td><code>ichat.ws.subscription-cache-limit</code></td><td><code>16384</code></td>
+        <td>
+          Size this to your channel count. Spring's broker caches destination to subscriber
+          mappings with a stock limit of 1,024; past that, every broadcast rescans every
+          subscription. At 2,000 rooms and 100,000 connections that was 47% of server CPU and half
+          the traffic dropped. The failure looks exactly like an under-provisioned machine, so check
+          this before blaming hardware.
+        </td>
+      </tr>
+      <tr><td><code>ichat.ws.binary-buffer-bytes</code></td><td><code>8192</code></td><td rowspan="2">Per-session buffers. Lowering them is how the per-connection memory measurements in <code>scalability.md</code> were taken; leave them alone unless you are chasing a connection-count record.</td></tr>
+      <tr><td><code>ichat.ws.socket-buffer-bytes</code></td><td><code>8192</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>
+    A diagnostics line at startup logs the executors that were actually resolved. Check it before
+    trusting any throughput number, because a missing executor is invisible in every obvious metric:
+    the box is not busy, the database is idle, and latency merely looks like a slow dependency.
+  </p>
+</section>
+
+<section class="doc" id="config-moderation">
+  <h3><span class="marker"></span>Moderation and retention</h3>
+  <p>
+    An admin removing a message is a <b>soft</b> delete. The row stays, drops out of every read
+    path, and remains recoverable until the retention window passes, on the reasoning that the first
+    ban is sometimes the wrong ban. A scheduled purge then removes it for good.
+  </p>
+  <div class="tw">
+  <table class="nowrap-1">
+    <thead><tr><th>Key</th><th>Env</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>ichat.moderation.retention-days</code></td><td><code>ICHAT_RETENTION_DAYS</code></td><td><code>30</code></td>
+        <td>How long a removed message stays recoverable. Zero or negative keeps them forever, which disables the purge.</td>
+      </tr>
+      <tr>
+        <td><code>ichat.moderation.purge-enabled</code></td><td><code>ICHAT_PURGE_ENABLED</code></td><td><code>true</code></td>
+        <td>Master switch. Scheduling runs on every node, so set this false on all but one if you ever run more than a single instance.</td>
+      </tr>
+      <tr><td><code>ichat.moderation.purge-interval-ms</code></td><td><code>ICHAT_PURGE_INTERVAL_MS</code></td><td><code>3600000</code> (1 h)</td><td></td></tr>
+      <tr><td><code>ichat.moderation.purge-initial-delay-ms</code></td><td>&mdash;</td><td><code>600000</code> (10 min)</td><td>Delay after startup before the first sweep.</td></tr>
+      <tr>
+        <td><code>ichat.moderation.purge-batch-size</code></td><td>&mdash;</td><td><code>500</code></td>
+        <td rowspan="2">Batch size times max batches caps how much one sweep removes. A bigger backlog is carried to the next run rather than sat through in one long transaction.</td>
+      </tr>
+      <tr><td><code>ichat.moderation.purge-max-batches</code></td><td>&mdash;</td><td><code>200</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="doc" id="config-cleanup">
+  <h3><span class="marker"></span>Background cleanup</h3>
+  <p>
+    Two sweeps run on a timer: one deletes files on disk with no surviving database row, the other
+    reconciles the Lucene index against the messages table.
+  </p>
+  <div class="tw">
+  <table class="nowrap-1">
+    <thead><tr><th>Key</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr><td><code>ichat.cleanup.enabled</code></td><td><code>true</code></td><td>Master switch for both sweeps.</td></tr>
+      <tr>
+        <td><code>ichat.cleanup.dry-run</code></td><td><code>true</code></td>
+        <td>
+          <b>Defaults to logging what it would delete rather than deleting it.</b> Read a cycle or
+          two of that log before setting this false. A cleanup job that is wrong and armed is worse
+          than no cleanup job.
+        </td>
+      </tr>
+      <tr><td><code>ichat.cleanup.grace</code></td><td><code>24h</code></td><td>How old an orphan must be before it counts as one, so an in-flight upload is never swept.</td></tr>
+      <tr><td><code>ichat.cleanup.file-sweep-ms</code></td><td><code>3600000</code></td><td>Orphan-file sweep interval.</td></tr>
+      <tr><td><code>ichat.cleanup.reconcile-ms</code></td><td><code>3600000</code></td><td>Index reconcile interval.</td></tr>
+      <tr><td><code>ichat.cleanup.initial-delay-ms</code></td><td><code>300000</code></td><td>Delay after startup.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="doc" id="config-cache">
+  <h3><span class="marker"></span>Caches and presence</h3>
+  <div class="tw">
+  <table class="nowrap-1">
+    <thead><tr><th>Key</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>ichat.cache.channel-ttl-seconds</code></td><td><code>60</code></td>
+        <td>
+          How long a channel and a positive write-access decision are cached on the message send
+          path. Only positive decisions are cached and membership is add-only, so a cached "yes"
+          cannot silently become a "no".
+        </td>
+      </tr>
+      <tr><td><code>ichat.cache.max-entries</code></td><td><code>100000</code></td><td>Cache ceiling.</td></tr>
+      <tr>
+        <td><code>ichat.presence.away-after-minutes</code></td><td><code>10</code></td>
+        <td>Inactivity before a connected user is shown as Away. Clamped to at least one minute.</td>
+      </tr>
+      <tr><td><code>ichat.reminders.poll-ms</code></td><td><code>30000</code></td><td>How often <code>/remind</code> checks for due reminders, and therefore how precise delivery is.</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="doc" id="config-ratelimit">
+  <h3><span class="marker"></span>Rate limits</h3>
+  <p>
+    Limits are per user, per action, over a sliding window, held in memory in the process. There is
+    exactly one property, <code>ichat.ratelimit.enabled</code>, defaulting to <code>true</code>. The
+    individual numbers are compiled in, not configurable. Turning limits off is done only by the
+    <code>bench</code> profile, where every synthetic connection authenticates as one user and the
+    30-per-minute message cap would otherwise cap the entire benchmark at 30 messages.
+  </p>
+  <div class="tw">
+  <table class="nowrap-1">
+    <thead><tr><th>Action</th><th>Limit</th></tr></thead>
+    <tbody>
+      <tr><td>Send a message (socket or HTTP), edit, delete, DM send, poll vote, presence change</td><td>30 / min</td></tr>
+      <tr><td>Typing pings, reaction toggles, link previews, message-context loads</td><td>60 / min</td></tr>
+      <tr><td>Search</td><td>30 / min</td></tr>
+      <tr><td>Channel search from the sidebar, profile lookups</td><td>120 / min</td></tr>
+      <tr><td>Create a channel</td><td>10 / hour (and 20 / min, so the hourly limit binds first)</td></tr>
+      <tr><td>Username lookups for invites</td><td>20 / min</td></tr>
+      <tr><td>Attachment upload</td><td>10 / min</td></tr>
+      <tr><td>Attachment download</td><td>200 / min</td></tr>
+      <tr><td>Avatar upload / download</td><td>5 / min, 600 / min</td></tr>
+      <tr><td>STOMP subscribe</td><td>200 / min, keyed on the session rather than the user</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <div class="warn">
+    <span class="tag">Before you scale out</span>
+    <p>
+      The limiter is per process. Two replicas mean two independent budgets and therefore twice the
+      limit. Replace it with a distributed limiter before running more than one instance.
+    </p>
+  </div>
+</section>
+
+<section class="doc" id="config-dev">
+  <h3><span class="marker"></span>Assets and dev tools</h3>
+  <div class="tw">
+  <table class="nowrap-1">
+    <thead><tr><th>Key</th><th>Env</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>ichat.assets.unbundled</code></td><td><code>ICHAT_ASSETS_UNBUNDLED</code></td><td><code>false</code></td>
+        <td>
+          False serves the minified, content-hashed bundles built at compile time. True serves the
+          original sources, so an edit shows up on refresh without a rebuild. The <code>dev</code>
+          profile turns it on.
+        </td>
+      </tr>
+      <tr>
+        <td><code>ichat.dev-tools.enabled</code></td><td>&mdash;</td><td><code>false</code></td>
+        <td>Loads an in-browser smoke-test runner. On in <code>dev</code>, explicitly off in <code>prod</code> and <code>bench</code>.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="doc" id="config-profiles">
+  <h3><span class="marker"></span>Spring profiles</h3>
+  <p>Three, and they are small on purpose. Each one overrides a handful of keys, nothing more.</p>
+
+  <h4><code>dev</code></h4>
+  <p>
+    Activated automatically by <code>./gradlew bootRun</code> when
+    <code>SPRING_PROFILES_ACTIVE</code> is unset. Not activated by <code>java -jar</code> and not by
+    the tests. It points the issuer at a local Keycloak, allows the localhost origins, turns on
+    dev tools and serves unbundled assets. The file itself is gitignored and there is a committed
+    <code>.example</code> beside it, because it is where a maintainer keeps machine-specific values
+    such as a LAN address for testing on a phone.
+  </p>
+
+  <h4><code>prod</code></h4>
+  <p>
+    Binds loopback, turns dev tools off, and takes the issuer URI, the allowed origins and the
+    client secret from the environment. Two of those, the issuer and the secret, have <b>no
+    default</b>, so a production start with either missing fails immediately rather than coming up
+    pointed at a development Keycloak.
+  </p>
+
+  <h4><code>bench</code></h4>
+  <p>
+    For the load harness, and labelled in the file itself as never for production. It disables rate
+    limiting, binds all interfaces, raises the Tomcat connection and accept limits far above stock,
+    uses a separate Lucene directory, and exposes the health and metrics actuator endpoints
+    read-only. Every one of those is a reason not to run it anywhere real.
+  </p>
+</section>
+
+<section class="doc" id="config-vault">
+  <h3><span class="marker"></span>Vault and OpenBao</h3>
+  <p>
+    Optional, off by default, and the application is perfectly happy reading credentials from the
+    environment. Turn it on when you would rather the database password and the OIDC client secret
+    did not sit in a file on the host.
+  </p>
+  <p>
+    It runs before Spring builds any beans, fetches one KV v2 record, and layers it above everything
+    else, so what Vault says wins over the environment, the profile and <code>application.yml</code>
+    alike. It reads five fields and ignores anything else in the record:
+  </p>
+<pre><code>db.username              -&gt; spring.datasource.username
+db.password              -&gt; spring.datasource.password
+keycloak.client-id       -&gt; OIDC client id
+keycloak.client-secret   -&gt; OIDC client secret
+keycloak.issuer-uri      -&gt; both the OIDC client and the resource server issuer</code></pre>
+  <div class="tw">
+  <table class="nowrap-1">
+    <thead><tr><th>Key</th><th>Env</th><th>Default</th></tr></thead>
+    <tbody>
+      <tr><td><code>ichat.vault.enabled</code></td><td><code>ICHAT_VAULT_ENABLED</code></td><td><code>false</code></td></tr>
+      <tr><td><code>ichat.vault.uri</code></td><td><code>ICHAT_VAULT_URI</code></td><td>empty, required when enabled</td></tr>
+      <tr><td><code>ichat.vault.token</code></td><td><code>ICHAT_VAULT_TOKEN</code></td><td>empty, required when enabled</td></tr>
+      <tr><td><code>ichat.vault.path</code></td><td><code>ICHAT_VAULT_PATH</code></td><td><code>intellistream-chat</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>
+    The path is a KV v2 path. The default resolves to
+    <code>secret/data/intellistream-chat</code>; a value containing a slash, such as
+    <code>mymount/myapp/secrets</code>, uses the part before the first slash as the mount.
+  </p>
+  <p>
+    Failure behaviour is deliberately loud. Enabled with a missing URI or token is a startup crash,
+    not a fallback, because a silent fallback is how a production instance ends up running on a
+    development password. A transport error or a malformed record is likewise fatal. The one soft
+    case is a record that fetched cleanly but contained none of the five field names: that logs a
+    warning listing what it expected and carries on with the environment, since it is far more
+    likely to be a typo in the path than an attack.
+  </p>
+  <p>
+    Locally, a profile-gated OpenBao container and a seeding script are in the repository. That
+    container runs in memory with a single root token, so it is for testing the integration, not for
+    running it.
+  </p>
+</section>
+
+<section class="doc" id="config-keycloak">
+  <h3><span class="marker"></span>The Keycloak realm</h3>
+  <div class="tw">
+  <table class="nowrap-1">
+    <thead><tr><th>Item</th><th>Value</th></tr></thead>
+    <tbody>
+      <tr><td>Realm</td><td><code>ichat-realm</code></td></tr>
+      <tr><td>Client</td><td><code>ichat-client</code>, confidential, authorization code flow</td></tr>
+      <tr><td>Redirect URIs</td><td><code>http://localhost:8080/*</code>, <code>http://127.0.0.1:8080/*</code></td></tr>
+      <tr><td>Web origins</td><td><code>http://localhost:8080</code>, <code>http://127.0.0.1:8080</code></td></tr>
+      <tr><td>Session idle and max</td><td>8 hours, matching the servlet session</td></tr>
+      <tr><td>Brute-force protection</td><td>On. Temporary lockout after 10 failures, backing off to a 15 minute cap, counter decaying after 12 hours.</td></tr>
+      <tr><td>Test users</td><td><code>alice</code> / <code>alice</code> (admin), <code>bob</code> / <code>bob</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>
+    Change the host or port and you must change the redirect URIs and web origins to match, or
+    Keycloak rejects the login with <code>400 invalid_redirect_uri</code>.
+  </p>
+
+  <h4>Roles</h4>
+  <div class="tw">
+  <table class="nowrap-1">
+    <thead><tr><th>Realm role</th><th>Effect in the chat</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>ichat-user</code></td>
+        <td>None. It is a marker for filtering in Keycloak, and a sensible thing to add to the realm's default role set.</td>
+      </tr>
+      <tr>
+        <td><code>ichat-admin</code></td>
+        <td>Grants Spring's <code>ROLE_ADMIN</code>: the admin console, workspace-wide search, unlimited uploads, quota exemption, deleting anyone's message.</td>
+      </tr>
+      <tr>
+        <td><code>admin</code></td>
+        <td><b>Deliberately ignored.</b> Read on to see why.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <p>
+    The role converter grants <code>ROLE_ADMIN</code> on an exact match for <code>ichat-admin</code>
+    and on nothing else. Keycloak's own <code>admin</code> role, which administers the identity
+    provider, is not treated as a grant here, and that is the entire point: whoever operates your
+    Keycloak is not thereby an administrator of your chat. The realm ships the <code>admin</code>
+    role defined and assigned to nobody, so the negative case has something to test against. Both
+    directions are pinned by a unit test.
+  </p>
+  <p>
+    Promote a person by assigning <code>ichat-admin</code> to them individually. It should never be
+    in the default role set.
+  </p>
+  <div class="warn">
+    <span class="tag">Before exposing an instance</span>
+    <p>
+      Self-registration is on in the bundled realm, which is right for evaluation and wrong for the
+      public internet. A ban button is whack-a-mole if the same person can register again in ten
+      seconds. In rough order of value: turn registration off and invite people instead, require
+      email verification (which needs SMTP configured), add a captcha to the registration flow, and
+      set a password policy. None of that is enforced by the application, because none of it belongs
+      there. Also rotate the client secret, the one in the repository is public.
+    </p>
+  </div>
+</section>
+
+<!-- ==================================================================== PART 3 -->
+
+<div class="part" id="postgres">
+  <span class="eyebrow">Part three</span>
+  <h2>Tuning PostgreSQL</h2>
+  <p>
+    This chapter is mostly about what not to do. The short version is that at chat scale Postgres is
+    not the constraint, and most of the tuning advice you will find was written for a workload that
+    looks nothing like this one.
+  </p>
+</div>
+
+<section class="doc" id="pg-reality">
+  <h3><span class="marker"></span>Postgres is not the bottleneck</h3>
+  <div class="measured">
+    <span class="tag">Measured, not estimated</span>
+    <p>
+      At around <b>13,000 messages a second</b>, the connection pool's mean acquire time was
+      <b>0.03 ms</b> with zero connections pending, and <b>Postgres itself sat at roughly 10% CPU</b>
+      while the application delivered 17,066 messages a second end to end on a 12-core box. The
+      database backends were waiting on a queue upstream of them, not on the disk.
+    </p>
+  </div>
+  <p>
+    Take that seriously before you spend an evening in <code>postgresql.conf</code>. If your
+    instance is slow, tuning the database is unlikely to be the fix, and the checks worth running
+    first are elsewhere: the STOMP inbound executor, the broker's subscription cache limit, and
+    whether the batch writer is enabled. All three of those have produced order-of-magnitude
+    differences. None of the Postgres settings below will.
+  </p>
+  <p>
+    What the settings below <em>are</em> good for is keeping the database out of trouble as the
+    message table grows past the point where the defaults were sensible: not falling into a
+    checkpoint storm, not letting autovacuum drift a week behind, not planning a query on statistics
+    from last month. That is a different goal from unlocking throughput, and it is worth doing.
+  </p>
+</section>
+
+<section class="doc" id="pg-workload">
+  <h3><span class="marker"></span>What the app actually asks of the database</h3>
+  <p>Four properties of this workload determine which knobs matter.</p>
+  <ol>
+    <li>
+      <b>Writes arrive batched.</b> The application turns roughly 14,000 individual inserts a second
+      into about <b>55 multi-row transactions</b> a second. Per-transaction costs, which is most of
+      what commit-path tuning addresses, are therefore divided by 256 before Postgres ever sees them.
+    </li>
+    <li>
+      <b>Reads are small, indexed and keyset-paginated.</b> The channel view is fifty rows ordered by
+      <code>(channel_id, created_at)</code> straight off an index built for exactly that. Nothing
+      sorts a large result set, nothing hashes a big join, and full-text search does not touch
+      Postgres at all, it goes to Lucene.
+    </li>
+    <li>
+      <b>The working set is recent.</b> People read today's messages and occasionally jump to an old
+      permalink. A cache sized to hold the last few weeks behaves almost as well as one sized to hold
+      everything.
+    </li>
+    <li>
+      <b>The <code>messages</code> table is where all the volume is.</b> A new top-level, live,
+      unpinned message writes four index entries: the primary key, <code>(channel_id, created_at)</code>,
+      the live-rows partial index on the same columns, and <code>(author_id, created_at)</code>. The
+      partial indexes on <code>parent_id</code>, <code>pinned_at</code> and <code>deleted_at</code>
+      cost nothing on insert because the row does not qualify for them.
+    </li>
+  </ol>
+  <p>
+    That last point is the one worth carrying away: <b>the cheapest performance decision available to
+    you is not adding an index to <code>messages</code></b>. Every index you add is paid on every
+    insert forever, and index maintenance is a far larger share of this workload's database cost
+    than anything in the memory settings.
+  </p>
+</section>
+
+<section class="doc" id="pg-memory">
+  <h3><span class="marker"></span>Memory settings</h3>
+
+  <h4><code>shared_buffers</code></h4>
+  <p>
+    Postgres's own page cache, and the only one of these that reserves memory at startup. The
+    default of 128 MB is a compatibility choice, not a recommendation, and it is the one setting
+    almost everybody should change. Start at <b>25% of the memory available to Postgres</b>. The
+    operating system's page cache covers the rest, and it does so well enough that pushing past
+    roughly 40% usually buys nothing and can cost you double-buffering.
+  </p>
+  <div class="note">
+    <span class="tag">If Postgres shares the box with the JVM</span>
+    <p>
+      Take 25% of what is left after the JVM's maximum heap and its off-heap overhead, not 25% of
+      the machine. On a 2 GB VM running both, the application's own footprint is most of the budget,
+      and 256 MB of shared buffers is a more honest number than 512 MB.
+    </p>
+  </div>
+
+  <h4><code>effective_cache_size</code></h4>
+  <p>
+    A planner hint, not an allocation. It tells the optimiser roughly how much memory the whole
+    machine is likely to have available for caching pages, which is what decides whether an index
+    scan looks cheap enough to prefer over a sequential scan. Set it to about <b>70% of RAM</b>. It
+    costs nothing to get generous and it is the single cheapest correctness fix for a planner that
+    has started choosing sequential scans over <code>ix_messages_channel_created</code>.
+  </p>
+
+  <h4><code>work_mem</code></h4>
+  <p>
+    Memory for one sort or hash <em>node</em>, not one query and not one connection. A single query
+    with several such nodes can use a multiple of it, and every concurrent query has its own budget,
+    so the worst case is roughly <code>work_mem</code> times nodes times active queries.
+  </p>
+  <p>
+    For this workload the default 4 MB is very nearly right, because almost nothing sorts. Raising it
+    to 8 or 16 MB is harmless insurance for the admin console's aggregate counts and for migrations.
+    Raising it to 256 MB "for performance" is how a server that was fine at ten concurrent queries
+    falls over at forty. Change it only after <code>log_temp_files</code> shows you spilling.
+  </p>
+
+  <h4><code>maintenance_work_mem</code></h4>
+  <p>
+    Used by <code>VACUUM</code>, <code>CREATE INDEX</code> and <code>ALTER TABLE</code>. This one is
+    worth raising well above its 64 MB default, to somewhere between 256 MB and 1 GB, because it
+    directly sets how much of a table autovacuum can clean in one pass and how fast a Flyway
+    migration that adds an index to a large <code>messages</code> table completes. Remember that
+    autovacuum workers each get their own allowance, so multiply by
+    <code>autovacuum_max_workers</code> for the worst case.
+  </p>
+</section>
+
+<section class="doc" id="pg-connections">
+  <h3><span class="marker"></span>Connections and the pool</h3>
+  <p>
+    Postgres defaults to <code>max_connections = 100</code>. The application ships with no pool
+    configuration at all, so it runs on HikariCP's Spring Boot default of <b>10</b>. The benchmark
+    harness raises that to 50, which is where the number in <code>scalability.md</code> comes from.
+  </p>
+  <p>
+    Neither number was ever the limit. At 13,000 messages a second, acquiring a connection took
+    0.03 ms and nothing ever waited. Batching is why: 55 transactions a second do not need many
+    connections, they need a few connections held briefly.
+  </p>
+  <div class="note">
+    <span class="tag">The mistake to avoid</span>
+    <p>
+      <b>WebSocket connections are not database connections.</b> Ten thousand people online is not
+      ten thousand backends; it is ten. Raising <code>max_connections</code> because user numbers
+      grew is the most common way to make a Postgres instance slower, since every backend costs
+      memory and adds contention on shared structures whether or not it is doing anything.
+    </p>
+  </div>
+  <p>
+    Leave <code>max_connections</code> at 100. If you must raise the pool, raise it to a size that
+    keeps the STOMP inbound executor from queueing, and remember the relationship runs the other way
+    too: inbound threads beyond the pool size simply wait inside Hikari instead of waiting in the
+    executor.
+  </p>
+</section>
+
+<section class="doc" id="pg-checkpoints">
+  <h3><span class="marker"></span>Checkpoints and WAL</h3>
+  <p>
+    This is the section that earns its place. Checkpoint settings are the one part of
+    <code>postgresql.conf</code> where the defaults are genuinely wrong for a sustained-insert table,
+    and the symptom is periodic latency spikes rather than a uniformly slow server.
+  </p>
+  <p>
+    After each checkpoint, the first write to any page also writes a <b>full copy of that page</b>
+    into the WAL. Frequent checkpoints therefore mean more pages are "first written" more often, and
+    WAL volume climbs out of proportion to the data. With <code>max_wal_size</code> at its 1 GB
+    default, a busy message table triggers checkpoints on volume rather than on time, repeatedly,
+    and you pay that tax continuously.
+  </p>
+  <div class="tw">
+  <table class="nowrap-1">
+    <thead><tr><th>Setting</th><th>Default</th><th>Set to</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>max_wal_size</code></td><td>1 GB</td><td>4 GB to 16 GB</td>
+        <td>The real fix. Big enough that checkpoints happen on the timer rather than on volume. Costs disk in <code>pg_wal</code> and lengthens crash recovery.</td>
+      </tr>
+      <tr>
+        <td><code>min_wal_size</code></td><td>80 MB</td><td>1 GB to 2 GB</td>
+        <td>Keeps recycled segments around instead of deleting and recreating them under steady load.</td>
+      </tr>
+      <tr>
+        <td><code>checkpoint_timeout</code></td><td>5 min</td><td>15 min</td>
+        <td>Fewer checkpoints means fewer full-page writes. The cost is a longer replay after a crash.</td>
+      </tr>
+      <tr>
+        <td><code>checkpoint_completion_target</code></td><td>0.9</td><td>leave it</td>
+        <td>Already 0.9 on any modern version. Advice telling you to set it is quoting a pre-14 tuning guide.</td>
+      </tr>
+      <tr>
+        <td><code>wal_compression</code></td><td>off</td><td><code>zstd</code> or <code>lz4</code></td>
+        <td>Compresses exactly those full-page images. Genuinely useful here because small rows mean the page images dominate WAL volume. Costs a little CPU, and you have CPU to spare.</td>
+      </tr>
+      <tr>
+        <td><code>wal_buffers</code></td><td>auto</td><td>leave it</td>
+        <td>Derived from <code>shared_buffers</code> and capped at 16 MB, which is already right.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <p>
+    The check that tells you whether this mattered is in
+    <a href="#pg-monitor">what to monitor</a>: a checkpoint count dominated by
+    <em>requested</em> rather than <em>timed</em> means <code>max_wal_size</code> is still too small.
+  </p>
+</section>
+
+<section class="doc" id="pg-sync-commit">
+  <h3><span class="marker"></span><code>synchronous_commit</code>, and what it is worth</h3>
+  <div class="measured">
+    <span class="tag">Measured</span>
+    <p>
+      Setting <code>synchronous_commit = off</code> was tested against this workload and bought
+      <b>7%</b>.
+    </p>
+  </div>
+  <p>
+    Seven percent is not nothing, and if you want it, take it knowingly. What you are turning off is
+    the guarantee that a transaction reported as committed is on disk. A crash or a power loss can
+    lose the last fraction of a second of transactions that Postgres already told the application
+    were durable, up to roughly three times <code>wal_writer_delay</code>, so a few hundred
+    milliseconds by default. This is not the same as <code>fsync = off</code>: the database still
+    recovers to a consistent state, it simply recovers to a slightly earlier one.
+  </p>
+  <p>
+    For this application specifically, that has a consequence worth spelling out. The whole write
+    design rests on <b>broadcasting a message only after its row has committed</b>, so that nobody is
+    shown a line that then failed to persist. With <code>synchronous_commit = off</code>, "committed"
+    weakens to "committed unless the machine dies in the next half second", and the property becomes
+    a very strong likelihood rather than a guarantee. Messages that were delivered to everybody in
+    the room could be missing after a hard crash.
+  </p>
+  <p>
+    Whether that is acceptable is a judgement about your workspace, not a technical question. It is
+    a defensible trade for an internal team chat and an indefensible one for a system of record. What
+    is not defensible is taking it by accident, which is why it is off by default and why the 7% is
+    quoted here rather than left as folklore.
+  </p>
+  <p>
+    If you want most of the benefit without the global change, note that
+    <code>synchronous_commit</code> can be set per transaction, per role or per database.
+  </p>
+  <div class="warn">
+    <span class="tag">Never</span>
+    <p>
+      <code>fsync = off</code> and <code>full_page_writes = off</code> are not tuning. The first can
+      leave the cluster unrecoverably corrupt after a crash; the second can leave it corrupt after a
+      torn page write. They appear in tuning guides because they make benchmarks look good on
+      throwaway data.
+    </p>
+  </div>
+</section>
+
+<section class="doc" id="pg-autovacuum">
+  <h3><span class="marker"></span>Autovacuum on the <code>messages</code> table</h3>
+  <p>
+    Autovacuum's defaults are scale factors, which means the bigger a table gets the longer it waits.
+    That is fine for a table of thousands and wrong for one of hundreds of millions. On
+    <code>messages</code> the defaults mean waiting for 20% growth before an insert-triggered vacuum
+    and 10% before an analyze; on a 200-million-row table that is 40 million inserts of drift.
+  </p>
+  <p>Three separate jobs are at stake, and only one of them is about bloat:</p>
+  <ul>
+    <li>
+      <b>Statistics.</b> The planner's row estimates for <code>created_at</code> ranges are what keep
+      the channel query on its index. Stale statistics on a fast-growing table are the most likely
+      cause of a query plan that was fine last month and is not now. This is the job that matters
+      most here.
+    </li>
+    <li>
+      <b>The visibility map.</b> Vacuum marks all-visible pages, which is what allows index-only
+      scans. An insert-only table never gets vacuumed by the dead-tuple rules at all, which is why
+      modern Postgres added the insert-based trigger.
+    </li>
+    <li>
+      <b>Dead tuples.</b> Genuinely present here, because moderation soft-deletes rows and the
+      retention purge then hard-deletes them, up to 100,000 rows an hour at the shipped batch
+      settings. That is real vacuum work, arriving in bursts.
+    </li>
+  </ul>
+  <p>Set per-table overrides rather than changing the global defaults for everything:</p>
+<pre><code>ALTER TABLE messages SET (
+  autovacuum_analyze_scale_factor       = 0.01,
+  autovacuum_analyze_threshold          = 5000,
+  autovacuum_vacuum_scale_factor        = 0.02,
+  autovacuum_vacuum_threshold           = 5000,
+  autovacuum_vacuum_insert_scale_factor = 0.01
+);</code></pre>
+  <p>
+    Globally, the one change worth making on solid-state storage is
+    <code>autovacuum_vacuum_cost_limit = 2000</code> (from an effective default of 200). Autovacuum
+    is throttled by an I/O cost budget designed for spinning disks; on NVMe that throttle is the
+    only reason it falls behind. Consider <code>autovacuum_max_workers = 4</code> if you run other
+    large tables beside this one, remembering that each worker draws its own
+    <code>maintenance_work_mem</code>.
+  </p>
+  <div class="note">
+    <span class="tag">At a scale you probably will not reach</span>
+    <p>
+      If <code>messages</code> ever grows to the point where vacuum passes are measured in hours,
+      the answer is range partitioning on <code>created_at</code>, not more autovacuum tuning:
+      retention then becomes dropping a partition, which is instant and produces no dead tuples at
+      all. That is a schema change and belongs in a Flyway migration. At any plausible size for a
+      self-hosted workspace, you will not need it.
+    </p>
+  </div>
+</section>
+
+<section class="doc" id="pg-values">
+  <h3><span class="marker"></span>Starting values by RAM</h3>
+  <p>
+    Percentages are of the memory available <em>to Postgres</em>. If the JVM is on the same machine,
+    subtract its maximum heap plus about a third again for off-heap overhead before applying them.
+    The 2 GB column assumes exactly that co-location, which is why it is not simply a quarter of the
+    machine.
+  </p>
+  <div class="tw">
+  <table class="nowrap-1">
+    <thead>
+      <tr><th>Setting</th><th>2 GB, shared with the app</th><th>8 GB</th><th>32 GB</th><th>Rule</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>shared_buffers</code></td><td>256 MB</td><td>2 GB</td><td>8 GB</td><td>25% of what Postgres gets</td></tr>
+      <tr><td><code>effective_cache_size</code></td><td>768 MB</td><td>5 GB</td><td>22 GB</td><td>~70% of RAM, a hint only</td></tr>
+      <tr><td><code>work_mem</code></td><td>4 MB</td><td>8 MB</td><td>16 MB</td><td>Per node. Stay small.</td></tr>
+      <tr><td><code>maintenance_work_mem</code></td><td>128 MB</td><td>512 MB</td><td>1 GB</td><td>Times <code>autovacuum_max_workers</code> for the worst case</td></tr>
+      <tr><td><code>max_connections</code></td><td>100</td><td>100</td><td>100</td><td>The default. The app asks for 10.</td></tr>
+      <tr><td><code>max_wal_size</code></td><td>2 GB</td><td>4 GB</td><td>16 GB</td><td>Disk, not RAM. Check you have it.</td></tr>
+      <tr><td><code>min_wal_size</code></td><td>512 MB</td><td>1 GB</td><td>2 GB</td><td></td></tr>
+      <tr><td><code>checkpoint_timeout</code></td><td>15min</td><td>15min</td><td>15min</td><td>Independent of RAM</td></tr>
+      <tr><td><code>wal_compression</code></td><td>zstd</td><td>zstd</td><td>zstd</td><td>Independent of RAM</td></tr>
+      <tr><td><code>random_page_cost</code></td><td>1.1</td><td>1.1</td><td>1.1</td><td>Any SSD. The default of 4.0 describes a disk that seeks.</td></tr>
+      <tr><td><code>autovacuum_vacuum_cost_limit</code></td><td>2000</td><td>2000</td><td>2000</td><td>Any SSD</td></tr>
+      <tr><td><code>track_io_timing</code></td><td>on</td><td>on</td><td>on</td><td>Cheap, and required for I/O figures to mean anything</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>
+    Everything above except <code>shared_buffers</code>, <code>max_connections</code> and
+    <code>track_io_timing</code> can be changed with <code>ALTER SYSTEM</code> plus
+    <code>SELECT pg_reload_conf()</code>. Those three want a restart.
+  </p>
+</section>
+
+<section class="doc" id="pg-cargo-cult">
+  <h3><span class="marker"></span>What not to bother with</h3>
+  <div class="tw">
+  <table class="nowrap-1">
+    <thead><tr><th>Knob</th><th>Verdict for this workload</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>Raising <code>max_connections</code></td>
+        <td><b>Actively harmful.</b> The app asks for 10. More backends cost memory and contention and buy nothing.</td>
+      </tr>
+      <tr>
+        <td>Putting PgBouncer in front</td>
+        <td><b>Redundant.</b> HikariCP already pools, holds connections briefly, and measured 0.03 ms to hand one out. A second pooler adds a hop and a failure mode.</td>
+      </tr>
+      <tr>
+        <td>Large global <code>work_mem</code></td>
+        <td><b>Pointless and risky.</b> Almost nothing in this schema sorts. The memory is multiplied by concurrency, so the failure mode is an out-of-memory kill under load rather than a slow query.</td>
+      </tr>
+      <tr>
+        <td><code>checkpoint_completion_target</code></td>
+        <td><b>Already correct.</b> 0.9 since Postgres 14. Any guide telling you to set it predates that.</td>
+      </tr>
+      <tr>
+        <td>Background writer tuning</td>
+        <td><b>Noise.</b> The checkpointer does the work here; the background writer is not where the pages are going.</td>
+      </tr>
+      <tr>
+        <td><code>effective_io_concurrency</code></td>
+        <td><b>Barely applies.</b> It drives prefetch for bitmap heap scans, which this schema's keyset-paginated index scans do not produce.</td>
+      </tr>
+      <tr>
+        <td><code>io_method</code>, new in Postgres 18</td>
+        <td><b>Leave the default.</b> Asynchronous I/O targets large read-heavy scans. This workload's reads are fifty rows off an index.</td>
+      </tr>
+      <tr>
+        <td>Huge pages</td>
+        <td><b>Marginal below 8 GB of <code>shared_buffers</code>.</b> Real but small above it, and it needs kernel configuration to be worth doing properly.</td>
+      </tr>
+      <tr>
+        <td>Turning autovacuum off</td>
+        <td><b>Never.</b> It always ends in an emergency wraparound vacuum at the worst possible moment.</td>
+      </tr>
+      <tr>
+        <td><code>fsync</code>, <code>full_page_writes</code></td>
+        <td><b>Never.</b> These trade correctness, not latency. See above.</td>
+      </tr>
+      <tr>
+        <td>Adding indexes to <code>messages</code> speculatively</td>
+        <td><b>The most expensive habit on this list.</b> Paid on every insert forever, and the write path is the part of this system with a measured budget.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="doc" id="pg-monitor">
+  <h3><span class="marker"></span>What to monitor</h3>
+  <p>Four queries and two application metrics will tell you almost everything.</p>
+
+  <h4>Cache hit ratio</h4>
+<pre><code>SELECT blks_hit, blks_read,
+       round(100.0 * blks_hit / nullif(blks_hit + blks_read, 0), 2) AS hit_pct
+FROM pg_stat_database
+WHERE datname = 'intellistream_chat';</code></pre>
+  <p>
+    Below about 99% on a chat workload means <code>shared_buffers</code> is too small for the recent
+    working set. Above it, stop looking here.
+  </p>
+
+  <h4>Checkpoints: timed against requested</h4>
+<pre><code>SELECT num_timed, num_requested, write_time, sync_time
+FROM pg_stat_checkpointer;   -- pg_stat_bgwriter before Postgres 17</code></pre>
+  <p>
+    <code>num_requested</code> counts checkpoints forced by hitting <code>max_wal_size</code>. If it
+    is a meaningful fraction of <code>num_timed</code>, raise <code>max_wal_size</code>. This is the
+    single most useful number in this section.
+  </p>
+
+  <h4>The messages table's vacuum health</h4>
+<pre><code>SELECT n_live_tup, n_dead_tup, n_mod_since_analyze,
+       last_autovacuum, last_autoanalyze
+FROM pg_stat_user_tables
+WHERE relname = 'messages';</code></pre>
+  <p>
+    Watch for <code>last_autoanalyze</code> falling days behind while
+    <code>n_mod_since_analyze</code> climbs, which is the shape of a plan about to go wrong, and for
+    <code>n_dead_tup</code> that never comes back down after a retention purge.
+  </p>
+
+  <h4>Temp files</h4>
+  <p>
+    <code>temp_files</code> and <code>temp_bytes</code> in <code>pg_stat_database</code> are the only
+    honest reason to raise <code>work_mem</code>. If they stay at zero, leave it alone. Setting
+    <code>log_temp_files = 0</code> logs every spill with the query attached.
+  </p>
+
+  <h4>From the application side</h4>
+  <ul>
+    <li>
+      <b>Hikari</b>, through Micrometer: pending connections and acquire time. Anything but zero
+      pending, sustained, means the pool is genuinely short. That is not what was observed at 13,000
+      messages a second.
+    </li>
+    <li>
+      <b>The <code>ichat.write.stage</code> timers</b>, which break each message down by stage: id
+      allocation, Markdown render, broker handoff, cached channel lookup, cached access check. At
+      full rate those sum to about 0.7 ms. If a change makes that grow, it will show up here before
+      it shows up anywhere in Postgres.
+    </li>
+  </ul>
+  <div class="note">
+    <span class="tag">Worth knowing</span>
+    <p>
+      Only the health endpoint is exposed by default. To scrape metrics in production you have to
+      opt in with <code>management.endpoints.web.exposure.include</code>, and put an authorization
+      layer in front of it, since those endpoints describe your deployment in some detail.
+    </p>
+  </div>
+  <p>
+    Finally, <code>pg_stat_statements</code> is worth enabling on any instance you intend to keep.
+    It needs <code>shared_preload_libraries</code> and therefore a restart, so it is easier to add
+    on day one than on the day you need it.
+  </p>
+  <p class="backtotop"><a href="#top">Back to top</a></p>
+</section>
+
+</main>
+</div>
+
+<footer>
+  <div class="wrap">
+    Apache 2.0 licensed. Self-hostable. Auditable.
+    <span class="sep">&bull;</span>
+    <a href="index.html">Home</a>
+    <span class="sep">&bull;</span>
+    <!-- TODO: replace href with the real GitHub URL -->
+    <a href="https://github.com/" rel="noopener">GitHub</a>
+    <span class="sep">&bull;</span>
+    Built with Spring Boot 4 + Java 25
+  </div>
+</footer>
+
+<script>
+// Tell the stylesheet the script is live, so the header dropdowns switch from their
+// CSS-only hover/:focus-within fallback to being driven by aria-expanded.
+document.documentElement.classList.add('js');
+
+// Header dropdowns. Identical behaviour to index.html: click or Enter/Space toggles, arrows walk
+// the items, Escape closes and returns focus to the button, moving focus or clicking away closes.
+// With the script absent the CSS fallback opens the panel on hover and on focus instead.
+(function () {
+  var groups = Array.prototype.slice.call(document.querySelectorAll('.navgroup'));
+  if (!groups.length) return;
+
+  var open = null;
+
+  function items(g) {
+    return Array.prototype.slice.call(g.querySelectorAll('[role="menuitem"]'));
+  }
+  function close(g, refocus) {
+    var btn = g.querySelector('.navgroup-btn');
+    btn.setAttribute('aria-expanded', 'false');
+    if (open === g) open = null;
+    if (refocus) btn.focus();
+  }
+  function show(g, focusIndex) {
+    if (open && open !== g) close(open, false);
+    g.querySelector('.navgroup-btn').setAttribute('aria-expanded', 'true');
+    open = g;
+    if (typeof focusIndex === 'number') {
+      var list = items(g);
+      if (list.length) list[(focusIndex + list.length) % list.length].focus();
+    }
+  }
+
+  groups.forEach(function (g) {
+    var btn = g.querySelector('.navgroup-btn');
+
+    btn.addEventListener('click', function () {
+      if (btn.getAttribute('aria-expanded') === 'true') close(g, false); else show(g);
+    });
+
+    btn.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); show(g, 0); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); show(g, -1); }
+      else if (e.key === 'Escape') { close(g, false); }
+    });
+
+    g.addEventListener('keydown', function (e) {
+      // The button's handler runs first and this one sees the same event bubbling up; without
+      // the guard ArrowDown opens the panel, focuses item 0, then reads as "move down".
+      if (e.target === btn) return;
+      var list = items(g);
+      var at = list.indexOf(document.activeElement);
+      if (e.key === 'Escape') { e.preventDefault(); close(g, true); return; }
+      if (at < 0) return;
+      if (e.key === 'ArrowDown') { e.preventDefault(); list[(at + 1) % list.length].focus(); }
+      else if (e.key === 'ArrowUp') { e.preventDefault(); list[(at - 1 + list.length) % list.length].focus(); }
+      else if (e.key === 'Home') { e.preventDefault(); list[0].focus(); }
+      else if (e.key === 'End') { e.preventDefault(); list[list.length - 1].focus(); }
+    });
+
+    items(g).forEach(function (a) {
+      a.addEventListener('click', function () { close(g, false); });
+    });
+
+    g.addEventListener('focusout', function (e) {
+      if (!e.relatedTarget || !g.contains(e.relatedTarget)) close(g, false);
+    });
+  });
+
+  document.addEventListener('pointerdown', function (e) {
+    if (open && !open.contains(e.target)) close(open, false);
+  });
+}());
+
+// Table of contents. The markup ships open so that a reader with no JS gets the whole thing on
+// every device; the only enhancement here is collapsing it on narrow screens, where an open
+// sixty-item list would push the first heading off the bottom of the phone.
+(function () {
+  var toc = document.getElementById('toc');
+  if (!toc) return;
+
+  if (window.matchMedia && window.matchMedia('(max-width: 900px)').matches) toc.open = false;
+
+  var links = Array.prototype.slice.call(toc.querySelectorAll('a[href^="#"]'));
+  var targets = links
+    .map(function (a) { return { a: a, el: document.getElementById(a.getAttribute('href').slice(1)) }; })
+    .filter(function (t) { return t.el; });
+  if (!targets.length) return;
+
+  var current = null;
+  function mark() {
+    // The current section is the last one whose top has passed just under the sticky header.
+    // An IntersectionObserver is the usual reflex here and is wrong for this page: these
+    // sections are taller than the viewport, so "topmost still intersecting" stays stuck on a
+    // section you scrolled past minutes ago.
+    var line = 110;
+    var best = targets[0];
+    for (var i = 0; i < targets.length; i++) {
+      if (targets[i].el.getBoundingClientRect().top <= line) best = targets[i]; else break;
+    }
+    if (best === current) return;
+    if (current) current.a.removeAttribute('aria-current');
+    best.a.setAttribute('aria-current', 'true');
+    current = best;
+  }
+
+  var queued = false;
+  function schedule() {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(function () { queued = false; mark(); });
+  }
+  addEventListener('scroll', schedule, { passive: true });
+  addEventListener('resize', schedule);
+  mark();
+}());
+</script>
+</body>
+</html>

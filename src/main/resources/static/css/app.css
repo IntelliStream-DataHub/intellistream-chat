@@ -3649,3 +3649,42 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
   .about-dl { grid-template-columns: 1fr; gap: 0.1rem 0; }
   .about-dl dd { margin-bottom: 0.5rem; }
 }
+
+/* ---------- Admin moderation ----------
+   The actions column holds several one-button forms side by side. They are separate <form>s
+   rather than one form with named submits because each posts to a different URL and carries its
+   own input; a single form would need JS to rewrite the action, and this console works without
+   any. Wrapping keeps them readable when the viewport is narrow. */
+.admin-actions { min-width: 24rem; }
+.admin-inline-form {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 6px 6px 0;
+}
+.admin-inline-form input[type="text"] { width: 11rem; }
+.admin-inline-form input[type="number"] { width: 5.5rem; }
+.admin-danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+.admin-danger:hover { filter: brightness(1.08); }
+.admin-badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: var(--radius-full);
+  background: var(--panel-3);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+.admin-badge.is-danger { background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger); }
+/* A suspended row should be obvious at a glance when scanning a long table. */
+.admin-table tr.is-suspended { background: color-mix(in srgb, var(--danger) 6%, transparent); }
+.admin-detail {
+  max-width: 34rem;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}

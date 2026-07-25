@@ -317,7 +317,10 @@ connections), and `--enable-native-access=ALL-UNNAMED` for Lucene.
 
 ### Database pool
 
-`spring.datasource.hikari.maximum-pool-size=50` against Postgres `max_connections=100`. Measured
+The benchmark runs with `spring.datasource.hikari.maximum-pool-size=50` (set by
+`benchmark/run-bench-app.sh`) against Postgres `max_connections=100`. **The shipped
+application sets no Hikari properties at all**, so a normal deployment runs on Boot's default
+pool of 10 — worth knowing before you copy a number from here into production. Measured
 acquire time at 13,000 posts/second is 0.03 ms with zero pending — the pool is not a constraint at
 this rate, and raising it would not help. Postgres itself sat at ~10% CPU.
 

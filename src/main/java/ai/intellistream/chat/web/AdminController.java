@@ -21,6 +21,15 @@ import ai.intellistream.chat.repository.ChannelRepository;
 import ai.intellistream.chat.repository.MessageRepository;
 import ai.intellistream.chat.repository.UserRepository;
 import ai.intellistream.chat.security.CurrentUser;
+import ai.intellistream.chat.security.PublicBadRequestException;
+import ai.intellistream.chat.security.ResourceNotFoundException;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.data.domain.PageRequest;
+import ai.intellistream.chat.domain.ChannelCreationPolicy;
+import ai.intellistream.chat.moderation.AuditService;
+import ai.intellistream.chat.moderation.StorageQuotaService;
+import ai.intellistream.chat.moderation.MessageModerationService;
+import ai.intellistream.chat.moderation.BanService;
 import ai.intellistream.chat.service.AppSettingsService;
 import org.springframework.stereotype.Controller;
 import org.springframework.transaction.annotation.Transactional;
@@ -68,6 +77,10 @@ public class AdminController {
     private final MessageRepository messages;
     private final CurrentUser currentUser;
     private final Path brandingDir;
+    private final BanService banService;
+    private final MessageModerationService messageModeration;
+    private final StorageQuotaService storageQuotas;
+    private final AuditService auditService;
 
     public AdminController(AppSettingsService settings,
                            ChannelRepository channels,
@@ -75,7 +88,11 @@ public class AdminController {
                            ChannelMemberRepository members,
                            MessageRepository messages,
                            CurrentUser currentUser,
-                           @Value("${ichat.branding.dir}") String brandingDirPath) {
+                           @Value("${ichat.branding.dir}") String brandingDirPath,
+                           BanService banService,
+                           MessageModerationService messageModeration,
+                           StorageQuotaService storageQuotas,
+                           AuditService auditService) {
         this.settings = settings;
         this.channels = channels;
         this.users = users;
@@ -83,6 +100,10 @@ public class AdminController {
         this.messages = messages;
         this.currentUser = currentUser;
         this.brandingDir = Path.of(brandingDirPath);
+        this.banService = banService;
+        this.messageModeration = messageModeration;
+        this.storageQuotas = storageQuotas;
+        this.auditService = auditService;
     }
 
     @GetMapping("/admin")
@@ -117,6 +138,15 @@ public class AdminController {
                     row.put("email", exposeEmails ? u.getEmail() : maskEmail(u.getEmail()));
                     row.put("createdAt", u.getCreatedAt());
                     row.put("lastActiveAt", u.getLastActiveAt());
+                    row.put("admin", u.isAdmin());
+                    row.put("suspended", u.isSuspended());
+                    row.put("suspendedAt", u.getSuspendedAt());
+                    row.put("suspensionNote", u.getSuspensionNote());
+                    var usage = storageQuotas.usageFor(u);
+                    row.put("bytesUsed", usage.bytesUsed());
+                    row.put("quotaBytes", usage.quotaBytes());
+                    row.put("effectiveQuotaBytes", usage.effectiveQuotaBytes());
+                    row.put("percentUsed", usage.percentUsed());
                     return row;
                 })
                 .toList();
@@ -125,6 +155,12 @@ public class AdminController {
         model.addAttribute("settings", s);
         model.addAttribute("channelRows", channelRows);
         model.addAttribute("userRows", userRows);
+        model.addAttribute("channelCreation", s.getChannelCreation().name());
+        model.addAttribute("totalStorageBytes", storageQuotas.totalBytesUsed());
+        model.addAttribute("defaultQuotaBytes", storageQuotas.defaultQuotaBytes());
+        // Newest 50. The audit trail is append-only and grows without bound, so the console shows
+        // a window rather than pretending to be a log viewer.
+        model.addAttribute("auditRows", auditService.recent(PageRequest.of(0, 50)).getContent());
         return "admin";
     }
 
@@ -203,6 +239,91 @@ public class AdminController {
      * local parts become {@code a…@example.com}; emails without an "@" return as just "—" so
      * we never accidentally render an unstructured raw value.
      */
+
+    // ------------------------------------------------------------- moderation ----
+    //
+    // Every action here is a POST from a form, so it carries the Thymeleaf CSRF token and cannot
+    // be triggered by a GET from a crafted link. They redirect back to /admin with a flash
+    // message rather than returning JSON, matching the rest of this console.
+
+    @PostMapping("/admin/channel-creation")
+    public String setChannelCreation(@RequestParam("policy") String policy, RedirectAttributes ra) {
+        var applied = settings.setChannelCreationPolicy(ChannelCreationPolicy.parse(policy));
+        ra.addFlashAttribute("flash", applied == ChannelCreationPolicy.ADMINS_ONLY
+                ? "Only administrators can create channels now."
+                : "Everyone can create channels now.");
+        return "redirect:/admin";
+    }
+
+    @PostMapping("/admin/users/{id}/suspend")
+    public String suspendUser(@PathVariable Long id,
+                              @RequestParam(value = "note", required = false) String note,
+                              Principal principal, RedirectAttributes ra) {
+        var me = currentUser.resolve(principal);
+        var target = users.findById(id).orElseThrow(
+                () -> new ResourceNotFoundException("No such user: " + id));
+        // BanService reports what actually happened, including whether the Keycloak write-through
+        // applied. Surfacing its own words beats inventing a success message here, because
+        // "suspended locally, Keycloak not updated" is a materially different outcome.
+        ra.addFlashAttribute("flash", banService.suspend(me, target, note).summary());
+        return "redirect:/admin";
+    }
+
+    @PostMapping("/admin/users/{id}/unsuspend")
+    public String unsuspendUser(@PathVariable Long id, Principal principal, RedirectAttributes ra) {
+        var me = currentUser.resolve(principal);
+        var target = users.findById(id).orElseThrow(
+                () -> new ResourceNotFoundException("No such user: " + id));
+        ra.addFlashAttribute("flash", banService.unsuspend(me, target).summary());
+        return "redirect:/admin";
+    }
+
+    @PostMapping("/admin/users/{id}/messages/purge")
+    public String purgeUserMessages(@PathVariable Long id, Principal principal, RedirectAttributes ra) {
+        var me = currentUser.resolve(principal);
+        var target = users.findById(id).orElseThrow(
+                () -> new ResourceNotFoundException("No such user: " + id));
+        int removed = messageModeration.deleteAllByAuthor(me, target);
+        // Say it is reversible and for how long. An admin who believes this is permanent will
+        // hesitate over a legitimate cleanup; one who believes it is undoable forever will be
+        // surprised by the purge job.
+        ra.addFlashAttribute("flash", removed + " message(s) removed from "
+                + target.getUsername() + ". Reversible until the retention window expires.");
+        return "redirect:/admin";
+    }
+
+    @PostMapping("/admin/users/{id}/messages/restore")
+    public String restoreUserMessages(@PathVariable Long id, Principal principal, RedirectAttributes ra) {
+        var me = currentUser.resolve(principal);
+        var target = users.findById(id).orElseThrow(
+                () -> new ResourceNotFoundException("No such user: " + id));
+        int restored = messageModeration.restoreAllByAuthor(me, target);
+        ra.addFlashAttribute("flash", restored + " message(s) restored for " + target.getUsername() + ".");
+        return "redirect:/admin";
+    }
+
+    @PostMapping("/admin/users/{id}/quota")
+    public String setQuota(@PathVariable Long id,
+                           @RequestParam(value = "quotaMb", required = false) String quotaMb,
+                           Principal principal, RedirectAttributes ra) {
+        var me = currentUser.resolve(principal);
+        var target = users.findById(id).orElseThrow(
+                () -> new ResourceNotFoundException("No such user: " + id));
+        Long bytes = null;                       // blank means "use the workspace default"
+        if (quotaMb != null && !quotaMb.isBlank()) {
+            try {
+                bytes = Long.parseLong(quotaMb.trim()) * 1024L * 1024L;
+            } catch (NumberFormatException e) {
+                throw new PublicBadRequestException("Quota must be a whole number of megabytes.");
+            }
+        }
+        storageQuotas.setQuota(me, target, bytes);
+        ra.addFlashAttribute("flash", bytes == null
+                ? "Quota for " + target.getUsername() + " reset to the workspace default."
+                : "Quota for " + target.getUsername() + " set to " + (bytes / 1024 / 1024) + " MB.");
+        return "redirect:/admin";
+    }
+
     public static String maskEmail(String email) {
         if (email == null || email.isBlank()) return "—";
         var at = email.indexOf('@');

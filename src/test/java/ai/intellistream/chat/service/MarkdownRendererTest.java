@@ -134,4 +134,22 @@ class MarkdownRendererTest {
         assertThat(renderer.render("")).isEmpty();
         assertThat(renderer.render(null)).isEmpty();
     }
+
+    @Test
+    void strikethroughRendersInsteadOfLeavingLiteralTildes() {
+        // Regression: the composer toolbar has always had an S button that wraps the selection in
+        // ~~, but the renderer registered only Tables and Autolink, so the tildes reached the user
+        // verbatim. Two things have to be right for this to work — the CommonMark extension has to
+        // produce <del>, and the jsoup safelist has to let <del> through, since Safelist.basic()
+        // allows <strike> but not <del>.
+        var html = renderer.render("this is ~~struck~~ text");
+        assertThat(html).contains("<del>struck</del>");
+        assertThat(html).doesNotContain("~~");
+    }
+
+    @Test
+    void strikethroughIsStillSanitised() {
+        var html = renderer.render("~~<img src=x onerror=alert(1)>~~");
+        assertThat(html).doesNotContain("onerror");
+    }
 }
