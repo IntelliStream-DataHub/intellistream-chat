@@ -156,6 +156,30 @@ public class ApiExceptionHandler {
                         "error", message));
     }
 
+    /**
+     * 409 Conflict with the refusal echoed back verbatim — the file manager declining to delete a
+     * file because doing so would destroy somebody else's replies, or because a moderator's
+     * (reversible) removal already owns it.
+     *
+     * <p>Not routed through the redacted {@link #envelope} path: the whole value of this refusal is
+     * the explanation, and "Conflicting state — refresh and retry." tells the user to do the one
+     * thing that will not help. The message is composed in
+     * {@code UserFileService.blockReasonFor} from the message's own state — no identifiers, no user
+     * input, nothing to redact.
+     */
+    @ExceptionHandler(ai.intellistream.chat.service.UserFileService.FileDeleteRefusedException.class)
+    public ResponseEntity<Map<String, String>> fileDeleteRefused(
+            ai.intellistream.chat.service.UserFileService.FileDeleteRefusedException ex) {
+        var traceId = newTraceId();
+        log.info("[trace={}] file_delete_refused: {}", traceId, ex.getMessage());
+        var msg = ex.getMessage() == null ? "That file cannot be deleted here." : ex.getMessage();
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(Map.of("code", "file_delete_refused",
+                        "message", msg,
+                        "traceId", traceId,
+                        "error", msg));
+    }
+
     @ExceptionHandler(RateLimitExceededException.class)
     public ResponseEntity<Map<String, String>> rateLimited(RateLimitExceededException ex) {
         var traceId = newTraceId();

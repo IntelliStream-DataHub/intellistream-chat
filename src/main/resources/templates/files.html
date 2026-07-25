@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+    <meta name="theme-color" content="#1e325c"/>
+    <title th:text="'Your files · ' + ${appTitle}">Your files · IntelliStream Chat</title>
+    <link rel="icon" th:href="${appFaviconUrl}"/>
+    <th:block th:replace="~{fragments/assets :: css('app')}"/>
+    <meta name="_csrf" th:content="${_csrf != null ? _csrf.token : ''}"/>
+    <meta name="_csrf_header" th:content="${_csrf != null ? _csrf.headerName : ''}"/>
+    <!-- Read by the avatar dropdown to decide whether to offer the Admin console item. -->
+    <meta name="me-is-workspace-admin" sec:authorize="hasRole('ADMIN')" content="true"/>
+</head>
+<body class="app files-page" th:attr="data-theme=${me.theme}">
+
+<th:block th:replace="~{fragments/icon-sprite :: sprite}"/>
+
+<header class="topbar">
+    <div class="topbar-left">
+        <a th:href="@{/channels}" class="logo">
+            <th:block th:replace="~{fragments/logo :: mark('logo-mark')}"/>
+            <span class="logo-text" th:text="${appTitle}">IntelliStream Chat</span>
+        </a>
+    </div>
+    <div class="topbar-center"></div>
+    <div class="topbar-right">
+        <a th:href="@{/channels}" class="link-btn">Back to channels</a>
+        <span class="me">
+            <span class="avatar" th:data-author="${me.username}">
+                <img th:if="${me.hasAvatar()}" class="avatar-image" alt=""
+                     th:src="@{/api/users/{u}/avatar(u=${me.username},v=${me.avatarVersion()})}"/>
+                <span class="avatar-letter"
+                      th:text="${#strings.toUpperCase(#strings.substring(me.displayName ?: me.username, 0, 1))}">U</span>
+            </span>
+            <span th:text="${me.displayName ?: me.username}">user</span>
+        </span>
+        <!-- Submitted by the avatar dropdown's "Sign out" item (presence-menu.js). -->
+        <form id="logout-form" th:action="@{/logout}" method="post" hidden></form>
+    </div>
+</header>
+
+<main class="files-content">
+    <div class="files-wrap">
+        <h1>Your files</h1>
+        <p class="files-help">
+            Every file you have uploaded, in channels and in direct messages. Only your own —
+            nobody else's files appear here, and nobody else can see yours.
+        </p>
+
+        <!--
+          Rendered server-side so the figure is right before a byte of JavaScript runs, then
+          re-rendered by files.js after every list and every delete — a storage line that still
+          shows the old number after you freed space is the one thing this page must not do.
+          The raw byte counts ride in data- attributes so the client can scale them the same way
+          an attachment chip does (formatBytes), instead of the fixed MB the template can manage.
+        -->
+        <section class="files-section files-quota">
+            <h2>Storage</h2>
+            <p class="files-help" id="files-storage"
+               th:attr="data-used=${usage.bytesUsed},data-quota=${usage.effectiveQuotaBytes}">
+                <span th:text="${#numbers.formatDecimal(usage.bytesUsed / 1048576.0, 1, 1)} + ' MB'">0 MB</span>
+                <span th:if="${usage.effectiveQuotaBytes > 0}"
+                      th:text="'used of ' + ${#numbers.formatDecimal(usage.effectiveQuotaBytes / 1048576.0, 1, 1)} + ' MB'">used</span>
+                <span th:unless="${usage.effectiveQuotaBytes > 0}">used. This account has no storage limit.</span>
+            </p>
+            <div class="files-meter" id="files-meter" th:if="${usage.effectiveQuotaBytes > 0}"
+                 role="progressbar" aria-label="Storage used"
+                 th:attr="aria-valuenow=${usage.percentUsed},aria-valuemin=0,aria-valuemax=100">
+                <span class="files-meter-fill" id="files-meter-fill"
+                      th:style="'width:' + ${usage.percentUsed} + '%'"></span>
+            </div>
+        </section>
+
+        <!--
+          The delete policy, stated where the delete button is. In this app a file is not a
+          standalone object: it is posted as a message, and the message is how anyone reaches it.
+          There is no way to remove one and keep the other that does not leave a message rendering
+          a hole, so deleting a file deletes its message — visibly, for everyone.
+        -->
+        <section class="files-section files-policy">
+            <h2>Before you delete</h2>
+            <ul class="files-policy-list">
+                <li><strong>Deleting a file deletes the message that posted it.</strong> A file is
+                    posted as a message here, so the two go together. Everyone in that channel or
+                    conversation sees the message disappear, exactly as if you had deleted it
+                    there.</li>
+                <li><strong>Files on a message with replies can't be deleted from this page.</strong>
+                    Removing the message would take other people's replies with it. Open the thread
+                    and clear the replies first — the link in the <em>Posted in</em> column takes
+                    you there.</li>
+                <li><strong>A file on a message a moderator removed stays until the retention
+                    window expires.</strong> That removal can still be undone, so it is not yours to
+                    finish. The file keeps counting against your storage until the purge runs.</li>
+            </ul>
+        </section>
+
+        <section class="files-section">
+            <div class="files-toolbar">
+                <label class="files-search">
+                    <span class="visually-hidden">Search your files by name</span>
+                    <input type="search" id="files-search" autocomplete="off"
+                           placeholder="Search your files by name…" maxlength="120"/>
+                </label>
+                <span class="files-count" id="files-count" aria-live="polite"></span>
+            </div>
+
+            <p class="files-error" id="files-error" hidden></p>
+
+            <div class="files-table-wrap">
+                <table class="files-table">
+                    <thead>
+                    <tr>
+                        <th scope="col">File</th>
+                        <th scope="col">Size</th>
+                        <th scope="col">Type</th>
+                        <th scope="col">Posted in</th>
+                        <th scope="col">When</th>
+                        <th scope="col"><span class="visually-hidden">Actions</span></th>
+                    </tr>
+                    </thead>
+                    <tbody id="files-tbody">
+                    <tr><td colspan="6" class="files-empty">Loading…</td></tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="files-pager" id="files-pager" hidden>
+                <button type="button" id="files-prev" class="link-btn">Newer</button>
+                <span id="files-page-label"></span>
+                <button type="button" id="files-next" class="link-btn">Older</button>
+            </div>
+        </section>
+    </div>
+</main>
+
+<!-- Bundled page scripts (assets.gradle); dev serves the source files. See ASSETS.md. -->
+<th:block th:replace="~{fragments/assets :: js('files')}"/>
+<!-- Avatar dropdown (presence + sign out); ES module, outside the Closure bundle. -->
+<script type="module" th:src="@{/js/chat/presence-menu-boot.js}" defer></script>
+
+</body>
+</html>

@@ -118,6 +118,16 @@ function openMenu(anchor, opts = {}) {
     statusLink.innerHTML = '<span class="presence-menu-label">Set a status</span>';
     menuEl.appendChild(statusLink);
 
+    // Your files — the per-user file manager. Sits with the other "about me" items rather
+    // than in a channel's toolbar: it spans every channel and DM the account has uploaded to,
+    // so it belongs to the person, not to the room they happen to be looking at.
+    const filesLink = document.createElement('a');
+    filesLink.className = 'presence-menu-item presence-menu-link';
+    filesLink.setAttribute('role', 'menuitem');
+    filesLink.href = '/files';
+    filesLink.innerHTML = '<span class="presence-menu-label">Your files</span>';
+    menuEl.appendChild(filesLink);
+
     // Admin console — only for workspace admins (realm role ichat-admin → ROLE_ADMIN;
     // the me-is-workspace-admin meta is emitted via sec:authorize on every page).
     if (document.querySelector('meta[name="me-is-workspace-admin"]')?.content === 'true') {

@@ -1,0 +1,17 @@
+-- Per-user file manager (GET /files).
+--
+-- The page answers one question — "which files did *I* upload?" — and the answer lives on the
+-- message that carries each file, because that is the only place an uploader is recorded. Channel
+-- uploads are already served by V3's ix_messages_author (author_id, created_at); their DM twin had
+-- no equivalent, so the same query against conversation_messages was a sequential scan of every DM
+-- in the workspace on every page load and every keystroke in the file-manager search box.
+--
+-- (author_id, created_at) rather than (author_id) alone: the listing orders newest-first and the
+-- trailing column lets the index supply that order for the common "no search term" case instead of
+-- sorting the author's whole upload history.
+--
+-- No index is added for the filename search itself. That predicate only ever runs against rows this
+-- index has already narrowed to one account's messages, so it is a filter over a handful of rows,
+-- not a scan — see the comment on UserFileService.list for why Postgres, and not Lucene, owns this
+-- search at all.
+create index ix_conv_messages_author on conversation_messages(author_id, created_at);

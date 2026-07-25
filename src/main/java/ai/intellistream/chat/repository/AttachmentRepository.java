@@ -76,4 +76,60 @@ public interface AttachmentRepository extends JpaRepository<Attachment, Long> {
     /** Every attachment storage key — the live set for the orphan-attachment sweep (CLEAN-1). */
     @org.springframework.data.jpa.repository.Query("select a.storageKey from Attachment a")
     java.util.List<String> findAllStorageKeys();
+
+    // ------------------------------------------------------------------ file manager (GET /files)
+
+    /**
+     * One page of the channel files uploaded by {@code owner}, newest first, optionally narrowed by
+     * a filename pattern.
+     *
+     * <p>The uploader predicate is {@code m.author = :owner} and it is not optional — an attachment
+     * has no uploader column of its own, so ownership is only ever expressible through the carrying
+     * message. That also makes the query the authorization: there is no id from the client anywhere
+     * in it, so it cannot return another account's row no matter what the request asked for.
+     *
+     * <p>Removed messages are deliberately included. Their files are still on disk and still charged
+     * to the uploader until the retention purge runs, and a file manager that hid them would be
+     * describing a smaller account than the quota does.
+     *
+     * <p>{@code escape '!'} because the pattern is built from user input: an unescaped {@code %} or
+     * {@code _} would turn "report_2026.pdf" into a wildcard search. Backslash would be the usual
+     * escape character but Postgres reads it inside string literals only when
+     * {@code standard_conforming_strings} is off, so {@code !} avoids depending on a server setting.
+     *
+     * <p>Both fetch joins are to-one, so Hibernate applies the {@code Pageable} as a real SQL LIMIT
+     * (the in-memory-pagination warning is about collection fetches, which this has none of).
+     */
+    @org.springframework.data.jpa.repository.Query("""
+            select a from Attachment a
+            join fetch a.message m
+            join fetch m.channel
+            where m.author = :owner
+              and lower(a.filename) like :pattern escape '!'
+            order by a.createdAt desc, a.id desc
+            """)
+    List<Attachment> findUploadedBy(
+            @org.springframework.data.repository.query.Param("owner") ai.intellistream.chat.domain.User owner,
+            @org.springframework.data.repository.query.Param("pattern") String pattern,
+            org.springframework.data.domain.Pageable pageable);
+
+    /** Row count behind {@link #findUploadedBy}, for the file manager's paging footer. */
+    @org.springframework.data.jpa.repository.Query("""
+            select count(a) from Attachment a
+            join a.message m
+            where m.author = :owner
+              and lower(a.filename) like :pattern escape '!'
+            """)
+    long countUploadedBy(
+            @org.springframework.data.repository.query.Param("owner") ai.intellistream.chat.domain.User owner,
+            @org.springframework.data.repository.query.Param("pattern") String pattern);
+
+    /** Total bytes an account's channel uploads still occupy — the "you are storing N" line. */
+    @org.springframework.data.jpa.repository.Query("""
+            select coalesce(sum(a.sizeBytes), 0) from Attachment a
+            join a.message m
+            where m.author = :owner
+            """)
+    long sumBytesUploadedBy(
+            @org.springframework.data.repository.query.Param("owner") ai.intellistream.chat.domain.User owner);
 }

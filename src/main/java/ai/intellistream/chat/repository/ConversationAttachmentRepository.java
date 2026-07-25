@@ -47,4 +47,48 @@ public interface ConversationAttachmentRepository extends JpaRepository<Conversa
     /** Every DM attachment storage key — part of the live set for the orphan sweep (CLEAN-1). */
     @org.springframework.data.jpa.repository.Query("select a.storageKey from ConversationAttachment a")
     java.util.List<String> findAllStorageKeys();
+
+    // ------------------------------------------------------------------ file manager (GET /files)
+
+    /**
+     * The DM half of {@code AttachmentRepository.findUploadedBy} — one page of the conversation
+     * files uploaded by {@code owner}, newest first, optionally narrowed by a filename pattern.
+     * Same reasoning throughout: ownership is only expressible through the carrying message, so the
+     * predicate on it <em>is</em> the authorization, and no client-supplied id appears in the query.
+     *
+     * <p>Needs {@code ix_conv_messages_author} (V5) to stay off a sequential scan of every DM in the
+     * workspace.
+     */
+    @org.springframework.data.jpa.repository.Query("""
+            select a from ConversationAttachment a
+            join fetch a.message m
+            join fetch m.conversation
+            where m.author = :owner
+              and lower(a.filename) like :pattern escape '!'
+            order by a.createdAt desc, a.id desc
+            """)
+    List<ConversationAttachment> findUploadedBy(
+            @org.springframework.data.repository.query.Param("owner") ai.intellistream.chat.domain.User owner,
+            @org.springframework.data.repository.query.Param("pattern") String pattern,
+            org.springframework.data.domain.Pageable pageable);
+
+    /** Row count behind {@link #findUploadedBy}, for the file manager's paging footer. */
+    @org.springframework.data.jpa.repository.Query("""
+            select count(a) from ConversationAttachment a
+            join a.message m
+            where m.author = :owner
+              and lower(a.filename) like :pattern escape '!'
+            """)
+    long countUploadedBy(
+            @org.springframework.data.repository.query.Param("owner") ai.intellistream.chat.domain.User owner,
+            @org.springframework.data.repository.query.Param("pattern") String pattern);
+
+    /** Total bytes an account's DM uploads still occupy — the "you are storing N" line. */
+    @org.springframework.data.jpa.repository.Query("""
+            select coalesce(sum(a.sizeBytes), 0) from ConversationAttachment a
+            join a.message m
+            where m.author = :owner
+            """)
+    long sumBytesUploadedBy(
+            @org.springframework.data.repository.query.Param("owner") ai.intellistream.chat.domain.User owner);
 }
