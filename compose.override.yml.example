@@ -1,14 +1,36 @@
 # Local override for LAN / mobile-device testing (NOT committed — copy to compose.override.yml,
 # which podman/docker compose auto-merges on top of docker-compose.yml).
 #
-# The base compose file binds Keycloak to 127.0.0.1 so the default quickstart works on any
-# host. To reach the app + auth endpoint from other devices on your LAN (e.g. a phone testing
-# the mobile layout), bind Keycloak to your machine's LAN IP here and point KC_HOSTNAME at it.
-# Also set SERVER_ADDRESS + the matching allowed-origins in application-dev.properties, and add
-# the LAN redirect URIs back to your local Keycloak realm.
+# The base compose file binds Keycloak to 127.0.0.1 so the default quickstart works on any host.
+# To reach the app + auth endpoint from another device on your LAN (a phone testing the mobile
+# layout, say), publish Keycloak on your machine's LAN IP here.
+#
+# This file overrides `ports` only. podman-compose does NOT merge the `environment` block from an
+# override — it silently keeps the base value, which is how you get a Keycloak that listens on the
+# LAN and still tells the browser to go to localhost. KC_HOSTNAME is read from .env instead, which
+# works under both compose providers.
+#
+# Both bindings are listed on purpose: compose REPLACES the ports list rather than appending to
+# it, so dropping 127.0.0.1 here would stop this host from reaching Keycloak.
 services:
   keycloak:
-    environment:
-      KC_HOSTNAME: http://192.168.1.100:8081   # <-- your machine's LAN IP
     ports:
-      - "192.168.1.100:8081:8080"              # <-- your machine's LAN IP
+      - "127.0.0.1:8081:8080"
+      - "192.168.1.100:8081:8080"          # <-- your machine's LAN IP
+
+# Three more things have to agree, or the login fails in a way that reads as a broken password
+# rather than a misconfiguration:
+#
+#   1. .env                              KC_HOSTNAME=http://192.168.1.100:8081
+#                                        What Keycloak advertises to the browser. Left as
+#                                        localhost, a LAN client is redirected to its own machine.
+#
+#   2. application-dev.properties        server.address, both issuer-uri values, and
+#                                        ichat.allowed-origins — the WebSocket origin check is
+#                                        separate, and missing it gives you a page that loads
+#                                        while live updates quietly stop.
+#
+#   3. ./scripts/dev-lan-realm.sh <ip>   Adds the LAN redirect URI + web origin to the running
+#                                        realm. Re-run after EVERY container recreate: Keycloak
+#                                        runs start-dev with an in-memory H2, so the change does
+#                                        not survive one.

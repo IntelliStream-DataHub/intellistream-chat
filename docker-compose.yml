@@ -26,7 +26,11 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
       KC_HTTP_PORT: 8080
-      KC_HOSTNAME: http://localhost:8081
+      # The address the *browser* reaches Keycloak at — it lands in the issuer claim and in every
+      # URL Keycloak hands the browser, so it cannot stay loopback once anything but this host
+      # signs in. Override in .env (KC_HOSTNAME=http://<lan-ip>:8081) rather than editing here;
+      # podman-compose does not merge `environment` from compose.override.yml, only lists.
+      KC_HOSTNAME: ${KC_HOSTNAME:-http://localhost:8081}
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
     ports:
       - "127.0.0.1:8081:8080"
