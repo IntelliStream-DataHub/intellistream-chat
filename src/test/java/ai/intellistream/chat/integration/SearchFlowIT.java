@@ -99,6 +99,15 @@ class SearchFlowIT {
         return channels.create(name + "-" + SEQ.incrementAndGet(), null, ChannelType.PRIVATE, creator);
     }
 
+    /** Unwrap the channel-message side of a mixed result list. */
+    private static java.util.List<ai.intellistream.chat.domain.Message> channelMessages(
+            java.util.List<SearchService.SearchHit> hits) {
+        return hits.stream()
+                .filter(h -> h instanceof SearchService.SearchHit.ChannelHit)
+                .map(h -> ((SearchService.SearchHit.ChannelHit) h).message())
+                .toList();
+    }
+
     private static void authenticateAs(String username, String... roles) {
         var auth = new TestingAuthenticationToken(username, "n/a", roles);
         auth.setAuthenticated(true);
@@ -208,7 +217,7 @@ class SearchFlowIT {
         messages.post(roomA, alice, "shared-token here in alpha");
         messages.post(roomB, alice, "shared-token here in beta");
 
-        var hits = search.searchAllJoined(bob, "shared-token", 10);
+        var hits = channelMessages(search.searchAccessible(bob, "shared-token", 10));
 
         assertThat(hits).hasSize(2);
         assertThat(hits).extracting(m -> m.getChannel().getId())
@@ -228,7 +237,7 @@ class SearchFlowIT {
         messages.post(publicRoom, alice, marker + " recipes for everyone");
         messages.post(privateRoom, alice, marker + " recipes top secret");
 
-        var hits = search.searchAllJoined(bob, marker, 10);
+        var hits = channelMessages(search.searchAccessible(bob, marker, 10));
 
         assertThat(hits).hasSize(1);
         assertThat(hits.get(0).getChannel().getId()).isEqualTo(publicRoom.getId());
@@ -313,7 +322,7 @@ class SearchFlowIT {
         assertThat(search.searchChannel(room, alice, "", 10)).isEmpty();
         assertThat(search.searchChannel(room, alice, "   ", 10)).isEmpty();
         assertThat(search.searchChannel(room, alice, "a", 10)).isEmpty(); // <2 chars
-        assertThat(search.searchAllJoined(alice, "  ", 10)).isEmpty();
+        assertThat(search.searchAccessible(alice, "  ", 10)).isEmpty();
     }
 
     // ---------- Ranking & limits ----------

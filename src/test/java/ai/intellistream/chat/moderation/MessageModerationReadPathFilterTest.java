@@ -53,12 +53,20 @@ class MessageModerationReadPathFilterTest {
      *       what {@code on delete cascade} is about to take so files and index docs go with it.</li>
      *   <li>{@code deleteByIdIn} — the retention purge itself; its candidate set is chosen by
      *       {@code findPurgeableIds}.</li>
+     *   <li>{@code countRepliesIncludingDeletedByParentIds} — the file manager's delete guard. It
+     *       asks "would deleting this message take other rows with it", and the hard delete it is
+     *       guarding takes removed replies too, since {@code parent_id} cascades. Counting only
+     *       live replies would let a file whose thread holds nothing but moderator-removed replies
+     *       be deleted, destroying rows a moderator can still restore. Its live-only twin,
+     *       {@code countRepliesByParentIds}, stays filtered — that one feeds the "N replies"
+     *       indicator, which must not count removed ones.</li>
      * </ul>
      */
     private static final Set<String> EXEMPT = Set.of(
             "findIdsByChannel",
             "findByIdIncludingDeleted",
             "findRepliesIncludingDeleted",
+            "countRepliesIncludingDeletedByParentIds",
             "deleteByIdIn");
 
     @Test

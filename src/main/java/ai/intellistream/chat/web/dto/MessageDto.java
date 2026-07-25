@@ -33,12 +33,6 @@ public record MessageDto(
         long authorAvatarVersion,
         String bodyMarkdown,
         String bodyHtml,
-        /**
-         * Search-only: an HTML snippet (HTML-escaped + {@code <mark>}-wrapped match terms)
-         * produced by Lucene's Highlighter for the user's query. {@code null} on every
-         * non-search code path; the search dropdown prefers this over {@code bodyHtml}.
-         */
-        String bodySnippet,
         Instant createdAt,
         Instant editedAt,
         List<AttachmentDto> attachments,
@@ -82,15 +76,14 @@ public record MessageDto(
                                   long replyCount,
                                   List<String> mentions,
                                   PollDto poll) {
-        return build(message, html, null, attachments, reactions, replyCount, mentions, poll);
+        return build(message, html, attachments, reactions, replyCount, mentions, poll);
     }
 
-    /** Search-result variant — everything else is empty/zero, but the snippet is set. */
-    public static MessageDto fromSearchHit(Message message, String html, String snippet) {
-        return build(message, html, snippet, List.of(), List.of(), 0L, List.of(), null);
-    }
+    // Search results are no longer MessageDto: a hit can come from a channel or from a
+    // conversation, and the two have different identities and different permalinks. See
+    // SearchHitDto — it is where the highlighted snippet lives now.
 
-    private static MessageDto build(Message message, String html, String snippet,
+    private static MessageDto build(Message message, String html,
                                     List<Attachment> attachments,
                                     List<ReactionGroupDto> reactions,
                                     long replyCount,
@@ -107,7 +100,6 @@ public record MessageDto(
                 author.avatarVersion(),
                 message.getBodyMarkdown(),
                 html,
-                snippet,
                 message.getCreatedAt(),
                 message.getEditedAt(),
                 attachments.stream().map(AttachmentDto::from).toList(),

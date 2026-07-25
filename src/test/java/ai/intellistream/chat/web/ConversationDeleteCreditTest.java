@@ -76,7 +76,8 @@ class ConversationDeleteCreditTest {
         controller = new ConversationRestController(conversations, mock(UserService.class),
                 currentUser, mock(MarkdownRenderer.class), attachments,
                 mock(ConversationReactionService.class), mock(SimpMessagingTemplate.class),
-                new RateLimiter(), quotas);
+                new RateLimiter(), quotas,
+                mock(ai.intellistream.chat.web.ConversationAlertPublisher.class));
     }
 
     @Test

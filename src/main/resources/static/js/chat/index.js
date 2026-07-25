@@ -410,11 +410,21 @@ presenceMenu.init();
           const row = document.createElement('button');
           row.type = 'button';
           row.className = 'search-dropdown-row';
-          // Query param tells the server to render context-around (25 before + anchor + 25
-          // after) instead of latest 50; fragment is for the existing scroll-to-anchor JS.
-          row.dataset.url = '/channels/' + m.channelId + '?m=' + encodeURIComponent(m.id) + '#m=' + m.id;
+          // The server pre-computes the link, because a hit is now either a channel message or
+          // a conversation message and only it knows which — building the URL here meant every
+          // result was a /channels/ link, which sent conversation hits to a channel id that is
+          // a different table's primary key.
+          row.dataset.url = m.url;
           row.dataset.index = String(i);
-          const channelName = channelNames.get(m.channelId);
+          // Where the hit lives: "#channel" for channels, the group name or the other person
+          // for conversations. The sidebar map is still preferred for channels — it holds the
+          // display name the user is currently looking at.
+          const label = m.scope === 'conversation'
+              ? (m.conversationTitle || (m.conversationType === 'DIRECT' ? 'Direct message' : 'Group'))
+              : (() => {
+                  const n = channelNames.get(m.channelId) || m.channelName;
+                  return n ? '#' + n : '';
+                })();
           row.innerHTML =
               '<div class="search-dropdown-meta">' +
                 '<span class="search-dropdown-author"></span>' +
@@ -423,7 +433,7 @@ presenceMenu.init();
               '</div>' +
               '<div class="search-dropdown-snippet"></div>';
           row.querySelector('.search-dropdown-author').textContent = m.authorDisplayName || m.authorUsername;
-          row.querySelector('.search-dropdown-channel').textContent = channelName ? '#' + channelName : '';
+          row.querySelector('.search-dropdown-channel').textContent = label;
           row.querySelector('.search-dropdown-time').textContent = new Date(m.createdAt).toLocaleString();
           // bodySnippet is the Lucene-highlighted excerpt with <mark>-wrapped match terms
           // (HTML-escaped before highlighting, so innerHTML is safe). Falls back to bodyHtml

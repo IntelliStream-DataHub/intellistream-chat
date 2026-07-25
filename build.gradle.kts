@@ -128,6 +128,12 @@ apply(from = "assets.gradle")
 
 tasks.withType<Test> {
     useJUnitPlatform()
+    // The integration suite keeps ~30 distinct Spring contexts alive in the test-context cache,
+    // each with its own Hibernate SessionFactory, Hikari pool and Lucene IndexWriter. That is
+    // comfortably past Gradle's 512 MB default for a test worker, and the symptom when it tips
+    // over is not "out of memory" anywhere in the report — it is a handful of unrelated ITs
+    // failing to load their ApplicationContext, which reads like a code defect and isn't one.
+    maxHeapSize = "2g"
 }
 
 // Auto-activate the dev profile when running via Gradle so plain `./gradlew bootRun`

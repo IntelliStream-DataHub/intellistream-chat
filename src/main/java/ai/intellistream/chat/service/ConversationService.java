@@ -24,10 +24,13 @@ import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.repository.ConversationMemberRepository;
 import ai.intellistream.chat.repository.ConversationMessageRepository;
 import ai.intellistream.chat.repository.ConversationRepository;
+import ai.intellistream.chat.search.MessageIndexService;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Instant;
 import java.util.Comparator;
@@ -48,16 +51,21 @@ public class ConversationService {
 
     private static final int DEFAULT_PAGE_SIZE = 50;
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ConversationService.class);
+
     private final ConversationRepository conversations;
     private final ConversationMemberRepository members;
     private final ConversationMessageRepository messages;
+    private final MessageIndexService messageIndex;
 
     public ConversationService(ConversationRepository conversations,
                                ConversationMemberRepository members,
-                               ConversationMessageRepository messages) {
+                               ConversationMessageRepository messages,
+                               MessageIndexService messageIndex) {
         this.conversations = conversations;
         this.members = members;
         this.messages = messages;
+        this.messageIndex = messageIndex;
     }
 
     @Transactional
@@ -117,7 +125,10 @@ public class ConversationService {
         if (body.length() > 8000) {
             throw new IllegalArgumentException("Message body too long (max 8000 chars)");
         }
-        return messages.save(new ConversationMessage(conversation, author, body.trim()));
+        var saved = messages.save(new ConversationMessage(conversation, author, body.trim()));
+        indexAfterCommit(saved.getId(), conversation.getId(), author.getUsername(),
+                saved.getBodyMarkdown());
+        return saved;
     }
 
     @Transactional
@@ -141,6 +152,8 @@ public class ConversationService {
             throw new IllegalArgumentException("Message body too long (max 8000 chars)");
         }
         message.setBodyMarkdown(newBody.trim());
+        indexAfterCommit(message.getId(), message.getConversation().getId(),
+                message.getAuthor().getUsername(), message.getBodyMarkdown());
         return message;
     }
 
@@ -154,7 +167,47 @@ public class ConversationService {
             throw new AccessDeniedException("You can only delete your own messages.");
         }
         messages.delete(message);
+        var doomedId = message.getId();
+        afterCommit(() -> messageIndex.deleteConversationMessage(doomedId));
         return message;
+    }
+
+    /**
+     * Push the Lucene write to after the commit, for the same reasons as the channel path
+     * ({@code MessageService.indexNow}): an in-transaction index write would expose a body to
+     * concurrent searchers before the row exists, and would survive a rollback. On the delete
+     * side the ordering matters more than convenience — an index document that outlives its row
+     * is content that stays searchable after the user removed it.
+     */
+    private void indexAfterCommit(Long messageId, Long conversationId, String author, String body) {
+        afterCommit(() -> messageIndex.indexConversationMessage(messageId, conversationId, author, body));
+    }
+
+    /**
+     * Run after a successful commit, or immediately when no transaction is active. Failures are
+     * logged, not propagated: Spring stops dispatching synchronizations at the first thrower, and
+     * a failed index write must not take out anything registered behind it. The startup reconcile
+     * and the CLEAN-3 sweep are the backstop for whatever is lost here.
+     */
+    private static void afterCommit(Runnable action) {
+        Runnable guarded = () -> {
+            try {
+                action.run();
+            } catch (RuntimeException e) {
+                log.warn("Post-commit conversation index write failed; search may be stale for this "
+                        + "message until the next reconcile", e);
+            }
+        };
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    guarded.run();
+                }
+            });
+        } else {
+            guarded.run();
+        }
     }
 
     @Transactional(readOnly = true)

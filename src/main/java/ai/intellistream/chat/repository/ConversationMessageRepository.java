@@ -21,8 +21,10 @@ import ai.intellistream.chat.domain.ConversationMessage;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -62,4 +64,43 @@ public interface ConversationMessageRepository extends JpaRepository<Conversatio
             where m.id = :id
             """)
     Optional<ConversationMessage> findByIdWithAuthor(Long id);
+
+    /**
+     * Batch hydration of search hits: author and conversation are join-fetched so the caller can
+     * build DTOs after the read transaction closes (open-in-view is off).
+     *
+     * <p>Note what this method is <b>not</b>: it does no access control. By the time ids reach it
+     * they have already been produced by a Lucene query carrying the viewer's membership filter,
+     * and that is the only place the check belongs — see {@code MessageIndexService.searchAccessible}.
+     */
+    @Query("""
+            select m from ConversationMessage m
+            join fetch m.author
+            join fetch m.conversation
+            where m.id in :ids
+            """)
+    List<ConversationMessage> findAllByIdWithAuthor(@Param("ids") Collection<Long> ids);
+
+    /** Every conversation-message id — the DB side of the Lucene↔DB reconcile. There is no soft
+     *  delete on conversation messages, so this is simply every live row. */
+    @Query("select m.id from ConversationMessage m")
+    List<Long> findAllMessageIds();
+
+    /** Flat {@code (id, conversationId, authorUsername, bodyMarkdown)} rows for a set of ids —
+     *  used to (re)build index documents without materialising entities. */
+    @Query("select m.id, m.conversation.id, m.author.username, m.bodyMarkdown from ConversationMessage m "
+           + "where m.id in :ids")
+    List<Object[]> findIndexRowsByIds(@Param("ids") Collection<Long> ids);
+
+    /** Keyset-paged flat index projection — lets the startup backfill stream the whole table
+     *  without holding it in memory (mirrors {@code MessageRepository.findIndexRowsAfter}). */
+    @Query("select m.id, m.conversation.id, m.author.username, m.bodyMarkdown from ConversationMessage m "
+           + "where m.id > :afterId order by m.id asc")
+    List<Object[]> findIndexRowsAfter(Long afterId, Pageable pageable);
+
+    /** Flat index rows for one author — used to reindex their conversation messages when their
+     *  username changes, so {@code @handle} search stays correct in DMs too (N23). */
+    @Query("select m.id, m.conversation.id, m.author.username, m.bodyMarkdown from ConversationMessage m "
+           + "where m.author.id = :authorId")
+    List<Object[]> findIndexRowsByAuthor(Long authorId);
 }

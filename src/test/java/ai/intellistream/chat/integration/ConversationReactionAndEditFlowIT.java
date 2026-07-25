@@ -103,7 +103,8 @@ class ConversationReactionAndEditFlowIT {
         currentUser = mock(CurrentUser.class);
         broker = mock(SimpMessagingTemplate.class);
         controller = new ConversationRestController(conversations, userService, currentUser,
-                markdown, convAttachments, convReactions, broker, new RateLimiter(), quotas);
+                markdown, convAttachments, convReactions, broker, new RateLimiter(), quotas,
+                mock(ai.intellistream.chat.web.ConversationAlertPublisher.class));
     }
 
     private User newUser(String label) {

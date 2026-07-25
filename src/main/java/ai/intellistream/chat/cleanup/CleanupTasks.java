@@ -18,6 +18,7 @@ package ai.intellistream.chat.cleanup;
 
 import ai.intellistream.chat.repository.AttachmentRepository;
 import ai.intellistream.chat.repository.ConversationAttachmentRepository;
+import ai.intellistream.chat.repository.ConversationMessageRepository;
 import ai.intellistream.chat.repository.MessageRepository;
 import ai.intellistream.chat.repository.UserRepository;
 import ai.intellistream.chat.search.MessageIndexService;
@@ -58,6 +59,7 @@ public class CleanupTasks {
     private final ConversationAttachmentRepository convAttachmentRepo;
     private final UserRepository userRepo;
     private final MessageRepository messageRepo;
+    private final ConversationMessageRepository conversationMessageRepo;
     private final MessageIndexService messageIndex;
 
     public CleanupTasks(CleanupProperties props,
@@ -67,6 +69,7 @@ public class CleanupTasks {
                         ConversationAttachmentRepository convAttachmentRepo,
                         UserRepository userRepo,
                         MessageRepository messageRepo,
+                        ConversationMessageRepository conversationMessageRepo,
                         MessageIndexService messageIndex) {
         this.props = props;
         this.attachmentService = attachmentService;
@@ -75,6 +78,7 @@ public class CleanupTasks {
         this.convAttachmentRepo = convAttachmentRepo;
         this.userRepo = userRepo;
         this.messageRepo = messageRepo;
+        this.conversationMessageRepo = conversationMessageRepo;
         this.messageIndex = messageIndex;
     }
 
@@ -181,6 +185,52 @@ public class CleanupTasks {
             messageIndex.reindex(docs); // one commit per batch, not per document (N26)
         }
         log.info("[cleanup:lucene] reconciled: indexed {} missing, removed {} stale",
+                missing.size(), stale.size());
+    }
+
+    /**
+     * CLEAN-3, conversation half: the same reconcile against {@code conversation_messages}. Runs as
+     * its own sweep rather than being folded into the one above because the two halves diff
+     * disjoint document sets — a channel document is never "stale" because a DM row is missing, and
+     * mixing the id spaces of two tables into one comparison is how that mistake gets made.
+     */
+    @Scheduled(fixedDelayString = "${ichat.cleanup.reconcile-ms:3600000}",
+               initialDelayString = "${ichat.cleanup.initial-delay-ms:300000}")
+    @Transactional(readOnly = true)
+    public void reconcileConversationSearchIndex() {
+        if (!props.isEnabled()) return;
+        // Index first, then the DB — see reconcileSearchIndex above (N3).
+        var indexIds = messageIndex.allIndexedConversationIds();
+        Set<Long> dbIds;
+        try {
+            dbIds = new HashSet<>(conversationMessageRepo.findAllMessageIds());
+        } catch (RuntimeException e) {
+            log.warn("[cleanup:lucene-dm] skipping reconcile — DB read failed", e);
+            return;
+        }
+        var missing = new ArrayList<Long>();
+        for (var id : dbIds) {
+            if (!indexIds.contains(id)) missing.add(id);
+        }
+        var stale = new ArrayList<Long>();
+        for (var id : indexIds) {
+            if (!dbIds.contains(id)) stale.add(id);
+        }
+        if (missing.isEmpty() && stale.isEmpty()) return;
+        if (props.isDryRun()) {
+            log.info("[cleanup:lucene-dm] [dry-run] would index {} missing + remove {} stale doc(s)",
+                    missing.size(), stale.size());
+            return;
+        }
+        if (!stale.isEmpty()) {
+            messageIndex.deleteAllConversationMessages(stale);
+        }
+        for (int i = 0; i < missing.size(); i += REINDEX_BATCH) {
+            var batch = missing.subList(i, Math.min(i + REINDEX_BATCH, missing.size()));
+            messageIndex.reindexConversations(MessageIndexService.IndexedConversationMessage
+                    .fromRows(conversationMessageRepo.findIndexRowsByIds(batch)));
+        }
+        log.info("[cleanup:lucene-dm] reconciled: indexed {} missing, removed {} stale",
                 missing.size(), stale.size());
     }
 }

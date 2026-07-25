@@ -55,6 +55,15 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
     List<Conversation> findConversationsForUser(User user);
 
     /**
+     * Just the ids — this is the search ACL, read fresh on every query so a membership change
+     * takes effect immediately. Ids only (not {@link #findConversationsForUser}) because the
+     * search path needs nothing but the filter terms, and a user with thousands of group
+     * conversations should not hydrate thousands of entities to run one query.
+     */
+    @Query("select m.conversation.id from ConversationMember m where m.user = :user")
+    List<Long> findConversationIdsForUser(User user);
+
+    /**
      * For each conversation in {@code convIds}, count messages newer than the viewer's
      * last_read_at marker (treated as "all unread" when null) and authored by someone else.
      * Returns rows of {@code [conversationId, count]}; conversations with zero unread are
@@ -76,6 +85,24 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
             """, nativeQuery = true)
     List<Object[]> countUnreadPerConversation(@Param("userId") Long userId,
                                               @Param("convIds") Collection<Long> convIds);
+
+    /**
+     * The other participants of the given conversations — rows of
+     * {@code [conversationId, username, displayName]}, excluding {@code excludeUserId}.
+     *
+     * <p>The file manager needs a name for the place each DM file was posted, and a DIRECT
+     * conversation has no title: it is identified by whoever is on the other end. One query for the
+     * whole page rather than a lookup per row.
+     */
+    @Query("""
+            select cm.conversation.id, u.username, u.displayName
+            from ConversationMember cm
+            join cm.user u
+            where cm.conversation.id in :conversationIds and u.id <> :excludeUserId
+            """)
+    List<Object[]> findCounterparts(
+            @org.springframework.data.repository.query.Param("conversationIds") Collection<Long> conversationIds,
+            @org.springframework.data.repository.query.Param("excludeUserId") Long excludeUserId);
 
     /** Insert a membership if absent, ignore on the (conversation,user) conflict (N1). */
     @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)

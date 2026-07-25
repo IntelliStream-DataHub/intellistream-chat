@@ -103,9 +103,11 @@ class ChannelFlowIT {
         var hitsInChannel = search.searchChannel(general, alice, "hello", 10);
         assertThat(hitsInChannel).hasSize(1);
 
-        var globalHits = search.searchAllJoined(bob, "test", 10);
+        var globalHits = search.searchAccessible(bob, "test", 10);
         assertThat(globalHits).hasSize(1);
-        assertThat(globalHits.get(0).getBodyMarkdown()).contains("test message");
+        assertThat(globalHits.get(0))
+                .isInstanceOfSatisfying(ai.intellistream.chat.service.SearchService.SearchHit.ChannelHit.class,
+                        hit -> assertThat(hit.message().getBodyMarkdown()).contains("test message"));
 
         var alicesSidebar = sidebar.sidebarFor(alice);
         assertThat(alicesSidebar).extracting("name", "joined", "admin")

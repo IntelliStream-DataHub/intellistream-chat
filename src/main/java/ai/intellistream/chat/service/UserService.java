@@ -52,15 +52,18 @@ public class UserService {
 
     private final UserRepository userRepository;
     private final ai.intellistream.chat.repository.MessageRepository messageRepository;
+    private final ai.intellistream.chat.repository.ConversationMessageRepository conversationMessageRepository;
     private final ai.intellistream.chat.search.MessageIndexService messageIndex;
     /** In-memory throttle: userId -> instant of the most recent persisted bump. */
     private final ConcurrentHashMap<Long, Instant> lastBumpByUser = new ConcurrentHashMap<>();
 
     public UserService(UserRepository userRepository,
                        ai.intellistream.chat.repository.MessageRepository messageRepository,
+                       ai.intellistream.chat.repository.ConversationMessageRepository conversationMessageRepository,
                        ai.intellistream.chat.search.MessageIndexService messageIndex) {
         this.userRepository = userRepository;
         this.messageRepository = messageRepository;
+        this.conversationMessageRepository = conversationMessageRepository;
         this.messageIndex = messageIndex;
     }
 
@@ -197,15 +200,24 @@ public class UserService {
         Runnable reindex = () -> {
             try {
                 var rows = messageRepository.findIndexRowsByAuthor(authorId);
-                if (rows.isEmpty()) return;
-                var docs = new java.util.ArrayList<
-                        ai.intellistream.chat.search.MessageIndexService.IndexedMessage>(rows.size());
-                for (var r : rows) {
-                    docs.add(new ai.intellistream.chat.search.MessageIndexService.IndexedMessage(
-                            ((Number) r[0]).longValue(), ((Number) r[1]).longValue(),
-                            (String) r[2], (String) r[3]));
+                if (!rows.isEmpty()) {
+                    var docs = new java.util.ArrayList<
+                            ai.intellistream.chat.search.MessageIndexService.IndexedMessage>(rows.size());
+                    for (var r : rows) {
+                        docs.add(new ai.intellistream.chat.search.MessageIndexService.IndexedMessage(
+                                ((Number) r[0]).longValue(), ((Number) r[1]).longValue(),
+                                (String) r[2], (String) r[3]));
+                    }
+                    messageIndex.reindex(docs);
                 }
-                messageIndex.reindex(docs);
+                // The same is true of their DMs and group messages: those documents cache the
+                // username too, so `@newhandle` has to find them as well.
+                var convRows = conversationMessageRepository.findIndexRowsByAuthor(authorId);
+                if (!convRows.isEmpty()) {
+                    messageIndex.reindexConversations(
+                            ai.intellistream.chat.search.MessageIndexService.IndexedConversationMessage
+                                    .fromRows(convRows));
+                }
             } catch (RuntimeException e) {
                 log.warn("Failed to reindex messages for renamed user {}; search-by-author may be "
                         + "stale for their older messages until next edit", authorId, e);

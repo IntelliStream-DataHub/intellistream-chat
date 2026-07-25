@@ -64,9 +64,12 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             """)
     Optional<Message> findByIdWithChannelAndAuthor(Long id);
 
+    /** Channel is join-fetched as well as the author: search results render the channel's name,
+     *  and the reconcile sweeps read its id, both after the transaction has closed. */
     @Query("""
             select m from Message m
             join fetch m.author
+            join fetch m.channel
             where m.id in :ids and m.deletedAt is null
             """)
     List<Message> findAllByIdWithAuthor(@Param("ids") Collection<Long> ids);
@@ -342,4 +345,28 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("delete from Message m where m.id in :ids")
     int deleteByIdIn(@Param("ids") Collection<Long> ids);
+
+    /**
+     * Reply counts for a batch of thread parents, <b>including removed replies</b> — rows of
+     * {@code [parentId, count]}, parents with no replies absent. The unfiltered twin of
+     * {@link #countRepliesByParentIds}, which counts only live replies because it feeds the
+     * "N replies" indicator.
+     *
+     * <p>Used by the file manager to decide whether deleting a file is allowed to take its message
+     * with it. Removed replies count, because the delete that would follow is
+     * {@code MessageService.delete}, and that one takes every reply — soft-deleted included, since
+     * {@code parent_id} cascades — so a parent with only removed replies would still be destroying
+     * rows a moderator is still able to restore.
+     *
+     * <p>An explicit {@code join m.parent p} rather than a {@code m.parent.id} path: the path form
+     * leaves the null-parent case resting on Hibernate choosing the FK column over an implicit inner
+     * join, and here the join is wanted anyway.
+     */
+    @Query("""
+            select p.id, count(m.id) from Message m
+            join m.parent p
+            where p.id in :parentIds
+            group by p.id
+            """)
+    List<Object[]> countRepliesIncludingDeletedByParentIds(@Param("parentIds") Collection<Long> parentIds);
 }

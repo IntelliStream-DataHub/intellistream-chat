@@ -117,8 +117,11 @@ class HovercardAndDmFlowIT {
         userController = new UserRestController(userService, currentUser, new RateLimiter());
         conversationController = new ConversationRestController(
                 conversations, userService, currentUser, markdown,
-                convAttachments, convReactions, broker, new RateLimiter(), quotas);
-        conversationWs = new ConversationWebSocketController(conversations, markdown, currentUser, broker, new RateLimiter());
+                convAttachments, convReactions, broker, new RateLimiter(), quotas,
+                mock(ai.intellistream.chat.web.ConversationAlertPublisher.class));
+        conversationWs = new ConversationWebSocketController(conversations, markdown, currentUser,
+                broker, new RateLimiter(),
+                mock(ai.intellistream.chat.web.ConversationAlertPublisher.class));
     }
 
     @Test

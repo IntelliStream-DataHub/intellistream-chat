@@ -109,9 +109,11 @@ class GroupConversationFlowIT {
         currentUser = mock(CurrentUser.class);
         broker = mock(SimpMessagingTemplate.class);
         controller = new ConversationRestController(conversations, userService, currentUser,
-                markdown, convAttachments, convReactions, broker, new RateLimiter(), quotas);
+                markdown, convAttachments, convReactions, broker, new RateLimiter(), quotas,
+                mock(ai.intellistream.chat.web.ConversationAlertPublisher.class));
         ws = new ConversationWebSocketController(conversations, markdown, currentUser,
-                broker, new RateLimiter());
+                broker, new RateLimiter(),
+                mock(ai.intellistream.chat.web.ConversationAlertPublisher.class));
     }
 
     private User newUser(String label) {

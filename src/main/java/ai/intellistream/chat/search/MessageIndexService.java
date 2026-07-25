@@ -58,14 +58,36 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Embedded Lucene index over message bodies.
+ * Embedded Lucene index over message bodies. One index holds <b>two</b> kinds of document:
+ * channel messages ({@code messages}) and conversation messages ({@code conversation_messages},
+ * i.e. DMs and group conversations).
  *
- * <p>Index layout (all per-message):
+ * <p>Index layout:
  * <ul>
- *   <li>{@code id} — StringField, stored. Message id (long), the document key.</li>
- *   <li>{@code channelId} — StringField. Used to scope searches.</li>
+ *   <li>{@code id} — StringField, stored. The document key. For a channel message it is the bare
+ *       numeric message id ({@code "123"}); for a conversation message it is
+ *       {@code "conv:123"}. The two tables have independent identity sequences, so a shared
+ *       index needs a namespaced key or message 42 of a channel and message 42 of a DM would
+ *       overwrite each other.</li>
+ *   <li>{@code channelId} — StringField, channel documents only. Scopes channel searches.</li>
+ *   <li>{@code conversationId} — StringField, conversation documents only. Scopes conversation
+ *       searches and carries the membership ACL filter (see {@link #searchAccessible}).</li>
+ *   <li>{@code kind} — StringField, <b>conversation documents only</b>, constant value
+ *       {@code "conversation"}.</li>
+ *   <li>{@code author} — StringField, lowercased username.</li>
  *   <li>{@code body} — TextField. Tokenised + analysed Markdown body.</li>
  * </ul>
+ *
+ * <h2>Why the asymmetry (bare vs prefixed key, kind on one side only)</h2>
+ * An index built by an earlier version of this application is on disk in production and is only
+ * rebuilt from scratch when it is <em>empty</em> — the startup path otherwise reconciles it in
+ * place. Every legacy document is a channel document with a bare numeric {@code id} and no
+ * {@code kind}. Leaving channel documents exactly as they were means the upgrade needs no
+ * reindex, no format version and no migration: existing docs keep matching
+ * {@code updateDocument}/{@code deleteDocuments} by their {@code id} term, and "is this a
+ * conversation document?" is answered by a term that legacy docs provably don't carry — so the
+ * admin-only cross-channel search excludes DMs with a {@code MUST_NOT kind:conversation} that is
+ * correct for old and new channel documents alike.
  */
 public class MessageIndexService {
 
@@ -73,9 +95,21 @@ public class MessageIndexService {
 
     static final String F_ID = "id";
     static final String F_CHANNEL = "channelId";
+    static final String F_CONVERSATION = "conversationId";
     static final String F_BODY = "body";
     /** Lowercased author username — exact-match {@link StringField} so {@code @bob} filters cleanly. */
     static final String F_AUTHOR = "author";
+    /** Present only on conversation documents; see the class javadoc for why it is one-sided. */
+    static final String F_KIND = "kind";
+    static final String K_CONVERSATION = "conversation";
+    /** Namespace prefix on the stored document key of a conversation message. */
+    static final String CONVERSATION_KEY_PREFIX = "conv:";
+
+    /** Which table a hit came from. */
+    public enum Scope { CHANNEL, CONVERSATION }
+
+    /** One search result: the table it came from plus that table's primary key. */
+    public record Hit(Scope scope, Long id) {}
 
     private final FSDirectory directory;
     private final IndexWriter writer;
@@ -189,8 +223,82 @@ public class MessageIndexService {
         return doc;
     }
 
+    private Document toConversationDoc(Long messageId, Long conversationId, String author, String body) {
+        var doc = new Document();
+        doc.add(new StringField(F_ID, conversationKey(messageId), Field.Store.YES));
+        doc.add(new StringField(F_CONVERSATION, conversationId.toString(), Field.Store.NO));
+        doc.add(new StringField(F_KIND, K_CONVERSATION, Field.Store.NO));
+        doc.add(new StringField(F_AUTHOR, normalizeAuthor(author), Field.Store.NO));
+        doc.add(new TextField(F_BODY, body == null ? "" : body, Field.Store.NO));
+        return doc;
+    }
+
+    static String conversationKey(Long messageId) {
+        return CONVERSATION_KEY_PREFIX + messageId;
+    }
+
+    private static Term conversationTerm(Long messageId) {
+        return new Term(F_ID, conversationKey(messageId));
+    }
+
     private static String normalizeAuthor(String author) {
         return author == null ? "" : author.toLowerCase(java.util.Locale.ROOT);
+    }
+
+    // ------------------------------------------------------------ conversation writes ----
+
+    /** Add or replace the document for a single conversation (DM / group) message. */
+    public void indexConversationMessage(Long messageId, Long conversationId, String author, String body) {
+        try {
+            writer.updateDocument(conversationTerm(messageId),
+                    toConversationDoc(messageId, conversationId, author, body));
+            afterWrite();
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to index conversation message " + messageId, e);
+        }
+    }
+
+    /** Remove a single conversation message from the index. */
+    public void deleteConversationMessage(Long messageId) {
+        try {
+            writer.deleteDocuments(conversationTerm(messageId));
+            afterWrite();
+        } catch (IOException e) {
+            throw new UncheckedIOException(
+                    "Failed to delete conversation message " + messageId + " from index", e);
+        }
+    }
+
+    /** Remove a batch of conversation messages from the index in one commit. */
+    public void deleteAllConversationMessages(Collection<Long> messageIds) {
+        if (messageIds.isEmpty()) {
+            return;
+        }
+        var terms = messageIds.stream()
+                .map(MessageIndexService::conversationTerm)
+                .toArray(Term[]::new);
+        try {
+            writer.deleteDocuments(terms);
+            afterWrite();
+        } catch (IOException e) {
+            throw new UncheckedIOException(
+                    "Failed to delete " + messageIds.size() + " conversation messages from index", e);
+        }
+    }
+
+    /** Add/replace many conversation documents in a single commit — the reconcile/backfill path. */
+    public void reindexConversations(Collection<IndexedConversationMessage> rows) {
+        if (rows.isEmpty()) return;
+        try {
+            for (var row : rows) {
+                writer.updateDocument(conversationTerm(row.id()),
+                        toConversationDoc(row.id(), row.conversationId(), row.author(), row.body()));
+            }
+            writer.commit();
+            searcherManager.maybeRefresh();
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to reindex conversation batch", e);
+        }
     }
 
     /** Remove a single message from the index. */
@@ -239,29 +347,122 @@ public class MessageIndexService {
                 .add(main, BooleanClause.Occur.MUST)
                 .add(new TermQuery(new Term(F_CHANNEL, channelId.toString())), BooleanClause.Occur.FILTER)
                 .build();
-        return runSearch(scoped, limit);
+        return ids(runSearch(scoped, limit));
     }
 
-    /** Search across multiple channels, returning message IDs in relevance order. */
-    public List<Long> searchInChannels(Collection<Long> channelIds, String query,
-                                       Collection<String> authors, int limit) {
-        if (channelIds.isEmpty()) return List.of();
+    /**
+     * Search a single conversation's messages, returning conversation-message IDs in relevance
+     * order. The caller must have already established that the viewer is a member — this method
+     * scopes, it does not authorize.
+     */
+    public List<Long> searchInConversation(Long conversationId, String query,
+                                           Collection<String> authors, int limit) {
         var main = mainQuery(query, authors);
         if (main == null) return List.of();
-        var ids = channelIds.stream().map(c -> new BytesRef(c.toString())).toList();
-        var filter = new TermInSetQuery(F_CHANNEL, ids);
         var scoped = new BooleanQuery.Builder()
                 .add(main, BooleanClause.Occur.MUST)
-                .add(filter, BooleanClause.Occur.FILTER)
+                .add(new TermQuery(new Term(F_CONVERSATION, conversationId.toString())),
+                        BooleanClause.Occur.FILTER)
+                .build();
+        return ids(runSearch(scoped, limit));
+    }
+
+    /**
+     * The viewer-scoped search: everything they can read, channels and conversations together,
+     * ranked as one result list.
+     *
+     * <h2>The ACL is part of the query, not a post-filter</h2>
+     * The membership sets are combined into the Lucene query as a required {@code FILTER} clause:
+     *
+     * <pre>
+     *   +body:…                                          (the user's query)
+     *   #( channelId IN (joined…)  OR  conversationId IN (member-of…) )   (the ACL)
+     * </pre>
+     *
+     * Nothing the viewer cannot read is ever <em>collected</em>, so it cannot influence the score
+     * distribution, the {@code TopDocs} cut-off, the total hit count, the pagination window or the
+     * snippets that get highlighted. Running an unrestricted search and dropping forbidden rows
+     * from the result list afterwards leaks through every one of those channels — a non-member can
+     * infer that a term occurs in a private DM from a result page that comes back one row short,
+     * or from a hit count that doesn't match what they were shown. It also silently degrades:
+     * post-filtering a top-50 can return zero rows for a query with 50 accessible matches ranked
+     * 51st onward.
+     *
+     * <h2>Why {@link TermInSetQuery}, and what happens when the id set is big</h2>
+     * "Conversations I belong to" is small for a typical user (tens), but it is unbounded in
+     * principle — a long-lived account, a bot, or a support agent can accumulate thousands of
+     * group conversations, and the joined-channel set has the same shape. That rules out the
+     * obvious encoding, a {@code BooleanQuery} with one {@code SHOULD TermQuery} per id: Lucene
+     * caps a BooleanQuery at {@link org.apache.lucene.search.IndexSearcher#getMaxClauseCount()}
+     * clauses (1024 by default) and throws {@code TooManyClauses} above it. That failure is worse
+     * than it looks, because the tempting fixes are all wrong — raising the cap makes the query
+     * quadratic-ish in scorer bookkeeping, and truncating the id list turns a hard error into
+     * <em>silently incomplete search results</em>.
+     *
+     * <p>{@link TermInSetQuery} exists for exactly this: it is a single clause holding an
+     * arbitrarily large, sorted term set, evaluated by seeking the term dictionary once per term
+     * per segment into a shared bitset. It has no clause limit, so it cannot throw and cannot be
+     * truncated; cost grows linearly in the number of ids and it is skipped entirely for segments
+     * that contain none of them.
+     *
+     * <p>The considered alternative was to invert the relationship and index the member user ids
+     * on every document, making the filter a single {@code TermQuery} on the viewer's id
+     * regardless of how many conversations they are in. Rejected: membership then lives in the
+     * index, so adding one person to a group conversation means rewriting every document in it
+     * (an unbounded reindex triggered by a cheap user action), and a stale document is a
+     * <em>leak</em> rather than a missing result. Here the ACL is read from the database at query
+     * time, so a removed member stops matching on their very next search.
+     *
+     * @param channelIds      channels the viewer may read (joined + public, resolved by the caller)
+     * @param conversationIds conversations the viewer is a member of
+     */
+    public List<Hit> searchAccessible(Collection<Long> channelIds, Collection<Long> conversationIds,
+                                      String query, Collection<String> authors, int limit) {
+        // No accessible container ⇒ no results. Deliberately explicit: an empty id collection must
+        // never degrade into "no filter", which is how this kind of code turns into a total leak.
+        if (channelIds.isEmpty() && conversationIds.isEmpty()) return List.of();
+        var main = mainQuery(query, authors);
+        if (main == null) return List.of();
+        var acl = new BooleanQuery.Builder();
+        if (!channelIds.isEmpty()) {
+            acl.add(termsIn(F_CHANNEL, channelIds), BooleanClause.Occur.SHOULD);
+        }
+        if (!conversationIds.isEmpty()) {
+            acl.add(termsIn(F_CONVERSATION, conversationIds), BooleanClause.Occur.SHOULD);
+        }
+        acl.setMinimumNumberShouldMatch(1);
+        var scoped = new BooleanQuery.Builder()
+                .add(main, BooleanClause.Occur.MUST)
+                .add(acl.build(), BooleanClause.Occur.FILTER)
                 .build();
         return runSearch(scoped, limit);
     }
 
-    /** Search every indexed message across every channel. Caller is responsible for authorization. */
+    /**
+     * Search every indexed message across every <b>channel</b>. Caller is responsible for
+     * authorization (it is admin-only).
+     *
+     * <p>Conversations are excluded on purpose, and the exclusion is structural rather than a
+     * policy the caller could forget: private messages are not workspace content, and "admin" is
+     * not "member". A compliance-export feature that needs DMs should be a separate, audited
+     * surface, not a query parameter on the same endpoint everybody uses.
+     */
     public List<Long> searchEverywhere(String query, Collection<String> authors, int limit) {
         var main = mainQuery(query, authors);
         if (main == null) return List.of();
-        return runSearch(main, limit);
+        var channelsOnly = new BooleanQuery.Builder()
+                .add(main, BooleanClause.Occur.MUST)
+                .add(new TermQuery(new Term(F_KIND, K_CONVERSATION)), BooleanClause.Occur.MUST_NOT)
+                .build();
+        return ids(runSearch(channelsOnly, limit));
+    }
+
+    private static TermInSetQuery termsIn(String field, Collection<Long> values) {
+        return new TermInSetQuery(field, values.stream().map(v -> new BytesRef(v.toString())).toList());
+    }
+
+    private static List<Long> ids(List<Hit> hits) {
+        return hits.stream().map(Hit::id).toList();
     }
 
     /**
@@ -298,10 +499,23 @@ public class MessageIndexService {
     }
 
     /**
-     * Every message id currently in the index (the stored {@code F_ID} of each live doc). Used by
-     * the Lucene↔DB reconcile sweep (CLEAN-3) to diff the index against the {@code messages} table.
+     * Every <b>channel</b> message id currently in the index. Used by the Lucene↔DB reconcile
+     * sweep (CLEAN-3) to diff the index against the {@code messages} table.
+     *
+     * <p>Conversation documents are skipped: their key is prefixed, so they are simply absent from
+     * this set — which is what keeps the channel reconcile from mistaking every DM document for a
+     * message that has vanished from {@code messages} and deleting it.
      */
     public java.util.Set<Long> allIndexedIds() {
+        return allIndexedIds(Scope.CHANNEL);
+    }
+
+    /** The conversation-document counterpart of {@link #allIndexedIds()}. */
+    public java.util.Set<Long> allIndexedConversationIds() {
+        return allIndexedIds(Scope.CONVERSATION);
+    }
+
+    private java.util.Set<Long> allIndexedIds(Scope scope) {
         try {
             searcherManager.maybeRefresh();
             var searcher = searcherManager.acquire();
@@ -312,9 +526,9 @@ public class MessageIndexService {
                 for (int i = 0; i < reader.maxDoc(); i++) {
                     if (liveDocs != null && !liveDocs.get(i)) continue; // skip deleted docs
                     var doc = searcher.storedFields().document(i, java.util.Set.of(F_ID));
-                    var v = doc.get(F_ID);
-                    if (v != null) {
-                        try { ids.add(Long.parseLong(v)); } catch (NumberFormatException ignored) { }
+                    var hit = parseKey(doc.get(F_ID));
+                    if (hit != null && hit.scope() == scope) {
+                        ids.add(hit.id());
                     }
                 }
                 return ids;
@@ -342,8 +556,12 @@ public class MessageIndexService {
     }
 
     /**
-     * Replace the entire index with a fresh build. Used by the startup bootstrap when the
-     * persisted index is missing or empty. Single-threaded; intended for app startup only.
+     * Replace the entire index with a fresh build from the {@code messages} table. Used by the
+     * startup bootstrap when the persisted index is missing or empty. Single-threaded; intended
+     * for app startup only.
+     *
+     * <p>{@code deleteAll()} clears <b>conversation</b> documents too, so this must run before the
+     * conversation backfill, never after it — {@code LuceneBootstrap} orders them that way.
      */
     public void rebuild(Iterable<IndexedMessage> rows) {
         try {
@@ -467,27 +685,40 @@ public class MessageIndexService {
         @Override protected Query getRegexpQuery(String field, String termStr)   { return null; }
     }
 
-    private List<Long> runSearch(Query query, int limit) {
+    private List<Hit> runSearch(Query query, int limit) {
         try {
             searcherManager.maybeRefresh();
             IndexSearcher searcher = searcherManager.acquire();
             try {
                 var top = searcher.search(query, Math.max(limit, 1));
-                var ids = new ArrayList<Long>(top.scoreDocs.length);
+                var hits = new ArrayList<Hit>(top.scoreDocs.length);
                 var storedFields = searcher.storedFields();
-                for (var hit : top.scoreDocs) {
-                    var doc = storedFields.document(hit.doc);
-                    var idStr = doc.get(F_ID);
-                    if (idStr != null) {
-                        ids.add(Long.parseLong(idStr));
+                for (var scoreDoc : top.scoreDocs) {
+                    var doc = storedFields.document(scoreDoc.doc);
+                    var hit = parseKey(doc.get(F_ID));
+                    if (hit != null) {
+                        hits.add(hit);
                     }
                 }
-                return Collections.unmodifiableList(ids);
+                return Collections.unmodifiableList(hits);
             } finally {
                 searcherManager.release(searcher);
             }
         } catch (IOException e) {
             throw new UncheckedIOException("Search failed", e);
+        }
+    }
+
+    /** Decode a stored document key back into (table, primary key). {@code null} if unparseable. */
+    private static Hit parseKey(String key) {
+        if (key == null) return null;
+        try {
+            return key.startsWith(CONVERSATION_KEY_PREFIX)
+                    ? new Hit(Scope.CONVERSATION,
+                              Long.parseLong(key.substring(CONVERSATION_KEY_PREFIX.length())))
+                    : new Hit(Scope.CHANNEL, Long.parseLong(key));
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 
@@ -525,4 +756,19 @@ public class MessageIndexService {
 
     /** Minimal projection used by {@link #rebuild(Iterable)}. */
     public record IndexedMessage(Long id, Long channelId, String author, String body) {}
+
+    /** Minimal projection used by {@link #reindexConversations(Collection)}. */
+    public record IndexedConversationMessage(Long id, Long conversationId, String author, String body) {
+
+        /** Map flat {@code (id, conversationId, authorUsername, bodyMarkdown)} repository rows. */
+        public static List<IndexedConversationMessage> fromRows(List<Object[]> rows) {
+            var docs = new ArrayList<IndexedConversationMessage>(rows.size());
+            for (var r : rows) {
+                docs.add(new IndexedConversationMessage(
+                        ((Number) r[0]).longValue(), ((Number) r[1]).longValue(),
+                        (String) r[2], (String) r[3]));
+            }
+            return docs;
+        }
+    }
 }
