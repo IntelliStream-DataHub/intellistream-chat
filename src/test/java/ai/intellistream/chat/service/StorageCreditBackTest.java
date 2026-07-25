@@ -78,18 +78,25 @@ class StorageCreditBackTest {
     }
 
     @Test
-    void theCreditIsRegisteredAfterTheIndexPurgeAndTheFileReap() {
+    void theCreditHappensInsideTheDeletingTransactionNotAfterIt() {
         var fixture = new MessageFixture();
 
         fixture.service.delete(100L, alice);
 
-        // Order matters even though every post-commit hook is individually guarded: a hook that
-        // throws is logged and skipped, and the credit is the one whose loss nothing can repair —
-        // there is no absolute setter on user_storage, only an atomic delta. So it goes last.
-        var ordered = inOrder(fixture.messageIndex, fixture.attachmentService, fixture.quotas);
+        // The credit is applied before the post-commit hooks run, because it is part of the
+        // deleting transaction rather than a callback registered against it. That is what makes
+        // the refund and the row deletion commit or roll back together.
+        //
+        // The earlier arrangement credited after the commit and this test asserted it went last,
+        // on the theory that a hook which throws is logged and skipped, so the one whose loss
+        // nothing can repair should run at the end. Ordering was the wrong lever: a post-commit
+        // credit that fails charges the account forever for bytes that are gone, and user_storage
+        // exposes only an atomic delta, so no ordering makes that recoverable. Doing it in the
+        // transaction removes the failure mode instead of scheduling around it.
+        var ordered = inOrder(fixture.quotas, fixture.messageIndex, fixture.attachmentService);
+        ordered.verify(fixture.quotas).releaseAll(any());
         ordered.verify(fixture.messageIndex).deleteAll(anyList());
         ordered.verify(fixture.attachmentService).deleteFiles(anyList());
-        ordered.verify(fixture.quotas).releaseAll(any());
     }
 
     @Test
@@ -188,7 +195,7 @@ class StorageCreditBackTest {
                     mock(MessageRepository.class), attachmentRepository,
                     mock(MessageIndexService.class), attachmentService,
                     new ChannelAccessCache(60, 1024), mock(AppSettingsService.class),
-                    new RateLimiter(), quotas, self);
+                    new RateLimiter(), quotas);
         }
     }
 

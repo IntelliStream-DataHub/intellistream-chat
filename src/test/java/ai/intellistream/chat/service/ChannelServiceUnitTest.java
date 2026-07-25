@@ -49,8 +49,7 @@ class ChannelServiceUnitTest {
                 new ai.intellistream.chat.service.ChannelAccessCache(60, 1024),
                 permissiveSettings(),
                 new ai.intellistream.chat.security.RateLimiter(),
-                mock(ai.intellistream.chat.moderation.StorageQuotaService.class),
-                null);
+                mock(ai.intellistream.chat.moderation.StorageQuotaService.class));
         var creator = new User("sub", "alice", "a@e", "Alice");
 
         var channel = service.create("  Hello, World!  ", "description", ChannelType.PUBLIC, creator);
@@ -75,8 +74,7 @@ class ChannelServiceUnitTest {
                 new ai.intellistream.chat.service.ChannelAccessCache(60, 1024),
                 permissiveSettings(),
                 new ai.intellistream.chat.security.RateLimiter(),
-                mock(ai.intellistream.chat.moderation.StorageQuotaService.class),
-                null);
+                mock(ai.intellistream.chat.moderation.StorageQuotaService.class));
         var creator = new User("sub", "alice", "a@e", "Alice");
 
         assertThatThrownBy(() -> service.create("!!!", null, ChannelType.PUBLIC, creator))

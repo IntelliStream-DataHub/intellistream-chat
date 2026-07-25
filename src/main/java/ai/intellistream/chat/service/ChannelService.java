@@ -53,8 +53,6 @@ public class ChannelService {
     private final AppSettingsService appSettings;
     private final RateLimiter rateLimiter;
     private final ai.intellistream.chat.moderation.StorageQuotaService quotas;
-    /** Self-proxy, so {@link #creditBack} really gets its own transaction — see its javadoc. */
-    private final ChannelService self;
 
     public ChannelService(ChannelRepository channelRepository,
                           ChannelMemberRepository memberRepository,
@@ -66,10 +64,8 @@ public class ChannelService {
                           ChannelAccessCache accessCache,
                           AppSettingsService appSettings,
                           RateLimiter rateLimiter,
-                          ai.intellistream.chat.moderation.StorageQuotaService quotas,
-                          @Lazy ChannelService self) {
+                          ai.intellistream.chat.moderation.StorageQuotaService quotas) {
         this.quotas = quotas;
-        this.self = self;
         this.accessCache = accessCache;
         this.channelRepository = channelRepository;
         this.memberRepository = memberRepository;
@@ -255,7 +251,13 @@ public class ChannelService {
         // Unlike a single message's attachments, a channel's belong to everyone who ever posted in
         // it — hence the per-account map rather than one uploader. Read here for the usual reason:
         // after the cascade the rows naming those accounts are gone.
-        var credits = AttachmentService.creditsFor(doomedAttachments);
+        // Applied inside this transaction, not after it: the delete and the refund then commit or
+        // roll back together and the recorded usage can never disagree with the rows. Crediting
+        // after the commit means a failed credit charges an account forever for bytes that are
+        // gone, and UserStorage exposes only an atomic delta so nothing can repair it. A failed
+        // file cleanup below leaves an orphan whose bytes read as free, which the orphan sweep
+        // already reconciles — a recoverable inconsistency in place of an unrecoverable one.
+        quotas.releaseAll(AttachmentService.creditsFor(doomedAttachments));
         channelRepository.delete(channel);
         var channelId = channel.getId();
         // Destroy is the one event that can invalidate a cached channel or a cached "may write"
@@ -263,23 +265,14 @@ public class ChannelService {
         afterCommit(() -> accessCache.evictChannel(channelId));
         afterCommit(() -> messageIndex.deleteAll(messageIds));
         afterCommit(() -> attachmentService.deleteFiles(fileKeys));
-        afterCommit(() -> self.creditBack(credits));
     }
 
-    /**
-     * Hand the freed bytes back, in a transaction of its own.
-     *
-     * <p>{@code REQUIRES_NEW} is load-bearing. An {@code afterCommit} hook runs while the finished
-     * transaction's resources are still bound to the thread, so a plain {@code REQUIRED} write there
-     * joins a transaction that has <em>already committed</em>: the UPDATE is issued, nothing commits
-     * it, the connection is released, and the decrement quietly never happened. That is why every
-     * other hook registered above is Lucene or filesystem work — none of them touch the database.
-     * Same reasoning, and the same wording, as {@code MessageService.creditBack}.
-     */
-    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
-    public void creditBack(java.util.Map<Long, Long> credits) {
-        quotas.releaseAll(credits);
-    }
+    // NOTE, kept because it cost real time to find: an afterCommit hook runs while the finished
+    // transaction's resources are still bound to the thread, so a plain REQUIRED database write
+    // there joins a transaction that has ALREADY COMMITTED — the UPDATE is issued, nothing commits
+    // it, and there is no exception and no log line. Every afterCommit hook registered above is
+    // therefore Lucene, cache or filesystem work. A post-commit database write needs REQUIRES_NEW
+    // and must go through the proxy.
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ChannelService.class);
 

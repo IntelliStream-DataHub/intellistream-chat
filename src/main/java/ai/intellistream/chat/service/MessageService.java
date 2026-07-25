@@ -452,32 +452,34 @@ public class MessageService {
         // or file reap cannot skip it — afterCommit guards each hook, but order still decides what
         // a thrown-and-logged failure costs, and an uncredited account is the one that ends up
         // unable to upload.
-        var credits = AttachmentService.creditsFor(doomedAttachments);
+        //
+        // The credit is applied HERE, inside the deleting transaction, not after it. Both
+        // orderings are defensible and this one is better:
+        //
+        //   in-transaction  — the delete and the refund commit or roll back together, so the
+        //                     recorded usage can never disagree with the rows. If the file
+        //                     cleanup below then fails, an orphan file survives while its bytes
+        //                     read as free, which is exactly what the orphan sweep already exists
+        //                     to reconcile.
+        //   after-commit    — a failed credit leaves the bytes deleted but still charged forever,
+        //                     and UserStorage exposes only an atomic delta, so nothing can repair
+        //                     it. The account quietly loses quota it will never get back.
+        //
+        // A recoverable inconsistency beats an unrecoverable one.
+        quotas.releaseAll(AttachmentService.creditsFor(doomedAttachments));
         afterCommit(() -> messageIndex.deleteAll(indexedIdsSnapshot));
         afterCommit(() -> attachmentService.deleteFiles(fileKeysSnapshot));
-        afterCommit(() -> self.creditBack(credits));
 
         return new DeletedMessage(messageId, channelId, parentId);
     }
 
-    /**
-     * Hand the freed bytes back, in a transaction of its own.
-     *
-     * <p>The {@code REQUIRES_NEW} is the entire point, and it is not defensive. An {@code afterCommit}
-     * hook runs while the finished transaction's resources are still bound to the thread, so a plain
-     * {@code REQUIRED} write there <em>joins a transaction that has already committed</em>: the UPDATE
-     * is issued, nothing ever commits it, and the connection is released. No exception, no log line,
-     * no decrement — the failure is completely silent, which is why the other post-commit hooks in
-     * this class are filesystem and Lucene work and none of them touch the database. Suspending and
-     * starting a real transaction is what makes this a durable write.
-     *
-     * <p>Goes through {@code self} for the usual reason: a direct call would bypass the proxy and
-     * with it the propagation, putting the silent-loss behaviour straight back.
-     */
-    @Transactional(propagation = org.springframework.transaction.annotation.Propagation.REQUIRES_NEW)
-    public void creditBack(java.util.Map<Long, Long> credits) {
-        quotas.releaseAll(credits);
-    }
+    // NOTE, kept because it cost real time to find: an afterCommit hook runs while the finished
+    // transaction's resources are still bound to the thread, so a plain REQUIRED database write
+    // there joins a transaction that has ALREADY COMMITTED. The UPDATE is issued, nothing ever
+    // commits it, the connection is released, and there is no exception and no log line. That is
+    // why every remaining afterCommit hook in this class is Lucene or filesystem work and none of
+    // them touch the database. If you ever need a post-commit write, it must be REQUIRES_NEW and
+    // it must go through the proxy.
 
     /**
      * Defer the index write to {@code afterCommit} so the index never reflects a row the

@@ -20,6 +20,7 @@ import ai.intellistream.chat.repository.ChannelMemberRepository;
 import ai.intellistream.chat.repository.ChannelRepository;
 import ai.intellistream.chat.repository.MessageRepository;
 import ai.intellistream.chat.repository.UserRepository;
+import ai.intellistream.chat.attachments.AttachmentBytes;
 import ai.intellistream.chat.security.CurrentUser;
 import ai.intellistream.chat.security.PublicBadRequestException;
 import ai.intellistream.chat.security.ResourceNotFoundException;
@@ -194,8 +195,19 @@ public class AdminController {
         var ext = pickExtension(contentType);
         var filename = "logo-" + UUID.randomUUID() + "." + ext;
         var dest = brandingDir.resolve(filename);
+
+        // Same treatment the avatar path already gets, and for the same reason: a bare Files.copy
+        // onto a full volume throws a plain IOException that surfaced as a 500 and left the partial
+        // file behind, unreferenced by any row and therefore invisible to every code path in the
+        // app while still occupying the disk. requireHeadroom refuses before writing anything, and
+        // streamToFile removes the partial on every failure path and re-throws an out-of-space
+        // write as StorageUnavailableException, which ApiExceptionHandler renders as 507.
+        //
+        // The branding directory is probed rather than the attachments one: they can be separate
+        // volumes, and the question here is whether *this* write has somewhere to land.
+        storageQuotas.requireHeadroom(brandingDir);
         try (var in = file.getInputStream()) {
-            Files.copy(in, dest, StandardCopyOption.REPLACE_EXISTING);
+            AttachmentBytes.streamToFile(in, dest, MAX_LOGO_BYTES);
         }
         // Best-effort cleanup of the previous file (skip silently on miss).
         var previous = settings.current().getLogoPath();
