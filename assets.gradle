@@ -26,7 +26,7 @@ configurations {
 }
 
 dependencies {
-	closureCompiler 'com.google.javascript:closure-compiler:v20260607'
+	closureCompiler 'com.google.javascript:closure-compiler:v20260720'
 }
 
 def staticSrcDir = file('src/main/resources/static')

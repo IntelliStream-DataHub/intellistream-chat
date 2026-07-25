@@ -1,20 +1,29 @@
 #!/usr/bin/env bash
 #
-# IntelliStream Chat — installer for AlmaLinux / Rocky / RHEL 9 and 10.
+# IntelliStream Chat — application installer for AlmaLinux / Rocky / RHEL 9 and 10.
 #
-# Installs Java, optionally PostgreSQL, creates the service account and directory
-# layout, writes the environment file, installs the hardened systemd unit and starts
-# the service.
+# Installs the application and nothing else: a Java runtime, the service account,
+# the directory layout, the environment file, the hardened systemd unit.
 #
-# It deliberately does NOT configure a reverse proxy or TLS. That is a separate
-# concern with its own decisions (nginx vs haproxy, certificate source, HTTP/2,
-# WebSocket timeouts) and it has its own guide: frontend.md. This script leaves the
-# app listening on 127.0.0.1:8080, which is exactly what you want in front of one.
+# THREE THINGS THIS DELIBERATELY DOES NOT DO
 #
-# It also does not install Keycloak. A production identity provider needs its own
-# database, hostname and TLS, and most sites already have one. Point --issuer-uri at
-# yours; --import-realm will load the bundled realm into it over kcadm if you want the
-# roles and client created for you.
+#   PostgreSQL. Your database is yours — managed service, existing cluster, separate
+#   host, whatever. A script that installs and initdb's a database server has opinions
+#   about backups, tuning, authentication and upgrades that it has no business having.
+#   Create the role and database yourself (QUICKSTART-MANUAL.md step 1) and point this
+#   at them. Flyway builds the schema on first start.
+#
+#   Keycloak. A production identity provider needs its own database, hostname and TLS,
+#   and most sites already have one. Create the realm and client
+#   (QUICKSTART-MANUAL.md step 2) and pass --issuer-uri.
+#
+#   The reverse proxy and TLS. Separate concern, separate decisions, separate guide:
+#   frontend.md. The app ends up on 127.0.0.1:8080, which is exactly what belongs
+#   behind a proxy, and nothing outside the host can reach it until you set one up.
+#
+# What it does instead is check that the database and the issuer are actually reachable
+# before writing anything, so the common misconfigurations surface here rather than as a
+# service that fails to start for reasons buried in a stack trace.
 #
 # Re-running is safe: every step checks before it acts.
 #
@@ -31,34 +40,34 @@ ETC_DIR="/etc/intellistream-chat"
 ENV_FILE="${ETC_DIR}/env"
 UNIT_FILE="/etc/systemd/system/${APP_NAME}.service"
 JAVA_PKG="java-25-openjdk-headless"
-JAVA_BIN=""                       # resolved after install
+JAVA_BIN=""
 
-DB_NAME="intellistream_chat"
-DB_USER="ichat_role"
-DB_PASSWORD=""                    # generated when empty
 DB_HOST="localhost"
 DB_PORT="5432"
+DB_NAME="intellistream_chat"
+DB_USER="ichat_role"
+DB_PASSWORD="${ICHAT_DB_PASSWORD:-}"
+DB_URL=""                          # derived from host/port/name unless given
 
 ISSUER_URI=""
 CLIENT_ID="ichat-client"
-CLIENT_SECRET=""
+CLIENT_SECRET="${KEYCLOAK_CLIENT_SECRET:-}"
 
 JAR_SRC=""
 HEAP_MAX="2g"
 BIND_ADDRESS="127.0.0.1"
 BIND_PORT="8080"
 
-INSTALL_POSTGRES=1
-IMPORT_REALM=0
 START_SERVICE=1
+SKIP_CHECKS=0
 DRY_RUN=0
+APP_HOME_GIVEN=0
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 # ------------------------------------------------------------------ output ----
 c_red=$'\033[31m'; c_grn=$'\033[32m'; c_yel=$'\033[33m'; c_dim=$'\033[2m'; c_off=$'\033[0m'
 [[ -t 1 ]] || { c_red=""; c_grn=""; c_yel=""; c_dim=""; c_off=""; }
-
 step() { printf '\n%s==>%s %s\n' "$c_grn" "$c_off" "$*"; }
 info() { printf '    %s\n' "$*"; }
 warn() { printf '%s !! %s%s\n' "$c_yel" "$*" "$c_off" >&2; }
@@ -70,77 +79,119 @@ run()  {
 
 usage() {
   cat <<EOF
-IntelliStream Chat installer (AlmaLinux / Rocky / RHEL)
+IntelliStream Chat — application installer (AlmaLinux / Rocky / RHEL)
 
-Usage: sudo $0 --issuer-uri URI --client-secret SECRET [options]
+Installs the app, its service account and a hardened systemd unit. It does NOT
+install PostgreSQL, Keycloak or a reverse proxy — set those up first (see
+QUICKSTART-MANUAL.md steps 1 and 2, and frontend.md).
 
-Required unless --dry-run:
-  --issuer-uri URI        Keycloak realm issuer, e.g.
+Usage: sudo $0 --issuer-uri URI [options]
+
+Required:
+  --issuer-uri URI        Keycloak realm issuer of an existing realm, e.g.
                           https://auth.example.com/realms/ichat-realm
-  --client-secret SECRET  OIDC client secret for '${CLIENT_ID}'.
-                          Use '-' to read it from stdin instead of argv.
 
-Options:
-  --jar PATH              Pre-built application jar. Default: build it from
-                          ${REPO_ROOT} with ./gradlew bootJar.
+Secrets — pass by environment (preferred; keeps them out of argv and shell
+history), by flag, or leave unset to be prompted on a terminal:
+  ICHAT_DB_PASSWORD       or  --db-password PASS
+  KEYCLOAK_CLIENT_SECRET  or  --client-secret SECRET
+
+Database (must already exist and accept connections from this host):
+  --db-host HOST          default: ${DB_HOST}
+  --db-port PORT          default: ${DB_PORT}
+  --db-name NAME          default: ${DB_NAME}
+  --db-user USER          default: ${DB_USER}
+  --db-url JDBC_URL       full JDBC URL; overrides host/port/name. Use for
+                          options the parts can't express, e.g. ?sslmode=require
+
+Application:
+  --jar PATH              Pre-built jar. Default: build from ${REPO_ROOT}
+                          with ./gradlew bootJar.
   --client-id ID          OIDC client id (default: ${CLIENT_ID}).
-  --db-name NAME          Database name (default: ${DB_NAME}).
-  --db-user USER          Database role (default: ${DB_USER}).
-  --db-password PASS      Database password (default: generated, 32 chars).
-  --db-host HOST          Database host (default: ${DB_HOST}).
-  --db-port PORT          Database port (default: ${DB_PORT}).
-  --skip-postgres         Don't install or configure PostgreSQL. Use for a managed
-                          or remote database; the role and database must already
-                          exist and be reachable.
-  --import-realm          Import keycloak/realm.json into the Keycloak at
-                          --issuer-uri using kcadm.sh. Requires KC_ADMIN and
-                          KC_ADMIN_PASSWORD in the environment, and kcadm.sh on
-                          PATH or at /opt/keycloak/bin/kcadm.sh.
   --heap SIZE             JVM max heap (default: ${HEAP_MAX}).
-  --bind ADDR             Listen address (default: ${BIND_ADDRESS} — keep this on
-                          loopback and put a reverse proxy in front, see frontend.md).
+  --bind ADDR             Listen address (default: ${BIND_ADDRESS} — keep it on
+                          loopback and put a reverse proxy in front).
   --port PORT             Listen port (default: ${BIND_PORT}).
+  --app-home DIR          Install prefix: the jar, and the data/ tree that holds
+                          attachments, avatars, branding and the Lucene index.
+                          Default ${APP_HOME}. Asked for interactively when not
+                          given. Put it on the filesystem you actually want the
+                          data on, e.g. a ZFS dataset: /tank/intellistream-chat
+  --etc-dir DIR           Config directory (default: ${ETC_DIR}). Kept under /etc
+                          by default because that is already labelled etc_t for
+                          SELinux; move it and selinux-harden.sh will relabel.
   --no-start              Install everything but leave the service stopped.
+  --skip-checks           Don't test database / issuer reachability.
   --dry-run               Print what would happen; change nothing.
   -h, --help              This text.
 
-After this finishes, run scripts/selinux-harden.sh if SELinux is enforcing, then
-set up your reverse proxy following frontend.md.
+Afterwards: run scripts/selinux-harden.sh if SELinux is enforcing, then set up
+the reverse proxy following frontend.md.
 EOF
 }
 
 # ------------------------------------------------------------------- args -----
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --issuer-uri)     ISSUER_URI="${2:?}"; shift 2 ;;
-    --client-id)      CLIENT_ID="${2:?}"; shift 2 ;;
-    --client-secret)  CLIENT_SECRET="${2:?}"; shift 2 ;;
-    --jar)            JAR_SRC="${2:?}"; shift 2 ;;
-    --db-name)        DB_NAME="${2:?}"; shift 2 ;;
-    --db-user)        DB_USER="${2:?}"; shift 2 ;;
-    --db-password)    DB_PASSWORD="${2:?}"; shift 2 ;;
-    --db-host)        DB_HOST="${2:?}"; shift 2 ;;
-    --db-port)        DB_PORT="${2:?}"; shift 2 ;;
-    --skip-postgres)  INSTALL_POSTGRES=0; shift ;;
-    --import-realm)   IMPORT_REALM=1; shift ;;
-    --heap)           HEAP_MAX="${2:?}"; shift 2 ;;
-    --bind)           BIND_ADDRESS="${2:?}"; shift 2 ;;
-    --port)           BIND_PORT="${2:?}"; shift 2 ;;
-    --no-start)       START_SERVICE=0; shift ;;
-    --dry-run)        DRY_RUN=1; shift ;;
-    -h|--help)        usage; exit 0 ;;
-    *)                die "unknown option: $1  (try --help)" ;;
+    --issuer-uri)    ISSUER_URI="${2:?}"; shift 2 ;;
+    --client-id)     CLIENT_ID="${2:?}"; shift 2 ;;
+    --client-secret) CLIENT_SECRET="${2:?}"; shift 2 ;;
+    --db-host)       DB_HOST="${2:?}"; shift 2 ;;
+    --db-port)       DB_PORT="${2:?}"; shift 2 ;;
+    --db-name)       DB_NAME="${2:?}"; shift 2 ;;
+    --db-user)       DB_USER="${2:?}"; shift 2 ;;
+    --db-password)   DB_PASSWORD="${2:?}"; shift 2 ;;
+    --db-url)        DB_URL="${2:?}"; shift 2 ;;
+    --jar)           JAR_SRC="${2:?}"; shift 2 ;;
+    --heap)          HEAP_MAX="${2:?}"; shift 2 ;;
+    --bind)          BIND_ADDRESS="${2:?}"; shift 2 ;;
+    --port)          BIND_PORT="${2:?}"; shift 2 ;;
+    --app-home)      APP_HOME="${2:?}"; APP_HOME_GIVEN=1; shift 2 ;;
+    --etc-dir)       ETC_DIR="${2:?}"; shift 2 ;;
+    --no-start)      START_SERVICE=0; shift ;;
+    --skip-checks)   SKIP_CHECKS=1; shift ;;
+    --dry-run)       DRY_RUN=1; shift ;;
+    -h|--help)       usage; exit 0 ;;
+    *)               die "unknown option: $1  (try --help)" ;;
   esac
 done
+DB_URL="${DB_URL:-jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_NAME}}"
 
-if [[ "$CLIENT_SECRET" == "-" ]]; then
-  read -rs CLIENT_SECRET
-  [[ -n "$CLIENT_SECRET" ]] || die "empty client secret on stdin"
+# Where the application and its data live. Asked rather than assumed: the data tree
+# grows without bound (attachments, avatars, the Lucene index), so it usually belongs
+# on a chosen filesystem — a ZFS dataset, an LVM volume, a separate disk — not on
+# whatever /opt happens to sit on.
+if (( ! APP_HOME_GIVEN )) && (( ! DRY_RUN )) && [[ -t 0 ]]; then
+  printf '\n%s==>%s Install location\n' "$c_grn" "$c_off"
+  printf '    The jar and the data tree (attachments, avatars, branding, search index)\n'
+  printf '    go here. On ZFS or a separate volume, give the dataset path.\n'
+  read -rp "    Install prefix [${APP_HOME}]: " _reply
+  [[ -n "${_reply:-}" ]] && APP_HOME="${_reply%/}"
 fi
+
+[[ "$APP_HOME" = /* ]] || die "install prefix must be an absolute path: ${APP_HOME}"
+case "$APP_HOME" in
+  /|/usr|/etc|/var|/home|/root|/boot|/bin|/sbin|/lib|/lib64|/proc|/sys|/dev)
+    die "refusing to install into ${APP_HOME}" ;;
+esac
+_parent="$(dirname "$APP_HOME")"
+if [[ ! -d "$_parent" ]]; then
+  # Fatal for a real run, a warning for a preview: --dry-run should be able to show
+  # the plan for a host you have not provisioned yet.
+  if (( DRY_RUN )); then
+    warn "parent directory ${_parent} does not exist on this host (dry run, continuing)"
+  else
+    die "parent directory does not exist: ${_parent}
+Create it first, then re-run. For a ZFS dataset:
+  zfs create -o mountpoint=${APP_HOME} tank/intellistream-chat"
+  fi
+fi
+
+ENV_FILE="${ETC_DIR}/env"
+UNIT_FILE="/etc/systemd/system/${APP_NAME}.service"
 
 # --------------------------------------------------------------- preflight ----
 step "Preflight"
-
 (( DRY_RUN )) || [[ $EUID -eq 0 ]] || die "must run as root (use sudo)"
 
 [[ -r /etc/os-release ]] || die "cannot read /etc/os-release"
@@ -149,14 +200,12 @@ step "Preflight"
 case "${ID}${ID_LIKE:-}" in
   *rhel*|*fedora*|almalinux*|rocky*) info "OS: ${PRETTY_NAME}" ;;
   *) warn "This installer targets the RHEL family; ${PRETTY_NAME:-unknown} is untested."
-     warn "Package names and the postgresql-setup step are the parts most likely to differ." ;;
+     warn "The Java package name is the part most likely to differ." ;;
 esac
-
 command -v dnf >/dev/null || die "dnf not found — this installer needs a dnf-based distro"
 
 if (( ! DRY_RUN )); then
-  [[ -n "$ISSUER_URI" ]]    || die "--issuer-uri is required (see --help)"
-  [[ -n "$CLIENT_SECRET" ]] || die "--client-secret is required (see --help)"
+  [[ -n "$ISSUER_URI" ]] || die "--issuer-uri is required (see --help)"
 fi
 [[ -z "$ISSUER_URI" || "$ISSUER_URI" =~ ^https?://.+/realms/.+ ]] \
   || die "--issuer-uri does not look like a Keycloak realm URL: $ISSUER_URI"
@@ -164,17 +213,76 @@ if [[ "$ISSUER_URI" == http://* ]]; then
   warn "Issuer is plain HTTP. Fine for a lab; in production the OIDC flow carries"
   warn "tokens and must be HTTPS end to end."
 fi
-
 if [[ "$BIND_ADDRESS" != "127.0.0.1" && "$BIND_ADDRESS" != "localhost" ]]; then
   warn "Binding to ${BIND_ADDRESS} exposes the JVM directly. This installer does not"
   warn "configure TLS — see frontend.md and put a reverse proxy in front instead."
 fi
 
-if [[ -z "$DB_PASSWORD" ]]; then
-  DB_PASSWORD="$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-32)"
-  DB_PASSWORD_GENERATED=1
+# Secrets: environment first, then flag, then prompt. Never echoed; only in argv if
+# the caller chose to put them there.
+prompt_secret() {
+  local var="$1" label="$2"
+  [[ -n "${!var}" ]] && return 0
+  if (( DRY_RUN )); then printf -v "$var" '%s' "dry-run-placeholder"; return 0; fi
+  [[ -t 0 ]] || die "${label} is not set and stdin is not a terminal.
+Set it in the environment (${var}=…) or pass the matching flag."
+  local v=""
+  read -rsp "    ${label}: " v; echo
+  [[ -n "$v" ]] || die "${label} must not be empty"
+  printf -v "$var" '%s' "$v"
+}
+prompt_secret DB_PASSWORD   "Database password for ${DB_USER}"
+prompt_secret CLIENT_SECRET "OIDC client secret for ${CLIENT_ID}"
+
+# ------------------------------------------------------ prerequisite checks ----
+if (( SKIP_CHECKS )) || (( DRY_RUN )); then
+  step "Prerequisite checks (skipped)"
 else
-  DB_PASSWORD_GENERATED=0
+  step "Prerequisite checks"
+  info "This installer does not create the database or the realm — it verifies them."
+
+  # TCP reachability, without requiring a psql client on this host.
+  probe_tcp() {
+    (exec 3<>"/dev/tcp/${1}/${2}") 2>/dev/null && { exec 3<&- 3>&-; return 0; }
+    return 1
+  }
+  if [[ "$DB_URL" =~ //([^:/]+):([0-9]+)/ ]]; then
+    _h="${BASH_REMATCH[1]}"; _p="${BASH_REMATCH[2]}"
+    if probe_tcp "$_h" "$_p"; then
+      info "database endpoint ${_h}:${_p} is reachable"
+    else
+      warn "cannot open a TCP connection to ${_h}:${_p}."
+      warn "PostgreSQL must already be running, with the '${DB_NAME}' database and the"
+      warn "'${DB_USER}' role — see QUICKSTART-MANUAL.md step 1. Continuing, but the"
+      warn "service will not start until the database answers."
+    fi
+  else
+    info "custom JDBC URL — skipping the endpoint probe"
+  fi
+
+  # If a psql client happens to be here, prove the credentials as well.
+  if command -v psql >/dev/null 2>&1 && [[ "$DB_URL" =~ ^jdbc:postgresql://(.+)$ ]]; then
+    if PGPASSWORD="$DB_PASSWORD" psql "postgresql://${DB_USER}@${BASH_REMATCH[1]}" \
+         -tAc 'select 1' >/dev/null 2>&1; then
+      info "database credentials accepted"
+    else
+      warn "could not authenticate to the database as '${DB_USER}'. Check the password,"
+      warn "and that pg_hba.conf allows connections from this host."
+    fi
+  fi
+
+  # Spring resolves OIDC discovery during startup; a failure there aborts the whole
+  # application context, and the stack trace does not make the cause obvious.
+  if command -v curl >/dev/null 2>&1; then
+    if curl -sfL --max-time 10 "${ISSUER_URI%/}/.well-known/openid-configuration" >/dev/null 2>&1; then
+      info "OIDC discovery document is reachable"
+    else
+      warn "cannot fetch ${ISSUER_URI%/}/.well-known/openid-configuration."
+      warn "The realm must exist and be reachable from this host, or startup fails with"
+      warn "'Unable to resolve Configuration with the provided Issuer'."
+      warn "See QUICKSTART-MANUAL.md step 2. Continuing."
+    fi
+  fi
 fi
 
 # ------------------------------------------------------------------- java -----
@@ -186,94 +294,41 @@ else
 fi
 JAVA_BIN="$(rpm -ql "$JAVA_PKG" 2>/dev/null | grep -m1 '/bin/java$' || true)"
 [[ -n "$JAVA_BIN" ]] || JAVA_BIN="$(command -v java || true)"
-if (( DRY_RUN )) && [[ -z "$JAVA_BIN" ]]; then JAVA_BIN="/usr/lib/jvm/java-25-openjdk/bin/java"; fi
+(( DRY_RUN )) && JAVA_BIN="${JAVA_BIN:-/usr/lib/jvm/java-25-openjdk/bin/java}"
 [[ -n "$JAVA_BIN" ]] || die "installed ${JAVA_PKG} but found no java binary"
 info "java: ${JAVA_BIN}"
-
-# --------------------------------------------------------------- postgresql ---
-if (( INSTALL_POSTGRES )); then
-  step "PostgreSQL"
-  if ! command -v psql >/dev/null 2>&1; then
-    run dnf install -y postgresql-server postgresql-contrib || die "could not install postgresql-server"
-  else
-    info "postgresql client already present"
-  fi
-
-  if [[ ! -s /var/lib/pgsql/data/PG_VERSION ]]; then
-    info "initialising the data directory"
-    run /usr/bin/postgresql-setup --initdb || die "postgresql-setup --initdb failed"
-  else
-    info "data directory already initialised"
-  fi
-
-  run systemctl enable --now postgresql
-
-  # Wait for the socket rather than assuming systemctl returning means ready.
-  if (( ! DRY_RUN )); then
-    for _ in {1..30}; do sudo -u postgres psql -tAc 'select 1' >/dev/null 2>&1 && break; sleep 1; done
-    sudo -u postgres psql -tAc 'select 1' >/dev/null 2>&1 || die "PostgreSQL did not become ready"
-  fi
-
-  step "Database role and schema owner"
-  if (( DRY_RUN )); then
-    info "[dry-run] create role ${DB_USER} and database ${DB_NAME}"
-  else
-    if sudo -u postgres psql -tAc "select 1 from pg_roles where rolname='${DB_USER}'" | grep -q 1; then
-      info "role ${DB_USER} exists — leaving its password alone"
-      warn "If you don't know its password, the env file below will be wrong. Reset with:"
-      warn "  sudo -u postgres psql -c \"ALTER ROLE ${DB_USER} PASSWORD '<new>'\""
-      DB_PASSWORD_GENERATED=0
-    else
-      sudo -u postgres psql -v ON_ERROR_STOP=1 <<SQL
-CREATE ROLE ${DB_USER} LOGIN PASSWORD '${DB_PASSWORD}';
-SQL
-      info "created role ${DB_USER}"
-    fi
-
-    if sudo -u postgres psql -tAc "select 1 from pg_database where datname='${DB_NAME}'" | grep -q 1; then
-      info "database ${DB_NAME} exists"
-    else
-      sudo -u postgres psql -v ON_ERROR_STOP=1 -c "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER}"
-      info "created database ${DB_NAME} owned by ${DB_USER}"
-    fi
-  fi
-  info "Flyway creates the schema on first start — no manual DDL."
-else
-  step "PostgreSQL (skipped)"
-  info "Using an external database at ${DB_HOST}:${DB_PORT}/${DB_NAME} as ${DB_USER}."
-  info "It must already exist and accept connections from this host."
-fi
 
 # ------------------------------------------------------------ service user ----
 step "Service account and layout"
 if getent group "$APP_GROUP" >/dev/null; then info "group ${APP_GROUP} exists"
 else run groupadd --system "$APP_GROUP"; fi
-
 if getent passwd "$APP_USER" >/dev/null; then info "user ${APP_USER} exists"
 else
   run useradd --system --gid "$APP_GROUP" --home-dir "$APP_HOME" \
               --shell /usr/sbin/nologin --comment "IntelliStream Chat" "$APP_USER"
 fi
 
-# data/ is the single writable tree; the systemd unit's ReadWritePaths matches it exactly.
-run install -d -o root      -g "$APP_GROUP" -m 0750 "$ETC_DIR"
+# data/ is the single writable tree; the unit's ReadWritePaths matches it exactly.
+run install -d -o root        -g "$APP_GROUP" -m 0750 "$ETC_DIR"
 run install -d -o "$APP_USER" -g "$APP_GROUP" -m 0750 "$APP_HOME"
 for sub in data data/attachments data/avatars data/branding data/lucene data/heapdumps; do
   run install -d -o "$APP_USER" -g "$APP_GROUP" -m 0750 "${APP_HOME}/${sub}"
 done
 info "layout: ${APP_HOME} (data/ writable), ${ETC_DIR} (config)"
+if (( ! DRY_RUN )) && command -v findmnt >/dev/null 2>&1; then
+  _fs="$(findmnt -no SOURCE,FSTYPE --target "$APP_HOME" 2>/dev/null || true)"
+  [[ -n "$_fs" ]] && info "filesystem: ${_fs}   (confirm this is the volume you intended)"
+fi
 
 # -------------------------------------------------------------------- jar -----
 step "Application jar"
 if [[ -z "$JAR_SRC" ]]; then
   [[ -x "${REPO_ROOT}/gradlew" ]] || die "no --jar given and ${REPO_ROOT}/gradlew is missing"
-  info "building from ${REPO_ROOT} (this takes a couple of minutes)"
-  if (( ! DRY_RUN )); then
-    ( cd "$REPO_ROOT" && ./gradlew --quiet bootJar ) || die "gradle bootJar failed"
-  fi
+  info "building from ${REPO_ROOT} (a couple of minutes)"
+  (( DRY_RUN )) || ( cd "$REPO_ROOT" && ./gradlew --quiet bootJar ) || die "gradle bootJar failed"
   JAR_SRC="$(ls -1t "${REPO_ROOT}"/build/libs/${APP_NAME}-*.jar 2>/dev/null | grep -v -- '-plain\.jar$' | head -1 || true)"
   (( DRY_RUN )) && JAR_SRC="${JAR_SRC:-${REPO_ROOT}/build/libs/${APP_NAME}-<version>.jar}"
-  [[ -n "$JAR_SRC" ]] || die "build succeeded but no ${APP_NAME}-*.jar found under build/libs"
+  [[ -n "$JAR_SRC" ]] || die "build succeeded but no ${APP_NAME}-*.jar under build/libs"
 fi
 (( DRY_RUN )) || [[ -r "$JAR_SRC" ]] || die "jar not readable: $JAR_SRC"
 info "installing $(basename "$JAR_SRC")"
@@ -284,22 +339,21 @@ step "Environment file"
 if [[ -e "$ENV_FILE" ]]; then
   warn "${ENV_FILE} exists — leaving it untouched."
   warn "Delete it and re-run if you want it regenerated."
+elif (( DRY_RUN )); then
+  info "[dry-run] write ${ENV_FILE} (0640 root:${APP_GROUP})"
 else
-  if (( DRY_RUN )); then
-    info "[dry-run] write ${ENV_FILE} (0640 root:${APP_GROUP})"
-  else
-    umask 077
-    cat > "$ENV_FILE" <<EOF
-# IntelliStream Chat — service environment. Read by systemd, not a shell script:
-# no quoting, no expansion, no comments after values.
+  umask 077
+  cat > "$ENV_FILE" <<EOF
+# IntelliStream Chat — service environment. Read by systemd, not by a shell:
+# no quoting, no expansion, no trailing comments after a value.
 # Written by scripts/install-almalinux.sh.
 
-# --- database ---
-ICHAT_DB_URL=jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_NAME}
+# --- database (must already exist; Flyway builds the schema on first start) ---
+ICHAT_DB_URL=${DB_URL}
 ICHAT_DB_USERNAME=${DB_USER}
 ICHAT_DB_PASSWORD=${DB_PASSWORD}
 
-# --- identity (Keycloak / OIDC) ---
+# --- identity (existing Keycloak realm) ---
 KEYCLOAK_ISSUER_URI=${ISSUER_URI}
 KEYCLOAK_CLIENT_ID=${CLIENT_ID}
 KEYCLOAK_CLIENT_SECRET=${CLIENT_SECRET}
@@ -318,10 +372,9 @@ ICHAT_SEARCH_LUCENE_DIR=${APP_HOME}/data/lucene
 # --- JVM ---
 JAVA_OPTS=-Xms256m -Xmx${HEAP_MAX} -XX:+UseZGC -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=${APP_HOME}/data/heapdumps --enable-native-access=ALL-UNNAMED
 EOF
-    chown root:"$APP_GROUP" "$ENV_FILE"
-    chmod 0640 "$ENV_FILE"
-    info "wrote ${ENV_FILE} (0640 root:${APP_GROUP})"
-  fi
+  chown root:"$APP_GROUP" "$ENV_FILE"
+  chmod 0640 "$ENV_FILE"
+  info "wrote ${ENV_FILE} (0640 root:${APP_GROUP})"
 fi
 
 # ------------------------------------------------------------- systemd unit ---
@@ -400,27 +453,6 @@ EOF
 fi
 run systemctl daemon-reload
 
-# ------------------------------------------------------------ realm import ----
-if (( IMPORT_REALM )); then
-  step "Keycloak realm import"
-  KCADM="$(command -v kcadm.sh || echo /opt/keycloak/bin/kcadm.sh)"
-  if [[ ! -x "$KCADM" ]]; then
-    warn "kcadm.sh not found — skipping. Import keycloak/realm.json by hand"
-    warn "(admin console → Realms → Import), then regenerate the client secret."
-  elif [[ -z "${KC_ADMIN:-}" || -z "${KC_ADMIN_PASSWORD:-}" ]]; then
-    warn "KC_ADMIN / KC_ADMIN_PASSWORD not set — skipping realm import."
-  else
-    KC_BASE="${ISSUER_URI%%/realms/*}"
-    info "importing keycloak/realm.json into ${KC_BASE}"
-    run "$KCADM" config credentials --server "$KC_BASE" --realm master \
-        --user "$KC_ADMIN" --password "$KC_ADMIN_PASSWORD"
-    run "$KCADM" create realms -f "${REPO_ROOT}/keycloak/realm.json" \
-      || warn "realm import failed (it may already exist) — check the admin console"
-    warn "The bundled realm ships a PUBLIC dev client secret and two demo users."
-    warn "Regenerate the secret and delete alice/bob before this faces anyone."
-  fi
-fi
-
 # ----------------------------------------------------------------- service ----
 if (( START_SERVICE )); then
   step "Starting ${APP_NAME}"
@@ -428,16 +460,20 @@ if (( START_SERVICE )); then
   if (( ! DRY_RUN )); then
     ok=0
     for _ in {1..60}; do
-      if curl -sf "http://${BIND_ADDRESS}:${BIND_PORT}/actuator/health" >/dev/null 2>&1; then ok=1; break; fi
+      curl -sf "http://${BIND_ADDRESS}:${BIND_PORT}/actuator/health" >/dev/null 2>&1 && { ok=1; break; }
       systemctl is-active --quiet "${APP_NAME}.service" || break
       sleep 2
     done
     if (( ok )); then
       info "${c_grn}healthy${c_off} — http://${BIND_ADDRESS}:${BIND_PORT}/actuator/health"
     else
-      warn "Service did not report healthy. Look at:"
+      warn "Service did not report healthy. The usual causes, in order:"
+      warn "  * database unreachable, or wrong credentials"
+      warn "  * Keycloak realm unreachable (OIDC discovery is resolved at startup)"
+      warn "  * SELinux denying writes to ${APP_HOME}/data — run scripts/selinux-harden.sh"
+      warn "Look at:"
       warn "  journalctl -u ${APP_NAME} -n 80 --no-pager"
-      warn "  sudo ausearch -m AVC -ts recent      # if SELinux is enforcing"
+      warn "  sudo ausearch -m AVC -ts recent"
       exit 1
     fi
   fi
@@ -450,27 +486,19 @@ fi
 step "Done"
 cat <<EOF
   Service    ${APP_NAME}.service
-  Listening  ${BIND_ADDRESS}:${BIND_PORT}   (loopback — not reachable from outside yet)
+  Listening  ${BIND_ADDRESS}:${BIND_PORT}   (loopback — unreachable from outside)
   Config     ${ENV_FILE}
   Data       ${APP_HOME}/data
   Logs       journalctl -u ${APP_NAME} -f
 
-Two things this script deliberately did not do:
+Still to do, both out of this script's scope on purpose:
 
-  1. Reverse proxy and TLS. The app is on loopback and nothing outside can reach it.
-     Follow frontend.md — it covers nginx and haproxy, the WebSocket upgrade headers,
-     and the SameSite cookie gotcha that silently breaks OIDC login behind a proxy.
-
-  2. SELinux labelling. If 'getenforce' says Enforcing, run:
+  1. SELinux labelling — if 'getenforce' says Enforcing:
        sudo scripts/selinux-harden.sh
      Without it the JVM may be denied writes to ${APP_HOME}/data, and the denial
-     appears in the audit log rather than in journalctl.
-EOF
-if (( DB_PASSWORD_GENERATED )); then
-  cat <<EOF
+     lands in the audit log rather than in journalctl.
 
-  A database password was generated and written to ${ENV_FILE}.
-  It is not printed here on purpose. Read it back with:
-    sudo grep ICHAT_DB_PASSWORD ${ENV_FILE}
+  2. Reverse proxy and TLS — follow frontend.md. It covers nginx and haproxy, the
+     WebSocket upgrade headers, and the SameSite cookie gotcha that silently
+     breaks OIDC login behind a proxy.
 EOF
-fi

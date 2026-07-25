@@ -3,23 +3,39 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>IntelliStream Chat — self-hosted Slack/Mattermost-style chat</title>
+<title>IntelliStream Chat, self-hosted Slack/Mattermost-style chat</title>
 <meta name="description" content="A small, fast, self-hostable workspace chat built with Spring Boot 4, Java 25, PostgreSQL, Keycloak, STOMP-over-WebSocket, Thymeleaf and vanilla JS.">
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><circle cx='32' cy='32' r='8' fill='%23f59e0b'/><g stroke='%23f59e0b' stroke-width='4' stroke-linecap='round'><line x1='32' y1='10' x2='32' y2='18'/><line x1='32' y1='46' x2='32' y2='54'/><line x1='10' y1='32' x2='18' y2='32'/><line x1='46' y1='32' x2='54' y2='32'/></g><g stroke='%23ea580c' stroke-width='4' stroke-linecap='round'><line x1='16' y1='16' x2='22' y2='22'/><line x1='42' y1='42' x2='48' y2='48'/><line x1='48' y1='16' x2='42' y2='22'/><line x1='22' y1='42' x2='16' y2='48'/></g></svg>">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><circle cx='32' cy='32' r='23' fill='none' stroke='%238aa8e0' stroke-width='1.5' opacity='0.35'/><path d='M 32 55 A 23 23 0 1 1 55 32' fill='none' stroke='%231c58d9' stroke-width='5' stroke-linecap='round'/><circle cx='55' cy='32' r='5' fill='%23f59e0b'/><circle cx='32' cy='32' r='8.5' fill='%231c58d9'/></svg>">
 <style>
+  /* Bright theme, keyed to the application's own light palette so the site and the
+     product look like one thing: --brand is the app's --accent, and the amber that
+     used to be the whole palette survives only as the logo's bead. */
   :root {
-    --bg: #0d1117;
-    --bg-elev: #161b22;
-    --bg-code: #0a0d12;
-    --border: #30363d;
-    --text: #e6edf3;
-    --muted: #8b949e;
-    --brand: #f59e0b;
-    --brand-deep: #ea580c;
-    --brand-soft: rgba(245, 158, 11, 0.12);
-    --link: #fbbf24;
+    --bg: #ffffff;
+    --bg-elev: #f7f8fa;
+    --bg-code: #f4f5f7;
+    --border: #e0e1e5;
+    --text: #2d2f36;
+    --muted: #6b7280;
+    --brand: #1c58d9;
+    --brand-deep: #1448b1;
+    --brand-soft: rgba(28, 88, 217, 0.10);
+    --link: #1c58d9;
+    --bead: #f59e0b;
     --max-w: 980px;
   }
+
+  /* The thread sweeps the orbit; the bead is the newest reply still arriving. */
+  .orbit-thread { transform-origin: 32px 32px; transform-box: view-box; animation: orbit-spin 12s linear infinite; }
+  @keyframes orbit-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .orbit-thread { animation: none; } }
+
+
+  .perf-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); margin: 22px 0; }
+  .perf { background: var(--bg-elev); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; }
+  .perf b { display: block; font-size: 1.7rem; line-height: 1.1; color: var(--brand); font-variant-numeric: tabular-nums; }
+  .perf span { display: block; margin-top: 6px; color: var(--muted); font-size: .88rem; line-height: 1.45; }
+  .maturity { border-left: 3px solid var(--brand); background: var(--brand-soft); padding: 14px 18px; border-radius: 0 8px 8px 0; }
 
   * { box-sizing: border-box; }
 
@@ -47,7 +63,7 @@
     border: 1px solid var(--border);
     border-radius: 4px;
     padding: 1px 6px;
-    color: #fde68a;
+    color: var(--brand-deep);
   }
 
   pre {
@@ -73,7 +89,7 @@
     position: sticky;
     top: 0;
     z-index: 10;
-    background: rgba(13, 17, 23, 0.85);
+    background: rgba(255, 255, 255, 0.85);
     backdrop-filter: saturate(180%) blur(8px);
     -webkit-backdrop-filter: saturate(180%) blur(8px);
     border-bottom: 1px solid var(--border);
@@ -127,8 +143,8 @@
     text-align: center;
     border-bottom: 1px solid var(--border);
     background:
-      radial-gradient(ellipse 60% 50% at 50% 0%, rgba(245, 158, 11, 0.10), transparent 70%),
-      radial-gradient(ellipse 80% 50% at 50% 30%, rgba(234, 88, 12, 0.06), transparent 70%);
+      radial-gradient(ellipse 60% 50% at 50% 0%, rgba(28, 88, 217, 0.08), transparent 70%),
+      radial-gradient(ellipse 80% 50% at 50% 30%, rgba(93, 142, 255, 0.06), transparent 70%);
   }
   .hero .logo {
     width: 72px;
@@ -173,7 +189,7 @@
   .btn:hover { text-decoration: none; transform: translateY(-1px); }
   .btn-primary {
     background: linear-gradient(180deg, var(--brand), var(--brand-deep));
-    color: #1a1a1a !important;
+    color: #ffffff !important;
     border-color: transparent;
   }
   .btn-primary:hover { filter: brightness(1.08); }
@@ -324,24 +340,25 @@
 </style>
 </head>
 <body>
+<svg width="0" height="0" aria-hidden="true" style="position:absolute">
+  <defs>
+    <linearGradient id="orbGrad" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#1c58d9"/><stop offset="1" stop-color="#5d8eff"/>
+    </linearGradient>
+  </defs>
+</svg>
 
 <header class="site">
   <div class="wrap">
     <a href="#top" class="brand">
       <svg width="28" height="28" viewBox="0 0 64 64" aria-hidden="true">
-        <circle cx="32" cy="32" r="8" fill="#f59e0b"/>
-        <g stroke="#f59e0b" stroke-width="4" stroke-linecap="round">
-          <line x1="32" y1="10" x2="32" y2="18"/>
-          <line x1="32" y1="46" x2="32" y2="54"/>
-          <line x1="10" y1="32" x2="18" y2="32"/>
-          <line x1="46" y1="32" x2="54" y2="32"/>
+        <circle cx="32" cy="32" r="23" fill="none" stroke="#8aa8e0" stroke-width="1.5" opacity=".35"/>
+        <g class="orbit-thread">
+          <path d="M 32 55 A 23 23 0 1 1 55 32" fill="none" stroke="url(#orbGrad)"
+                stroke-width="5" stroke-linecap="round"/>
+          <circle cx="55" cy="32" r="5.0" fill="var(--bead)"/>
         </g>
-        <g stroke="#ea580c" stroke-width="4" stroke-linecap="round">
-          <line x1="16" y1="16" x2="22" y2="22"/>
-          <line x1="42" y1="42" x2="48" y2="48"/>
-          <line x1="48" y1="16" x2="42" y2="22"/>
-          <line x1="22" y1="42" x2="16" y2="48"/>
-        </g>
+        <circle cx="32" cy="32" r="8.5" fill="url(#orbGrad)"/>
       </svg>
       IntelliStream Chat
     </a>
@@ -349,6 +366,7 @@
       <a href="#why">Why</a>
       <a href="#foundation">Extend</a>
       <a href="#features">Features</a>
+      <a href="#performance">Performance</a>
       <a href="#stack">Stack</a>
       <a href="#install">Install</a>
       <a href="#quickstart">Quick start</a>
@@ -365,26 +383,21 @@
 <section class="hero">
   <div class="wrap">
     <svg class="logo" viewBox="0 0 64 64" aria-hidden="true">
-      <circle cx="32" cy="32" r="10" fill="#f59e0b"/>
-      <g stroke="#f59e0b" stroke-width="4.5" stroke-linecap="round">
-        <line x1="32" y1="8"  x2="32" y2="17"/>
-        <line x1="32" y1="47" x2="32" y2="56"/>
-        <line x1="8"  y1="32" x2="17" y2="32"/>
-        <line x1="47" y1="32" x2="56" y2="32"/>
-      </g>
-      <g stroke="#ea580c" stroke-width="4.5" stroke-linecap="round">
-        <line x1="14" y1="14" x2="20" y2="20"/>
-        <line x1="44" y1="44" x2="50" y2="50"/>
-        <line x1="50" y1="14" x2="44" y2="20"/>
-        <line x1="20" y1="44" x2="14" y2="50"/>
-      </g>
+      <circle cx="32" cy="32" r="23" fill="none" stroke="#8aa8e0" stroke-width="1.5" opacity=".35"/>
+        <g class="orbit-thread">
+          <path d="M 32 55 A 23 23 0 1 1 55 32" fill="none" stroke="url(#orbGrad)"
+                stroke-width="5" stroke-linecap="round"/>
+          <circle cx="55" cy="32" r="5.0" fill="var(--bead)"/>
+        </g>
+        <circle cx="32" cy="32" r="8.5" fill="url(#orbGrad)"/>
     </svg>
     <h1>Workplace chat <span class="accent">you actually own</span></h1>
     <p class="lede">
-      IntelliStream Chat is a small, fast, self-hostable Slack/Mattermost-style chat
-      app. Built with Spring Boot 4, Java 25, PostgreSQL, Keycloak,
-      STOMP-over-WebSocket, Thymeleaf and vanilla JS &mdash; no SPA framework,
-      no telemetry, no SSO paywall.
+      Self hosted team chat: channels, threads, direct and group messages, reactions,
+      mentions, presence, polls, slash commands, full text search, streamed uploads and
+      OIDC single sign on. One JVM process, one Postgres database, one systemd unit.
+      Built on Java 25, Spring Boot 4, PostgreSQL 18, embedded Apache Lucene and Keycloak,
+      a stack chosen for how well it ages rather than for how new it is.
     </p>
     <div class="cta">
       <!-- TODO: replace href with the real GitHub URL -->
@@ -400,25 +413,12 @@
 <section id="why" class="why">
   <div class="wrap">
     <h2><span class="marker"></span>Why this exists</h2>
-    <p>
-      This was built by me and Claude in a few hours. I wrote the
-      specification and gave Claude Code free rein on a virtual machine.
-      An application like Slack/Mattermost is actually very simple. Most
-      of the work is plumbing. I trust Claude to get most things right,
-      and will spend time reviewing this code later. But I trust it for
-      now, and we are already running it in production in a local
-      isolated environment. Keep in mind, this is still considered
-      AI-slop, and there are bugs, even serious bugs. But finding these
-      bugs can only be done by either reviewing the code or using the
-      application. Just using it in the current state is a quick way to
-      verify that basic functionality works. Backups also matter. Highly
-      recommend ZFS snapshots every 15 minutes plus a daily <code>pg_dump</code>.
-    </p>
+    
     <p>
       Workplace chat is important infrastructure. We should stop handing
       the keys to a vendor whose interests do not include making sure you
       can still read your own conversations next year. For me, the
-      ability to self-host isn't a feature &mdash; it's a right.
+      ability to self-host isn't a feature, it's a right.
     </p>
     <p>
       <b>Slack</b> is mostly good. The UI is slow, and the product is
@@ -457,6 +457,15 @@
       readable in five years, on a server you own, running code you can
       audit, under a licence that can't be retroactively narrowed.
     </blockquote>
+    <p class="maturity">
+      <b>Where it stands.</b> This is pre 1.0 software under active development. It is
+      tested and audited, 404 tests across 44 classes, integration tests against a real
+      PostgreSQL, but it has not had years of production exposure across many
+      deployments. Read the code before trusting it with anything sensitive, follow the
+      hardening checklist in <code>SECURITY.md</code> before exposing an instance, and
+      keep backups. ZFS snapshots every 15 minutes plus a daily <code>pg_dump</code> is
+      cheap insurance.
+    </p>
   </div>
 </section>
 
@@ -465,9 +474,9 @@
     <h2><span class="marker"></span>Use it as a starting point</h2>
     <p class="intro">
       If you want a team-chat / collaboration tool that doesn't quite
-      match Slack or Mattermost &mdash; internal-only, compliance-locked,
+      match Slack or Mattermost, internal-only, compliance-locked,
       embedded inside another product, an unusual channel taxonomy, a
-      domain-specific slash-command surface &mdash; IntelliStream Chat is small
+      domain-specific slash-command surface, IntelliStream Chat is small
       enough to fork and extend with <a href="https://www.claude.com/product/claude-code" rel="noopener">Claude Code</a>
       rather than build from scratch. The codebase was itself built this
       way; that's the workflow it was designed for.
@@ -480,7 +489,7 @@
 
     <div class="qs-step">
       <h3><span class="num">2</span>Read (and own) <code>CLAUDE.md</code></h3>
-      <p class="qs-note">Claude Code reads it on every invocation. It codifies the conventions that aren't obvious from the code &mdash; the two filter chains, read-vs-write access checks, server-side Markdown render, the strict CSP, embedded Lucene, Testcontainers + real Postgres. Keep it in sync as your fork diverges; Claude follows whatever's in there.</p>
+      <p class="qs-note">Claude Code reads it on every invocation. It codifies the conventions that aren't obvious from the code, the two filter chains, read-vs-write access checks, server-side Markdown render, the strict CSP, embedded Lucene, Testcontainers + real Postgres. Keep it in sync as your fork diverges; Claude follows whatever's in there.</p>
     </div>
 
     <div class="qs-step">
@@ -495,7 +504,7 @@
 
     <div class="qs-step">
       <h3><span class="num">5</span>Keep the test suite green</h3>
-      <p class="qs-note"><code>./gradlew test</code> runs in 1&ndash;2 minutes against Testcontainers Postgres. Make Claude Code add a unit test <em>and</em> an IT for every feature it ships &mdash; the existing ~190 tests across 21 classes are the floor, not the ceiling.</p>
+      <p class="qs-note"><code>./gradlew test</code> runs in 1&ndash;2 minutes against Testcontainers Postgres. Make Claude Code add a unit test <em>and</em> an IT for every feature it ships, the existing ~190 tests across 21 classes are the floor, not the ceiling.</p>
     </div>
 
     <p class="intro" style="margin-top: 36px;">
@@ -512,7 +521,7 @@
 <section id="features">
   <div class="wrap">
     <h2><span class="marker"></span>Features</h2>
-    <p class="intro">Everything you'd expect from a real team chat &mdash; channels, DMs, threads, attachments, search &mdash; with no parts behind a paywall.</p>
+    <p class="intro">Everything you'd expect from a real team chat, channels, DMs, threads, attachments, search, with no parts behind a paywall.</p>
     <div class="features">
       <div class="feature">
         <h3>Channels &amp; DMs</h3>
@@ -548,9 +557,39 @@
       </div>
       <div class="feature">
         <h3>Self-hostable</h3>
-        <p>One JVM, three external dependencies (Keycloak, Postgres, a data directory). Apache 2.0 licensed &mdash; fork it, run it, ship it.</p>
+        <p>One JVM, three external dependencies (Keycloak, Postgres, a data directory). Apache 2.0 licensed, fork it, run it, ship it.</p>
       </div>
     </div>
+  </div>
+</section>
+
+<section id="performance">
+  <div class="wrap">
+    <h2><span class="marker"></span>What one machine does</h2>
+    <p class="intro">
+      Measured on a single 12 core, 31 GB box with the load generator running on the
+      same machine, so these are floors rather than ceilings. Method, raw results and
+      analysis are in <code>scalability.md</code>; the harness is in <code>benchmark/</code>.
+    </p>
+    <div class="perf-grid">
+      <div class="perf"><b>17,066</b><span>messages persisted and delivered per second, p50 21.6 ms end to end, 0 dropped</span></div>
+      <div class="perf"><b>136,043</b><span>deliveries per second fanning out into 50 member rooms, 0 dropped</span></div>
+      <div class="perf"><b>100,000</b><span>concurrent WebSocket connections served, 2,000,000 of 2,000,000 deliveries, 0 dropped</span></div>
+      <div class="perf"><b>11.2 GiB</b><span>total JVM resident memory holding those 100,000 connections</span></div>
+    </div>
+    <p>
+      Two design decisions sit behind those numbers. <b>The write path is batched and
+      broadcast waits for the commit</b>, so a message is shown to the room only after its
+      row is durable, and nobody ever sees a line that then failed to persist. The sender
+      does not wait for it, the composer draws optimistically and reconciles on the
+      broadcast. <b>Uploads are raw request bodies rather than multipart</b>, because
+      multipart's boundary scan caps throughput well below line rate.
+    </p>
+    <p>
+      There is no message broker to operate, no search cluster, no Redis, no sidecar and
+      no npm build. That is the central design decision and everything else follows from
+      it. Each piece is replaceable behind an existing seam when you outgrow it.
+    </p>
   </div>
 </section>
 
@@ -562,57 +601,47 @@
       <div class="stack-col">
         <h3>Runtime</h3>
         <ul>
-          <li><b>Java 25</b> <span>&mdash; toolchain</span></li>
-          <li><b>Spring Boot 4.0.5</b> <span>&mdash; Gradle Kotlin DSL</span></li>
-          <li><b>Tomcat 11</b> <span>&mdash; virtual threads on</span></li>
-          <li><b>PostgreSQL 18</b> <span>&mdash; <code>gen_random_uuid()</code></span></li>
-          <li><b>Keycloak 26</b> <span>&mdash; OIDC issuer</span></li>
+          <li><b>Java 25</b> <span>, toolchain, virtual threads on</span></li>
+          <li><b>Spring Boot 4.1</b> <span>, Spring Framework 7, Gradle Kotlin DSL</span></li>
+          <li><b>Tomcat 11</b> <span>, embedded</span></li>
+          <li><b>PostgreSQL 18</b> <span>, the only datastore</span></li>
+          <li><b>Keycloak 26</b> <span>, OIDC issuer</span></li>
         </ul>
       </div>
       <div class="stack-col">
-        <h3>Storage &amp; search</h3>
+        <h3>Storage and search</h3>
         <ul>
-          <li><b>Hibernate ORM 7.2</b> <span>&mdash; <code>ddl-auto=validate</code></span></li>
-          <li><b>Flyway 11</b> <span>&mdash; migrations under <code>db/migration/</code></span></li>
-          <li><b>Apache Lucene 10.4</b> <span>&mdash; embedded index at <code>./data/lucene</code></span></li>
-          <li><b>HikariCP</b> <span>&mdash; default connection pool</span></li>
+          <li><b>Hibernate ORM 7.4</b> <span>, <code>ddl-auto=validate</code></span></li>
+          <li><b>Flyway 12</b> <span>, migrations under <code>db/migration/</code></span></li>
+          <li><b>Apache Lucene 10.5</b> <span>, embedded index, no search cluster</span></li>
+          <li><b>HikariCP</b> <span>, 0.03 ms acquire at 13k messages/s</span></li>
         </ul>
       </div>
       <div class="stack-col">
         <h3>Domain libraries</h3>
         <ul>
-          <li><b>CommonMark 0.22</b> <span>&mdash; GFM tables + autolink</span></li>
-          <li><b>jsoup 1.18</b> <span>&mdash; HTML sanitization</span></li>
-          <li><b>Apache Tika</b> <span>&mdash; MIME sniffing on upload</span></li>
-          <li><b>Commons FileUpload 2.0</b> <span>&mdash; streaming multipart</span></li>
+          <li><b>CommonMark 0.29</b> <span>, GFM tables and autolink</span></li>
+          <li><b>jsoup 1.22</b> <span>, HTML sanitization</span></li>
+          <li><b>Apache Tika 3.3</b> <span>, MIME sniffing on upload</span></li>
+          <li><b>Raw body uploads</b> <span>, no multipart, ~380 MB/s</span></li>
         </ul>
       </div>
       <div class="stack-col">
         <h3>Frontend</h3>
         <ul>
-          <li><b>Thymeleaf</b> <span>&mdash; server-side templates</span></li>
-          <li><b>Vanilla JS</b> <span>&mdash; ES modules, no bundler</span></li>
-          <li><b>StompJS</b> <span>&mdash; vendored, native WS only</span></li>
-          <li><b>highlight.js</b> <span>&mdash; vendored</span></li>
+          <li><b>Thymeleaf</b> <span>, server side templates</span></li>
+          <li><b>Vanilla JS</b> <span>, ES modules, no npm dependency tree</span></li>
+          <li><b>Closure Compiler</b> <span>, build time bundling</span></li>
+          <li><b>StompJS, highlight.js</b> <span>, vendored</span></li>
         </ul>
       </div>
       <div class="stack-col">
         <h3>Tests</h3>
         <ul>
-          <li><b>JUnit 5 + AssertJ + Mockito</b></li>
-          <li><b>Testcontainers</b> <span>&mdash; real Postgres, no H2</span></li>
+          <li><b>JUnit 5, AssertJ, Mockito</b></li>
+          <li><b>Testcontainers 2</b> <span>, real Postgres, never H2</span></li>
           <li><b>spring-security-test</b></li>
-          <li><span>190+ tests across 21 classes</span></li>
-        </ul>
-      </div>
-      <div class="stack-col">
-        <h3>Notably absent</h3>
-        <ul>
-          <li>No React / Vue / Svelte</li>
-          <li>No npm bundler</li>
-          <li>No reactive stack</li>
-          <li>No Spring Cloud, no external broker</li>
-          <li>No H2 / HSQLDB</li>
+          <li><span>404 tests across 44 classes</span></li>
         </ul>
       </div>
     </div>
@@ -622,20 +651,20 @@
 <section id="install">
   <div class="wrap">
     <h2><span class="marker"></span>Install prerequisites</h2>
-    <p class="intro">Java 25 and Podman. Gradle is not required &mdash; <code>./gradlew</code> downloads it on first use. Skip Podman if you intend to point at an external Postgres + Keycloak (see step 5 of Quick start).</p>
+    <p class="intro">Java 25 and Podman. Gradle is not required, <code>./gradlew</code> downloads it on first use. Skip Podman if you intend to point at an external Postgres + Keycloak (see step 5 of Quick start).</p>
 
     <div class="qs-step">
       <h3>Fedora 40+ / RHEL 10+ / AlmaLinux 10+ / Rocky 10+</h3>
 <pre><code>sudo dnf install -y java-25-openjdk-devel podman podman-compose
 java -version    # should report "openjdk 25"</code></pre>
-      <p class="qs-note">On RHEL 9 / AlmaLinux 9 / Rocky 9, OpenJDK 25 is not packaged yet &mdash; install via <a href="https://sdkman.io/" rel="noopener">sdkman</a> (<code>sdk install java 25-zulu</code>) and use the system's Podman.</p>
+      <p class="qs-note">On RHEL 9 / AlmaLinux 9 / Rocky 9, OpenJDK 25 is not packaged yet, install via <a href="https://sdkman.io/" rel="noopener">sdkman</a> (<code>sdk install java 25-zulu</code>) and use the system's Podman.</p>
     </div>
 
     <div class="qs-step">
       <h3>Ubuntu 24.10+ / Debian trixie</h3>
 <pre><code>sudo apt install -y openjdk-25-jdk podman podman-compose
 java -version</code></pre>
-      <p class="qs-note">On Ubuntu 24.04 LTS or older Debian releases OpenJDK 25 isn't in the default archives yet &mdash; either upgrade to a newer release or install Java 25 via <a href="https://sdkman.io/" rel="noopener">sdkman</a> (<code>sdk install java 25-zulu</code>).</p>
+      <p class="qs-note">On Ubuntu 24.04 LTS or older Debian releases OpenJDK 25 isn't in the default archives yet, either upgrade to a newer release or install Java 25 via <a href="https://sdkman.io/" rel="noopener">sdkman</a> (<code>sdk install java 25-zulu</code>).</p>
     </div>
   </div>
 </section>
@@ -669,7 +698,7 @@ export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock
       <h3><span class="num">4</span>Optional: boot with the prod profile</h3>
 <pre><code>export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="ichat-client") | .secret' keycloak/realm.json)
 SPRING_PROFILES_ACTIVE=prod ./gradlew bootRun</code></pre>
-      <p class="qs-note">Verifies the production configuration locally. The containers from step 1 must still be running, and <code>KEYCLOAK_CLIENT_SECRET</code> has no default outside the dev profile &mdash; a missing prod secret fails fast at boot instead of silently using a baked-in dev value.</p>
+      <p class="qs-note">Verifies the production configuration locally. The containers from step 1 must still be running, and <code>KEYCLOAK_CLIENT_SECRET</code> has no default outside the dev profile, a missing prod secret fails fast at boot instead of silently using a baked-in dev value.</p>
     </div>
 
     <div class="qs-step">
@@ -680,7 +709,7 @@ export ICHAT_DB_PASSWORD=...
 export KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/ichat-realm
 export KEYCLOAK_CLIENT_SECRET=...
 ./gradlew bootRun</code></pre>
-      <p class="qs-note">Already running Postgres 18 and Keycloak 26 elsewhere? Point the app at them and skip step 1. Import <code>keycloak/realm.json</code> via the Keycloak admin console (<strong>Realms &rarr; Import</strong>) and regenerate the client secret. Flyway runs the schema on first boot &mdash; no manual SQL beyond <code>CREATE DATABASE intellistream_chat OWNER ichat_role</code>.</p>
+      <p class="qs-note">Already running Postgres 18 and Keycloak 26 elsewhere? Point the app at them and skip step 1. Import <code>keycloak/realm.json</code> via the Keycloak admin console (<strong>Realms &rarr; Import</strong>) and regenerate the client secret. Flyway runs the schema on first boot, no manual SQL beyond <code>CREATE DATABASE intellistream_chat OWNER ichat_role</code>.</p>
 <pre><code>export ICHAT_VAULT_ENABLED=true
 export ICHAT_VAULT_URI=https://vault.example.com:8200
 export ICHAT_VAULT_TOKEN=...
