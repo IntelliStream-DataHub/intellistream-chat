@@ -1947,6 +1947,15 @@ button.icon-btn > .icon {
   color: var(--muted);
   font-size: var(--fs-md);
 }
+/* The column layout above is for "Title above its text box". A radio or checkbox belongs BESIDE
+   its text, not above it, or the control drifts away from the words that explain it. This also
+   corrects the pre-existing privacy checkbox, which had the same problem. */
+.admin-form label:has(> input[type="radio"]),
+.admin-form label:has(> input[type="checkbox"]) {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.5rem;
+}
 .admin-form input[type="text"], .admin-form input[type="file"] {
   max-width: 480px;
 }
@@ -3655,14 +3664,20 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
    rather than one form with named submits because each posts to a different URL and carries its
    own input; a single form would need JS to rewrite the action, and this console works without
    any. Wrapping keeps them readable when the viewport is narrow. */
-.admin-actions { min-width: 24rem; }
+/* No min-width: forcing one wide cell pushed the whole table past its card. The inline forms
+   wrap instead, which is what the per-form bottom margin is for. */
+/* One action per line. Side by side they cannot shrink below their min-content width, so the
+   cell forced the table past its card and the rightmost controls were clipped. Taller rows are
+   the better trade in a table that has a handful of rows and five controls each. */
+.admin-actions { width: 15rem; }
 .admin-inline-form {
-  display: inline-flex;
+  display: flex;
   align-items: center;
   gap: 4px;
-  margin: 0 6px 6px 0;
+  margin: 0 0 6px 0;
 }
-.admin-inline-form input[type="text"] { width: 11rem; }
+.admin-inline-form button { white-space: nowrap; }
+.admin-inline-form input[type="text"] { width: 8.5rem; }
 .admin-inline-form input[type="number"] { width: 5.5rem; }
 .admin-danger {
   background: var(--danger);
