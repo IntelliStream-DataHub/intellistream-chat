@@ -903,6 +903,7 @@ these are floors rather than ceilings. Full method and analysis in
 |---|---|
 | Messages persisted + delivered | **~17,000 / second**, ~20 ms median end-to-end |
 | Fan-out into 50-member rooms | **~136,000 deliveries / second**, 0 dropped |
+| Concurrent connections served | **100,000**, 47,484 deliveries/s, 0 dropped |
 | Concurrent WebSocket connections | **10k** comfortably · ~70k at the memory wall |
 | Attachment upload | **~380 MB/s** (~3 Gbps) single stream |
 

@@ -112,9 +112,11 @@ an order of magnitude more than this document previously credited it with.
 |-----:|:-----------:|:---------:|-------------:|--------:|-------------:|:---------------:|
 | **10k** | 10,000 / 10,000 (0 fail) | 13.5 s | — | — | — | 5.0 GB |
 | **50k** | **50,000 / 50,000 (0 fail)** | **4.8 ms** | **49,154** | **0.00%** | **250 ms** | 12.3 GB |
-| **100k** | **100,000 / 100,000 (0 fail)** | 4.8 ms | 21,991 | 51.65% | 10.7 s | 11.5 GB |
+| **100k** | **100,000 / 100,000 (0 fail)** | 5.0 ms | **47,484** | **0.00%** | 792 ms | 11.5 GB |
 
-**50k is the operating ceiling; 100k is a capacity result, not a working one.** At 50k every one
+**100k connections now serve cleanly**: 2,000,000 of 2,000,000 expected deliveries arrived, none
+dropped, at a median of 792 ms. Getting there was one configuration line — see
+[The destination cache](#the-destination-cache-a-cliff-at-1024-channels). At 50k every one
 of 3,000,000 expected deliveries arrived, at p50 250 ms and 1045% CPU. At 100k the sockets are all
 there and cheap — 11.6 GB, with 3 GB still free on the box — but only 717,370 of 2,000,000
 deliveries landed inside the window and latency went to double-digit seconds.
@@ -139,6 +141,53 @@ before exhausting 28 of 31 GB, and this run held 100,000 in 11.5 GB with 8 GB st
 
 Answering what a single node can actually *serve* at 100k needs the generator on separate
 hardware. Everything on this box past ~50k is measuring the measurement.
+
+### The destination cache: a cliff at 1,024 channels
+
+The 100k tier used to drop half its traffic: 21,991 deliveries/s against 50,000 offered, 51.65%
+dropped, p50 10.7 s. It was tempting to call that a saturated box and stop — CPU really was at
+1130% of 1200%, and the generator really was co-located. That would have been wrong.
+
+Profiling the server during a live 100k run put the cost somewhere the message pipeline never
+appears:
+
+| CPU by area | |
+|---|---:|
+| **broker subscription registry** | **47.2%** |
+| WebSocket frame encode/decode | 19.0% |
+| socket writes | 11.5% |
+| heartbeats | 0.4% |
+
+The single hottest method was `ConcurrentHashMap$Traverser.advance` at 28.4%, under
+`DefaultSubscriptionRegistry$DestinationCache.computeMatchingSubscriptions`. Meanwhile a thread
+dump showed **both STOMP channel executors completely idle** — 0 of 48 busy each — while all 12
+virtual-thread carriers were pegged. Everything this document spent its earlier passes optimising
+was asleep.
+
+Every broadcast asks the registry which sessions subscribe to a destination. It answers from an LRU
+cache; on a miss it walks every session's every subscription. That cache holds **1,024**
+destinations by default. The run used **2,000 rooms**, so most messages missed and each miss
+rescanned all 100,000 subscriptions — broadcast cost became proportional to total subscriptions
+rather than to room size.
+
+That also resolves a discrepancy left open earlier: 50k connections delivered 50,000/s cleanly
+while 100k managed 22k at the *same* offered delivery rate. 50k used 1,000 rooms, under the cache
+limit; 100k used 2,000, over it. The cliff was the cache, not the connection count.
+
+`BrokerSubscriptionCacheConfig` raises the limit (`threadorbit.ws.subscription-cache-limit`,
+default 16384). One line of configuration:
+
+| 100k tier | before | after |
+|---|---:|---:|
+| Deliveries/s | 21,991 | **47,484** |
+| Dropped | 51.65% | **0.00%** |
+| Delivery p50 | 10.7 s | **792 ms** |
+
+**Size this above the number of channels you expect to be busy at once.** The failure mode is
+invisible from the outside — it looks exactly like an under-provisioned box.
+
+The tail is still long: p99 13.1 s, and 44% of deliveries took over a second, at 1166% CPU. That is
+a genuinely saturated box, and improving it means taking work off it rather than tuning a cache.
 
 ### Per-connection cost
 
