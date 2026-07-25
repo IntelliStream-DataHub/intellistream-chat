@@ -907,6 +907,30 @@ Then make sure new self-registered accounts get the `user` realm role automatica
 
 `ichat-admin` is deliberately **not** in the default role set and should never be — promote people one at a time, after you've vetted them.
 
+### Hardening registration before you expose an instance
+
+Open registration is convenient for evaluation and is the single biggest abuse surface in
+production. A ban button is whack-a-mole if the same person can register again in ten seconds, so
+these matter *more* than the moderation tools, not less.
+
+The bundled realm now ships with **brute-force protection on** (temporary lockout after 10 failures,
+backing off to a 15-minute cap, counter decaying after 12 hours). Lockout is deliberately
+*temporary*: permanent lockout is itself an attack, because anyone who knows a username can lock
+that account out on purpose.
+
+What is still yours to decide, in rough order of value:
+
+| Control | Where | Note |
+|---|---|---|
+| **Turn registration off** | Realm settings → Login → User registration | The strongest option by far. Invite people instead; most self-hosted workspaces are not open to the public. |
+| **Verify email** | Realm settings → Login → Verify email | Needs SMTP under Realm settings → Email. Off in the bundled realm because the demo users have no deliverable address and it would make the quick start fail. |
+| **reCAPTCHA on registration** | Authentication → Flows → registration | Stops scripted mass-registration, which is what actually happens to an open instance. |
+| **Password policy** | Authentication → Policies → Password policy | Not set in the bundled realm on purpose: the demo users are `alice`/`alice`, and a length rule would lock them out of the quick start. Set one before you expose anything. |
+| **Terminate sessions on disable** | — | Handled by the app; see the moderation section. Disabling an account in Keycloak stops new tokens but does not close a WebSocket that is already open. |
+
+None of this is enforced by the application, because none of it belongs there: Keycloak owns
+identity and this app deliberately contains no password handling of any kind.
+
 ## Configuration
 
 Every override is plain Spring Boot env-var substitution against `application.yml`. The `dev` Spring profile (auto-active on `./gradlew bootRun`, see `application-dev.properties`) overrides the maintainer-specific LAN values; production deploys leave the profile off and supply the env vars below. A [Vault / OpenBao secret backend](#optional-vault--openbao-secret-backend) is available as an opt-in for production; off by default so the env-var path Just Works.

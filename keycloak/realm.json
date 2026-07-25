@@ -111,5 +111,13 @@
         "description": "Application admin (ichat-admin) — required to access /admin and platform-wide actions."
       }
     ]
-  }
+  },
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "failureFactor": 10,
+  "waitIncrementSeconds": 60,
+  "maxFailureWaitSeconds": 900,
+  "maxDeltaTimeSeconds": 43200,
+  "quickLoginCheckMilliSeconds": 1000,
+  "minimumQuickLoginWaitSeconds": 60
 }
