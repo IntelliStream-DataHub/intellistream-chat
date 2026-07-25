@@ -111,6 +111,27 @@ Three fixes, best first:
 3. **Put the proxy on a different host.** Then upstream connections leave over the network and the
    port pool is per destination rather than shared with everything else on the box.
 
+### Reserve your listen ports, or widening the range will bite back
+
+Widening `ip_local_port_range` to `1024 65535` puts **your own service ports inside the ephemeral
+range**. An outgoing connection can then bind your listen port as its *source* port, and if that
+socket lingers — `CLOSE-WAIT` from a client that never closed its end, or `TIME_WAIT` after a
+burst — the service fails to restart with "port already in use" while `ss -ltn` shows nothing
+listening on it. It is a deeply confusing ten minutes.
+
+Reserve the ports your services listen on:
+
+```bash
+sysctl -w net.ipv4.ip_local_reserved_ports=8080,8090,8443
+```
+
+Diagnose it by looking at *all* socket states rather than listeners, which is where the culprit
+actually shows up:
+
+```bash
+ss -tanH | awk '$4 ~ /:8080$/ || $5 ~ /:8080$/'   # not just `ss -ltn`
+```
+
 The rest of the kernel tuning that matters at these connection counts — `somaxconn`,
 `tcp_max_syn_backlog`, `netdev_max_backlog`, conntrack — is tabulated in
 [`scalability.md`](scalability.md), and applies to the proxy host as much as the app host.
@@ -322,6 +343,7 @@ alive, and it's the setting people forget.
 - [ ] Body-size limit above your largest expected upload
 - [ ] `worker_connections` / `maxconn` sized for **two** sockets per user
 - [ ] `net.ipv4.ip_local_port_range` widened on the proxy host
+- [ ] `net.ipv4.ip_local_reserved_ports` covers every port your services listen on
 - [ ] `LimitNOFILE` raised in the service unit
 - [ ] Health check points at `/actuator/health`
 - [ ] Session affinity configured **if** running more than one node
