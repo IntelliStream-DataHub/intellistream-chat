@@ -22,7 +22,12 @@
  * Permission strategy: don't prompt up-front. Wait until the first mention arrives, then
  * include an "Enable desktop alerts" button on the toast. Subsequent toasts skip the prompt.
  *
- * Public surface: window.MentionNotifications = { show({ author, channel, snippet, url }) }.
+ * Public surface: window.MentionNotifications = {
+ *   show({ author, channel, snippet, url, kind }),  kind: undefined | 'direct' | 'group'
+ *   playChime, soundEnabled, setSoundEnabled, permissionState
+ * }
+ *
+ * Despite the name it now carries direct and group messages too — see headline().
  */
 (function () {
   const TOAST_TIMEOUT_MS = 8000;
@@ -102,10 +107,23 @@
     return Notification.permission; // 'granted' | 'denied' | 'default'
   }
 
-  function fireOsNotification({ author, channel, snippet, url }) {
+  /*
+   * What the alert is about. A mention and a direct message are different events and reading
+   * "mentioned you in #a direct message" is how you can tell one template was doing both jobs.
+   *   (default) a mention in a channel
+   *   'direct'  a one-to-one conversation — the room has no name, the sender is the name
+   *   'group'   a named group conversation
+   */
+  function headline({ author, channel, kind }) {
+    if (kind === 'direct') return author + ' sent you a direct message';
+    if (kind === 'group') return author + ' posted in ' + channel;
+    return author + ' mentioned you in #' + channel;
+  }
+
+  function fireOsNotification({ author, channel, snippet, url, kind }) {
     if (permissionState() !== 'granted') return null;
     try {
-      const n = new Notification(author + ' in #' + channel, {
+      const n = new Notification(headline({ author, channel, kind }), {
         body: snippet || '',
         tag: 'mention:' + url,        // collapses repeated mentions to the same message
         renotify: false,
@@ -121,7 +139,7 @@
     }
   }
 
-  function buildToast({ author, channel, snippet, url }) {
+  function buildToast({ author, channel, snippet, url, kind }) {
     const li = document.createElement('div');
     li.className = 'notification-toast';
     li.setAttribute('role', 'status');
@@ -130,7 +148,7 @@
     head.className = 'notification-toast-head';
     const headTitle = document.createElement('span');
     headTitle.className = 'notification-toast-title';
-    headTitle.textContent = author + ' mentioned you in #' + channel;
+    headTitle.textContent = headline({ author, channel, kind });
     const close = document.createElement('button');
     close.type = 'button';
     close.className = 'notification-toast-close';
@@ -156,7 +174,7 @@
         cta.disabled = true;
         Notification.requestPermission().then((perm) => {
           if (perm === 'granted') {
-            fireOsNotification({ author, channel, snippet, url });
+            fireOsNotification({ author, channel, snippet, url, kind });
             cta.remove();
           } else {
             cta.textContent = 'Desktop alerts blocked';

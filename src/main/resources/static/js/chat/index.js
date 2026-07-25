@@ -676,7 +676,8 @@ presenceMenu.init();
           if (!window.MentionNotifications) return;
           window.MentionNotifications.show({
             author: a.author,
-            channel: a.type === 'DIRECT' ? 'a direct message' : a.title,
+            channel: a.title,
+            kind: a.type === 'DIRECT' ? 'direct' : 'group',
             snippet: a.preview,
             url: '/conversations/' + a.conversationId,
           });
