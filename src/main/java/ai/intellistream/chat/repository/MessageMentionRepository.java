@@ -37,6 +37,11 @@ public interface MessageMentionRepository extends JpaRepository<MessageMention, 
     /**
      * For each channel id, count messages in that channel that mention {@code userId} and were created
      * after the user's last_read_at marker (no marker counts as "all unread").
+     *
+     * <p>Soft-deleted messages are excluded here and in the two queries below: the mention row
+     * outlives the message's visibility (it is only removed on a hard delete), so without the
+     * filter a removed message would leave a badge the user can never clear by reading — the
+     * channel it points at no longer contains it.
      */
     @Query(value = """
             select msg.channel_id, count(*)
@@ -46,6 +51,7 @@ public interface MessageMentionRepository extends JpaRepository<MessageMention, 
                      on cr.channel_id = msg.channel_id and cr.user_id = mn.user_id
              where mn.user_id = :userId
                and msg.channel_id in (:channelIds)
+               and msg.deleted_at is null
                and (cr.last_read_at is null or msg.created_at > cr.last_read_at)
                and (exists (select 1 from channels ch
                              where ch.id = msg.channel_id and ch.type = 'PUBLIC')
@@ -69,6 +75,7 @@ public interface MessageMentionRepository extends JpaRepository<MessageMention, 
               left join channel_reads cr
                      on cr.channel_id = msg.channel_id and cr.user_id = mn.user_id
              where mn.user_id = :userId
+               and msg.deleted_at is null
                and (cr.last_read_at is null or msg.created_at > cr.last_read_at)
                and (exists (select 1 from channels ch
                              where ch.id = msg.channel_id and ch.type = 'PUBLIC')
@@ -93,6 +100,7 @@ public interface MessageMentionRepository extends JpaRepository<MessageMention, 
               left join channel_reads cr
                      on cr.channel_id = msg.channel_id and cr.user_id = mn.user_id
              where mn.user_id = :userId
+               and msg.deleted_at is null
                and (cr.last_read_at is null or msg.created_at > cr.last_read_at)
                and (ch.type = 'PUBLIC'
                     or exists (select 1 from channel_members cm

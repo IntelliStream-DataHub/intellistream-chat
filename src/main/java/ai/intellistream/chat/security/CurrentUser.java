@@ -18,6 +18,7 @@ package ai.intellistream.chat.security;
 
 import ai.intellistream.chat.attachments.AttachmentBytes;
 import ai.intellistream.chat.domain.User;
+import ai.intellistream.chat.moderation.AccountSuspendedException;
 import ai.intellistream.chat.service.UserService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -74,9 +75,36 @@ public class CurrentUser {
             log.warn("Unsupported principal type: {}", principal == null ? "null" : principal.getClass().getName());
             throw new AccessDeniedException("Unsupported principal type");
         }
+        // Suspension is judged on the row we have just loaded, which makes this the one check that
+        // cannot be stale: every controller, every page, and the STOMP CONNECT frame come through
+        // here, and none of them pays an extra query for it. SuspensionEnforcementFilter answers
+        // the same question earlier and from memory so it can return a useful body; this is the
+        // backstop that holds when that in-memory view is wrong, and the reason a hand-edited
+        // suspended_at takes effect without a restart.
+        if (user.isSuspended()) {
+            throw new AccountSuspendedException(user.getUsername());
+        }
         // Per-request last-active stamp; throttled internally so this is cheap.
         userService.touchActiveThrottled(user);
         return user;
+    }
+
+    /**
+     * The OIDC/OAuth2 subject behind an {@link Authentication}, or null for a principal type that
+     * carries none (anonymous, or a test token).
+     *
+     * <p>Exposed so the suspension filter can identify the caller without resolving — and building
+     * — a domain {@code User}, while still not reading token claims itself: keeping every claim
+     * lookup in this class is what makes "always go through {@code CurrentUser}" true rather than
+     * aspirational. The subject, not the username, because it is the immutable key the {@code users}
+     * table is unique on; usernames get sanitized and collision-suffixed on the way in.
+     */
+    public static String subjectOf(Authentication auth) {
+        if (auth == null) return null;
+        if (auth.getPrincipal() instanceof OidcUser oidc) return oidc.getSubject();
+        if (auth instanceof JwtAuthenticationToken jwtAuth) return jwtAuth.getToken().getSubject();
+        if (auth.getPrincipal() instanceof Jwt jwt) return jwt.getSubject();
+        return null;
     }
 
     /**

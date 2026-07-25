@@ -19,6 +19,8 @@ package ai.intellistream.chat.web;
 import ai.intellistream.chat.security.PublicBadRequestException;
 import ai.intellistream.chat.security.RateLimitExceededException;
 import ai.intellistream.chat.security.ResourceNotFoundException;
+import ai.intellistream.chat.security.StorageQuotaExceededException;
+import ai.intellistream.chat.security.StorageUnavailableException;
 import ai.intellistream.chat.security.UploadTooLargeException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -97,9 +99,61 @@ public class ApiExceptionHandler {
     public ResponseEntity<UploadTooLargeBody> uploadTooLarge(UploadTooLargeException ex) {
         var traceId = newTraceId();
         log.warn("[trace={}] upload_too_large: maxBytes={}", traceId, ex.getMaxBytes());
-        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+        return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE)
                 .body(new UploadTooLargeBody("upload_too_large", ex.getMessage(),
                         ex.getMaxBytes(), traceId, ex.getMessage()));
+    }
+
+    /** 413 body for a spent storage allowance. Primitive {@code long}s for the same reason as
+     *  {@link UploadTooLargeBody} — the global {@code Long → ToStringSerializer} would otherwise
+     *  render them as strings and the clients' numeric guards would fail. */
+    public record StorageQuotaBody(String code, String message, long quotaBytes, long usedBytes,
+                                   long remainingBytes, String traceId, String error) {}
+
+    /**
+     * 413 Payload Too Large, code {@code storage_quota_exceeded} — the account is out of room,
+     * not the server.
+     *
+     * <p>507 Insufficient Storage is the tidier code on paper, and it is wrong here: it is a 5xx,
+     * so proxies retry it, alerting counts it as a server fault, and the client cannot tell it
+     * apart from an outage. Nothing is broken — this user has used their allowance, and only they
+     * can fix it. Reusing 413 also means the existing upload UI, which already knows how to render
+     * a 413, degrades gracefully until it learns the new {@code code}; the numbers in the body are
+     * there so it can eventually say <em>1.9 of 2.0 GiB used</em> instead of a bare refusal.
+     */
+    @ExceptionHandler(StorageQuotaExceededException.class)
+    public ResponseEntity<StorageQuotaBody> storageQuota(StorageQuotaExceededException ex) {
+        var traceId = newTraceId();
+        log.warn("[trace={}] storage_quota_exceeded: used={} quota={}",
+                traceId, ex.getUsedBytes(), ex.getQuotaBytes());
+        return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE)
+                .body(new StorageQuotaBody("storage_quota_exceeded", ex.getMessage(),
+                        ex.getQuotaBytes(), ex.getUsedBytes(), ex.getRemainingBytes(),
+                        traceId, ex.getMessage()));
+    }
+
+    /**
+     * 507 Insufficient Storage — the volume is full or refusing writes. This one <em>is</em> the
+     * server's problem, hence 5xx, and the specific 507 rather than the 500 an unhandled
+     * {@link java.io.IOException} would produce: "500 on every upload" reads as a code bug and
+     * sends whoever is on call looking in the wrong place, while 507 names the fault. Logged at
+     * ERROR because a full disk stays broken until a human frees space.
+     *
+     * <p>{@code Retry-After} is deliberately long. Nothing the client does changes anything until
+     * an operator acts, and a UI that retries every few seconds turns one incident into a
+     * self-inflicted load test.
+     */
+    @ExceptionHandler(StorageUnavailableException.class)
+    public ResponseEntity<Map<String, String>> storageUnavailable(StorageUnavailableException ex) {
+        var traceId = newTraceId();
+        log.error("[trace={}] storage_unavailable: {}", traceId, ex.getMessage(), ex);
+        var message = "The server is out of storage space — an administrator has been notified.";
+        return ResponseEntity.status(HttpStatus.INSUFFICIENT_STORAGE)
+                .header("Retry-After", "300")
+                .body(Map.of("code", "storage_unavailable",
+                        "message", message,
+                        "traceId", traceId,
+                        "error", message));
     }
 
     @ExceptionHandler(RateLimitExceededException.class)

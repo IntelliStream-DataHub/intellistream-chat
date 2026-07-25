@@ -265,9 +265,13 @@ public class MessageService {
         return combined;
     }
 
+    // The lookups below go through findByIdWithChannelAndAuthor rather than the inherited
+    // findById: it filters soft-deleted rows, so a removed message is "not found" to pinning,
+    // replying, thread reads and deletion alike, instead of only being hidden from the feed.
+
     @Transactional
     public Message pin(Long messageId, User actor) {
-        var message = messageRepository.findById(messageId)
+        var message = messageRepository.findByIdWithChannelAndAuthor(messageId)
                 .orElseThrow(() -> new ai.intellistream.chat.security.ResourceNotFoundException("Message not found: " + messageId));
         channelService.requireAdmin(message.getChannel(), actor);
         message.pin(actor);
@@ -276,7 +280,7 @@ public class MessageService {
 
     @Transactional
     public Message unpin(Long messageId, User actor) {
-        var message = messageRepository.findById(messageId)
+        var message = messageRepository.findByIdWithChannelAndAuthor(messageId)
                 .orElseThrow(() -> new ai.intellistream.chat.security.ResourceNotFoundException("Message not found: " + messageId));
         channelService.requireAdmin(message.getChannel(), actor);
         message.unpin();
@@ -291,7 +295,7 @@ public class MessageService {
 
     @Transactional
     public Message replyInThread(Long parentId, User author, String body) {
-        var parent = messageRepository.findById(parentId)
+        var parent = messageRepository.findByIdWithChannelAndAuthor(parentId)
                 .orElseThrow(() -> new ai.intellistream.chat.security.ResourceNotFoundException("Message not found: " + parentId));
         if (parent.isThreadReply()) {
             throw new IllegalArgumentException("Cannot reply to a thread reply — reply to its parent instead");
@@ -312,7 +316,7 @@ public class MessageService {
 
     @Transactional(readOnly = true)
     public List<Message> threadReplies(Long parentId, User viewer) {
-        var parent = messageRepository.findById(parentId)
+        var parent = messageRepository.findByIdWithChannelAndAuthor(parentId)
                 .orElseThrow(() -> new ai.intellistream.chat.security.ResourceNotFoundException("Message not found: " + parentId));
         channelService.requireMember(parent.getChannel(), viewer);
         return messageRepository.findByParentOrderByCreatedAtAsc(parent);
@@ -382,7 +386,7 @@ public class MessageService {
      */
     @Transactional
     public DeletedMessage delete(Long messageId, User actor) {
-        var message = messageRepository.findById(messageId)
+        var message = messageRepository.findByIdWithChannelAndAuthor(messageId)
                 .orElseThrow(() -> new ai.intellistream.chat.security.ResourceNotFoundException("Message not found: " + messageId));
 
         var channel = message.getChannel();
@@ -398,7 +402,9 @@ public class MessageService {
         var indexedIds = new ArrayList<Long>();
 
         // Replies first — gather attachments + reactions, delete dependents, then the replies.
-        var replies = messageRepository.findByParentOrderByCreatedAtAsc(message);
+        // Soft-deleted replies are included: parent_id cascades on delete, so they are going
+        // regardless, and skipping them would strand their files on disk and their index docs.
+        var replies = messageRepository.findRepliesIncludingDeleted(message);
         for (var reply : replies) {
             indexedIds.add(reply.getId());
             var replyAttachments = attachmentRepository.findByMessageOrderByCreatedAtAsc(reply);

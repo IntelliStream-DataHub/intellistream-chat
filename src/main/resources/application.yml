@@ -83,10 +83,40 @@ ichat:
 
   attachments:
     dir: ${ICHAT_ATTACHMENTS_DIR:./data/attachments}
+    # Default total an account may store, in bytes (2 GiB). A per-account override lives in
+    # user_storage.quota_bytes; negative here (or there) means unlimited. Admins are exempt —
+    # see StorageQuotaService for why.
+    #
+    # This is not what keeps the volume from filling: a filesystem quota on the attachments
+    # dataset is. This is what keeps one account from spending everybody else's share first.
+    user-quota-bytes: ${ICHAT_USER_QUOTA_BYTES:2147483648}
+    # Refuse uploads while the attachments filesystem has less than this free (64 MiB), so the
+    # last of the disk is left for Postgres and for Lucene segment merges rather than spent on
+    # one more attachment. Raise it if the Lucene index shares the volume — a merge transiently
+    # needs room for a second copy of the segments it is merging. Zero disables the check.
+    min-free-bytes: ${ICHAT_MIN_FREE_BYTES:67108864}
   avatars:
     dir: ${ICHAT_AVATARS_DIR:./data/avatars}
   branding:
     dir: ${ICHAT_BRANDING_DIR:./data/branding}
+
+  # Moderation. An admin removing messages is a SOFT delete: the rows stay, drop out of every
+  # read path, and stay recoverable until the retention window passes — the first ban is
+  # sometimes the wrong ban. RetentionPurgeScheduler then hard-deletes them for good.
+  #
+  #   retention-days   how long a removed message stays recoverable. 0 (or negative) keeps
+  #                    removed messages forever, which disables the purge.
+  #   purge-enabled    master switch. @EnableScheduling runs on every node, so set this false
+  #                    on all but one when running more than a single instance.
+  #   purge-max-batches * purge-batch-size caps how much one sweep will remove; a bigger
+  #                    backlog is carried to the next run rather than sat through in one
+  #                    long transaction.
+  moderation:
+    retention-days: ${ICHAT_RETENTION_DAYS:30}
+    purge-enabled: ${ICHAT_PURGE_ENABLED:true}
+    purge-interval-ms: ${ICHAT_PURGE_INTERVAL_MS:3600000}
+    purge-batch-size: 500
+    purge-max-batches: 200
 
   # Optional Vault / OpenBao secret backend. Off by default — the env-var → application.yml
   # default chain handles credentials. When enabled=true, VaultEnvironmentPostProcessor reads

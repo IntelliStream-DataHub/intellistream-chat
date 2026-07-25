@@ -13,7 +13,7 @@
 # The connection-count tiers are a separate exercise with their own kernel tuning; see
 # scalability.md and benchmark/connection-ceiling.sh.
 #
-# Copyright 2026 Olav Gjerde — Apache License 2.0.
+# Copyright 2026 IntelliStream AS — Apache License 2.0.
 
 set -euo pipefail
 

@@ -51,6 +51,7 @@ public interface ChannelReadRepository extends JpaRepository<ChannelRead, Long> 
               join messages msg on msg.id = mn.message_id
               left join channel_reads cr on cr.channel_id = msg.channel_id and cr.user_id = :userId
              where mn.user_id = :userId
+               and msg.deleted_at is null
                and (cr.last_read_at is null or msg.created_at > cr.last_read_at)
             on conflict (channel_id, user_id)
               do update set last_read_at = excluded.last_read_at

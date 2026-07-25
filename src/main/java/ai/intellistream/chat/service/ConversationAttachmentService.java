@@ -21,6 +21,7 @@ import ai.intellistream.chat.domain.Conversation;
 import ai.intellistream.chat.domain.ConversationAttachment;
 import ai.intellistream.chat.domain.ConversationMessage;
 import ai.intellistream.chat.domain.User;
+import ai.intellistream.chat.moderation.StorageQuotaService;
 import ai.intellistream.chat.repository.ConversationAttachmentRepository;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
@@ -55,13 +56,16 @@ public class ConversationAttachmentService {
 
     private final ConversationAttachmentRepository repo;
     private final ConversationService conversations;
+    private final StorageQuotaService quotas;
     private final Path storageRoot;
 
     public ConversationAttachmentService(ConversationAttachmentRepository repo,
                                          ConversationService conversations,
+                                         StorageQuotaService quotas,
                                          @Value("${ichat.attachments.dir:./data/attachments}") String storageDir) {
         this.repo = repo;
         this.conversations = conversations;
+        this.quotas = quotas;
         this.storageRoot = Path.of(storageDir).toAbsolutePath().normalize();
     }
 
@@ -79,6 +83,23 @@ public class ConversationAttachmentService {
     @Transactional(readOnly = true)
     public List<String> storageKeysForMessage(Long messageId) {
         return repo.findStorageKeysByMessageId(messageId);
+    }
+
+    /**
+     * Bytes each uploader should be credited back when these attachments are removed, keyed by
+     * user id and ready for {@code StorageQuotaService.releaseAll}. The DM mirror of
+     * {@link AttachmentService#creditsFor}, with the same rule: gather it while the rows still
+     * exist, apply it once the delete has committed.
+     */
+    public static Map<Long, Long> creditsFor(Collection<ConversationAttachment> attachments) {
+        if (attachments == null || attachments.isEmpty()) return Map.of();
+        var credits = new java.util.HashMap<Long, Long>();
+        for (var attachment : attachments) {
+            var author = attachment.getMessage().getAuthor();
+            if (author == null || author.getId() == null) continue;
+            credits.merge(author.getId(), attachment.getSizeBytes(), Long::sum);
+        }
+        return credits;
     }
 
     /** Best-effort delete of attachment files by storage key (used after a message/DM is removed). */
@@ -100,7 +121,8 @@ public class ConversationAttachmentService {
      * Stream the upload to disk, then create a conversation message + attachment row.
      * Same shape as {@code AttachmentService.upload}: {@code maxBytes} is the per-user
      * cap from {@link ai.intellistream.chat.security.CurrentUser#uploadCapBytes}; pass
-     * {@link AttachmentBytes#UNLIMITED} for admins.
+     * {@link AttachmentBytes#UNLIMITED} for admins. Storage quota and free-space checks are
+     * identical too — a DM is not a way around either of them.
      */
     @Transactional
     public ConversationAttachment upload(Conversation conversation, User uploader,
@@ -114,6 +136,8 @@ public class ConversationAttachmentService {
         if (maxBytes >= 0 && declaredSize > maxBytes) {
             throw new ai.intellistream.chat.security.UploadTooLargeException(maxBytes);
         }
+        quotas.requireHeadroom(storageRoot);
+        var allowance = quotas.allowanceFor(uploader, declaredSize, maxBytes);
         var safeName = AttachmentService.sanitizeFilename(originalFilename);
         var safeType = (contentType == null || contentType.isBlank())
                 ? "application/octet-stream" : contentType;
@@ -128,21 +152,20 @@ public class ConversationAttachmentService {
         var buffered = new BufferedInputStream(in);
         var resolvedType = AttachmentBytes.sniffContentType(buffered, safeType, safeName);
 
-        long bytesWritten;
-        try {
-            bytesWritten = AttachmentBytes.streamToFile(buffered, target, maxBytes);
-        } catch (IOException | RuntimeException e) {
-            Files.deleteIfExists(target);
-            throw e;
-        }
+        // streamToFile removes the partial file on every failure path itself — see its javadoc.
+        long bytesWritten = AttachmentBytes.streamToFile(buffered, target, maxBytes, allowance);
 
         // Orphan guard: rollback after the file is on disk would otherwise strand it.
         deleteOnRollback(target);
 
         var savedMessage = conversations.post(conversation, uploader,
                 captionText.isEmpty() ? "(attachment)" : captionText);
-        return repo.save(new ConversationAttachment(
+        var saved = repo.save(new ConversationAttachment(
                 savedMessage, safeName, resolvedType, bytesWritten, storageKey));
+        // Charged with the bytes actually written, inside this transaction so a rollback takes the
+        // usage with it.
+        quotas.recordUpload(uploader, bytesWritten);
+        return saved;
     }
 
     private static void deleteOnRollback(Path file) {

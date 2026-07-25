@@ -27,7 +27,7 @@
 #
 # Re-running is safe: every step checks before it acts.
 #
-# Copyright 2026 Olav Gjerde — Apache License 2.0.
+# Copyright 2026 IntelliStream AS — Apache License 2.0.
 
 set -euo pipefail
 

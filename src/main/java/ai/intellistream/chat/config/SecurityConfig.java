@@ -16,9 +16,11 @@
 
 package ai.intellistream.chat.config;
 
+import ai.intellistream.chat.moderation.SuspensionEnforcementFilter;
 import ai.intellistream.chat.security.KeycloakRolesConverter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.server.servlet.CookieSameSiteSupplier;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -32,6 +34,7 @@ import org.springframework.security.oauth2.client.oidc.web.logout.OidcClientInit
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.core.oidc.user.OidcUserAuthority;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
@@ -79,7 +82,8 @@ public class SecurityConfig {
      */
     @Bean
     @Order(1)
-    public SecurityFilterChain apiFilterChain(HttpSecurity http) throws Exception {
+    public SecurityFilterChain apiFilterChain(HttpSecurity http,
+                                              SuspensionEnforcementFilter suspensionFilter) throws Exception {
         http
                 .securityMatcher(SecurityConfig::isBearerApiOrWs)
                 .csrf(csrf -> csrf.disable())
@@ -89,7 +93,13 @@ public class SecurityConfig {
                         .frameOptions(f -> f.deny())
                         .referrerPolicy(rp -> rp.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN)))
                 .authorizeHttpRequests(auth -> auth.anyRequest().authenticated())
-                .oauth2ResourceServer(rs -> rs.jwt(jwt -> jwt.jwtAuthenticationConverter(new KeycloakRolesConverter())));
+                .oauth2ResourceServer(rs -> rs.jwt(jwt -> jwt.jwtAuthenticationConverter(new KeycloakRolesConverter())))
+                // After AuthorizationFilter, i.e. last: the authentication is resolved by then, and
+                // nothing reaches a handler without passing it. Both chains get it — a suspended
+                // account must be refused whether it arrives with a bearer token or a session
+                // cookie, and the /ws handshake lands here too, so a client that reconnects after
+                // being hung up on is turned away at the handshake rather than at CONNECT.
+                .addFilterAfter(suspensionFilter, AuthorizationFilter.class);
         return http.build();
     }
 
@@ -100,6 +110,7 @@ public class SecurityConfig {
     @Order(2)
     public SecurityFilterChain webFilterChain(HttpSecurity http,
                                               ClientRegistrationRepository clientRegistrationRepository,
+                                              SuspensionEnforcementFilter suspensionFilter,
                                               @Value("${spring.security.oauth2.client.provider.keycloak.issuer-uri}")
                                               String keycloakIssuerUri) throws Exception {
         // Fail here rather than at the first login attempt. A blank client secret is a valid
@@ -167,8 +178,28 @@ public class SecurityConfig {
                 // then bounce back to the landing page. Without this, the OIDC SSO session stays
                 // alive and the next /oauth2/authorization/keycloak round-trip would silently
                 // re-authenticate the user.
-                .logout(lo -> lo.logoutSuccessHandler(oidcLogoutSuccessHandler(clientRegistrationRepository)));
+                .logout(lo -> lo.logoutSuccessHandler(oidcLogoutSuccessHandler(clientRegistrationRepository)))
+                // See the note on the API chain. The filter lets the login and logout endpoints
+                // through, so a suspended user can still sign out of a session they can't use.
+                .addFilterAfter(suspensionFilter, AuthorizationFilter.class);
         return http.build();
+    }
+
+    /**
+     * Keep Boot from also mapping {@link SuspensionEnforcementFilter} onto the plain servlet chain.
+     *
+     * <p>It is a {@code Filter} bean, so servlet auto-registration would pick it up and run a copy
+     * outside Spring Security, where the {@code SecurityContext} is empty and it can only skip.
+     * Being a {@code OncePerRequestFilter}, that skip marks the request as already filtered and the
+     * copy inside the security chain — the one with an authentication to inspect — never runs. The
+     * enforcement would then be silently absent while all the wiring still looked right.
+     */
+    @Bean
+    public FilterRegistrationBean<SuspensionEnforcementFilter> suspensionFilterServletRegistration(
+            SuspensionEnforcementFilter filter) {
+        var registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
     }
 
     /**

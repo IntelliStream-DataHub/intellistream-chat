@@ -21,6 +21,7 @@ import ai.intellistream.chat.domain.Attachment;
 import ai.intellistream.chat.domain.Channel;
 import ai.intellistream.chat.domain.Message;
 import ai.intellistream.chat.domain.User;
+import ai.intellistream.chat.moderation.StorageQuotaService;
 import ai.intellistream.chat.repository.AttachmentRepository;
 import ai.intellistream.chat.repository.MessageRepository;
 import jakarta.annotation.PostConstruct;
@@ -49,6 +50,7 @@ public class AttachmentService {
     private final AttachmentRepository attachmentRepository;
     private final MessageRepository messageRepository;
     private final ChannelService channelService;
+    private final StorageQuotaService quotas;
     private final Path storageRoot;
 
     private final MessageService messageService;
@@ -56,12 +58,14 @@ public class AttachmentService {
     public AttachmentService(AttachmentRepository attachmentRepository,
                              MessageRepository messageRepository,
                              ChannelService channelService,
+                             StorageQuotaService quotas,
                              // @Lazy breaks the AttachmentService <-> MessageService construction cycle.
                              @org.springframework.context.annotation.Lazy MessageService messageService,
                              @Value("${ichat.attachments.dir:./data/attachments}") String storageDir) {
         this.attachmentRepository = attachmentRepository;
         this.messageRepository = messageRepository;
         this.channelService = channelService;
+        this.quotas = quotas;
         this.messageService = messageService;
         this.storageRoot = Path.of(storageDir).toAbsolutePath().normalize();
     }
@@ -85,6 +89,12 @@ public class AttachmentService {
      * {@link AttachmentBytes#UNLIMITED} for admins. {@code declaredSize} is the
      * client-volunteered length (informational; pass {@code -1} when unknown) — when
      * it exceeds {@code maxBytes} we reject before touching the disk.
+     *
+     * <p>Three storage limits apply, cheapest first: free space on the volume
+     * ({@code StorageQuotaService.requireHeadroom}), the uploader's total quota
+     * ({@code allowanceFor}), and this file's own cap. The first two are checked before the file
+     * is opened; all three are re-checked byte by byte while streaming, since the only honest
+     * measure of an upload's size is the one taken as it arrives.
      */
     @Transactional
     public Attachment upload(Channel channel, User uploader,
@@ -98,6 +108,8 @@ public class AttachmentService {
         if (maxBytes >= 0 && declaredSize > maxBytes) {
             throw new ai.intellistream.chat.security.UploadTooLargeException(maxBytes);
         }
+        quotas.requireHeadroom(storageRoot);
+        var allowance = quotas.allowanceFor(uploader, declaredSize, maxBytes);
         var safeName = sanitizeFilename(originalFilename);
         var safeType = (contentType == null || contentType.isBlank())
                 ? "application/octet-stream" : contentType;
@@ -116,13 +128,12 @@ public class AttachmentService {
         // Filename hint helps Tika disambiguate ZIP-based formats (docx vs xlsx vs odt).
         var resolvedType = AttachmentBytes.sniffContentType(buffered, safeType, safeName);
 
-        long bytesWritten;
-        try {
-            bytesWritten = AttachmentBytes.streamToFile(buffered, target, maxBytes);
-        } catch (IOException | RuntimeException e) {
-            Files.deleteIfExists(target);
-            throw e;
-        }
+        // No local cleanup on failure: streamToFile removes the partial file on every failure
+        // path itself (over-cap, over-quota, full disk, client hang-up), which is also the only
+        // place that can delete it after the output stream has closed rather than racing the
+        // final flush. Doing it again here risked the delete's own IOException replacing the real
+        // reason the upload failed.
+        long bytesWritten = AttachmentBytes.streamToFile(buffered, target, maxBytes, allowance);
 
         // Orphan guard: if the surrounding tx rolls back AFTER the file is on disk
         // (a constraint violation in the message/attachment save, or a controller-level
@@ -138,8 +149,13 @@ public class AttachmentService {
         Message message = (captionText == null || captionText.isBlank())
                 ? messageRepository.save(new Message(channel, uploader, captionText))
                 : messageService.post(channel, uploader, captionText);
-        return attachmentRepository.save(
+        var saved = attachmentRepository.save(
                 new Attachment(message, safeName, resolvedType, bytesWritten, storageKey));
+        // Charged only now, and with the bytes actually written rather than the declared length.
+        // Inside this transaction on purpose: if the row above had failed, the file would have been
+        // removed by the rollback hook and usage must roll back with it.
+        quotas.recordUpload(uploader, bytesWritten);
+        return saved;
     }
 
     private static void deleteOnRollback(Path file) {
@@ -185,6 +201,32 @@ public class AttachmentService {
         }
         return attachmentRepository.findByMessageInOrderByCreatedAtAsc(messages).stream()
                 .collect(Collectors.groupingBy(a -> a.getMessage().getId()));
+    }
+
+    /**
+     * Bytes each uploader should be credited back when these attachments are removed, keyed by
+     * user id and ready for {@code StorageQuotaService.releaseAll}.
+     *
+     * <p><b>Call this while the rows still exist</b> — inside the transaction that is about to
+     * delete them, next to wherever the storage keys are already being snapshotted for
+     * {@link #deleteFiles}. By the time the files are reaped (after commit) the rows are gone and
+     * neither the size nor the uploader can be recovered: the file on disk carries no owner, and
+     * the storage key is only ever recorded in the row that just disappeared. Apply the result
+     * after the commit, for the same reason the file cleanup waits — a rolled-back delete must not
+     * hand back bytes that are still stored.
+     *
+     * <p>An attachment's uploader is its message's author; attachments cannot be moved between
+     * messages, so this holds for replies and channel-wide deletes alike.
+     */
+    public static Map<Long, Long> creditsFor(Collection<Attachment> attachments) {
+        if (attachments == null || attachments.isEmpty()) return Map.of();
+        var credits = new java.util.HashMap<Long, Long>();
+        for (var attachment : attachments) {
+            var author = attachment.getMessage().getAuthor();
+            if (author == null || author.getId() == null) continue;
+            credits.merge(author.getId(), attachment.getSizeBytes(), Long::sum);
+        }
+        return credits;
     }
 
     /** Best-effort filesystem cleanup for the given storage keys. Errors are swallowed — orphans can be GC'd later. */
