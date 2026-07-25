@@ -2225,7 +2225,7 @@ keycloak.issuer-uri      -&gt; both the OIDC client and the resource server issu
     heap is read and written in 8 KB pages at random offsets, the WAL is appended sequentially in
     large runs. One dataset cannot be tuned for both.
   </p>
-<pre><code>zfs create -o recordsize=8K   -o compression=zstd-1 -o atime=off -o xattr=sa  tank/pgdata
+<pre><code>zfs create -o recordsize=16K  -o compression=zstd-1 -o atime=off -o xattr=sa  tank/pgdata
 zfs create -o recordsize=128K -o compression=zstd-1 -o atime=off -o xattr=sa  tank/pgwal</code></pre>
 
   <div class="tw">
@@ -2233,20 +2233,30 @@ zfs create -o recordsize=128K -o compression=zstd-1 -o atime=off -o xattr=sa  ta
     <thead><tr><th>Property</th><th>Value</th><th>Why</th></tr></thead>
     <tbody>
       <tr>
-        <td><code>recordsize</code></td><td><code>8K</code> on the data dataset</td>
+        <td><code>recordsize</code></td><td><code>16K</code> on the data dataset</td>
         <td>
-          The single most important one. Postgres reads and writes 8 KB pages; ZFS defaults to a
-          128 KB record. Leave the default and every 8 KB page write reads, modifies and rewrites a
-          128 KB record, a sixteenfold write amplification that no amount of Postgres tuning
-          recovers. Set it before you put data on the dataset, it applies only to newly written
-          blocks.
+          The single most important one, and the one where the obvious answer is wrong. ZFS
+          defaults to a 128 KB record, so every 8 KB page write reads, modifies and rewrites
+          128 KB — a sixteenfold write amplification that no amount of Postgres tuning recovers.
+          The tempting fix is to match Postgres exactly at <code>8K</code>. Don't: it is the
+          setting that costs you compression. A record is the unit the compressor works on, and
+          8 KB gives it almost nothing to find, while the result still has to land on whole
+          sectors, so on the usual <code>ashift=12</code> pool a record has to compress past 4 KB
+          to save anything at all. Ratios collapse toward 1.0 and you have paid for compression
+          without getting it. <code>16K</code> keeps amplification to a factor of two, roughly
+          doubles the ratio, and the two effects largely cancel: the compressed 16 KB record is
+          often about the size of an uncompressed 8 KB one, so the space comes close to free.
+          <code>32K</code> trades more amplification for more ratio and suits an
+          attachment-heavy, scan-heavy workload. Set it before you put data on the dataset — it
+          applies only to newly written blocks.
         </td>
       </tr>
       <tr>
         <td><code>recordsize</code></td><td><code>128K</code> on the WAL dataset</td>
         <td>
-          The WAL is written sequentially in 16 MB segments, so large records are what you want.
-          This is why the WAL deserves its own dataset rather than inheriting 8K.
+          The WAL is written sequentially in 16 MB segments, so large records are what you want,
+          and they compress far better than the heap does. This is why the WAL deserves its own
+          dataset rather than inheriting the smaller record from the data one.
         </td>
       </tr>
       <tr>
@@ -2254,8 +2264,8 @@ zfs create -o recordsize=128K -o compression=zstd-1 -o atime=off -o xattr=sa  ta
         <td>
           The standard choice here. Postgres pages compress well, and at level 1 zstd is fast
           enough that the saved I/O more than pays for the CPU. Higher zstd levels cost latency on
-          the write path for a ratio that does not matter at this data size. The compression also
-          makes the 8K recordsize cheaper, since a compressed record occupies fewer sectors.
+          the write path for a ratio that does not matter at this data size. Compression is also
+          why <code>recordsize</code> is not simply set to Postgres's page size — see above.
         </td>
       </tr>
       <tr>
@@ -2308,25 +2318,35 @@ zfs create -o recordsize=128K -o compression=zstd-1 -o atime=off -o xattr=sa  ta
         <td><code>shared_buffers</code></td><td>smaller than the usual quarter</td>
         <td>
           ZFS caches in the ARC, so the ordinary rule double caches: the same page sits in
-          shared_buffers and again in ARC, and you have bought half the memory twice. Start at
-          around an eighth of the memory available to Postgres and give the rest to the ARC, which
-          is better at eviction than Postgres is. Cap the ARC explicitly
-          (<code>zfs_arc_max</code>) so it does not compete with the JVM on a shared host.
+          shared_buffers and again in ARC, and you have bought half the memory twice. Worse, the
+          two copies are not equal value. The ARC holds blocks <em>compressed</em>, exactly as
+          they sit on disk, while shared_buffers holds them expanded — so a gigabyte given to the
+          ARC caches materially more of the database than a gigabyte given to Postgres, and it is
+          better at eviction besides. Start at around an eighth of the memory available to
+          Postgres and give the rest to the ARC. Cap the ARC explicitly (<code>zfs_arc_max</code>)
+          so it does not compete with the JVM on a shared host.
         </td>
       </tr>
     </tbody>
   </table>
   </div>
 
-  <h4>Two knobs people set that you should think about first</h4>
+  <h4>Two knobs people copy from old advice</h4>
   <p>
-    <code>logbias=throughput</code> on the data dataset is often recommended and is genuinely
-    situational: it stops synchronous writes going through the ZIL twice, which helps when
+    <code>logbias=throughput</code> on the data dataset is genuinely situational: it stops
+    synchronous writes going through the ZIL twice, which helps when
     <code>synchronous_commit</code> is on and there is no separate log device, and hurts latency
-    when there is one. Measure it, do not inherit it. <code>primarycache=metadata</code> is the
-    other, and it only makes sense if you have already decided to give Postgres a large
-    shared_buffers and want ARC out of the way, which is the opposite of the advice above. Pick one
-    strategy or the other rather than half of each.
+    when there is one. Measure it, do not inherit it.
+  </p>
+  <p>
+    <code>primarycache=metadata</code> is not situational — <strong>do not set it.</strong> It
+    tells ZFS to cache metadata and throw every data block away, on the theory that
+    shared_buffers is already caching those and ARC is duplicating the work. That was never a good
+    trade and the compression point above is why: the ARC is the most memory-efficient cache in
+    the system precisely because it keeps blocks compressed, so this turns off the cache that
+    holds the most per byte and leaves the one that holds the least. Every miss then becomes a
+    disk read plus a decompress. The symptom is a server that looks correctly tuned, has plenty of
+    free memory, and is inexplicably I/O bound.
   </p>
 
   <h4>The application's own data</h4>
@@ -2346,12 +2366,22 @@ zfs create -o recordsize=128K -o compression=zstd-1 -o atime=off -o xattr=sa  ta
   </p>
   <p>
     A ZFS snapshot of the Postgres dataset is crash consistent, which is to say Postgres will
-    replay the WAL and come up cleanly from one, the same as it would after a power cut. That makes
-    snapshots a good fast restore point and not a backup: they share the pool they protect against,
-    and a snapshot of the database and a snapshot of the Lucene index are not atomic with each
-    other. Keep taking <code>pg_dump</code> or <code>pg_basebackup</code> off the machine. The
-    index does not need backing up at all, it rebuilds from the messages table on startup when the
-    directory is empty.
+    replay the WAL and come up cleanly from one, the same as it would after a power cut.
+  </p>
+  <p>
+    Splitting the data across datasets costs nothing in consistency, which is the part that makes
+    this layout work. A recursive snapshot is atomic across every dataset in the pool: one
+    transaction group, one instant, no window in which the database has moved on and the
+    attachments have not. So put them under a common parent and take the whole set at once —
+    database, WAL, attachments and index, mutually consistent.
+  </p>
+<pre><code>zfs snapshot -r tank/intellistream-chat@$(date +%Y%m%d-%H%M)</code></pre>
+  <p>
+    What a snapshot is not is a backup. It shares the pool it is protecting you against, so it
+    survives a bad migration and not a dead pool; keep sending it somewhere else with
+    <code>zfs send</code>, or keep taking <code>pg_dump</code> off the machine. The index does not
+    need backing up at all — it rebuilds from the messages table on startup when the directory is
+    empty, so the reason to include it is restore speed on a large archive, not durability.
   </p>
 </section>
 
