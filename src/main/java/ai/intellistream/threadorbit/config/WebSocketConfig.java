@@ -32,6 +32,9 @@ import java.util.Arrays;
 @EnableWebSocketMessageBroker
 public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
+    private static final org.slf4j.Logger LOG =
+            org.slf4j.LoggerFactory.getLogger(WebSocketConfig.class);
+
     /**
      * Origins permitted to open the {@code /ws} STOMP endpoint. The previous {@code "*"}
      * let any malicious site (visited by a logged-in user) negotiate a WebSocket against
@@ -197,8 +200,23 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         return factory -> factory.addConnectorCustomizers(connector -> {
             var handler = connector.getProtocolHandler();
             if (handler instanceof org.apache.coyote.AbstractProtocol<?> protocol) {
-                protocol.setProperty("socket.appReadBufSize", String.valueOf(socketBufferBytes));
-                protocol.setProperty("socket.appWriteBufSize", String.valueOf(socketBufferBytes));
+                // setProperty returns false when the name doesn't resolve to a real Tomcat
+                // property — a silent no-op otherwise, and the whole point of this bean is the
+                // memory it saves per connection. Log what actually took, the same way
+                // StompChannelDiagnostics does for the channel executors.
+                boolean read = protocol.setProperty("socket.appReadBufSize", String.valueOf(socketBufferBytes));
+                boolean write = protocol.setProperty("socket.appWriteBufSize", String.valueOf(socketBufferBytes));
+                if (read && write) {
+                    LOG.info("Tomcat per-socket app buffers set to {} B read / {} B write; "
+                            + "WebSocket binary message buffer {} B",
+                            socketBufferBytes, socketBufferBytes, binaryBufferBytes);
+                } else {
+                    LOG.warn("Tomcat per-socket buffer sizing did NOT apply (read={}, write={}) —"
+                            + " connections will use the {} B defaults", read, write, 8192);
+                }
+            } else {
+                LOG.warn("Unexpected protocol handler {}; per-socket buffer sizing skipped",
+                        handler.getClass().getName());
             }
         });
     }
