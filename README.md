@@ -4,14 +4,14 @@ Slack/Mattermost-style workspace chat: channels, threads, direct and group messa
 mentions, presence, polls, slash commands, full-text search, streamed file uploads and OIDC single
 sign-on. One JVM process, one Postgres database, one systemd unit.
 
-Built on Java 25, Spring Boot 4, PostgreSQL 18, embedded Apache Lucene and Keycloak — a stack chosen
+Built on Java 25, Spring Boot 4, PostgreSQL 18, Keycloak and embedded Apache Lucene. A stack chosen
 for how well it ages, not for how new it is.
 
 ## Why this exists
 
 Workplace chat is important infrastructure. We should stop handing the keys to a vendor whose
 interests do not include making sure you can still read your own conversations next year. The
-ability to self-host isn't a feature — it's a right.
+ability to self-host isn't a feature; it's a right.
 
 **Slack** is mostly good. The UI is slow, and the product is proprietary, cloud-only, and your
 archive is governed by the vendor's pricing tiers and retention rules. The cost-per-seat and the
@@ -26,8 +26,8 @@ work: the things that separate a real chat app from a demo keep migrating into t
 to pay for. "Open source" stops meaning much when the table stakes aren't. The UI is genuinely slick
 and responsive, which makes the direction more of a shame.
 
-**Microsoft Teams** is the most frustrating of the bunch — regularly late to meetings because the
-client wants to update and restart on launch, and a UI that can freeze for seconds at a time.
+**Microsoft Teams** is the most frustrating of the bunch, I am regularly late to meetings because 
+the client wants to update and restart on launch, and a UI that can freeze for seconds at a time.
 
 What this is instead: a chat server you deploy on a box you control. Fast UI. No message cap. No SSO
 paywall. No telemetry. No vendor able to change the terms a year from now because the funding round
@@ -41,24 +41,24 @@ The whole system is one JVM process and one database. There is no message broker
 search cluster, no Redis, no sidecar, no npm build. That is the central design decision and
 everything else follows from it.
 
-| Layer | Choice | Why |
-|---|---|---|
-| Language | **Java 25** | Virtual threads make a connection-per-user server cheap without async plumbing. A language with a 30-year compatibility record and tooling that will still work in a decade. |
-| Framework | **Spring Boot 4** | The most thoroughly documented server framework in existence. Any problem you hit has been hit before, in public, with an answer. |
-| Storage | **PostgreSQL 18** | One database for everything. Schema changes go through Flyway migrations with `ddl-auto=validate`, so the schema is always exactly what the code expects. |
+| Layer | Choice | Why                                                                                                                                                                                               |
+|---|---|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Language | **Java 25** | Virtual threads make a connection-per-user server cheap without async plumbing. A language with a 30-year compatibility record and tooling that will still work in a decade.                      |
+| Framework | **Spring Boot 4** | The most thoroughly documented server framework in existence. Any problem you hit has been hit before, in public, with an answer.                                                                 |
+| Storage | **PostgreSQL 18** | One database for everything. Schema changes go through Flyway migrations with `ddl-auto=validate`, so the schema is always exactly what the code expects.                                         |
 | Search | **Embedded Apache Lucene** | Real full-text search — the same engine under Elasticsearch — with no second service to run, monitor or keep in sync. The index lives on local disk and rebuilds itself from Postgres on startup. |
-| Identity | **Keycloak (OIDC)** | Authentication is a solved problem owned by people who specialise in it. This codebase contains no password hashing, no session store, no reset flow — deliberately. |
-| Realtime | **STOMP over native WebSocket** | An in-process broker that does 136,000 deliveries/second. No RabbitMQ until you actually need multiple nodes. |
-| Frontend | **Thymeleaf + vanilla JS** | Server-rendered HTML and hand-written ES modules, bundled at build time by Closure Compiler. No npm dependency tree, no framework migration every three years, no supply-chain surface. |
+| Identity | **Keycloak (OIDC)** | Authentication is a solved problem owned by people who specialise in it. This codebase contains no password hashing, no session store, no reset flow — deliberately.                              |
+| Realtime | **STOMP over native WebSocket** | An in-process broker that does over 100,000 deliveries/second. No Apache Pulsar until you actually need multiple nodes.                                                                           |
+| Frontend | **Thymeleaf + vanilla JS** | Server-rendered HTML and hand-written ES modules, bundled at build time by Closure Compiler. No npm dependency tree, no framework migration every three years, no supply-chain surface.           |
 
 Every one of those is replaceable behind an existing seam — see
 [What's intentionally under-engineered](#whats-intentionally-under-engineered-so-a-fork-can-swap-it).
 
 ## Performance
 
-Measured on one 12-core / 31 GB machine with the load generator running **on the same box**, so
-these are floors rather than ceilings. Full method, raw results and analysis in
-[`scalability.md`](scalability.md); the harness is in [`benchmark/`](benchmark/).
+Measured on one Broadwell 12-core / 31 GB virtual machine with the load generator running 
+**on the same box**, so these are floors rather than ceilings. Full method, raw results and 
+analysis in [`scalability.md`](scalability.md); the harness is in [`benchmark/`](benchmark/).
 
 | | |
 |---|---|
@@ -96,7 +96,7 @@ codebase is small, conventional and covered:
 - **One artifact, one unit file.** `./gradlew assemble` produces a single runnable jar. Deployment is
   copying it and `systemctl restart`.
 
-**Maturity:** this is pre-1.0 software under active development. It is tested and audited, but it
+**Maturity:** this is 1.0 software under active development. It is tested and audited, but it
 has not had years of production exposure across many deployments. Read the code before trusting it
 with anything sensitive, follow the hardening checklist in [`SECURITY.md`](SECURITY.md) before
 exposing an instance, and keep backups.
@@ -282,7 +282,7 @@ The bare `java -jar …` line above gets you running once. For an actual deploym
 
 Drop this at `/etc/systemd/system/intellistream-chat.service`:
 
-Every directive is annotated below — read top to bottom and you'll see exactly what each line buys you. Tested as-is on AlmaLinux 10.1 with SELinux enforcing; `systemd-analyze security` reports an exposure score of **4.7 OK** with this configuration.
+Every directive is annotated below — read top to bottom and you'll see exactly what each line buys you. Tested as-is on AlmaLinux 10.2 with SELinux enforcing; `systemd-analyze security` reports an exposure score of **4.7 OK** with this configuration.
 
 ```ini
 [Unit]
