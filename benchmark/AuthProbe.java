@@ -1,5 +1,5 @@
 // De-risk the OIDC auth-code flow in pure Java: log in and print the app session cookie.
-// Run: java benchmark/AuthProbe.java http://192.168.100.98:8080 alice alice
+// Run: java benchmark/AuthProbe.java http://localhost:8080 alice alice
 import java.net.*;
 import java.net.http.*;
 import java.net.http.HttpResponse.BodyHandlers;

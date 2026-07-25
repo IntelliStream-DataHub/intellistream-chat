@@ -12,7 +12,7 @@ Report privately through one of:
 - **GitHub Security Advisories** — the preferred channel: open a draft advisory under the
   repository's **Security → Advisories → Report a vulnerability** tab. This keeps the report
   private until a fix ships.
-- **Email** — `olavgjerde@yahoo.no` with a subject starting `[ThreadOrbit security]`.
+- **Email** — `security@intellistream.ai` with a subject starting `[ThreadOrbit security]`.
 
 Please include:
 

@@ -127,9 +127,11 @@ far below the number of threads you think are working, something upstream is ser
 
 - `--dst-hosts 127.0.0.1,127.0.0.2,…` — each loopback IP is a fresh ~64k ephemeral-port pool and a
   separate client selector pool. Requires `BENCH_SERVER_ADDRESS=0.0.0.0`.
-- On a single 12-core / 31 GB box, co-located, ~70k established sessions is the ceiling (memory).
-  For 100k–250k, run the generator on a **separate** machine (`--base`/`--dst-hosts` already point
-  anywhere) and give the server more RAM. See `../scalability.md`.
+- On a single 12-core / 31 GB box, co-located, **100k established and served** is reproducible
+  (0 connect failures, 0 dropped deliveries). 150k is not — but the limit is the *generator*,
+  which costs 174 KB/connection against the server's 82 KB, so it exhausts the box first. For
+  150k+, run the generator on a **separate** machine (`--base`/`--dst-hosts` already point
+  anywhere). See `../scalability.md`.
 
 ## Cleanup
 

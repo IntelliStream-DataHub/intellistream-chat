@@ -16,7 +16,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(dirname "$HERE")"
 JAVA=${JAVA:-/usr/lib/jvm/java-25-openjdk/bin/java}
-KC_HOST=${KC_HOST:-192.168.100.98}
+KC_HOST=${KC_HOST:-localhost}
 PORT=${PORT:-8090}
 HEAP=${HEAP:-12g}
 SOCKBUF=${SOCKBUF:-2048}

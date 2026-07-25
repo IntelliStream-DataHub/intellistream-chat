@@ -13,7 +13,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(dirname "$HERE")"
 JAVA=${JAVA:-/usr/lib/jvm/java-25-openjdk/bin/java}
-KC_HOST=${KC_HOST:-192.168.100.98}
+KC_HOST=${KC_HOST:-localhost}
 HEAP=${HEAP:-8g}
 LOG=${LOG:-$ROOT/build/bench-app.log}
 JFR=${JFR:-}                       # set JFR=/path/to/rec.jfr to profile the run

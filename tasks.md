@@ -53,7 +53,7 @@ Legend: `[ ]` todo · severity in each heading · `file:line → fix`.
   apply the delta. Add an IT that edits a message while keeping one `@mention`.
 
 ### SEC-3 · Purge maintainer LAN IP so the default quickstart works for outsiders  🟠 high
-- `192.168.100.98` is hardcoded in `docker-compose.yml:29,32`, `keycloak/realm.json:19,23,30`,
+- A maintainer's LAN IP was hardcoded in `docker-compose.yml:29,32`, `keycloak/realm.json:19,23,30`,
   `scripts/seed-vault.sh:35`, `README.md`, `security_plan.md`. `podman compose up -d` fails
   with a bind error on any host that doesn't own that IP, so the documented "two-command"
   quickstart is broken for every new user.

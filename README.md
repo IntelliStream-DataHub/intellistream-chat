@@ -139,7 +139,7 @@ For a real internet-facing deployment. **Do not skip the hardening steps**: the 
 
 ```bash
 # 1. Build a runnable jar
-./gradlew assemble                # produces build/libs/chat-*.jar
+./gradlew assemble                # produces build/libs/threadorbit-<version>.jar
 
 # 2. Stand up Postgres 18 + Keycloak 26 on the host (see "Without containers" below)
 #    or your managed equivalents. Point the app at them via env vars.
@@ -156,7 +156,7 @@ export SERVER_ADDRESS=127.0.0.1                            # bind localhost only
 # is needed when nginx forwards X-Forwarded-Proto: https.
 
 # 4. Run behind a TLS-terminating reverse proxy (see frontend.md in this repo):
-java -jar build/libs/chat-*.jar
+java -jar build/libs/threadorbit-*.jar
 ```
 
 Then complete the [production hardening checklist](#production-hardening-checklist) below before flipping DNS.
@@ -194,7 +194,7 @@ EnvironmentFile=/etc/threadorbit/env
 # New files default to mode 0750/0640 — no "other" read.
 UMask=0027
 
-ExecStart=/usr/lib/jvm/java-25-openjdk/bin/java $JAVA_OPTS -jar /opt/threadorbit/chat.jar
+ExecStart=/usr/lib/jvm/java-25-openjdk/bin/java $JAVA_OPTS -jar /opt/threadorbit/threadorbit.jar
 
 Restart=on-failure
 RestartSec=5s
@@ -302,8 +302,8 @@ sudo useradd --system --home /opt/threadorbit --shell /usr/sbin/nologin threador
 sudo install -d -o threadorbit -g threadorbit /opt/threadorbit /opt/threadorbit/data /opt/threadorbit/data/heapdumps
 sudo install -d -o root -g threadorbit -m 750 /etc/threadorbit
 sudo install -m 640 -o root -g threadorbit /path/to/env /etc/threadorbit/env
-sudo install -m 644 build/libs/chat-*.jar /opt/threadorbit/chat.jar
-sudo chown threadorbit:threadorbit /opt/threadorbit/chat.jar
+sudo install -m 644 build/libs/threadorbit-*.jar /opt/threadorbit/threadorbit.jar
+sudo chown threadorbit:threadorbit /opt/threadorbit/threadorbit.jar
 sudo systemctl daemon-reload
 sudo systemctl enable --now threadorbit
 sudo systemctl status threadorbit
@@ -672,8 +672,8 @@ The bundled `keycloak/realm.json` defines everything `podman compose` and `kc.sh
 | Self-registration | enabled |
 | Client id | `threadorbit` (confidential, Authorization Code + PKCE) |
 | Client secret | `(generated; rotate)` (override via `KEYCLOAK_CLIENT_SECRET` in production) |
-| Valid redirect URIs | `http://localhost:8080/*`, `http://192.168.100.98:8080/*` |
-| Web origins | `http://localhost:8080`, `http://192.168.100.98:8080` |
+| Valid redirect URIs | `http://localhost:8080/*` |
+| Web origins | `http://localhost:8080` |
 
 If you move the app to a different host or port, update both Valid redirect URIs and Web Origins to match. A mismatch shows up as `400 invalid_redirect_uri` from Keycloak after sign-in.
 
@@ -903,8 +903,8 @@ these are floors rather than ceilings. Full method and analysis in
 |---|---|
 | Messages persisted + delivered | **~17,000 / second**, ~20 ms median end-to-end |
 | Fan-out into 50-member rooms | **~136,000 deliveries / second**, 0 dropped |
-| Concurrent connections served | **100,000**, 47,484 deliveries/s, 0 dropped |
-| Concurrent WebSocket connections | **10k** comfortably · ~70k at the memory wall |
+| Concurrent connections served | **100,000**, 47,484 deliveries/s, 0 dropped, p50 792 ms |
+| Memory holding 100,000 connections | **11.2 GiB** RSS, whole JVM |
 | Attachment upload | **~380 MB/s** (~3 Gbps) single stream |
 
 Two things are worth knowing if you fork this:

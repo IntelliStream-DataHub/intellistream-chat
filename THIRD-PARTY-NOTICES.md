@@ -32,6 +32,28 @@ These files are checked into `src/main/resources/static/` and served to browsers
   [`static/fonts/OFL-Figtree.txt`](src/main/resources/static/fonts/OFL-Figtree.txt)
 - Copyright © The Figtree Project Authors.
 
+### Heroicons (UI icon paths)
+- File: `templates/fragments/icon-sprite.html` — the `<symbol>` path data.
+- Project: https://github.com/tailwindlabs/heroicons
+- License: **MIT** — https://github.com/tailwindlabs/heroicons/blob/master/LICENSE
+- Copyright © Tailwind Labs, Inc.
+
+  The sprite is hand-assembled rather than imported: each symbol is a Heroicons outline/solid
+  path pasted into a shared 24×24 `viewBox` so the whole set scales identically and inherits
+  `currentColor`. Some paths are lightly adapted. The MIT notice above covers them.
+
+  MIT text: *Permission is hereby granted, free of charge, to any person obtaining a copy of this
+  software and associated documentation files (the "Software"), to deal in the Software without
+  restriction, including without limitation the rights to use, copy, modify, merge, publish,
+  distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the
+  Software is furnished to do so, subject to the following conditions: The above copyright notice
+  and this permission notice shall be included in all copies or substantial portions of the
+  Software. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+  INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE
+  AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+  DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.*
+
 ## Build-time only (Gradle dependencies — not shipped in the browser)
 
 Resolved by Gradle at build time; their jars are on the server classpath, not sent to clients.
@@ -44,7 +66,6 @@ Each retains its own license; this is a non-exhaustive summary of the primary ru
 | jsoup | MIT |
 | Apache Lucene | Apache-2.0 |
 | Apache Tika (tika-core) | Apache-2.0 |
-| Apache Commons FileUpload | Apache-2.0 |
 | Flyway | Apache-2.0 |
 | PostgreSQL JDBC Driver | BSD 2-Clause |
 | Project Lombok (compile-only) | MIT |

@@ -14,7 +14,7 @@ ROOT="$(dirname "$HERE")"
 LABEL=${1:?label}; SOCKBUF=${2:?socket buffer bytes}; BINBUF=${3:?binary buffer bytes}
 LOW=${4:-10000}; HIGH=${5:-30000}
 JAVA=${JAVA:-/usr/lib/jvm/java-25-openjdk/bin/java}
-KC_HOST=${KC_HOST:-192.168.100.98}
+KC_HOST=${KC_HOST:-localhost}
 HEAP=${HEAP:-6g}
 
 pid_on_loopback() { ss -tlnp 2>/dev/null | grep -E '127\.0\.0\.1\]?:8080' | grep -oP 'pid=\K[0-9]+' | head -1; }
