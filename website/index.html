@@ -149,7 +149,14 @@
     border: 1px solid var(--border);
     background: var(--bg);
     color: var(--brand);
-    font-size: 1.5rem; line-height: 1;
+    font-size: 1.5rem;
+    /* Grid-centred rather than leaning on line-height: a button centres its text horizontally
+       for free but not vertically, and the arrow glyphs carry their own vertical metrics, so
+       line-height:1 left them sitting low in the circle. */
+    display: grid;
+    place-items: center;
+    padding: 0;
+    line-height: 1;
     cursor: pointer;
   }
   .carousel-nav:hover { background: var(--brand); color: #fff; border-color: var(--brand); }
@@ -370,6 +377,11 @@
     max-width: 640px;
     margin: 0 auto 32px;
   }
+  .hero p.lede-secondary {
+    font-size: 1.02rem;
+    margin-top: -18px;
+  }
+  .hero p.lede-secondary a { color: var(--brand); font-weight: 600; }
   .hero .cta {
     display: inline-flex;
     flex-wrap: wrap;
@@ -428,6 +440,13 @@
   }
 
   /* ---------- Why ---------- */
+
+  .why h3 {
+    margin: 34px 0 10px;
+    font-size: 1.16rem;
+    font-weight: 700;
+    color: var(--ink);
+  }
 
   .why p {
     color: var(--text);
@@ -621,11 +640,16 @@
     </svg>
     <h1>Workplace chat <span class="accent">you actually own</span></h1>
     <p class="lede">
-      Self hosted team chat: channels, threads, direct and group messages, reactions,
-      mentions, presence, polls, slash commands, full text search, streamed uploads and
-      OIDC single sign on. One JVM process, one Postgres database, one systemd unit.
-      Built on Java 25, Spring Boot 4, PostgreSQL 18, embedded Apache Lucene and Keycloak,
-      a stack chosen for how well it ages rather than for how new it is.
+      Everything your team expects from a chat app &mdash; channels and threads, direct and
+      group messages, file sharing, reactions, mentions, polls, and search that actually
+      finds things &mdash; running on a server you control. Your conversations live in your
+      database, on your disk, under your law. No per-seat pricing, no history that vanishes
+      because you are on the free plan, no vendor changing the terms next year.
+    </p>
+    <p class="lede lede-secondary">
+      A thousand people fit comfortably on the cheapest machine Hetzner rents:
+      about &euro;4 a month, less than one Slack seat.
+      <a href="#why">Why that matters &rarr;</a>
     </p>
     <div class="cta">
       <!-- TODO: replace href with the real GitHub URL -->
@@ -753,6 +777,36 @@ sudo apt install -y openjdk-25-jdk podman podman-compose</code></pre>
       can still read your own conversations next year. For me, the
       ability to self-host isn't a feature, it's a right.
     </p>
+    <h3>Where your data lives is a decision someone else can revisit</h3>
+    <p>
+      If your chat runs on a US cloud, two things are true regardless of which region you
+      picked. The <b>CLOUD Act</b> lets US authorities compel an American provider to hand
+      over data it controls, wherever in the world that data is stored. And a US provider
+      has to follow US sanctions and export controls &mdash; which means access to your
+      account is, in the end, a policy decision made in Washington rather than a contract
+      term negotiated with you.
+    </p>
+    <p>
+      That is not hypothetical. In 2025 the International Criminal Court's chief prosecutor
+      lost access to his Microsoft-hosted email after the US administration sanctioned him.
+      An institution with every legal protection Europe can offer found that its
+      communications ran through a company obliged to answer to another government first.
+      The Trump administration has been explicit that tariffs, sanctions and market access
+      are instruments to be used for leverage, and cloud services are not exempt from that
+      logic. You do not need to have a view on any of it to notice the exposure: a supplier
+      who can be ordered to switch you off is a single point of failure you do not control,
+      and it sits underneath everything your company says to itself.
+    </p>
+    <p>
+      Self-hosting removes that dependency rather than insuring against it. The data is on
+      a disk you rent or own, in a jurisdiction you chose, and the only people who can read
+      it are the ones you gave accounts to. If a supplier relationship ends, you copy a
+      Postgres dump and a directory of files and carry on. And it is genuinely cheap: this
+      runs in under a gigabyte of memory on one core, which is roughly &euro;4 a month at
+      Hetzner for a workspace of a thousand people &mdash; a rounding error next to
+      per-seat pricing, and the invoice does not grow when you hire.
+    </p>
+
     <p>
       <b>Slack</b> is mostly good. The UI is slow, and the product is
       proprietary, cloud-only, and your archive is governed by the
