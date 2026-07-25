@@ -571,9 +571,10 @@ sudo dnf install -y java-25-openjdk-devel podman podman-compose
 sudo apt install -y openjdk-25-jdk podman podman-compose</code></pre>
       <p class="qs-note">
         Docker works too if you already have it, the compose file is plain OCI.
-        On RHEL 9, AlmaLinux 9, Rocky 9, Ubuntu 24.04 LTS and older Debian, OpenJDK 25 is not
-        in the default archives yet; install it with <a href="https://sdkman.io" rel="noopener">SDKMAN</a>
-        or from Adoptium. Gradle itself is not required, <code>./gradlew</code> fetches it on first use.
+        JDK 25 is in the default archives on the RHEL family 9 and 10 (AlmaLinux, Rocky, RHEL),
+        on Ubuntu 24.04 LTS and later, and on Debian 13. Only Debian 12 and Ubuntu releases older
+        than 24.04 need <a href="https://sdkman.io" rel="noopener">SDKMAN</a> or Adoptium. Gradle
+        itself is not required, <code>./gradlew</code> fetches it on first use.
       </p>
     </div>
 

@@ -43,6 +43,15 @@ import static org.mockito.Mockito.mock;
                 "ai.intellistream.chat.service",
                 "ai.intellistream.chat.repository",
                 "ai.intellistream.chat.search",
+                // Service-layer, like the three above. AttachmentService now requires
+                // StorageQuotaService and MessageService's moderation paths require the audit
+                // trail, so omitting this package fails every IT at context startup.
+                //
+                // The standing rule is "don't widen this scan", and it means don't add `web` or
+                // `config`: those pull in the controllers and the security autoconfiguration this
+                // class deliberately excludes so tests need no live Keycloak. Adding another
+                // service package is the rule being followed, not bent.
+                "ai.intellistream.chat.moderation",
                 "ai.intellistream.chat.slash"
         },
         exclude = {

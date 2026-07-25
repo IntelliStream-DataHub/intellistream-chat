@@ -261,7 +261,7 @@ sudo apt install -y openjdk-25-jdk podman podman-compose
 java -version
 ```
 
-On Ubuntu 24.04 LTS or older Debian releases OpenJDK 25 is not in the default archives yet. Either upgrade to a newer release or use sdkman.
+Ubuntu 24.04 LTS and later package `openjdk-25-jdk`, as does Debian 13. Only Debian 12 and Ubuntu releases older than 24.04 need [SDKMAN](https://sdkman.io) or Adoptium.
 
 ### macOS
 
