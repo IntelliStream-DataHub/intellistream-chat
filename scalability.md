@@ -112,7 +112,7 @@ an order of magnitude more than this document previously credited it with.
 |-----:|:-----------:|:---------:|-------------:|--------:|-------------:|:---------------:|
 | **10k** | 10,000 / 10,000 (0 fail) | 13.5 s | — | — | — | 5.0 GB |
 | **50k** | **50,000 / 50,000 (0 fail)** | **4.8 ms** | **49,154** | **0.00%** | **250 ms** | 12.3 GB |
-| **100k** | **100,000 / 100,000 (0 fail)** | 4.7 ms | 17,670 | 64.13% | 10.9 s | 11.6 GB |
+| **100k** | **100,000 / 100,000 (0 fail)** | 4.8 ms | 21,991 | 51.65% | 10.7 s | 11.5 GB |
 
 **50k is the operating ceiling; 100k is a capacity result, not a working one.** At 50k every one
 of 3,000,000 expected deliveries arrived, at p50 250 ms and 1045% CPU. At 100k the sockets are all
@@ -120,10 +120,25 @@ there and cheap — 11.6 GB, with 3 GB still free on the box — but only 717,37
 deliveries landed inside the window and latency went to double-digit seconds.
 
 Treat the 100k *delivery* numbers as a measurement of a saturated box rather than a property of the
-server: CPU was 1137% of an available 1200% with the generator competing for the same cores, and
-free memory bottomed out at 2 GB. What 100k establishes is that **connection capacity is no longer
-the constraint it was** — the previous pass couldn't get past ~70,800 upgrades before exhausting
-28 of 31 GB, and this run held 100,000 in 11.6 GB.
+server. The tier was run twice, the second time with the dev instance stopped and 24 GB free
+rather than 19:
+
+| | with a dev instance running | with it stopped |
+|---|---:|---:|
+| Deliveries/s | 17,670 | **21,991** |
+| Dropped | 64.13% | **51.65%** |
+| Server CPU | 1137% | 1130% |
+
+Freeing ~700 MB and a slice of CPU bought 24% more deliveries and moved nothing else: CPU stayed
+pinned at ~1130% of an available 1200%, and latency stayed at p50 ~10.7 s. **The 100k delivery
+shortfall is CPU exhaustion with the generator on the same cores, not a server limit** — parsing
+and timestamping ~22k inbound frames a second is itself expensive, and the generator is doing that
+on the same twelve cores the server is using. What the tier does establish is that **connection
+capacity is no longer the constraint it was**: the previous pass couldn't get past ~70,800 upgrades
+before exhausting 28 of 31 GB, and this run held 100,000 in 11.5 GB with 8 GB still free.
+
+Answering what a single node can actually *serve* at 100k needs the generator on separate
+hardware. Everything on this box past ~50k is measuring the measurement.
 
 ### Per-connection cost
 
