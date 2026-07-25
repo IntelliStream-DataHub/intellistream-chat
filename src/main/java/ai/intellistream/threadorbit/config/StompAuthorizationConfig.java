@@ -116,11 +116,10 @@ public class StompAuthorizationConfig implements WebSocketMessageBrokerConfigure
                 var convMatch = CONVERSATION_TOPIC.matcher(dest);
                 if (!channelMatch.matches() && !convMatch.matches()) return message;
 
-                // Each channel/conversation SUBSCRIBE runs 1-2 DB queries (requireById +
-                // requireMember). Cap per session so a client can't flood SUBSCRIBE frames to
-                // amplify DB load. 200/min comfortably covers the initial burst of subscribing to
-                // every sidebar channel on connect; excess frames are dropped (return null) rather
-                // than throwing, so the connection isn't torn down.
+                // Cap SUBSCRIBE frames per session so a client can't flood them to amplify the
+                // authorization work below. 200/min comfortably covers the initial burst of
+                // subscribing to every sidebar channel on connect; excess frames are dropped
+                // (return null) rather than throwing, so the connection isn't torn down.
                 var sessionId = accessor.getSessionId();
                 if (sessionId != null
                         && !rateLimiter.tryAcquire(sessionId, "ws-subscribe", 200, java.time.Duration.ofMinutes(1))) {
@@ -133,7 +132,11 @@ public class StompAuthorizationConfig implements WebSocketMessageBrokerConfigure
                     Long channelId;
                     try { channelId = Long.parseLong(channelMatch.group(1)); }
                     catch (IllegalArgumentException ex) { return message; }
-                    var ch = channelService.requireById(channelId);
+                    // Cached lookup: this runs once per subscription, so on a mass reconnect it is
+                    // a database round trip per client on the same threads that are accepting the
+                    // connections. Read-only and no lazy associations touched, which is the
+                    // contract requireByIdForMessaging asks for.
+                    var ch = channelService.requireByIdForMessaging(channelId);
                     // Subscribe = read; reuses the read-access semantic so PUBLIC channels
                     // remain subscribable by any authenticated user.
                     channelService.requireMember(ch, user);

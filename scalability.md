@@ -189,6 +189,44 @@ invisible from the outside — it looks exactly like an under-provisioned box.
 The tail is still long: p99 13.1 s, and 44% of deliveries took over a second, at 1166% CPU. That is
 a genuinely saturated box, and improving it means taking work off it rather than tuning a cache.
 
+### 150k: the generator runs out before the server does
+
+Two attempts, neither limited by the server. The first plateaued at 116,311; the second, profiled,
+at ~96,000 with **65,041 connect failures** and free memory down to 1 GB. Neither run recorded a
+single server-side refusal.
+
+Measuring both sides during the ramp explains it:
+
+| | per connection | projected at 150k |
+|---|---:|---:|
+| Server | 82 KB | ~13.8 GB |
+| Co-located generator | **174 KB** | ~25 GB |
+| | | **~39 GB needed, 31 GB available** |
+
+The generator costs **2.1× more per connection than the server**: the JDK's `java.net.http`
+WebSocket client carries much heavier per-connection state than Tomcat does. So the thing measuring
+the server is what exhausts the box, and no amount of server tuning changes that — the server is
+not the process that is short of memory.
+
+**A single node would very likely hold 150k in ~14 GB. Demonstrating it requires the generator on
+separate hardware.** Past ~100k, co-located numbers stop describing the server at all.
+
+Profiling the connect phase (as opposed to steady state) was still worthwhile:
+
+| Connect-phase CPU | |
+|---|---:|
+| JDBC / Hibernate | 23.6% |
+| subscription registry | 16.3% |
+| WebSocket handshake / upgrade | 12.6% |
+| TLS / HTTP parse | 9.8% |
+
+Nearly a quarter of it was database work, because every STOMP `SUBSCRIBE` called the *uncached*
+`channelService.requireById` — a round trip inside the handshake path of every connection, on the
+same carrier threads doing the accepting. It now uses the cached lookup. This matters most exactly
+when it hurts most: a mass reconnect after a deploy or a network blip, when every client returns at
+once. (The registry's 16.3% is expected here — thousands of rooms being subscribed for the first
+time are cache misses by definition, populating the cache.)
+
 ### Per-connection cost
 
 | | |
