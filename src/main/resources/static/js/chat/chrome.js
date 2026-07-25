@@ -53,7 +53,7 @@ function initTutorial() {
  * Local matches still get filtered as you type, so the shortlist narrows instantly while the
  * server request is in flight.
  */
-function initSidebarSearch() {
+export function initSidebarSearch() {
     const input = document.getElementById('sidebar-filter');
     const content = document.querySelector('main.content');
     if (!input || !content) return;
@@ -62,7 +62,6 @@ function initSidebarSearch() {
     const DEBOUNCE_MS = 180;
     let timer = null;
     let sequence = 0;          // guards against a slow response overwriting a newer one
-    let restoreHtml = null;    // what main.content showed before the first search
 
     const panel = document.createElement('div');
     panel.className = 'channel-search-results';
@@ -74,21 +73,19 @@ function initSidebarSearch() {
         });
     };
 
+    // The results panel HIDES the page's own content rather than replacing it. The previous
+    // version stashed content.innerHTML and assigned it back, which rebuilds every node: the
+    // message list came back as fresh elements with none of the listeners chat.js had attached,
+    // and on the conversation page it would also orphan the live STOMP-bound DOM. Toggling a
+    // class keeps node identity, so clearing the box returns a page that still works.
     const restore = () => {
-        if (restoreHtml !== null) {
-            content.innerHTML = restoreHtml;
-            restoreHtml = null;
-        }
+        content.classList.remove('searching');
         panel.hidden = true;
     };
 
     const showPanel = () => {
-        if (restoreHtml === null) {
-            // Stash the real content once, so clearing the box puts the channel back rather than
-            // leaving the user stranded on an empty results page.
-            restoreHtml = content.innerHTML;
-        }
-        content.replaceChildren(panel);
+        if (panel.parentElement !== content) content.appendChild(panel);
+        content.classList.add('searching');
         panel.hidden = false;
     };
 

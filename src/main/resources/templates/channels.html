@@ -43,8 +43,14 @@
     </div>
     <div class="topbar-center">
         <form class="search-form" id="global-search-form">
-            <input type="search" id="global-search-input"
-                   placeholder="Search messages…" minlength="2" required/>
+            <span class="search-field">
+                <input type="search" id="global-search-input"
+                       placeholder="Search messages…" minlength="2" required/>
+                <button type="button" class="search-clear" tabindex="-1" hidden
+                        title="Clear search" aria-label="Clear search">
+                    <svg class="icon icon-sm" aria-hidden="true"><use href="#icon-close"/></svg>
+                </button>
+            </span>
             <button type="submit">Search</button>
         </form>
     </div>
@@ -87,8 +93,14 @@
     <aside class="sidebar" id="app-sidebar">
       <div class="sidebar-inner">
         <div class="sidebar-search">
-            <input type="search" id="sidebar-filter" placeholder="Search channels…"
-                   autocomplete="off" aria-label="Search channels"/>
+            <span class="search-field">
+                <input type="search" id="sidebar-filter" placeholder="Search channels…"
+                       autocomplete="off" aria-label="Search channels"/>
+                <button type="button" class="search-clear" tabindex="-1" hidden
+                        title="Clear search" aria-label="Clear search">
+                    <svg class="icon icon-sm" aria-hidden="true"><use href="#icon-close"/></svg>
+                </button>
+            </span>
         </div>
 
         <!--/* The sidebar is a shortlist, not a directory: the channels with the most people and
@@ -249,10 +261,15 @@
                 </div>
                 <div class="channel-header-actions">
                     <form class="channel-search" id="channel-search-form">
-                        <input type="search" id="channel-search-input"
-                               placeholder="Search this channel…" minlength="2" required/>
+                        <span class="search-field">
+                            <input type="search" id="channel-search-input"
+                                   placeholder="Search this channel…" minlength="2" required/>
+                            <button type="button" class="search-clear" tabindex="-1" hidden
+                                    title="Clear search" aria-label="Clear search">
+                                <svg class="icon icon-sm" aria-hidden="true"><use href="#icon-close"/></svg>
+                            </button>
+                        </span>
                         <button type="submit">Search</button>
-                        <button type="button" id="channel-search-clear" class="icon-btn" hidden>Clear</button>
                     </form>
                     <button type="button" id="channel-members-toggle" class="icon-btn"
                             aria-haspopup="true" aria-expanded="false"
@@ -284,7 +301,7 @@
 
                 <section th:if="${isMember}"
                          id="channel-admin-dropdown"
-                         class="channel-admin-dropdown"
+                         class="channel-admin-dropdown anchor-left"
                          role="dialog"
                          aria-labelledby="channel-admin-title"
                          hidden>

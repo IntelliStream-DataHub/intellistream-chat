@@ -35,7 +35,22 @@
             <span class="logo-text" th:text="${appTitle}">IntelliStream Chat</span>
         </a>
     </div>
-    <div class="topbar-center"></div>
+    <!--/* Same global search as the channel page. It was missing here, which meant search
+           disappeared the moment you opened a DM — and now that search covers conversations
+           too, this is where you are most likely to want it. */-->
+    <div class="topbar-center">
+        <form class="search-form" id="global-search-form">
+            <span class="search-field">
+                <input type="search" id="global-search-input"
+                       placeholder="Search messages…" minlength="2" required/>
+                <button type="button" class="search-clear" tabindex="-1" hidden
+                        title="Clear search" aria-label="Clear search">
+                    <svg class="icon icon-sm" aria-hidden="true"><use href="#icon-close"/></svg>
+                </button>
+            </span>
+            <button type="submit">Search</button>
+        </form>
+    </div>
     <div class="topbar-right">
         <div class="topbar-bell" id="topbar-bell">
             <button type="button" id="topbar-bell-btn" class="topbar-bell-btn"
@@ -74,6 +89,17 @@
     <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
     <aside class="sidebar" id="app-sidebar">
       <div class="sidebar-inner">
+        <div class="sidebar-search">
+            <span class="search-field">
+                <input type="search" id="sidebar-filter" placeholder="Search channels…"
+                       autocomplete="off" aria-label="Search channels"/>
+                <button type="button" class="search-clear" tabindex="-1" hidden
+                        title="Clear search" aria-label="Clear search">
+                    <svg class="icon icon-sm" aria-hidden="true"><use href="#icon-close"/></svg>
+                </button>
+            </span>
+        </div>
+
         <!--/* Same curated shortlist as the channel page — see channels.html. Both pages get a
                SidebarView from HomeController, so both render it through the same fragment. */-->
         <div class="sidebar-section">
@@ -298,6 +324,9 @@
 <!-- Avatar dropdown (presence + sign out). ES module, so it loads its own graph;
      not part of the Closure bundle (like the rest of js/chat/). -->
 <script type="module" th:src="@{/js/chat/presence-menu-boot.js}" defer></script>
+<!-- Sidebar channel search + global message search. Same modules the channel page uses;
+     this page loads them directly because it doesn't load chat/index.js. -->
+<script type="module" th:src="@{/js/chat/conversation-chrome-boot.js}" defer></script>
 
 </body>
 </html>

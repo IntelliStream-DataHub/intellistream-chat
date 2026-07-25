@@ -421,7 +421,10 @@ input:focus, textarea:focus, select:focus {
   color: var(--text);
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25);
 }
-.search-form button { display: none; }
+/* The live dropdown does the searching, so the submit is redundant. Targeted at the submit
+   specifically: written as `.search-form button` this also hid the in-field clear control,
+   and would hide any future control placed inside the field. */
+.search-form button[type="submit"] { display: none; }
 .topbar-right {
   display: flex;
   align-items: center;
@@ -807,7 +810,11 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
 .channel-admin-dropdown {
   position: absolute;
   top: calc(100% + 6px);
-  left: 1rem;
+  /* A panel opens under the control that opened it, so the side is a property of the trigger,
+     not of the panel. The members buttons sit at the right end of the header, the settings cog
+     at the left, so the default is right and .anchor-left is the opt-out. Anchoring all of them
+     to one side put at least one panel on the far side of the room from the button clicked. */
+  right: 1rem;
   z-index: 50;
   min-width: 320px;
   max-width: 400px;
@@ -817,6 +824,10 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   box-shadow: var(--shadow-3);
   padding: 0.9rem 1rem 1rem;
   color: var(--text);
+}
+.channel-admin-dropdown.anchor-left {
+  left: 1rem;
+  right: auto;
 }
 .channel-admin-dropdown[hidden] { display: none; }
 .channel-admin-dropdown header {
@@ -938,7 +949,8 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   padding: 0.32rem 0.6rem;
   min-width: 200px;
 }
-.channel-header-actions .channel-search button { display: none; }
+/* Same intent, same correction as .search-form above. */
+.channel-header-actions .channel-search button[type="submit"] { display: none; }
 .channel-header-actions .channel-search button.icon-btn { display: inline-flex; }
 
 .icon-btn {
@@ -2401,6 +2413,48 @@ body.lightbox-open { overflow: hidden; }
   font-size: var(--fs-md);
 }
 .sidebar-popover[hidden] { display: none; }
+
+/* ---------- Search field with an in-field clear ---------- */
+/* The clear control sits inside the box because it acts on the text in it; beside the box it
+   reads as another action on the page. Hidden while the field is empty — a clear button with
+   nothing to clear is a target that does nothing. tabindex="-1" keeps it out of the tab order,
+   since Escape already clears the field and a keyboard user should not have to tab past it. */
+.search-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+.search-field > input[type="search"] {
+  width: 100%;
+  /* Room for the button, plus the browser's own decoration on some platforms. */
+  padding-right: 1.9rem;
+}
+/* WebKit draws its own clear affordance inside type=search; two of them is one too many. */
+.search-field > input[type="search"]::-webkit-search-cancel-button { display: none; }
+.search-field > .search-clear {
+  position: absolute;
+  right: 0.4rem;
+  display: grid;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0.75;
+}
+/* Both need the wrapper prefix too: `.search-form button` is (0,1,1) and would otherwise win. */
+.search-field > .search-clear:hover { opacity: 1; background: var(--bg); }
+.search-field > .search-clear[hidden] { display: none; }
+
+/* Sidebar channel-search results cover the page's own content instead of replacing it, so the
+   message list keeps its listeners and the conversation keeps its live DOM. */
+main.content.searching > :not(.channel-search-results) { display: none; }
 
 /* Hint under the "New message" field. Doubles as the error slot, so a failed create explains
    itself in place rather than in an alert() the user has to dismiss before fixing anything. */
