@@ -97,7 +97,9 @@ class MentionBroadcastIT {
         currentUser = mock(CurrentUser.class);
         broker = mock(SimpMessagingTemplate.class);
         controller = new ChatWebSocketController(channels, messages, markdown, currentUser,
-                broker, new RateLimiter(), mentionRepository, slashCommands, pollService);
+                broker, new RateLimiter(), mentionRepository, slashCommands, pollService,
+                new ai.intellistream.threadorbit.metrics.WritePathMetrics(
+                        new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
     }
 
     @Test

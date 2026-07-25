@@ -37,7 +37,6 @@ import ai.intellistream.threadorbit.web.dto.ReactionRequest;
 import ai.intellistream.threadorbit.web.dto.StartDirectRequest;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
-import org.apache.commons.fileupload2.jakarta.servlet6.JakartaServletFileUpload;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
@@ -309,54 +308,18 @@ public class ConversationRestController {
     public ConversationMessageDto uploadAttachment(@PathVariable Long conversationId,
                                                    HttpServletRequest request,
                                                    Principal principal) throws IOException {
-        if (!JakartaServletFileUpload.isMultipartContent(request)) {
-            throw new IllegalArgumentException("Expected multipart/form-data");
-        }
         var me = currentUser.resolve(principal);
         if (!rateLimiter.tryAcquire(me.getUsername(), "dm-attachment-upload", 10, java.time.Duration.ofMinutes(1))) {
             throw new RateLimitExceededException("upload rate exceeded");
         }
         var conv = conversations.requireById(conversationId);
         var maxBytes = currentUser.uploadCapBytes(principal);
+        var upload = RawUpload.from(request, true);
 
-        String caption = "";
-        ai.intellistream.threadorbit.domain.ConversationAttachment savedAttachment = null;
-
-        var upload = new JakartaServletFileUpload<>();
-        try {
-            var iter = upload.getItemIterator(request);
-            while (iter.hasNext()) {
-                var item = iter.next();
-                // Drain any part that follows the persisted file rather than throwing post-commit
-                // and orphaning a ghost message the client then retries (N17).
-                if (savedAttachment != null) {
-                    item.getInputStream().transferTo(java.io.OutputStream.nullOutputStream());
-                    continue;
-                }
-                if (item.isFormField()) {
-                    if ("caption".equals(item.getFieldName())) {
-                        caption = UploadParts.readSmallField(item);
-                    } else {
-                        item.getInputStream().transferTo(java.io.OutputStream.nullOutputStream());
-                        throw new IllegalArgumentException("Unknown form field: " + item.getFieldName());
-                    }
-                    continue;
-                }
-                if (!"file".equals(item.getFieldName())) {
-                    item.getInputStream().transferTo(java.io.OutputStream.nullOutputStream());
-                    throw new IllegalArgumentException("Unknown file part: " + item.getFieldName());
-                }
-                savedAttachment = attachments.upload(
-                        conv, me, item.getName(), item.getContentType(), -1L, maxBytes, caption,
-                        item.getInputStream());
-            }
-        } catch (org.apache.commons.fileupload2.core.FileUploadException e) {
-            throw new IllegalArgumentException("Malformed upload: " + e.getMessage(), e);
-        }
-
-        if (savedAttachment == null) {
-            throw new IllegalArgumentException("File part is required");
-        }
+        // The file is the request body — streamed straight to disk, no multipart parsing.
+        var savedAttachment = attachments.upload(
+                conv, me, upload.filename(), upload.contentType(), upload.declaredLength(),
+                maxBytes, upload.caption(), upload.body());
 
         var message = savedAttachment.getMessage();
         var dto = ConversationMessageDto.from(message,

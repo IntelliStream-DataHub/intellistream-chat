@@ -44,6 +44,7 @@ public class ChannelService {
     private final AttachmentRepository attachmentRepository;
     private final MessageIndexService messageIndex;
     private final AttachmentService attachmentService;
+    private final ChannelAccessCache accessCache;
 
     public ChannelService(ChannelRepository channelRepository,
                           ChannelMemberRepository memberRepository,
@@ -51,7 +52,9 @@ public class ChannelService {
                           AttachmentRepository attachmentRepository,
                           MessageIndexService messageIndex,
                           // @Lazy breaks the ChannelService <-> AttachmentService construction cycle.
-                          @Lazy AttachmentService attachmentService) {
+                          @Lazy AttachmentService attachmentService,
+                          ChannelAccessCache accessCache) {
+        this.accessCache = accessCache;
         this.channelRepository = channelRepository;
         this.memberRepository = memberRepository;
         this.messageRepository = messageRepository;
@@ -75,6 +78,36 @@ public class ChannelService {
     public Channel requireById(Long id) {
         return channelRepository.findById(id)
                 .orElseThrow(() -> new ai.intellistream.threadorbit.security.ResourceNotFoundException("Channel not found: " + id));
+    }
+
+    /**
+     * Cached channel lookup for the messaging hot path (WebSocket send / typing), where the same
+     * handful of channels are fetched thousands of times a second and the fetch was measurably the
+     * second-largest cost of handling a message.
+     *
+     * <p>Returns a <b>detached</b> entity: read its own columns freely, but don't mutate it (the
+     * entity has no setters, so you can't) and don't touch {@code createdBy}, which stays an
+     * uninitialized lazy proxy. Anything that needs a managed instance — or the lazy association —
+     * must use {@link #requireById}. See {@link ChannelAccessCache} for why caching is sound here.
+     */
+    public Channel requireByIdForMessaging(Long id) {
+        return accessCache.channel(id, this::requireById);
+    }
+
+    /**
+     * {@link #requireWriteAccess} with the membership query served from cache after the first
+     * verified success. Only positives are cached, so a user who has just joined is never wrongly
+     * refused; see {@link ChannelAccessCache}.
+     */
+    public void requireWriteAccessCached(Channel channel, User user) {
+        if (channel.getId() != null && user.getId() != null
+                && accessCache.hasWriteAccess(channel.getId(), user.getId())) {
+            return;
+        }
+        requireWriteAccess(channel, user);
+        if (channel.getId() != null && user.getId() != null) {
+            accessCache.rememberWriteAccess(channel.getId(), user.getId());
+        }
     }
 
     @Transactional(readOnly = true)
@@ -165,6 +198,10 @@ public class ChannelService {
         var messageIds = messageRepository.findIdsByChannel(channel);
         var fileKeys = attachmentRepository.findStorageKeysByChannel(channel);
         channelRepository.delete(channel);
+        var channelId = channel.getId();
+        // Destroy is the one event that can invalidate a cached channel or a cached "may write"
+        // decision — everything else about a channel is immutable and membership is add-only.
+        afterCommit(() -> accessCache.evictChannel(channelId));
         afterCommit(() -> messageIndex.deleteAll(messageIds));
         afterCommit(() -> attachmentService.deleteFiles(fileKeys));
     }

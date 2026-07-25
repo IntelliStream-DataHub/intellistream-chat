@@ -49,6 +49,10 @@ public class MessageService {
     private final ChannelService channelService;
     private final MentionService mentionService;
     private final MessageIndexService messageIndex;
+    private final ai.intellistream.threadorbit.metrics.WritePathMetrics metrics;
+    private final MessageWriteBehind writeBehind;
+    /** Self-proxy, so the dispatcher can enter a {@code @Transactional} method for real. */
+    private final MessageService self;
 
     public MessageService(MessageRepository messageRepository,
                           AttachmentRepository attachmentRepository,
@@ -57,7 +61,13 @@ public class MessageService {
                           AttachmentService attachmentService,
                           ChannelService channelService,
                           MentionService mentionService,
-                          MessageIndexService messageIndex) {
+                          MessageIndexService messageIndex,
+                          ai.intellistream.threadorbit.metrics.WritePathMetrics metrics,
+                          MessageWriteBehind writeBehind,
+                          @org.springframework.context.annotation.Lazy MessageService self) {
+        this.metrics = metrics;
+        this.writeBehind = writeBehind;
+        this.self = self;
         this.messageRepository = messageRepository;
         this.attachmentRepository = attachmentRepository;
         this.reactionRepository = reactionRepository;
@@ -68,19 +78,122 @@ public class MessageService {
         this.messageIndex = messageIndex;
     }
 
-    @Transactional
+    /**
+     * Post a message that is <b>durably stored by the time this returns</b>. This is the safe
+     * default and what every caller should use unless it is the throughput-critical send path:
+     * attachments, polls and reminders all insert rows that reference the message id, and a
+     * foreign key can't point at a row that is still sitting in a write-behind queue.
+     */
     public Message post(Channel channel, User author, String body) {
-        channelService.requireWriteAccess(channel, author);
+        return postWithMentions(channel, author, body).message();
+    }
+
+    /** As {@link #post}, plus the usernames the body mentioned. Durable on return. */
+    public Posted postWithMentions(Channel channel, User author, String body) {
+        validate(body);
+        return self.postPersistent(channel, author, body.trim());
+    }
+
+    /**
+     * The throughput path, for the WebSocket send handler and nothing else.
+     *
+     * <p>Unlike {@link #post}, the row may <b>not</b> be in the database when this returns: with
+     * write-behind enabled it is queued for a batched INSERT a few milliseconds later. The caller
+     * must therefore publish only through {@link Posted#whenDurable}, and must not insert anything
+     * that references the message id. Everything the message needs is either already resolved here
+     * (mentions) or done by the batcher after the commit (broadcast, search indexing).
+     *
+     * <p>Deliberately <b>not</b> {@code @Transactional}: the batched path must not open a
+     * transaction it will never use. It falls back to {@link #postPersistent} when write-behind is
+     * off, when the queue is full, or when the body might need mention rows.
+     *
+     * <p>The mention test is a bare {@code '@'} scan. It's a conservative filter, not a parse: no
+     * {@code '@'} means the mention pattern cannot match, so no {@code message_mentions} row can be
+     * needed, so the message row doesn't have to exist yet for a foreign key to be satisfiable.
+     * A body containing {@code '@'} takes the transactional path even if the handle resolves to
+     * nobody — being occasionally slower is the right way to be wrong here.
+     */
+    public Posted postBuffered(Channel channel, User author, String body) {
+        var lap = metrics.lap();
+        validate(body);
+        channelService.requireWriteAccessCached(channel, author);
+        lap.mark(metrics.accessCheck);
+        var trimmed = body.trim();
+        if (writeBehind.isEnabled() && trimmed.indexOf('@') < 0) {
+            var batched = postBatched(channel, author, trimmed);
+            if (batched != null) {
+                lap.mark(metrics.insert);
+                return batched;
+            }
+            // Queue full — fall through and write it synchronously rather than drop it.
+        }
+        // Through the proxy, so @Transactional actually applies (a plain this.call would not).
+        var posted = self.postPersistent(channel, author, trimmed);
+        lap.mark(metrics.insert);
+        return posted;
+    }
+
+    /**
+     * Accept the message without touching Hibernate: take an id from the pre-allocated block, hand
+     * the row to the write-behind batcher, index it, and return an entity the caller can broadcast.
+     * Returns {@code null} if the batcher couldn't accept it, so the caller can fall back.
+     */
+    private Posted postBatched(Channel channel, User author, String body) {
+        var lap = metrics.lap();
+        var id = writeBehind.nextMessageId();
+        var createdAt = Instant.now();
+        var durability = new Durability();
+        var accepted = writeBehind.enqueue(new MessageWriteBehind.PendingMessage(
+                id, channel.getId(), author.getId(), author.getUsername(), body, createdAt, null,
+                durability));
+        if (!accepted) {
+            return null;
+        }
+        lap.mark(metrics.enqueue);
+        // Indexing is the batcher's job now, after the row commits — the index must never describe
+        // a message the database doesn't have.
+        return new Posted(Message.preAssigned(id, channel, author, body, createdAt), List.of(),
+                durability);
+    }
+
+    /**
+     * The original path: insert, sync mentions, index after commit — all in one transaction. The
+     * returned handle is already durable by the time the caller sees it, because the surrounding
+     * transaction commits as this method returns, so a registered broadcast runs immediately.
+     */
+    @Transactional
+    public Posted postPersistent(Channel channel, User author, String body) {
+        channelService.requireWriteAccessCached(channel, author);
+        var saved = messageRepository.save(new Message(channel, author, body));
+        var mentioned = mentionService.syncMentions(saved, true);
+        indexNow(saved.getId(), channel.getId(), author.getUsername(), saved.getBodyMarkdown());
+        return new Posted(saved, mentioned.stream().map(User::getUsername).toList(),
+                Durability.alreadyCommitted());
+    }
+
+    private static void validate(String body) {
         if (body == null || body.isBlank()) {
             throw new IllegalArgumentException("Message body cannot be empty");
         }
         if (body.length() > 8000) {
             throw new IllegalArgumentException("Message body too long (max 8000 chars)");
         }
-        var saved = messageRepository.save(new Message(channel, author, body.trim()));
-        mentionService.syncMentions(saved);
-        indexNow(saved.getId(), channel.getId(), author.getUsername(), saved.getBodyMarkdown());
-        return saved;
+    }
+
+    /**
+     * A freshly posted message, the usernames its body mentioned, and a handle for work that must
+     * not happen until the row is actually on disk.
+     *
+     * @param durability register the broadcast with {@link Durability#whenDurable}. On the
+     *   transactional path it fires immediately; on the batched path it fires once the batch
+     *   commits, and never at all if the insert failed.
+     */
+    public record Posted(Message message, List<String> mentionedUsernames, Durability durability) {
+
+        /** Do this once the message is durably stored — typically, tell everybody about it. */
+        public void whenDurable(Runnable action) {
+            durability.whenDurable(action);
+        }
     }
 
     @Transactional(readOnly = true)
@@ -192,7 +305,7 @@ public class MessageService {
             throw new IllegalArgumentException("Message body too long (max 8000 chars)");
         }
         var saved = messageRepository.save(new Message(channel, author, body.trim(), parent));
-        mentionService.syncMentions(saved);
+        mentionService.syncMentions(saved, true);
         indexNow(saved.getId(), channel.getId(), author.getUsername(), saved.getBodyMarkdown());
         return saved;
     }

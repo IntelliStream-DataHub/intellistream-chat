@@ -25,7 +25,6 @@ import ai.intellistream.threadorbit.service.MarkdownRenderer;
 import ai.intellistream.threadorbit.web.dto.MessageDto;
 import ai.intellistream.threadorbit.web.dto.MessageEvent;
 import jakarta.servlet.http.HttpServletRequest;
-import org.apache.commons.fileupload2.jakarta.servlet6.JakartaServletFileUpload;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
@@ -69,17 +68,14 @@ public class AttachmentRestController {
     }
 
     /**
-     * Streamed multipart upload. Spring's MultipartResolver is bypassed for this URL
-     * (see {@code MultipartConfig}), so we read the request body chunk by chunk with
-     * Apache Commons FileUpload and pipe the file part directly to disk.
+     * Streamed upload: the file <b>is</b> the request body, and its metadata rides in headers
+     * (see {@link RawUpload}). The bytes go from the socket to the disk without being parsed,
+     * buffered in memory, or staged in a temp file.
      */
     @PostMapping("/api/channels/{channelId}/attachments")
     public MessageDto upload(@PathVariable Long channelId,
                              HttpServletRequest request,
                              Principal principal) throws IOException {
-        if (!JakartaServletFileUpload.isMultipartContent(request)) {
-            throw new IllegalArgumentException("Expected multipart/form-data");
-        }
         var me = currentUser.resolve(principal);
         // 10 uploads per minute per user — well above what real chatting produces.
         if (!rateLimiter.tryAcquire(me.getUsername(), "attachment-upload", 10, java.time.Duration.ofMinutes(1))) {
@@ -87,56 +83,13 @@ public class AttachmentRestController {
         }
         var channel = channelService.requireById(channelId);
         var maxBytes = currentUser.uploadCapBytes(principal);
+        var upload = RawUpload.from(request, true);
 
-        String caption = "";
-        String filename = null;
-        String contentType = null;
-        var savedAttachment = (ai.intellistream.threadorbit.domain.Attachment) null;
-
-        var upload = new JakartaServletFileUpload<>();
-        try {
-            var iter = upload.getItemIterator(request);
-            while (iter.hasNext()) {
-                var item = iter.next();
-                // Once the file is persisted (its @Transactional upload committed), drain any
-                // trailing parts silently. Throwing here would 400 the client AFTER the row
-                // committed, orphaning a ghost message and prompting a retry that duplicates the
-                // upload (N17). Well-formed clients send caption before file, so nothing useful
-                // arrives after it.
-                if (savedAttachment != null) {
-                    item.getInputStream().transferTo(java.io.OutputStream.nullOutputStream());
-                    continue;
-                }
-                if (item.isFormField()) {
-                    if ("caption".equals(item.getFieldName())) {
-                        caption = UploadParts.readSmallField(item);
-                    } else {
-                        // Reject unknown form fields (before any persist) so a client typo (or
-                        // probing) surfaces clearly rather than silently being ignored.
-                        item.getInputStream().transferTo(java.io.OutputStream.nullOutputStream());
-                        throw new IllegalArgumentException("Unknown form field: " + item.getFieldName());
-                    }
-                    continue;
-                }
-                if (!"file".equals(item.getFieldName())) {
-                    item.getInputStream().transferTo(java.io.OutputStream.nullOutputStream());
-                    throw new IllegalArgumentException("Unknown file part: " + item.getFieldName());
-                }
-                filename = item.getName();
-                contentType = item.getContentType();
-                // The service consumes the InputStream and copies straight to disk —
-                // never holds the whole file in memory.
-                savedAttachment = attachmentService.upload(
-                        channel, me, filename, contentType, -1L, maxBytes, caption,
-                        item.getInputStream());
-            }
-        } catch (org.apache.commons.fileupload2.core.FileUploadException e) {
-            throw new IllegalArgumentException("Malformed upload: " + e.getMessage(), e);
-        }
-
-        if (savedAttachment == null) {
-            throw new IllegalArgumentException("File part is required");
-        }
+        // Content-Length lets an over-cap upload be refused before a single byte is written;
+        // the service still enforces the cap while streaming, for clients that under-declare.
+        var savedAttachment = attachmentService.upload(
+                channel, me, upload.filename(), upload.contentType(), upload.declaredLength(),
+                maxBytes, upload.caption(), upload.body());
 
         var message = savedAttachment.getMessage();
         var dto = MessageDto.from(message,

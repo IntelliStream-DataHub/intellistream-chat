@@ -415,7 +415,7 @@ If you co-locate Postgres on the host, keep `PGDATA` under the default `/var/lib
 - **Direct messages** (1:1 and group). DM list lives alongside channels in the sidebar; "Send DM" entry point on every avatar hovercard.
 - **Real-time messaging** over native STOMP-over-WebSocket — messages, edits, deletes, and avatar updates fan out live.
 - **Threaded replies**, **emoji reactions**, **mentions** (`@username`) with per-channel unread + mention badges, **per-user read state**, **typing indicators**, and **message permalinks**.
-- **File attachments** uploaded via streamed multipart (no buffering); image attachments open in a lightbox.
+- **File attachments** uploaded as a raw request body streamed straight to disk — no multipart parsing, no buffering; image attachments open in a lightbox.
 - **Profile pictures** with server-side resize (PNG/JPEG ≤256px), live broadcast on change.
 - **Avatar hovercard** with profile info + "Send direct message" action.
 - **@mention notifications**: in-tab toast plus opportunistic OS notification (Notification API) when permitted.
@@ -459,8 +459,7 @@ If you co-locate Postgres on the host, keep `PGDATA` under the default `/var/lib
 ### Domain libraries
 - **CommonMark 0.22** + GFM-tables and autolink extensions — server-side Markdown rendering (`MarkdownRenderer`)
 - **jsoup 1.18** — HTML sanitization with a tightened `Safelist.basic` after Markdown render
-- **Apache Lucene 10.4** (`core`, `analysis-common`, `queryparser`) — embedded full-text index at `./data/lucene` (`MessageIndexService`); writes are flushed after the surrounding JPA transaction commits. No Postgres `tsvector`, no ILIKE.
-- **Apache Commons FileUpload 2.0** (`jakarta-servlet6` variant) — streaming multipart parser used for avatar / attachment uploads, bypasses Spring's buffering `MultipartResolver`
+- **Apache Lucene 10.5** (`core`, `analysis-common`, `queryparser`) — embedded full-text index at `./data/lucene` (`MessageIndexService`); documents are written after the message row commits, on a dedicated indexer thread. No Postgres `tsvector`, no ILIKE.
 
 ### Frontend
 - Thymeleaf templates + hand-written vanilla JS (no React/Vue/Svelte, no npm bundler)
@@ -767,7 +766,9 @@ To grant a non-admin a higher (or lower) cap:
 2. **Attributes** tab → add an attribute named `chat_max_upload_bytes` with a positive byte count (e.g., `524288000` for 500 MiB), or `-1` for unlimited.
 3. Save. The user's next login picks up the new value via the JWT claim mapper that ships in `keycloak/realm.json`.
 
-Avatars have a separate, hard 5 MiB cap (they're decoded into memory for resize, so the cap is structural rather than configurable). Both endpoints stream chunk-by-chunk via Apache Commons FileUpload so the bytes are never fully buffered.
+Avatars have a separate, hard 5 MiB cap (they're decoded into memory for resize, so the cap is structural rather than configurable).
+
+Uploads are **not** `multipart/form-data`. The file is the raw request body and its metadata rides in headers (`X-Upload-Filename`, `X-Upload-Caption`, both percent-encoded), so the server copies socket → disk without parsing anything. Multipart has to scan every byte looking for the boundary, which caps a transfer well below line rate; the raw-body path moves ~380 MB/s on a loopback benchmark. Browsers send this natively with `fetch(url, {method: 'POST', body: file})`. See `RawUpload`.
 
 Server-side errors are returned as `413 Payload Too Large` with `{ code: "upload_too_large", maxBytes: <bytes> }`; the JS upload UX in `chat.js` / `conversation.js` / `profile.js` renders that as "File too large — your account is capped at N MiB per upload."
 
@@ -883,6 +884,34 @@ src/main/resources/
     └── js/                             # chat, conversation, hovercard, notifications, profile,
                                         # theme-loader, emoji-data + vendor/{stomp,highlight}
 ```
+
+## Performance
+
+Measured on one 12-core / 31 GB box with the load generator running **on the same machine**, so
+these are floors rather than ceilings. Full method and analysis in
+[`scalability.md`](scalability.md); the harness is in [`benchmark/`](benchmark/).
+
+| | |
+|---|---|
+| Messages persisted + delivered | **~17,000 / second**, ~20 ms median end-to-end |
+| Fan-out into 50-member rooms | **~136,000 deliveries / second**, 0 dropped |
+| Concurrent WebSocket connections | **10k** comfortably · ~70k at the memory wall |
+| Attachment upload | **~380 MB/s** (~3 Gbps) single stream |
+
+Two things are worth knowing if you fork this:
+
+- **The write path is batched, and broadcast waits for the commit.** `MessageWriteBehind`
+  pre-allocates message ids and inserts rows in batches; a message is broadcast and indexed only
+  *after* its batch commits, so nobody is ever shown a message that then failed to persist. Queues
+  are sharded by channel, so per-channel ordering holds. The sender doesn't wait for any of it — the
+  composer renders an optimistic bubble and reconciles it when the broadcast arrives. The trade is a
+  small durability window (one flush interval, ~5 ms) on an abrupt kill, for messages nobody saw.
+  On by default; `threadorbit.write-behind.enabled=false` restores commit-per-message.
+- **Server concurrency is explicit.** `WebSocketConfig` sets the STOMP channel executors
+  unconditionally, and `StompChannelDiagnostics` logs them at startup. This is not incidental: a
+  mis-wired executor once put every inbound message on a single thread and capped the whole server
+  at ~109 messages/second, with nothing in any metric pointing at the cause. Check that log line
+  before trusting a throughput number.
 
 ## Roadmap (still open)
 

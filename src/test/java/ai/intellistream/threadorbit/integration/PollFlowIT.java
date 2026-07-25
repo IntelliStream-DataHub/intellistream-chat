@@ -113,7 +113,9 @@ class PollFlowIT {
         currentUser = mock(CurrentUser.class);
         broker = mock(SimpMessagingTemplate.class);
         wsController = new ChatWebSocketController(channels, messages, markdown, currentUser,
-                broker, new RateLimiter(), mentionRepo, slashCommands, pollService);
+                broker, new RateLimiter(), mentionRepo, slashCommands, pollService,
+                new ai.intellistream.threadorbit.metrics.WritePathMetrics(
+                        new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
         pollController = new PollRestController(pollService, pollRepo, channels, currentUser,
                 broker, new RateLimiter());
     }

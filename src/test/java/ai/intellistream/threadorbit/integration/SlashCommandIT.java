@@ -127,7 +127,9 @@ class SlashCommandIT {
         // runOnce(future-now) would otherwise pick up alongside the new test's queue.
         reminderRepo.deleteAll();
         controller = new ChatWebSocketController(channels, messages, markdown, currentUser,
-                broker, new RateLimiter(), mentionRepo, slashCommands, pollService);
+                broker, new RateLimiter(), mentionRepo, slashCommands, pollService,
+                new ai.intellistream.threadorbit.metrics.WritePathMetrics(
+                        new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
     }
 
     private User newUser(String prefix) {

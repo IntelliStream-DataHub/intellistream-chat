@@ -742,9 +742,82 @@ presenceMenu.init();
       });
     };
 
+    // ---- Optimistic send ------------------------------------------------------------------
+    // The server broadcasts a message only after its row commits, so there is a short window
+    // between hitting enter and seeing it. Rather than make the sender wait on it, draw the
+    // bubble immediately in a "sending" state and reconcile when the broadcast arrives. The
+    // placeholder carries a synthetic id ("pending:<clientId>") so it goes through exactly the
+    // same render path as a real message and can't drift from it visually.
+    const PENDING_TIMEOUT_MS = 12000;
+    const pendingSends = new Map(); // clientId -> timeout handle
+
+    const newClientId = () => (crypto.randomUUID
+      ? crypto.randomUUID()
+      : 'c' + Date.now() + Math.random().toString(36).slice(2));
+
+    const pendingIdFor = (clientId) => 'pending:' + clientId;
+
+    const escapeHtml = (s) => s.replace(/[&<>"']/g, (c) => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+    const markPendingSend = (clientId, body) => {
+      appendMessage({
+        id: pendingIdFor(clientId),
+        channelId: activeChannelId,
+        authorUsername: myUsername,
+        authorDisplayName: meta('me-display') || myUsername,
+        authorHasAvatar: meta('me-has-avatar') === 'true',
+        authorAvatarVersion: Number(meta('me-avatar-version') || 0),
+        bodyMarkdown: body,
+        // Plain-text stand-in: the real Markdown render happens server-side and replaces this
+        // the moment the broadcast lands. Escaped, because it goes in via innerHTML.
+        bodyHtml: '<p>' + escapeHtml(body) + '</p>',
+        createdAt: new Date().toISOString(),
+        attachments: [], reactions: [], mentions: [], replyCount: 0, poll: null,
+      });
+      const li = findMessageEl(pendingIdFor(clientId));
+      if (li) li.classList.add('sending');
+      pendingSends.set(clientId, setTimeout(() => failPendingSend(clientId), PENDING_TIMEOUT_MS));
+    };
+
+    // Never confirmed. Leave the text on screen — losing what someone typed is worse than
+    // showing it as failed — mark it, and offer a way out that isn't "type it again".
+    const failPendingSend = (clientId) => {
+      clearTimeout(pendingSends.get(clientId));
+      pendingSends.delete(clientId);
+      const li = findMessageEl(pendingIdFor(clientId));
+      if (!li || li.querySelector('.message-retry')) return;
+      li.classList.remove('sending');
+      li.classList.add('send-failed');
+
+      const retry = document.createElement('button');
+      retry.type = 'button';
+      retry.className = 'message-retry';
+      retry.textContent = 'Retry';
+      // Named for assistive tech, which doesn't get the surrounding "not delivered" cue.
+      retry.setAttribute('aria-label', 'Resend this message');
+      retry.addEventListener('click', () => {
+        // Fresh clientId: the old one is spent, and if the original send is still in flight
+        // somewhere its late arrival must not retire the new bubble.
+        const body = li.dataset.bodyMarkdown || '';
+        li.remove();
+        if (body) sendChannelMessage(body);
+      });
+      li.querySelector('.message-body')?.append(retry);
+    };
+
+    const resolvePendingSend = (clientId) => {
+      if (!clientId || !pendingSends.has(clientId)) return;
+      clearTimeout(pendingSends.get(clientId));
+      pendingSends.delete(clientId);
+      removeMessageDom(pendingIdFor(clientId));
+    };
+
     const handleMessageEvent = (event) => {
       if (!event || !event.type) return;
       if (event.type === 'created') {
+        // Retire our placeholder before the real one is appended, so the two never coexist.
+        resolvePendingSend(event.clientId);
         if (event.parentId) {
           appendThreadReply(event.message);
           bumpThreadIndicator(event.parentId, +1);
@@ -845,11 +918,21 @@ presenceMenu.init();
     }
     async function sendChannelMessage(body) {
       if (await awaitConnected(800)) {
+        // Optimistic echo. The server now broadcasts only once the message is durably stored, so
+        // without this the sender stares at an empty composer for the round trip. Draw the bubble
+        // straight away in a "sending" state and let the broadcast retire it — the clientId is how
+        // we recognise our own message coming back, which body text can't do once someone sends
+        // the same line twice.
+        const clientId = newClientId();
+        markPendingSend(clientId, body);
         try {
           stomp.publish({ destination: '/app/channels/' + activeChannelId + '/send',
-                          body: JSON.stringify({ body }) });
+                          body: JSON.stringify({ body, clientId }) });
           return true;
-        } catch (err) { console.warn('[chat] STOMP publish failed, trying HTTP', err); }
+        } catch (err) {
+          failPendingSend(clientId);
+          console.warn('[chat] STOMP publish failed, trying HTTP', err);
+        }
       }
       if (body.startsWith('/')) {
         alert('Not connected — reconnecting. Please try that command again in a moment.');
@@ -1000,17 +1083,19 @@ presenceMenu.init();
         if (tray && pending.size === 0) tray.hidden = true;
       };
       async function uploadAttachment(file, caption) {
-        const fd = new FormData();
-        // Caption BEFORE file: the server streams the file part straight to disk as it's read, so
-        // a caption arriving after the file part was being dropped (N17).
-        if (caption) fd.append('caption', caption);
-        fd.append('file', file);
+        // Raw-body upload: the File itself is the request body, so the browser streams it and the
+        // server copies socket -> disk. Multipart would wrap it in boundaries that the server then
+        // has to scan for byte by byte, which is what used to cap upload speed. Filename and
+        // caption travel as percent-encoded headers (header values are ISO-8859-1, so anything
+        // non-ASCII has to be encoded).
         const h = headers();
-        delete h['Content-Type']; // let the browser set the multipart boundary
+        h['Content-Type'] = file.type || 'application/octet-stream';
+        h['X-Upload-Filename'] = encodeURIComponent(file.name);
+        if (caption) h['X-Upload-Caption'] = encodeURIComponent(caption);
         const res = await fetch('/api/channels/' + activeChannelId + '/attachments', {
           method: 'POST',
           headers: h,
-          body: fd,
+          body: file,
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({ error: res.statusText }));

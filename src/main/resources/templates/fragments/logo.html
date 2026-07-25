@@ -3,10 +3,14 @@
 <body>
 <!--/*
   The app logo mark. When an admin has uploaded a custom logo it renders as a plain <img>.
-  Otherwise the bundled "Reply Orbit" mark is INLINED so its fills can ride the active
+  Otherwise the bundled "Thread in orbit" mark is INLINED so its fills can ride the active
   theme's CSS variables (an SVG loaded via <img> is an isolated document and can't see
   them) — each theme recolors the mark. Styling + the orbit animation live in app.css
   (.to-logo-* / .to-orbit).
+
+  The mark: a solid core (the root message), a faint ring (the path a conversation travels),
+  and a bold arc sweeping round it with an accent bead at its leading tip (the newest reply).
+  Kept to four shapes so the silhouette survives being shrunk to a topbar icon.
   Usage: <th:block th:replace="~{fragments/logo :: mark('logo-mark')}"/>
 */-->
 <th:block th:fragment="mark(cls)">
@@ -14,16 +18,13 @@
     <svg th:unless="${appHasCustomLogo}" th:class="${cls}" viewBox="0 0 64 64" role="img"
          aria-label="Logo" xmlns="http://www.w3.org/2000/svg">
         <title th:text="${appTitle}">ThreadOrbit</title>
-        <circle class="to-logo-ring" cx="32" cy="32" r="26" fill="none" stroke-width="1.7"/>
-        <rect class="to-logo-bubble" x="18" y="21.5" width="28" height="20" rx="7"/>
-        <path class="to-logo-bubble" d="M25.5 40.5 L21 48.5 L31 41.5 Z"/>
-        <circle class="to-logo-dot" cx="25.5" cy="31.5" r="2.1"/>
-        <circle class="to-logo-dot" cx="32" cy="31.5" r="2.1"/>
-        <circle class="to-logo-dot" cx="38.5" cy="31.5" r="2.1"/>
+        <circle class="to-logo-ring" cx="32" cy="32" r="23" fill="none" stroke-width="1.5"/>
         <g class="to-orbit">
-            <rect class="to-logo-sat" x="27" y="2.5" width="10" height="7.5" rx="3"/>
-            <circle class="to-logo-sat-2" cx="32" cy="58" r="3"/>
+            <path class="to-logo-thread" d="M 32 55 A 23 23 0 1 1 55 32" fill="none"
+                  stroke-width="5" stroke-linecap="round"/>
+            <circle class="to-logo-bead" cx="55" cy="32" r="5"/>
         </g>
+        <circle class="to-logo-core" cx="32" cy="32" r="8.5"/>
     </svg>
 </th:block>
 </body>

@@ -14,6 +14,7 @@ Quick starts: `QUICKSTART-COMPOSE.md` (containers) · `QUICKSTART-MANUAL.md` (na
 - **Thymeleaf + vanilla JS only.** No React/Vue/Svelte, no npm bundler. StompJS and highlight.js are vendored under `static/js/vendor/`; everything else is hand-written.
 - **UI font: Figtree** (SIL OFL), self-hosted as variable woff2 under `static/fonts/` — the CSP (`font-src 'self'`) bans font CDNs, so never link fonts.googleapis.com; vendor new fonts the same way.
 - **CommonMark + jsoup** for Markdown rendering and sanitization.
+- **Uploads are raw request bodies, not multipart.** The file is the body; filename/caption are percent-encoded `X-Upload-*` headers (`RawUpload`). Multipart's boundary scan capped throughput well below line rate, so `commons-fileupload` is gone — don't reintroduce it. Spring's own multipart support is still used for the admin branding form.
 - **Embedded Apache Lucene** for full-text search, on disk at `./data/lucene`. No ILIKE, no Postgres `tsvector`.
 
 ## Common commands
@@ -102,6 +103,12 @@ Several autoconfigurations that lived inside `spring-boot-autoconfigure` in 3.x 
 - **Sidebar.** `SidebarService.sidebarFor(user)` returns public channels ∪ joined channels, sorted joined-first then by name. Each entry carries `joined` and `admin` flags. The right-side `<aside class="sidebar">` in `channels.html` renders this.
 - **WebSocket destinations.** Send to `/app/channels/{id}/send`, subscribe to `/topic/channels/{id}`. The server persists, renders Markdown, then broadcasts the `MessageDto`.
 - **Open-in-view is off** (`spring.jpa.open-in-view=false`). Touch lazy associations inside `@Transactional` boundaries on the service, never in the controller.
+- **The STOMP channel executors are load-bearing.** `WebSocketConfig` sets them *unconditionally* via `registration.executor(...)`, with sizes constructor-injected (not `@Value` fields — those can be unset when the configurer callback runs). A missing inbound executor silently lands every `@MessageMapping` on the single-threaded heartbeat scheduler, which caps the whole server at one message in flight. `StompChannelDiagnostics` logs the resolved executors at startup; check that line before trusting any throughput number. See `scalability.md`.
+- **The message send path is the hot path** and is deliberately query-free: the domain `User` comes from the STOMP session (cached at CONNECT by `StompAuthorizationConfig`), the channel and write-access decision from `ChannelAccessCache`, and mentions from what `syncMentions` already resolved. If you add work to `ChatWebSocketController.send` or `MessageService.postWithMentions`, check `benchmark/write-stages.sh` afterwards.
+- **`ChannelAccessCache` is safe only because of two invariants:** `Channel` has no setters, and channel membership is add-only (nothing removes a member short of deleting the channel). Only *positive* access decisions are cached. If you ever add a leave/kick path, call `evictMember` from it.
+- **Write-behind INSERT batching is on by default** (`MessageWriteBehind`, `threadorbit.write-behind.enabled`). Ids are pre-allocated from `messages_id_seq`; rows are batch-inserted a few ms later by flushers **sharded by channel** (so per-channel order holds). A message is broadcast and indexed **only after its batch commits** — never publish from the accept path, or a failed INSERT becomes a message everyone saw and nobody has. Register post-commit work via `Posted.whenDurable`. Bodies containing `@` take the transactional path (mention rows need the FK).
+- **`post`/`postWithMentions` are durable on return; `postBuffered` is not.** Anything that inserts a row referencing the message (attachments, polls, reminders) must use the former. `postBuffered` is the WebSocket send path only.
+- **The composer renders sent messages optimistically.** Since broadcast waits for the commit, the sender's own message is drawn immediately in a `sending` state and reconciled when the broadcast returns, matched on a `clientId` round-tripped through `SendMessageRequest` → `MessageEvent`. Don't match echoes on body text — duplicates break it.
 
 ## Testing
 

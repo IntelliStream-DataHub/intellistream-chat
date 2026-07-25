@@ -553,15 +553,18 @@
       }
 
       for (const f of files) {
-        const fd = new FormData();
-        fd.append('file', f);
         try {
-          const headersOut = {};
+          // Raw-body upload — the File is the request body, streamed straight through to disk.
+          // See the channel uploader in chat/index.js for why this isn't multipart.
+          const headersOut = {
+            'Content-Type': f.type || 'application/octet-stream',
+            'X-Upload-Filename': encodeURIComponent(f.name),
+          };
           if (csrfToken && csrfHeader) headersOut[csrfHeader] = csrfToken;
           const res = await fetch('/api/conversations/' + conversationId + '/attachments', {
             method: 'POST',
             headers: headersOut,
-            body: fd,
+            body: f,
           });
           if (!res.ok) {
             const err = await res.json().catch(() => ({ error: res.statusText }));

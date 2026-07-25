@@ -69,6 +69,21 @@ public class Message {
         this.bodyMarkdown = bodyMarkdown;
     }
 
+    /**
+     * Build a message that already knows its primary key and creation instant, for the write-behind
+     * post path: the id is drawn from the table's sequence up front so the message can be
+     * broadcast, indexed and returned to the sender immediately, while the row itself is written a
+     * few milliseconds later as part of a batch. The instance is never handed to Hibernate — see
+     * {@code MessageWriteBehind}.
+     */
+    public static Message preAssigned(Long id, Channel channel, User author, String bodyMarkdown,
+                                      Instant createdAt) {
+        var message = new Message(channel, author, bodyMarkdown);
+        message.id = id;
+        message.createdAt = createdAt;
+        return message;
+    }
+
     public Message(Channel channel, User author, String bodyMarkdown, Message parent) {
         this(channel, author, bodyMarkdown);
         this.parent = parent;

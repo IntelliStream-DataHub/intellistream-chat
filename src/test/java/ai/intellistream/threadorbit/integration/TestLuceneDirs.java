@@ -42,5 +42,7 @@ final class TestLuceneDirs {
         // Synchronous indexing in tests: a posted message is immediately searchable + committed,
         // so post-then-search assertions stay deterministic (prod defaults to async/batched).
         registry.add("threadorbit.search.async-indexing", () -> "false");
+        // Write-behind is switched off for the whole test source set in
+        // src/test/resources/application.properties — see the reasoning there.
     }
 }

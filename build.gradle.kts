@@ -58,7 +58,6 @@ dependencies {
 
     // Streaming multipart parser (used for attachment uploads; bypasses Spring's MultipartResolver
     // for the upload endpoint so we never buffer the file).
-    implementation("org.apache.commons:commons-fileupload2-jakarta-servlet6:2.0.0-M2")
 
     // Apache Tika for MIME sniffing on attachment uploads. tika-core only — the full
     // distribution drags in PDFBox, POI, and a half-dozen other parsers we don't need

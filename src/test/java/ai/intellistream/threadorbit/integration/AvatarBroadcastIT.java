@@ -47,12 +47,12 @@ import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.Principal;
 import java.util.Comparator;
-import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -68,8 +68,8 @@ import static org.mockito.Mockito.when;
  * Verifies that avatar uploads and clears fan out a {@link UserEvent} on
  * {@code /topic/users} so connected clients refresh in-flight without a reload.
  * The {@link SimpMessagingTemplate} is mocked — Spring's broker plumbing is
- * framework code we don't need to retest. Everything below it (the multipart
- * parser, the file write, the user-row update) runs for real.
+ * framework code we don't need to retest. Everything below it (the raw-body upload
+ * reader, the file write, the user-row update) runs for real.
  */
 @Testcontainers
 @SpringBootTest(
@@ -138,7 +138,7 @@ class AvatarBroadcastIT {
     void uploadBroadcastsAvatarUpdated() throws IOException {
         var alice = newUser("alice");
         when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
-        var request = multipartRequest("file", "avatar.png", "image/png", pngBytes(64, 64, Color.BLUE));
+        var request = uploadRequest("avatar.png", "image/png", pngBytes(64, 64, Color.BLUE));
 
         var response = controller.upload(request, mock(Principal.class));
 
@@ -181,7 +181,7 @@ class AvatarBroadcastIT {
 
         // Force a measurable gap so the new avatar_updated_at timestamp differs.
         sleepMs(5);
-        var request = multipartRequest("file", "avatar.png", "image/png", pngBytes(48, 48, Color.YELLOW));
+        var request = uploadRequest("avatar.png", "image/png", pngBytes(48, 48, Color.YELLOW));
         controller.upload(request, mock(Principal.class));
 
         var captor = ArgumentCaptor.forClass(UserEvent.class);
@@ -194,7 +194,7 @@ class AvatarBroadcastIT {
     void rejectedUploadDoesNotBroadcast() {
         var alice = newUser("rejected");
         when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
-        var request = multipartRequest("file", "evil.txt", "text/plain", "definitely not an image".getBytes());
+        var request = uploadRequest("evil.txt", "text/plain", "definitely not an image".getBytes());
 
         assertThatThrownBy(() -> controller.upload(request, mock(Principal.class)))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -209,14 +209,14 @@ class AvatarBroadcastIT {
 
         // 5/min cap in the controller — sixth request should be refused before the broadcast.
         for (int i = 0; i < 5; i++) {
-            var ok = multipartRequest("file", "ok.png", "image/png", pngBytes(32, 32, Color.GRAY));
+            var ok = uploadRequest("ok.png", "image/png", pngBytes(32, 32, Color.GRAY));
             try {
                 controller.upload(ok, mock(Principal.class));
             } catch (IOException e) {
                 throw new AssertionError(e);
             }
         }
-        var sixth = multipartRequest("file", "over.png", "image/png", pngBytes(32, 32, Color.GRAY));
+        var sixth = uploadRequest("over.png", "image/png", pngBytes(32, 32, Color.GRAY));
 
         assertThatThrownBy(() -> controller.upload(sixth, mock(Principal.class)))
                 .isInstanceOf(ai.intellistream.threadorbit.security.RateLimitExceededException.class);
@@ -234,30 +234,18 @@ class AvatarBroadcastIT {
                 "Cast " + n));
     }
 
-    private static MockHttpServletRequest multipartRequest(String fieldName, String filename,
-                                                            String contentType, byte[] data) {
-        var boundary = "----TestBoundary" + UUID.randomUUID();
-        var body = buildMultipartBody(boundary, fieldName, filename, contentType, data);
+    /**
+     * Build a raw-body upload: the bytes <em>are</em> the request body and the metadata rides in
+     * headers. This is the wire format the endpoint takes now — no multipart wrapper to build,
+     * which is rather the point of the change.
+     */
+    private static MockHttpServletRequest uploadRequest(String filename, String contentType,
+                                                        byte[] data) {
         var req = new MockHttpServletRequest("POST", "/api/profile/avatar");
-        req.setContentType("multipart/form-data; boundary=" + boundary);
-        req.setContent(body);
+        req.setContentType(contentType);
+        req.addHeader("X-Upload-Filename", URLEncoder.encode(filename, StandardCharsets.UTF_8));
+        req.setContent(data);
         return req;
-    }
-
-    private static byte[] buildMultipartBody(String boundary, String fieldName, String filename,
-                                              String contentType, byte[] data) {
-        var out = new ByteArrayOutputStream();
-        try {
-            out.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
-            out.write(("Content-Disposition: form-data; name=\"" + fieldName
-                    + "\"; filename=\"" + filename + "\"\r\n").getBytes(StandardCharsets.UTF_8));
-            out.write(("Content-Type: " + contentType + "\r\n\r\n").getBytes(StandardCharsets.UTF_8));
-            out.write(data);
-            out.write(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
-        } catch (IOException e) {
-            throw new UncheckedIOException(e);
-        }
-        return out.toByteArray();
     }
 
     private static byte[] pngBytes(int w, int h, Color colour) {

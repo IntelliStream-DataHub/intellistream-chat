@@ -45,7 +45,8 @@ class ChannelServiceUnitTest {
                 mock(ai.intellistream.threadorbit.repository.MessageRepository.class),
                 mock(ai.intellistream.threadorbit.repository.AttachmentRepository.class),
                 mock(ai.intellistream.threadorbit.search.MessageIndexService.class),
-                mock(ai.intellistream.threadorbit.service.AttachmentService.class));
+                mock(ai.intellistream.threadorbit.service.AttachmentService.class),
+                new ai.intellistream.threadorbit.service.ChannelAccessCache(60, 1024));
         var creator = new User("sub", "alice", "a@e", "Alice");
 
         var channel = service.create("  Hello, World!  ", "description", ChannelType.PUBLIC, creator);
@@ -66,7 +67,8 @@ class ChannelServiceUnitTest {
                 mock(ai.intellistream.threadorbit.repository.MessageRepository.class),
                 mock(ai.intellistream.threadorbit.repository.AttachmentRepository.class),
                 mock(ai.intellistream.threadorbit.search.MessageIndexService.class),
-                mock(ai.intellistream.threadorbit.service.AttachmentService.class));
+                mock(ai.intellistream.threadorbit.service.AttachmentService.class),
+                new ai.intellistream.threadorbit.service.ChannelAccessCache(60, 1024));
         var creator = new User("sub", "alice", "a@e", "Alice");
 
         assertThatThrownBy(() -> service.create("!!!", null, ChannelType.PUBLIC, creator))

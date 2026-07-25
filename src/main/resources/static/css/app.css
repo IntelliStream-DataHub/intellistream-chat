@@ -212,7 +212,7 @@ input:focus, textarea:focus, select:focus {
 .landing main {
   text-align: center;
   padding: 2.5rem 2rem;
-  max-width: 520px;
+  max-width: 640px;
 }
 .landing h1 {
   font-size: 3.4rem;
@@ -236,6 +236,46 @@ input:focus, textarea:focus, select:focus {
   margin: 0.8rem 0;
   font-size: var(--fs-base);
   line-height: 1.5;
+}
+.landing-lede {
+  font-size: 1.15rem;
+  max-width: 34rem;
+  margin-inline: auto;
+}
+/* Feature list: left-aligned inside a centred column. Centring the text as well would make each
+   line start at a different x and the list would read as four unrelated fragments. */
+.landing-features {
+  list-style: none;
+  margin: 2rem auto 0;
+  padding: 0;
+  max-width: 34rem;
+  text-align: left;
+  display: grid;
+  gap: 0.85rem;
+  color: var(--sb-muted);
+  line-height: 1.5;
+}
+.landing-features li {
+  padding-left: 1.4rem;
+  position: relative;
+}
+.landing-features li::before {
+  /* A small orbit bead, echoing the logo's accent. */
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.55em;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: #f59e0b;
+}
+.landing-features strong { color: var(--sb-text); font-weight: 600; }
+.landing-features code {
+  font-size: 0.9em;
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.09);
 }
 /* Action row: the trailing <p> wraps the Sign in / Create account buttons. Pull it down
    from the description above and give the buttons their own gap + a bit of vertical room. */
@@ -332,15 +372,17 @@ input:focus, textarea:focus, select:focus {
    tokens, so every theme recolors it: bubble + satellite take --sb-active, the typing dots
    take --sb-active-text (the theme's on-accent contrast color), and the ring/second
    satellite use currentColor so they adapt to dark topbar vs light panels. */
-.to-logo-ring  { stroke: currentColor; opacity: 0.45; }
-.to-logo-bubble { fill: var(--sb-active); }
-.to-logo-dot   { fill: var(--sb-active-text); }
-.to-logo-sat   { fill: var(--sb-active); }
-.to-logo-sat-2 { fill: currentColor; opacity: 0.7; }
+/* "Thread in orbit" mark — see templates/fragments/logo.html. The core and the sweeping thread
+   take the active theme's accent so the mark recolours per theme; the bead keeps a fixed amber so
+   the one spot of contrast that makes the mark recognisable survives every theme. */
+.to-logo-ring   { stroke: currentColor; opacity: 0.3; }
+.to-logo-thread { stroke: var(--sb-active); }
+.to-logo-core   { fill: var(--sb-active); }
+.to-logo-bead   { fill: #f59e0b; }
 .to-orbit {
   transform-origin: 32px 32px;
   transform-box: view-box;
-  animation: to-orbit-spin 10s linear infinite;
+  animation: to-orbit-spin 12s linear infinite;
 }
 @keyframes to-orbit-spin {
   to { transform: rotate(360deg); }
@@ -2217,6 +2259,80 @@ body.lightbox-open { overflow: hidden; }
    Message hover toolbar + inline edit
    =========================================================== */
 .message { position: relative; }
+
+/* ---------- Optimistic send ----------
+   A message the sender has submitted but the server hasn't confirmed yet. Broadcasts wait for the
+   database commit, so this is normally on screen for a few tens of milliseconds — long enough to
+   feel instant, short enough that the state must not be loud. Dimming plus a small pulsing dot is
+   the whole treatment: a spinner or a banner would draw more attention than the situation
+   deserves and would flash distractingly on every single message. */
+/* The status marker hangs off .message-body, not .message-meta: consecutive messages from the
+   same author are ".grouped" and hide their meta line entirely, which is precisely the case where
+   someone fires off several messages in a row and most wants to see them land. */
+.message.sending {
+  opacity: 0.62;
+}
+.message.sending .message-body::after {
+  content: "";
+  display: inline-block;
+  width: 0.42rem;
+  height: 0.42rem;
+  margin-left: 0.45rem;
+  vertical-align: middle;
+  border-radius: 50%;
+  background: var(--sb-muted);
+  animation: message-sending-pulse 1s ease-in-out infinite;
+}
+@keyframes message-sending-pulse {
+  0%, 100% { opacity: 0.25; }
+  50%      { opacity: 1; }
+}
+/* Failed sends keep their text at full strength — losing what someone typed is worse than
+   showing it as undelivered. */
+.message.send-failed {
+  opacity: 1;
+}
+.message.send-failed .message-body {
+  border-left: 2px solid var(--danger);
+  padding-left: 0.6rem;
+}
+.message.send-failed .message-body::after {
+  content: "not delivered";
+  margin-left: 0.5rem;
+  font-size: 0.78em;
+  color: var(--danger);
+}
+/* Retry sits quiet until you reach for it. Faded rather than hidden, so it stays in the tab order
+   and is reachable without a mouse — visibility:hidden would take it out of the a11y tree, which
+   is the wrong trade for the only control that recovers a lost message. */
+.message-retry {
+  margin-left: 0.5rem;
+  padding: 0.05rem 0.45rem;
+  font: inherit;
+  font-size: 0.78em;
+  color: var(--danger);
+  background: transparent;
+  border: 1px solid var(--danger);
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease-in-out;
+}
+.message.send-failed:hover .message-retry,
+.message-retry:focus-visible {
+  opacity: 1;
+}
+.message-retry:hover {
+  background: var(--danger-soft);
+}
+@media (hover: none) {
+  /* Touch has no hover — a control you can never reveal is a control that doesn't exist. */
+  .message-retry { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .message.sending .message-body::after { animation: none; opacity: 0.7; }
+}
+
 .message-actions {
   position: absolute;
   top: -10px;

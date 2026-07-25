@@ -16,45 +16,18 @@
 
 package ai.intellistream.threadorbit.web;
 
-import org.apache.commons.fileupload2.core.FileItemInput;
 import org.springframework.http.MediaType;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-
 /**
- * Multipart-upload helpers shared by the channel and DM attachment endpoints.
- * Both endpoints use {@code commons-fileupload2} and need the same form-field
- * + content-type plumbing; one home for it avoids drift.
+ * Download-side helpers shared by the channel and DM attachment endpoints.
+ *
+ * <p>The upload side used to live here too, back when both endpoints parsed
+ * {@code multipart/form-data} with {@code commons-fileupload2}. Uploads now arrive as a raw
+ * request body — see {@link RawUpload} for why — so all that remains is serving stored files back.
  */
 public final class UploadParts {
 
-    private static final int MAX_FORM_FIELD_BYTES = 8192;
-
     private UploadParts() {}
-
-    /**
-     * Read a small text form-field (e.g. a caption). Errors out if the field exceeds
-     * {@value #MAX_FORM_FIELD_BYTES} bytes — these aren't binary uploads, so anything
-     * larger is almost certainly a misconfigured client.
-     */
-    public static String readSmallField(FileItemInput item) throws IOException {
-        // Accumulate the raw bytes and decode once at the end. Decoding each read chunk
-        // independently corrupted any multi-byte UTF-8 character that straddled a 1 KiB read
-        // boundary (→ U+FFFD), and compared char-length against a byte limit (N16).
-        var out = new java.io.ByteArrayOutputStream();
-        var buf = new byte[1024];
-        try (var in = item.getInputStream()) {
-            int n;
-            while ((n = in.read(buf)) != -1) {
-                out.write(buf, 0, n);
-                if (out.size() > MAX_FORM_FIELD_BYTES) {
-                    throw new IllegalArgumentException("Form field too long");
-                }
-            }
-        }
-        return out.toString(StandardCharsets.UTF_8);
-    }
 
     /**
      * Parse a Content-Type string defensively; fall back to {@code application/octet-stream}

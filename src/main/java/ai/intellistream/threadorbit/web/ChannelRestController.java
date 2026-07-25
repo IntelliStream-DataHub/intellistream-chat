@@ -259,10 +259,11 @@ public class ChannelRestController {
             throw new RateLimitExceededException("send rate exceeded");
         }
         var channel = channelService.requireById(id);
-        var saved = messageService.post(channel, me, body.body());
+        var posted = messageService.postWithMentions(channel, me, body.body());
+        var saved = posted.message();
         var dto = MessageDto.from(saved, markdown.render(saved.getBodyMarkdown()),
                 List.of(), List.of(), 0L,
-                mentionRepository.usernamesByMessage(saved), null);
+                posted.mentionedUsernames(), null);
         // Broadcast on the channel topic so connected clients see the message live and fire their
         // @mention notifications — mirroring the WS send path (N6). Without this, a message posted
         // via HTTP was invisible until reload.

@@ -136,13 +136,15 @@
     setStatus('Uploading…');
     // Don't preview optimistically — a rejected upload (bad MIME, 413) would leave the new
     // picture showing beside the error, misrepresenting the saved state. Swap only on success.
-    const fd = new FormData();
-    fd.append('file', file);
     try {
+      // Raw-body upload — the File is the request body (see chat/index.js for the rationale).
+      const h = csrfHeaders();
+      h['Content-Type'] = file.type || 'application/octet-stream';
+      h['X-Upload-Filename'] = encodeURIComponent(file.name);
       const res = await fetch('/api/profile/avatar', {
         method: 'POST',
-        headers: csrfHeaders(),
-        body: fd,
+        headers: h,
+        body: file,
       });
       if (!res.ok && res.status !== 204) {
         const err = await res.json().catch(() => ({ message: res.statusText }));

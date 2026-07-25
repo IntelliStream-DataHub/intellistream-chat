@@ -15,6 +15,10 @@
     <meta name="me-is-workspace-admin" sec:authorize="hasRole('ADMIN')" content="true"/>
     <meta name="me-username" th:content="${me.username}"/>
     <meta name="me-display" th:content="${me.displayName}"/>
+    <!-- Read by the optimistic-send placeholder so the bubble it draws before the server
+         confirms carries the same avatar as the real message that replaces it. -->
+    <meta name="me-has-avatar" th:content="${me.hasAvatar() ? 'true' : 'false'}"/>
+    <meta name="me-avatar-version" th:content="${me.avatarVersion()}"/>
     <meta name="active-channel-id" th:content="${activeChannelId}"/>
     <meta name="centered-on-anchor" th:content="${centeredOnAnchor != null and centeredOnAnchor ? 'true' : 'false'}"/>
     <meta name="anchor-message-id" th:content="${anchorMessageId}"/>

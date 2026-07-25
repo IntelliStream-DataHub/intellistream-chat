@@ -92,6 +92,13 @@ public class MessageIndexService {
             new java.util.concurrent.atomic.AtomicBoolean(false);
 
     public MessageIndexService(String dir, boolean async) {
+        this(dir, async, DEFAULT_RAM_BUFFER_MB);
+    }
+
+    /** Default in-memory buffer before the writer flushes a segment. Lucene's own default is 16 MB. */
+    static final double DEFAULT_RAM_BUFFER_MB = 256;
+
+    public MessageIndexService(String dir, boolean async, double ramBufferMb) {
         this.async = async;
         var path = Path.of(dir);
         try {
@@ -99,6 +106,21 @@ public class MessageIndexService {
             this.directory = FSDirectory.open(path);
             var config = new IndexWriterConfig(analyzer);
             config.setOpenMode(IndexWriterConfig.OpenMode.CREATE_OR_APPEND);
+            // A chat firehose indexes small documents very fast, and Lucene's 16 MB default buffer
+            // turns that into a stream of tiny segments — which the merge scheduler then spends
+            // real CPU rewriting (decompressing and re-writing stored fields) almost as fast as
+            // they appear. A large buffer means fewer, bigger segments and far less merge traffic.
+            // The cost is heap held by the writer and a longer rebuild of anything not yet
+            // committed, which is bounded by the periodic commit below.
+            config.setRAMBufferSizeMB(ramBufferMb);
+            config.setMaxBufferedDocs(IndexWriterConfig.DISABLE_AUTO_FLUSH);
+            if (config.getMergePolicy() instanceof org.apache.lucene.index.TieredMergePolicy tiered) {
+                // Tolerate more segments per tier before merging: search here is over a modest
+                // corpus and latency-insensitive relative to the write path, so trading a little
+                // query speed for markedly less background merge work is the right way round.
+                tiered.setSegmentsPerTier(20);
+                tiered.setMaxMergeAtOnce(20);
+            }
             this.writer = new IndexWriter(directory, config);
             this.writer.commit();
             this.searcherManager = new SearcherManager(writer, true, true, null);
@@ -115,6 +137,30 @@ public class MessageIndexService {
             afterWrite();
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to index message " + messageId, e);
+        }
+    }
+
+    /**
+     * Index a batch of <b>newly created</b> messages — ids that have never been indexed before.
+     *
+     * <p>Uses {@code addDocument} rather than {@code updateDocument}: replacing a document means
+     * buffering a delete-by-term, which goes through the writer's global pending-deletes structure
+     * and is a contention point when many threads index at once. A brand-new message id provably
+     * has no prior document, so that work is pure overhead on the hottest path in the system.
+     * Anything that can hit an existing id — an edit, the reconcile sweep, the bootstrap rebuild —
+     * must keep using {@link #index}/{@link #reindex}.
+     */
+    public void indexNew(Collection<IndexedMessage> rows) {
+        if (rows.isEmpty()) {
+            return;
+        }
+        try {
+            for (var row : rows) {
+                writer.addDocument(toDoc(row.id(), row.channelId(), row.author(), row.body()));
+            }
+            afterWrite();
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to index " + rows.size() + " new message(s)", e);
         }
     }
 

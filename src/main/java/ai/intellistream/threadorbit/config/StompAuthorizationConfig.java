@@ -63,7 +63,12 @@ public class StompAuthorizationConfig implements WebSocketMessageBrokerConfigure
             Pattern.compile("^/topic/channels/(\\d+)(?:/[a-zA-Z0-9_-]+)?$");
     static final Pattern CONVERSATION_TOPIC =
             Pattern.compile("^/topic/conversations/(\\d+)(?:/[a-zA-Z0-9_-]+)?$");
-    static final String SESSION_USER_KEY = "threadorbit.chatUser";
+    /**
+     * Session-attribute key holding the domain {@code User} resolved once at CONNECT. Public
+     * because the message handlers read it instead of re-resolving the principal per frame —
+     * see {@code ChatWebSocketController.sessionUser}.
+     */
+    public static final String SESSION_USER_KEY = "threadorbit.chatUser";
 
     private final ChannelService channelService;
     private final ConversationService conversationService;

@@ -78,6 +78,11 @@ public class MentionService {
      *  highlights — matching the renderer, which never decorates mentions in code (N21). */
     public Set<String> extractHandles(String body) {
         if (body == null || body.isEmpty()) return Set.of();
+        // Every mention starts with '@', so a body without one cannot contain a handle. Bail out
+        // before nonCodeText(), which parses the whole body as Markdown just to strip code spans —
+        // on the render path that was a second full CommonMark parse of every message, almost all
+        // of which mention nobody.
+        if (body.indexOf('@') < 0) return Set.of();
         var out = new LinkedHashSet<String>();
         var m = MENTION.matcher(nonCodeText(body));
         while (m.find()) out.add(m.group(1));
@@ -100,13 +105,26 @@ public class MentionService {
     /** Replace any existing mention rows for {@code message} with rows for users that exist for the handles in its body. */
     @Transactional
     public Set<User> syncMentions(Message message) {
-        mentionRepo.deleteAllByMessage(message);
-        // Flush the deletes before re-inserting: MessageMention.id is IDENTITY, so save()
-        // triggers an immediate INSERT while the derived-delete above is still queued in the
-        // action list. Without this, editing a message that keeps an existing mention
-        // re-inserts the same (message_id, user_id) pair and trips uk_message_mentions,
-        // rolling back the whole edit. (PollService.castVote flushes for the same reason.)
-        mentionRepo.flush();
+        return syncMentions(message, false);
+    }
+
+    /**
+     * @param freshlyInserted {@code true} when the message row was created earlier in this same
+     *   transaction, so it provably has no mention rows yet and the clearing DELETE + flush can be
+     *   skipped. That pair is two round trips on every single post — pure waste on the hot path,
+     *   since only an edit can find rows to clear.
+     */
+    @Transactional
+    public Set<User> syncMentions(Message message, boolean freshlyInserted) {
+        if (!freshlyInserted) {
+            mentionRepo.deleteAllByMessage(message);
+            // Flush the deletes before re-inserting: MessageMention.id is IDENTITY, so save()
+            // triggers an immediate INSERT while the derived-delete above is still queued in the
+            // action list. Without this, editing a message that keeps an existing mention
+            // re-inserts the same (message_id, user_id) pair and trips uk_message_mentions,
+            // rolling back the whole edit. (PollService.castVote flushes for the same reason.)
+            mentionRepo.flush();
+        }
         var handles = extractHandles(message.getBodyMarkdown());
         if (handles.isEmpty()) return Set.of();
         var resolved = new LinkedHashSet<User>();

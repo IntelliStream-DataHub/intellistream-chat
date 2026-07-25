@@ -23,7 +23,6 @@ import ai.intellistream.threadorbit.service.AvatarService;
 import ai.intellistream.threadorbit.service.UserService;
 import ai.intellistream.threadorbit.web.dto.UserEvent;
 import jakarta.servlet.http.HttpServletRequest;
-import org.apache.commons.fileupload2.jakarta.servlet6.JakartaServletFileUpload;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
@@ -63,41 +62,21 @@ public class AvatarRestController {
     }
 
     /**
-     * Streamed avatar upload. Spring's MultipartResolver is bypassed for this URL
-     * (see {@code MultipartConfig}); we read the request directly with Apache Commons
-     * FileUpload and pipe the file part to disk via {@link AvatarService#upload}.
+     * Streamed avatar upload: the image is the raw request body (see {@link RawUpload}), piped to
+     * disk by {@link AvatarService#upload}. No filename header is required — the stored file is
+     * keyed by the user, and the type is sniffed from the bytes anyway.
      */
     @PostMapping("/api/profile/avatar")
     public ResponseEntity<Void> upload(HttpServletRequest request, Principal principal) throws IOException {
-        if (!JakartaServletFileUpload.isMultipartContent(request)) {
-            throw new IllegalArgumentException("Expected multipart/form-data");
-        }
         var me = currentUser.resolve(principal);
         if (!rateLimiter.tryAcquire(me.getUsername(), "avatar-upload", 5, Duration.ofMinutes(1))) {
             throw new RateLimitExceededException("avatar upload rate exceeded");
         }
-        var upload = new JakartaServletFileUpload<>();
-        try {
-            var iter = upload.getItemIterator(request);
-            while (iter.hasNext()) {
-                var item = iter.next();
-                if (item.isFormField()) {
-                    item.getInputStream().transferTo(java.io.OutputStream.nullOutputStream());
-                    continue;
-                }
-                if (!"file".equals(item.getFieldName())) {
-                    item.getInputStream().transferTo(java.io.OutputStream.nullOutputStream());
-                    continue;
-                }
-                var saved = avatarService.upload(me, item.getContentType(), item.getInputStream());
-                broker.convertAndSend("/topic/users",
-                        UserEvent.avatarUpdated(saved.getUsername(), saved.avatarVersion()));
-                return ResponseEntity.noContent().build();
-            }
-        } catch (org.apache.commons.fileupload2.core.FileUploadException e) {
-            throw new IllegalArgumentException("Malformed upload: " + e.getMessage(), e);
-        }
-        throw new IllegalArgumentException("File part is required");
+        var upload = RawUpload.from(request, false);
+        var saved = avatarService.upload(me, upload.contentType(), upload.body());
+        broker.convertAndSend("/topic/users",
+                UserEvent.avatarUpdated(saved.getUsername(), saved.avatarVersion()));
+        return ResponseEntity.noContent().build();
     }
 
     @DeleteMapping("/api/profile/avatar")

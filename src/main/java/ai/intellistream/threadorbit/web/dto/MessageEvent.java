@@ -38,21 +38,32 @@ public record MessageEvent(
         Long channelId,
         Long parentId,
         MessageDto message,
-        PollDto poll
+        PollDto poll,
+        /**
+         * Echo of {@link SendMessageRequest#clientId()} on a {@code created} event, so the sender
+         * can retire the optimistic bubble it drew when they hit enter. Null everywhere else. It's
+         * a client-generated nonce carrying no information, so broadcasting it to the whole channel
+         * costs nothing; only the originating client has anything to match it against.
+         */
+        String clientId
 ) {
     public static MessageEvent created(MessageDto m) {
-        return new MessageEvent("created", m.id(), m.channelId(), m.parentId(), m, null);
+        return created(m, null);
+    }
+
+    public static MessageEvent created(MessageDto m, String clientId) {
+        return new MessageEvent("created", m.id(), m.channelId(), m.parentId(), m, null, clientId);
     }
 
     public static MessageEvent updated(MessageDto m) {
-        return new MessageEvent("updated", m.id(), m.channelId(), m.parentId(), m, null);
+        return new MessageEvent("updated", m.id(), m.channelId(), m.parentId(), m, null, null);
     }
 
     public static MessageEvent deleted(Long id, Long channelId, Long parentId) {
-        return new MessageEvent("deleted", id, channelId, parentId, null, null);
+        return new MessageEvent("deleted", id, channelId, parentId, null, null, null);
     }
 
     public static MessageEvent pollVote(Long messageId, Long channelId, PollDto poll) {
-        return new MessageEvent("poll-vote", messageId, channelId, null, null, poll);
+        return new MessageEvent("poll-vote", messageId, channelId, null, null, poll, null);
     }
 }

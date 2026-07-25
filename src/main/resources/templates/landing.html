@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
     <meta name="theme-color" content="#1e325c"/>
     <title th:text="${appTitle}">ThreadOrbit</title>
+    <meta name="description"
+          content="Self-hosted team chat: channels, threads, direct messages and full-text search, running on your identity provider and your database."/>
     <link rel="icon" th:href="${appFaviconUrl}"/>
     <th:block th:replace="~{fragments/assets :: css('app')}"/>
 </head>
@@ -14,7 +16,23 @@
         <th:block th:replace="~{fragments/logo :: mark('landing-logo')}"/>
         <span th:text="${appTitle}">ThreadOrbit</span>
     </h1>
-    <p>A Slack/Mattermost-style workspace.</p>
+    <p class="landing-lede">Team chat you run yourself — channels, threads and direct messages,
+        on your identity provider and your database.</p>
+
+    <!-- Four claims, each one something the app actually does. A landing page that lists
+         everything reads as a changelog; these are the things someone deciding whether to sign
+         in would want to know. -->
+    <ul class="landing-features">
+        <li><strong>Threads that stay readable</strong> — replies live in the thread instead of
+            scrolling the channel out from under everyone else.</li>
+        <li><strong>Search that finds it</strong> — full-text search across every channel you can
+            read, with permalinks that open the surrounding conversation.</li>
+        <li><strong>Markdown, files and polls</strong> — code blocks, streamed attachments,
+            reactions, mentions, reminders and <code>/poll</code>.</li>
+        <li><strong>Single sign-on</strong> — authentication is your Keycloak realm, so there's no
+            second password to manage or leak.</li>
+    </ul>
+
     <p>
         <a class="btn" th:href="@{/oauth2/authorization/keycloak}">Sign in with Keycloak</a>
         <a class="btn btn-secondary" th:href="@{/oauth2/authorization/keycloak(action=register)}">Create account</a>

@@ -1,0 +1,13 @@
+{
+  "conns": 400,
+  "established": 400,
+  "connectFailures": 0,
+  "connectMs": 3003,
+  "setupP50ms": 10.23,
+  "setupP99ms": 36.91,
+  "setupMaxMs": 62.68,
+  "serverMaxRssMb": 8835.92,
+  "serverMaxCpuPct": 515.96,
+  "steady": {"sent":276177,"delivered":276177,"expected":276177,"dropped":0,"late":2,"offeredPerSec":13713,"deliveredPerSec":13713,"postsPerSec":13713,"latP50ms":23.9,"latP99ms":85.2,"latMaxMs":1365.9,"offerMillis":-1},
+  "burst": null
+}

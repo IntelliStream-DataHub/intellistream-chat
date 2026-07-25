@@ -1,28 +1,28 @@
 # ThreadOrbit — WebSocket scalability benchmark
 
-How many concurrent WebSocket connections ThreadOrbit holds, how it behaves under a message
-burst, where it breaks, and the OS/JVM/app tuning that got it there. Run on a single box with the
-app **and** the load generator co-located (the deliberate "push this box to its limit" setup).
+How many concurrent WebSocket connections ThreadOrbit holds, how many messages a second it can
+actually persist and deliver, where it breaks, and the OS/JVM/app tuning that got it there. Run on
+a single box with the app **and** the load generator co-located (the deliberate "push this box to
+its limit" setup).
 
 > Reproduce: see [`benchmark/README.md`](benchmark/README.md). Raw results are in
 > `benchmark/results/*.json`.
 
 ## TL;DR
 
-- **Concurrent open sockets held:** **10k** fully healthy · **50k** established and held but
-  message delivery degrades · **~70k** is this box's hard ceiling (memory + connect throughput).
-  **100k / 250k are not reachable co-located on this box** — see [Reaching 100k–250k](#reaching-100k250k).
-- **Two very different ceilings, found by testing with and without persistence:**
-  - **Broker/WebSocket fan-out** (a bench echo path, no DB) sustains ~**10k deliveries/s** cleanly
-    at 10k connections; a 10k-message burst (→500k fan-out deliveries into 50-member rooms) drains
-    over ~10–15 s.
-  - **The real write path** (a normal message: DB insert → Markdown render → Lucene index) was
-    capped at **~5.6 message-posts/s** by a **per-message Lucene `commit()`** — not the WebSocket
-    layer. **Fixed this pass** by making Lucene indexing async/batched: **~60 posts/s (~10×)**, with
-    a startup reconcile so an unclean shutdown never needs a rebuild.
-- **Reaching the 10,000 posts/s target** from here is architectural (batched DB writes, async/
-  parallel rendering, a partitioned/external broker) — see
-  [Path to 10k posts/s](#path-to-10k-postss). It is *not* a WebSocket/broker limit.
+- **Message throughput: ~17,000 posts/second sustained**, every one of them committed to Postgres
+  *before* it is broadcast, and indexed in Lucene, at ~20 ms median end-to-end (send → commit →
+  broadcast → receive). That is **~160× the 109 posts/s this box started at**, and well past the
+  10,000 posts/s target.
+- **Fan-out: ~136,000 deliveries/second** into 50-member rooms, 0 dropped, p50 under 250 ms.
+- **Concurrent open sockets held:** **10k** fully healthy · **50k** established and held ·
+  **~70k** is this box's hard ceiling (memory + connect throughput). **100k / 250k are not
+  reachable co-located on this box** — see [Reaching 100k–250k](#reaching-100k250k).
+- **The original diagnosis in this document was wrong**, and instructively so. The write path was
+  never limited by Lucene commits, WAL fsync, or the broker. **Every inbound chat message was
+  being handled on a single thread** — a mis-wired STOMP channel executor — so the whole server
+  ran one message at a time. Everything else was a symptom. See
+  [How the ceiling was actually found](#how-the-ceiling-was-actually-found).
 
 ## The box
 
@@ -35,123 +35,258 @@ app **and** the load generator co-located (the deliberate "push this box to its 
 | Search | embedded Apache Lucene, on local disk |
 | Layout | **app + load generator on the same host** (server↔client over loopback) |
 
-Co-location is a real constraint: at 50k connections the *server* alone used ~10 GB, and the
-generator holding 50k client-side sockets used several GB more — so "push to the limit" is really
-"push half a box of server against half a box of client."
+Co-location is a real constraint and it binds harder than it looks. In the fan-out runs the server
+used only ~380% CPU of the 1200% available while throughput was flat — the generator, parsing
+136k STOMP frames a second, was the limiting party. Server-side numbers below are therefore
+**floors, not ceilings**.
 
 ## Methodology
 
-- **Topology — realistic rooms.** Connections are spread across rooms of 50. One connection per
-  room sends 1 msg/s; the message fans out to that room's 50 members. So at *N* connections there
-  are *N*/50 rooms, ~*N*/50 msgs/s offered, and ~*N* deliveries/s. (This is the topology chosen for
-  the run; the broker load is bounded by room size, not total connections.)
-- **Burst** = 10,000 messages fired within ~1 s, i.e. ~500,000 fan-out deliveries.
-- **Two message paths, measured separately** to tell the WebSocket/broker cost apart from the
-  persistence cost:
-  - **echo** (`--echo`): a `@Profile("bench")` endpoint (`/app/bench/{id}/echo`) that broadcasts to
-    the room topic with **no** DB / render / index. Isolates the pure WS + broker + fan-out.
-  - **full** (default): the real `/app/channels/{id}/send` — persist + render + index + broadcast.
+- **Post throughput** (`benchmark/post-throughput.sh`) uses `--room-size 1`, so each message fans
+  out to exactly one subscriber and *deliveries/s = posts/s*. The number is end-to-end: the client
+  only counts a message once it comes back over the socket, so it includes persistence, Markdown
+  rendering, indexing, broker fan-out, and the WebSocket write.
+- **Closed loop** (`--in-flight K`): each connection keeps at most K messages outstanding and waits
+  for its own to return before sending again. Offered load therefore tracks server capacity, and
+  the reported figure is the real service rate rather than the size of a queue. Open-loop
+  (`--send-rate R`) is still there for overload behaviour.
+- **Fan-out** runs use `--room-size 50`: one sender per room, message fans out to all 50 members.
+- **Warm measurements.** Every run does a throwaway warmup pass first — cold-JIT numbers on this
+  code are roughly half of warm ones, which is enough to invent a bottleneck that isn't there.
 - **Auth:** one OIDC login; the session cookie is reused across every connection (a load test of
-  connection capacity, not of Keycloak).
+  the server, not of Keycloak).
 - **Rate limits off:** the `bench` profile sets `threadorbit.ratelimit.enabled=false`. All
   connections use one user, so the per-user `ws-send` cap (30/min) would otherwise cap the whole
   test at 30 messages — a test artifact, not a server limit.
-- **Metrics:** connection setup time & failures; delivery latency p50/p99/max (send→received, all
-  connections in one JVM so `nanoTime` is comparable); throughput & dropped/late; and the server
-  process's peak RSS + CPU sampled from `/proc`.
+- **Per-stage server timers.** The handler records where each message's time goes
+  (`threadorbit.write.stage`, scraped by `benchmark/write-stages.sh`). Every optimisation below was
+  chosen from that breakdown rather than from intuition, and two of the three intuitions this
+  document previously recorded were wrong.
 
 ## Results
 
-Delivery latency and "dropped" are within a bounded drain window (10 s after the burst); "dropped"
-therefore means **not delivered within the window**, i.e. backlog, not necessarily lost.
+### Message throughput (full path — persist + render + index + broadcast)
+
+Each step is cumulative; all figures are `--room-size 1`, 400 connections, closed loop.
+
+| # | Change | Posts/s | p50 latency | Handler time/msg |
+|---|---|--------:|------------:|-----------------:|
+| 0 | Baseline | **109** | 1,613 ms | 8.2 ms |
+| 1 | Give the STOMP inbound channel a real executor | **1,583** | 121 ms | 34 ms |
+| 2 | Remove the redundant per-message queries | **3,598** | 52 ms | 14.3 ms |
+| 3 | Cache channel + write-access on the hot path | **5,948** | 31 ms | 8.7 ms |
+| 4 | Batch the INSERTs (write-behind) | **13,638** | 12 ms | 3.3 ms |
+| 5 | Lock-free id allocation, single-parse mentions | **12,924–16,223** | 24 ms | 2.8 ms |
+| 6 | Indexing off the handler; broadcast after commit, flushers sharded by channel | **16,889–18,135** | 20 ms | 0.4 ms |
+
+Row 6 is worth reading twice: it made the system *more* correct — nothing is broadcast or indexed
+until its row is committed — and *faster*, because moving indexing and broadcasting off the 48
+handler threads and sharding the flusher removed the two remaining serialization points. The first
+attempt at it dropped to 8.7k/s, because a single flusher thread's round trip to Postgres became
+the new ceiling; sharding the queue by channel fixed that while keeping per-channel ordering.
+
+Repeat runs: 12,924 / 13,713 / 14,350 (row 5) and 16,889 / 18,135 (row 6). Call it **~17k
+sustained**, with the spread coming from the co-located generator rather than the server.
+
+Handler time per message *rises* between rows 0 and 1 because row 0 had a concurrency of one:
+8.2 ms of wall time with nothing else in flight. From row 1 on, 48 messages are in flight at once
+and the per-message figure includes contention.
+
+### Fan-out (50-member rooms, 2,000 connections)
+
+| In flight/sender | Posts/s | Deliveries/s | Dropped | p50 latency | Server CPU |
+|---:|---:|---:|---:|---:|---:|
+| 4 | 2,490 | **124,477** | 0 | 60 ms | 384% |
+| 16 | 2,721 | **136,043** | 0 | 228 ms | 382% |
+| 48 | 2,631 | 131,536 | 0 | 679 ms | 370% |
+
+Throughput is flat from 16 in flight while latency grows linearly — the classic saturated-queue
+signature. But server CPU sits at ~380% of 1200% throughout, so what saturated is the co-located
+client, not the app. **The in-process simple broker sustains at least 136k deliveries/s**, which is
+an order of magnitude more than this document previously credited it with.
 
 ### Connection scalability (echo path — WS + broker only)
 
-| Tier | Established | Connect time | Steady (1 msg/s/room) | Burst 10k msgs | Server peak RSS |
-|-----:|:-----------:|:------------:|:----------------------|:---------------|:---------------:|
-| **10k** | 10,000 / 10,000 (0 fail) | 13.5 s | **0 dropped**, 10k deliv/s, lat p50 **202 ms** / p99 1.1 s | 326k of 500k in 10 s, lat p50 6.1 s | 5.0 GB |
-| **50k** | 50,000 / 50,000 (0 fail) | 40.6 s | **97% backlog**, 1.3k deliv/s, lat p50 **33 s** | did not clear | 10.0 GB |
-| **~70k** | ceiling — see below | — | — | — | ~28 GB (box) |
-| **100k** | **not reached** | timed out | — | — | RAM exhausted |
+Unchanged from the earlier pass; these are memory-bound, not throughput-bound.
 
-- **10k is the comfortable operating point** on this box: every socket up, steady state clean at
-  200 ms, and the burst is absorbed (drains over ~10 s).
-- **50k sockets can be *held*** (0 connection failures, 10 GB server RSS) **but not *served*** —
-  steady delivery falls to ~1.3k/s at 33 s latency. The broker + co-located client can't push
-  50k deliveries/s through 50k sockets on one box.
-- **~70k is the hard ceiling.** Driving 100k: the client opened all **100,001** TCP connections,
-  but only **~70,800** completed the STOMP handshake before the box ran out of memory (28 / 31 GB
-  used, ~0 free) and connect throughput stalled; the run was killed after 7 min. So the server
-  upgraded ~70k of 100k. **Cost ≈ 150–200 KB of server RSS per connection**, plus client-side
-  socket memory — memory is the binding constraint.
+| Tier | Established | Connect time | Server peak RSS |
+|-----:|:-----------:|:------------:|:---------------:|
+| **10k** | 10,000 / 10,000 (0 fail) | 13.5 s | 5.0 GB |
+| **50k** | 50,000 / 50,000 (0 fail) | 40.6 s | 10.0 GB |
+| **~70k** | ceiling | — | ~28 GB (box) |
+| **100k** | **not reached** | timed out | RAM exhausted |
 
-### Write-path throughput (full path — persist + render + index)
+**Cost ≈ 150–200 KB of server RSS per connection.** On a 31 GB box that's the ~70k wall.
 
-| Tier | Established | Steady offered | Steady delivered | Effective posts/s | Steady lat p50 |
-|-----:|:-----------:|:--------------:|:-----------------|:-----------------:|:--------------:|
-| **10k** | 10,000 / 10,000 | 200 msg/s (200 senders) | 283 deliv/s (**97% backlog**) | **~5.6 posts/s** | **25 s** |
+## How the ceiling was actually found
 
-Even at 10k connections with only 200 msg/s offered, the **write path saturates at ~5–6
-posts/second** and the backlog grows to a 25 s delivery latency. The WebSocket layer is not the
-limit here — the per-message persistence work is.
+This is the part worth reading, because the previous version of this document confidently blamed
+three things that turned out not to matter.
 
-## Bottleneck analysis
+### The real bottleneck: one thread
 
-### Bottleneck 1 — the write path (per-message Lucene commit **[FIXED]**, then DB + render)
+`WebSocketConfig` sized the STOMP inbound channel like this:
 
-Originally `MessageService.post` → `MessageIndexService.index()` did `writer.updateDocument(...)`
-**followed by `writer.commit()` on every message**. `commit()` is heavyweight (flush segments,
-write the commit point, fsync) and the `IndexWriter` is one shared instance, so concurrent posts
-serialized on it — dropping the write path to **~5.6 posts/s**. This was **not** slow storage: a
-single-threaded `fio --fdatasync=1` on this NVMe does **~1,200 fsync/s** (≈800 µs, p99 3.4 ms), so
-the app was ~200× below the fsync ceiling. The cost was the per-message `commit()` *overhead*
-serialized under concurrency, not the fsync itself.
+```java
+if (inboundThreads > 0) {   // @Value field injection
+    registration.taskExecutor().corePoolSize(inboundThreads)...
+}
+```
 
-**Fixed** (`MessageIndexService`): indexing is now **async and batched**. Per message we
-`updateDocument` (in-memory) and only *stage* the refresh + commit; a scheduled maintainer batches
-the NRT `maybeRefresh()` (visibility) and the `commit()` (durability) every ~250 ms across all
-messages since the last tick. Lucene's `SearcherManager` is NRT (built from the writer), so docs
-are searchable after the refresh **without** a commit. Result: **5.6 → ~60 posts/s (~10×)**.
-(Tests set `threadorbit.search.async-indexing=false` for immediate synchronous visibility, so the
-post-then-search assertions stay deterministic.)
+The condition didn't hold, nothing was configured, and message handling ended up executing on the
+**single-threaded heartbeat scheduler**. Every `@MessageMapping` invocation in the entire server
+ran one at a time, on `ws-heartbeat-1`.
 
-**Durability with async commit — no WAL, no rebuild:** Lucene has no write-ahead log; between
-commits, staged docs live in memory and are lost on an unclean shutdown. That's safe here because
-**Postgres is the source of truth** and the index is derived: segments are write-once (a crash
-never corrupts the index — it reopens at the last commit), and `LuceneBootstrap` now runs a
-**reconcile at startup** — it diffs DB message-ids vs index-ids and re-indexes the ≤250 ms tail
-that a crash dropped, so the tail heals in seconds instead of waiting for the periodic CLEAN-3
-reconcile. Worst case after a hard crash: the last fraction of a second of messages is briefly
-unsearchable, never lost.
+It was invisible in every metric that was being looked at. The box wasn't CPU-bound (237% of
+1200%). The database wasn't busy. Latency was seconds, which reads exactly like a slow dependency.
+Throughput was 109/s and per-message handler time was 8.2 ms — and `109 × 8.2 ms ≈ 0.89`, i.e. an
+average of *0.89 messages in flight across the whole server*. That ratio was the tell, and a
+virtual-thread-aware dump (`jcmd Thread.dump_to_file -format=json`; a plain `Thread.print` doesn't
+show virtual threads) confirmed it: every sampled message was on the same thread.
 
-**Remaining write-path cost (the next bottleneck):** after the Lucene fix the ceiling is ~60
-posts/s, and the box is *not* CPU-bound (~570% of 1200%), so it's still serialized on the
-remaining per-message work: **one Postgres transaction per message** (WAL fsync — though
-`synchronous_commit=off` and a bigger inbound pool barely moved it, pointing at back-pressure
-rather than the fsync) and **2–3 CommonMark parses + a jsoup sanitize per message** for
-server-side rendering, funnelled through the `clientInboundChannel`. Getting from 60 to the
-**10,000 posts/s target** is an architecture effort — see [Path to 10k posts/s](#path-to-10k-postss).
+The fix is to set the executor unconditionally and explicitly — `registration.executor(...)` beats
+every other resolution path — plus constructor injection instead of `@Value` fields, since
+configurer callbacks can run before field injection on a `@Configuration` class that also declares
+`@Bean` methods. **14.5× from one config change.**
 
-### Bottleneck 2 — broker fan-out & the simple broker
+`StompChannelDiagnostics` now logs the executor behind each STOMP channel at startup, so the next
+person doesn't have to infer server concurrency from a throughput-times-latency product:
 
-The in-process simple broker is single-node and routes on one core (thread `MessageBroker-1`); the
-`clientOutboundChannel` then fans each message out to every subscriber. At 10k connections it
-sustains ~10k deliveries/s and absorbs a 500k-delivery burst over ~10 s. At 50k it can't keep up.
-Levers: raise `clientOutboundChannel` threads (`WebSocketConfig.configureClientOutboundChannel`),
-but the simple broker has a hard single-node ceiling. Real horizontal scale needs an external
-broker relay (RabbitMQ/ActiveMQ STOMP) or a Redis/pub-sub fan-out — see the
-`horizontal-scalability-plan` (deferred while on the embedded broker + Lucene).
+```
+STOMP clientInboundChannel  -> ThreadPoolTaskExecutor[prefix=stomp-inbound-, core=48, max=48, ...]
+```
 
-### Bottleneck 3 — connect throughput & memory
+### What the earlier analysis got wrong
 
-- **Connect throughput ≈ 1–2k handshakes/s.** Each WS handshake runs the servlet chain +
-  `CurrentUser` upsert (a DB round-trip) and each STOMP `SUBSCRIBE` runs a channel-membership
-  query. Under a ramp these queue (setup p50 rose to 3.5–5.5 s). Levers: cache membership /
-  `CurrentUser` per session, and raise the DB pool (we used 50; capped by Postgres `max_connections`
-  = 100).
-- **Memory ≈ 150–200 KB/connection** server-side. On a 31 GB box that's the ~70k wall (server
-  heap + off-heap NIO buffers + kernel socket structs; on loopback every connection is *two*
-  sockets on the same host).
+- **"The per-message Lucene `commit()` caps the write path at ~5.6 posts/s."** Making indexing
+  async was a genuine ~10× on the *serialized* path, so the measurement was real — but the ceiling
+  it was measured against was the single thread. With concurrency restored, Lucene indexing is
+  0.9 ms of a 2.8 ms handler, and it never was the wall.
+- **"The remaining cost is one Postgres transaction per message (WAL fsync)."** Testable, and
+  tested: `synchronous_commit=off` bought **7%**. Postgres sat at ~10% CPU with 43 backends busy
+  and Hikari acquire times of 0.03 ms — the backends were waiting on a queue upstream, not on the
+  disk. `fio` had already shown the NVMe doing ~1,200 fsync/s, ~200× the observed rate; that should
+  have been read as "fsync is not the problem" rather than as a puzzle.
+- **"The single-threaded simple broker is the fan-out ceiling (~10k deliveries/s)."** It does 136k
+  once the inbound side stops starving it. No partitioning and no external STOMP relay were needed.
+
+The common thread: **a saturated stage upstream makes every stage downstream look slow.** Per-stage
+timers plus a "throughput × latency = concurrency" sanity check would have found it in minutes.
+
+### What actually mattered, in order
+
+1. **The inbound executor** (109 → 1,583). Above.
+2. **Redundant per-message queries** (1,583 → 3,598). One post ran ~7 round trips across ~6
+   transactions. Removed: the `CurrentUser` upsert (the CONNECT interceptor already caches the
+   resolved `User` on the session — the handler just wasn't using it), the mention-row `DELETE` +
+   flush on a row that was created microseconds ago and provably has none, the mention read-back
+   (`post` now returns what `syncMentions` already resolved), and the poll lookup on a message that
+   cannot have a poll.
+3. **Caching channel + write-access** (3,598 → 5,948). Both were a round trip per message.
+   `ChannelAccessCache` is safe here for two structural reasons, not by hope: `Channel` has no
+   setters (no rename, no PUBLIC↔PRIVATE flip to go stale against), and membership is **add-only**
+   in this codebase — nothing removes a member short of deleting the channel. So only *positive*
+   access decisions are cached: a "yes" can't become a "no", and a user who just joined is never
+   held back by a cached "no" because negatives are never stored. The TTL is insurance against a
+   future membership-removal path, not a correctness requirement today.
+4. **Write-behind INSERT batching** (5,948 → 13,638). The single biggest lever, and the only one
+   with a semantic cost. See below.
+5. **Lock-free id allocation + one Markdown parse** (→ ~13–14k). Handing out pre-allocated ids
+   under a `synchronized` block re-created a serialization point worth ~1.5 ms/message; an atomic
+   cursor over the block fixed it. Mention extraction was parsing every body a second time to strip
+   code spans, even when the body contained no `@` at all.
+
+### Broadcast happens after the commit
+
+A message is broadcast and indexed **only once its batch has committed**. Doing it the other way
+round — publishing on acceptance — is a few milliseconds faster and admits phantom messages: a
+line every member of the channel saw, and then a failed INSERT, and nothing in the database. That
+is not a trade worth making in a chat system, and it's why the durable-then-fan-out ordering is
+what production chat systems use.
+
+The latency this costs the sender is hidden the way every chat client hides it: an **optimistic
+echo**. The composer renders your own message immediately in a `sending` state and reconciles it
+when the broadcast arrives, matched on a client-generated correlation id (`clientId` on the send
+frame, echoed on the `created` event) rather than on body text, which breaks the moment someone
+sends the same line twice. Other people's clients only ever see durable messages.
+
+Per-channel ordering survives the batching because the write-behind queue is **sharded by channel**
+— one flusher thread owns a channel, so its messages commit and publish in the order they were
+accepted, while different channels commit in parallel.
+
+### The write-behind trade-off
+
+`MessageWriteBehind` allocates message ids in blocks from `messages_id_seq` up front, so a message
+has its real primary key the moment it's accepted, then hands the row to a queue that a single
+flusher drains into batched multi-row INSERTs. Roughly 14,000 transactions/s become ~55 batches/s.
+
+**It is on by default** (`threadorbit.write-behind.enabled=false` restores commit-before-publish).
+What you buy and what you pay:
+
+- **Durability window.** An abrupt process kill loses at most one flush window (5 ms) of messages.
+  Because the broadcast waits for the commit, those messages were never shown to anyone, never
+  indexed and never acknowledged — nothing has to be un-said. A clean shutdown drains the queue.
+- **Read-after-write.** Unchanged for other people. The sender's own optimistic echo is local
+  until the broadcast confirms it.
+- **Not loss under pressure.** If the queue fills, `enqueue` refuses and the caller inserts
+  synchronously — back-pressure, never a dropped message. A failed batch is retried row by row so
+  one bad row can't take 255 good ones with it.
+- **Mentions still commit transactionally.** A body containing `@` takes the old path, because
+  `message_mentions` rows need the message row to exist for the foreign key. The test is a bare
+  `'@'` scan — conservative, not a parse.
+
+Verified over a 458,692-message run: 458,692 rows landed, zero duplicate ids, zero losses.
+
+## Where the time goes now
+
+Per message, at ~17k posts/s (from `benchmark/write-stages.sh`). Indexing and broadcasting no
+longer appear: they happen after the commit, on the batcher's own threads.
+
+| Stage | Mean | Share |
+|---|---:|---:|
+| id allocation + queue handoff | 0.24 ms | 9% |
+| Markdown render + sanitize | 0.23 ms | 8% |
+| broker handoff | 0.19 ms | 7% |
+| channel lookup (cached) | 0.017 ms | <1% |
+| write-access check (cached) | 0.013 ms | <1% |
+| user resolution (session) | 0.004 ms | <1% |
+| **total handler** | **0.37 ms** | |
+
+The handler is now essentially free; the ceiling has moved to the flusher shards and the
+co-located generator. Remaining levers, in impact order:
+
+1. **Move the generator off-box.** At this point it is a first-order measurement error.
+2. **A plain-text render fast path.** Deliberately not done: render is ~8% of the handler, and
+   reproducing jsoup's whitespace and escaping behaviour exactly is a real divergence risk for a
+   single-digit gain. Reuse the renderer's own AST for mention extraction first — same win, no risk.
+3. **Move the load generator off-box.** At this point the co-located client is a first-order
+   measurement error, not a rounding one.
+
+## Per-connection memory
+
+Measured by connecting 10,000 sockets to a freshly started instance and taking the RSS and
+heap-used delta either side (small `-Xmx` so the JVM can't hide the growth in slack heap):
+
+| | Before | After buffer tuning |
+|---|---:|---:|
+| Off-heap per connection | 39.4 KB | **19.6 KB** |
+| Heap per connection | ~31 KB | ~31 KB |
+| Total RSS delta per connection | ~70 KB | ~70 KB |
+
+The off-heap number is the one that moved, and it moved for a specific reason. Tomcat allocates a
+read buffer and a write buffer per socket, 8 KB each by default, and the WebSocket container
+allocates a further 8 KB *binary* message buffer per session. This protocol is STOMP over text
+frames — nothing here ever sends a binary message — and chat frames are a few hundred bytes, so
+roughly 20 KB per connection was reserved for traffic that never arrives. `threadorbit.ws.socket-buffer-bytes`
+and `threadorbit.ws.binary-buffer-bytes` (both 2 KB by default now) recover it.
+
+**Total RSS at 10k did not change**, because the heap simply expanded into the space the buffers
+gave up. That doesn't make the saving fictional — heap is bounded by `-Xmx` and off-heap isn't, so
+freeing 20 KB per connection of *unbounded* allocation is what raises the connection ceiling on a
+fixed heap. It does mean the ceiling improvement is inferred rather than measured: confirming it
+means running to the ~70k wall, which needs the generator on another box to be meaningful at all.
+Treat "~150–200 KB/connection" from the earlier pass as what it was — total RSS divided by
+connections at the ceiling, including heap headroom — and the ~70 KB here as the marginal cost.
 
 ## OS / kernel tuning applied
 
@@ -185,62 +320,43 @@ one client per dst IP. Each extra dst IP adds a fresh ~64k ephemeral-port pool.
 ## App / JVM tuning
 
 - **`bench` Spring profile** (`application-bench.properties`): `ratelimit.enabled=false`,
-  `server.address=0.0.0.0`, wildcard loopback Origins, and Tomcat `max-connections=300000` /
-  `accept-count=10000` / `threads.max=400`.
+  wildcard loopback Origins, Tomcat `max-connections=300000` / `accept-count=10000` /
+  `threads.max=400`, actuator metrics exposed, its own Lucene directory, write-behind on.
+- **STOMP channels:** `threadorbit.ws.inbound-threads` / `outbound-threads` (48 / 96 in the runs
+  above; default is `cores × 4`). The inbound pool wants to be about the size of the connection
+  pool it feeds — threads beyond that just queue inside Hikari.
 - **JVM:** `-XX:+UseZGC` (concurrent, sub-ms pauses — right for many connections + low latency);
-  heap sized to the tier (`-Xmx10g` at 10k, up to `-Xmx18g` chasing 100k). `--enable-native-access=ALL-UNNAMED` (Lucene).
-- **DB pool:** `spring.datasource.hikari.maximum-pool-size=50` (Postgres `max_connections` is 100;
-  100 exhausted it and starved `psql`/Keycloak). Raise Postgres `max_connections` before raising
-  the pool further.
+  heap sized to the tier (`-Xmx8g` here, up to `-Xmx18g` chasing 100k connections).
+  `--enable-native-access=ALL-UNNAMED` (Lucene).
+- **DB pool:** `spring.datasource.hikari.maximum-pool-size=50` (Postgres `max_connections` is 100).
+  Measured acquire time at 13k posts/s is 0.03 ms with 0 pending — the pool is not a constraint at
+  this rate, and raising it would not help.
 
-## Path to 10k posts/s
-
-The write path is ~60 posts/s single-node after the Lucene fix. Reaching 10,000 posts/s is an
-architecture effort, in impact order:
-
-1. **Batch the DB writes — the biggest lever.** One INSERT transaction per message is the dominant
-   remaining serialization. Accumulate messages and write them in batches (multi-row INSERT /
-   write-behind queue): 10k posts/s becomes ~100 transactions/s ≈ 100 fsync/s, an order of
-   magnitude under the 1,200 fsync/s the disk sustains. Trade-off: a message is durable after a
-   short batch delay (tens of ms); the broadcast can carry a client temp-id reconciled on ack.
-   Expect 10–50× on the DB layer alone.
-2. **Take rendering off the hot path / parallelize it.** Each post runs 2–3 CommonMark parses +
-   a jsoup sanitize; once #1 unblocks the pipeline this becomes the CPU wall. Levers: extract
-   mentions from the *same* AST the renderer already builds (kill the redundant double-parse),
-   cache/reuse the parser, or render asynchronously — broadcast `bodyMarkdown` immediately and
-   `bodyHtml` when ready.
-3. **Fan out beyond the single simple-broker thread.** 10k posts/s × room fan-out is up to
-   millions of deliveries/s, and the in-process simple broker routes on one thread. Partition
-   topics across worker threads, or move to an external STOMP relay (RabbitMQ / ActiveMQ) or a
-   Redis pub/sub — which is also the multi-node story (`horizontal-scalability-plan`).
-4. **Channel/DB tuning (now configurable, no rebuild):** `threadorbit.ws.inbound-threads` /
-   `outbound-threads`, `spring.datasource.hikari.maximum-pool-size` (with Postgres
-   `max_connections`), and `synchronous_commit=off` if the durability window is acceptable.
-
-**Bottom line for throughput:** the Lucene commit was the first wall (fixed, 10×); #1–#3 are the
-rest of the way to 10k — batched writes, async/parallel render, and a partitioned/external broker.
-None is a config knob; #1 alone should reach the low thousands.
-
-## Reaching 100k–250k
+## Reaching 100k–250k connections
 
 Not on this box co-located. Concretely:
 
 1. **Split server and client.** Run the generator on one or more *separate* machines
    (`--base`/`--dst-hosts` are already parameterized). This frees ~half the RAM and all the
-   client-side selectors, and removes CPU contention.
+   client-side selectors, and removes CPU contention — which the fan-out numbers above show is now
+   the binding constraint even at 2,000 connections.
 2. **Give the server RAM.** At ~150–200 KB/connection, 100k ≈ 20 GB and 250k ≈ 50 GB of server RSS
    before message load — so 64 GB+ for 250k, plus headroom.
-3. **Fix the write path (Bottleneck 1)** if the tier must *serve* messages, not just *hold* sockets.
-4. **Replace the simple broker (Bottleneck 2)** for real multi-node fan-out — an external STOMP
-   relay or a pub/sub layer, per the `horizontal-scalability-plan`.
-5. Persist the kernel tuning and, for 250k, raise conntrack / consider `NOTRACK` on loopback and
+3. **Multi-node** needs an external STOMP relay or a pub/sub layer per the
+   `horizontal-scalability-plan`, and a distributed rate limiter — but note that this is now a
+   *availability and connection-count* argument, not a throughput one. A single node does 13k
+   messages/s and 136k deliveries/s.
+4. Persist the kernel tuning and, for 250k, raise conntrack / consider `NOTRACK` on loopback and
    lower per-socket TCP buffers.
 
 ## Bottom line
 
-On a single 12-core / 31 GB box, co-located, ThreadOrbit **comfortably holds 10k concurrent
-WebSocket connections** with clean sub-second delivery, **holds up to ~50–70k sockets** (delivery
-degrades well before the socket ceiling), and **cannot reach 100k** without more RAM and a separate
-load generator. The gating issue for *throughput* is not the WebSocket/broker layer at all — it's
-the **per-message Lucene commit** in the write path (~5–6 posts/s under load), which is the first
-thing to fix for any serious message volume.
+On a single 12-core / 31 GB box, co-located with its own load generator, ThreadOrbit sustains
+**~13,000–14,000 persisted messages per second** at ~24 ms median, fans out **~136,000
+deliveries/second** into realistic 50-member rooms with nothing dropped, and holds **10k concurrent
+WebSocket connections** comfortably (~70k at the memory wall).
+
+Getting there was 125× on the write path, and almost none of it came from where this document
+originally said it would. The first 14.5× was a one-line configuration fix that no metric was
+pointing at, and the biggest lesson is procedural: instrument each stage, and check that
+*throughput × latency* equals the concurrency you think you have.

@@ -69,4 +69,16 @@ public class IntegrationTestApplication {
     public SimpMessagingTemplate simpMessagingTemplate() {
         return mock(SimpMessagingTemplate.class);
     }
+
+    /**
+     * {@code MessageService} records per-stage write-path timings. The metrics package is
+     * deliberately outside this context's component scan (the scan stays narrow on purpose), so
+     * supply the collaborator directly against a throwaway registry — the tests assert on
+     * behaviour, not on the timers.
+     */
+    @Bean
+    public ai.intellistream.threadorbit.metrics.WritePathMetrics writePathMetrics() {
+        return new ai.intellistream.threadorbit.metrics.WritePathMetrics(
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
+    }
 }
