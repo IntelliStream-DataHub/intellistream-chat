@@ -16,6 +16,11 @@
 
 package ai.intellistream.chat.integration;
 
+import ai.intellistream.chat.domain.PollOption;
+import ai.intellistream.chat.security.PublicBadRequestException;
+import ai.intellistream.chat.slash.PollCommand;
+import ai.intellistream.chat.domain.Channel;
+import ai.intellistream.chat.domain.Message;
 import ai.intellistream.chat.domain.ChannelType;
 import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.repository.MessageMentionRepository;
@@ -48,6 +53,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.security.Principal;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -370,5 +376,94 @@ class PollFlowIT {
                 new CastVoteRequest(stranger), mock(Principal.class)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Option not in this poll");
+    }
+
+    // ---------- Editing ----------
+
+    @Test
+    void editingAPollRewritesItsQuestionAndOptions() {
+        var alice = newUser("alice");
+        var room = channels.create("Poll-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice);
+        var message = pollCommandMessage(room, alice, "/poll Lunch? | Pizza | Sushi");
+
+        pollService.update(message, "Lunch on Friday?", List.of("Pizza", "Sushi", "Salad"));
+
+        var poll = pollRepo.findByMessageIdWithOptions(message.getId()).orElseThrow();
+        assertThat(poll.getQuestion()).isEqualTo("Lunch on Friday?");
+        assertThat(poll.getOptions()).extracting(PollOption::getLabel)
+                .containsExactly("Pizza", "Sushi", "Salad");
+        // Replacing the options reuses positions 0..n, which collides with the rows still in the
+        // table unless the deletes are flushed first — this is the assertion that catches it.
+        assertThat(poll.getOptions()).extracting(PollOption::getPosition).containsExactly(0, 1, 2);
+    }
+
+    @Test
+    void aPollWithVotesCanStillHaveItsQuestionCorrected() {
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var room = channels.create("Poll-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice);
+        channels.join(room, bob);
+        var message = pollCommandMessage(room, alice, "/poll Lunch? | Pizza | Sushi");
+        var poll = pollRepo.findByMessageIdWithOptions(message.getId()).orElseThrow();
+        pollService.castVote(poll.getId(), poll.getOptions().get(0).getId(), bob);
+
+        // A typo fix changes nothing about what bob chose, so it is always allowed.
+        pollService.update(message, "Lunch on Friday?", List.of("Pizza", "Sushi"));
+
+        var after = pollRepo.findByMessageIdWithOptions(message.getId()).orElseThrow();
+        assertThat(after.getQuestion()).isEqualTo("Lunch on Friday?");
+        assertThat(voteRepo.countByPoll(after)).describedAs("bob's vote survives").isEqualTo(1);
+    }
+
+    @Test
+    void thePollsOptionsFreezeOnceSomebodyHasVoted() {
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var room = channels.create("Poll-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice);
+        channels.join(room, bob);
+        var message = pollCommandMessage(room, alice, "/poll Venue? | Lisbon | Tallinn");
+        var poll = pollRepo.findByMessageIdWithOptions(message.getId()).orElseThrow();
+        pollService.castVote(poll.getId(), poll.getOptions().get(0).getId(), bob);
+
+        // A vote is a statement about a specific set of choices. Re-pointing it at a different
+        // set would put words in bob's mouth, and discarding his vote to allow the edit would let
+        // the poll's author erase other people's answers by changing a word.
+        assertThatThrownBy(() ->
+                pollService.update(message, "Venue?", List.of("Lisbon", "Porto")))
+                .isInstanceOf(PublicBadRequestException.class)
+                .hasMessageContaining("already voted");
+
+        var after = pollRepo.findByMessageIdWithOptions(message.getId()).orElseThrow();
+        assertThat(after.getOptions()).extracting(PollOption::getLabel)
+                .describedAs("nothing was half-applied")
+                .containsExactly("Lisbon", "Tallinn");
+        assertThat(voteRepo.countByPoll(after)).isEqualTo(1);
+    }
+
+    @Test
+    void anEditedCommandParsesBackIntoTheSameQuestionAndOptions() {
+        // The client rebuilds this string from the poll to fill the edit box; if the round trip
+        // is not exact, editing a poll silently rewrites labels the author never touched.
+        var parsed = PollCommand.parseEditedCommand("/poll Lunch? | Pizza | Sushi | Salad");
+        assertThat(parsed).isNotNull();
+        assertThat(parsed.question()).isEqualTo("Lunch?");
+        assertThat(parsed.options()).containsExactly("Pizza", "Sushi", "Salad");
+
+        // A label containing a literal pipe survives, escaped.
+        var piped = PollCommand.parseEditedCommand("/poll Pick | A \\| B | C");
+        assertThat(piped.options()).containsExactly("A | B", "C");
+
+        // Ordinary messages are not poll edits, including near-misses.
+        assertThat(PollCommand.parseEditedCommand("just a message")).isNull();
+        assertThat(PollCommand.parseEditedCommand("/pollute the well")).isNull();
+    }
+
+    private Message pollCommandMessage(Channel room, User author, String command) {
+        when(currentUser.resolve(any(Principal.class))).thenReturn(author);
+        wsController.send(room.getId(), new SendMessageRequest(command), mock(Principal.class));
+        return messages.recent(room, author, 10).stream()
+                .filter(m -> m.getBodyMarkdown().contains("Poll:"))
+                .reduce((a, b) -> b)
+                .orElseThrow();
     }
 }

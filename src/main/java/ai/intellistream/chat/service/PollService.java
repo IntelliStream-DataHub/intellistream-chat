@@ -88,6 +88,85 @@ public class PollService {
     }
 
     /**
+     * Rewrite an existing poll from an edited {@code /poll} command.
+     *
+     * <p><b>The question is always editable; the options are not always.</b> Fixing a typo in the
+     * question changes nothing about what anyone chose, so it is allowed whenever the author can
+     * edit the message. Changing the options after somebody has voted is different: a vote is a
+     * statement about a specific set of choices, and silently re-pointing it at a different set
+     * would put words in the voter's mouth. Once a vote exists the options are frozen, and the
+     * caller is told why rather than having the edit quietly half-apply.
+     *
+     * <p>Discarding the votes instead was the other option. It is worse: the votes are other
+     * people's, and the author of the poll should not be able to erase them by editing a word.
+     *
+     * @return the updated poll
+     * @throws IllegalArgumentException if the options changed while votes exist, or the new poll
+     *                                  fails the same validation {@link #create} applies
+     */
+    @Transactional
+    public Poll update(Message message, String question, List<String> labels) {
+        var poll = pollRepo.findByMessageIdWithOptions(message.getId())
+                .orElseThrow(() -> new IllegalArgumentException("That message is not a poll."));
+
+        var trimmedQuestion = question == null ? "" : question.trim();
+        if (trimmedQuestion.isEmpty()) {
+            throw new IllegalArgumentException("Poll question is required");
+        }
+        if (trimmedQuestion.length() > MAX_QUESTION_LENGTH) {
+            throw new IllegalArgumentException(
+                    "Poll question too long (max " + MAX_QUESTION_LENGTH + " chars)");
+        }
+        var cleaned = normaliseLabels(labels);
+
+        var current = poll.getOptions().stream().map(PollOption::getLabel).toList();
+        boolean optionsChanged = !current.equals(cleaned);
+        if (optionsChanged && voteRepo.countByPoll(poll) > 0) {
+            // Public, not IllegalArgumentException: the generic handler turns the latter into
+            // "Request rejected.", and this refusal is only useful if the author reads the reason.
+            throw new ai.intellistream.chat.security.PublicBadRequestException(
+                    "People have already voted, so the options can't be changed — their votes were "
+                    + "cast on the current ones. You can still edit the question. To ask something "
+                    + "different, post a new poll.");
+        }
+
+        poll.rename(trimmedQuestion);
+        if (optionsChanged) {
+            // No votes exist here by the check above, so nothing is orphaned by replacing them.
+            //
+            // The flush between clearing and re-adding is load-bearing: (poll_id, position) is
+            // unique, and in a single flush Hibernate orders the INSERTs before the orphan
+            // DELETEs, so the new option at position 0 collides with the old one still in the
+            // table. Emptying the collection and flushing sends the DELETEs first.
+            poll.getOptions().clear();
+            pollRepo.saveAndFlush(poll);
+            for (int i = 0; i < cleaned.size(); i++) poll.addOption(i, cleaned.get(i));
+        }
+        return pollRepo.save(poll);
+    }
+
+    /** Shared validation for create and update, so an edited poll can't be shaped differently. */
+    private static List<String> normaliseLabels(List<String> labels) {
+        if (labels == null || labels.size() < 2) {
+            throw new IllegalArgumentException("Poll needs at least 2 options");
+        }
+        if (labels.size() > MAX_OPTIONS) {
+            throw new IllegalArgumentException("Poll can have at most " + MAX_OPTIONS + " options");
+        }
+        var out = new ArrayList<String>(labels.size());
+        for (var raw : labels) {
+            var label = raw == null ? "" : raw.trim();
+            if (label.isEmpty()) throw new IllegalArgumentException("Poll option labels can't be empty");
+            if (label.length() > MAX_LABEL_LENGTH) {
+                throw new IllegalArgumentException(
+                        "Poll option too long (max " + MAX_LABEL_LENGTH + " chars)");
+            }
+            out.add(label);
+        }
+        return out;
+    }
+
+    /**
      * Cast or change the voter's pick. A second call with a different option moves the vote;
      * a call with the same option is a no-op (idempotent on retries).
      */

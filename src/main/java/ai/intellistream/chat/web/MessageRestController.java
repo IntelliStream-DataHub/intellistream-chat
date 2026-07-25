@@ -23,6 +23,8 @@ import ai.intellistream.chat.service.AttachmentService;
 import ai.intellistream.chat.service.ChannelService;
 import ai.intellistream.chat.service.MarkdownRenderer;
 import ai.intellistream.chat.service.MessageService;
+import ai.intellistream.chat.service.PollService;
+import ai.intellistream.chat.slash.PollCommand;
 import ai.intellistream.chat.service.ReactionService;
 import ai.intellistream.chat.web.dto.EditMessageRequest;
 import ai.intellistream.chat.web.dto.MessageDto;
@@ -57,6 +59,7 @@ public class MessageRestController {
     private final CurrentUser currentUser;
     private final SimpMessagingTemplate broker;
     private final RateLimiter rateLimiter;
+    private final PollService pollService;
 
     public MessageRestController(MessageService messageService,
                                  AttachmentService attachmentService,
@@ -65,7 +68,8 @@ public class MessageRestController {
                                  MarkdownRenderer markdown,
                                  CurrentUser currentUser,
                                  SimpMessagingTemplate broker,
-                                 RateLimiter rateLimiter) {
+                                 RateLimiter rateLimiter,
+                                 PollService pollService) {
         this.messageService = messageService;
         this.attachmentService = attachmentService;
         this.channelService = channelService;
@@ -74,6 +78,7 @@ public class MessageRestController {
         this.currentUser = currentUser;
         this.broker = broker;
         this.rateLimiter = rateLimiter;
+        this.pollService = pollService;
     }
 
     @PostMapping("/{id}/reactions")
@@ -104,12 +109,17 @@ public class MessageRestController {
     private MessageDto broadcastUpdate(ai.intellistream.chat.domain.Message message, ai.intellistream.chat.domain.User viewer) {
         var attachments = attachmentService.findForMessage(message);
         var reactions = reactionService.groupingsFor(message, viewer);
-        var dto = MessageDto.from(message, markdown.render(message.getBodyMarkdown()), attachments, reactions);
+        // The poll has to be in here. Without it the update event carries poll=null and every
+        // client re-renders the message without its widget — reacting to a poll made the poll
+        // disappear for everyone until they reloaded.
+        var dto = MessageDto.from(message, markdown.render(message.getBodyMarkdown()), attachments,
+                reactions, 0, java.util.List.of(), pollService.pollFor(message, viewer));
         broker.convertAndSend("/topic/channels/" + dto.channelId(), MessageEvent.updated(dto));
         return dto;
     }
 
     @PatchMapping("/{id}")
+    @org.springframework.transaction.annotation.Transactional
     public MessageDto edit(@PathVariable Long id,
                            @RequestBody @Valid EditMessageRequest body,
                            Principal principal) {
@@ -118,12 +128,21 @@ public class MessageRestController {
         if (!rateLimiter.tryAcquire(me.getUsername(), "msg-edit", 30, Duration.ofMinutes(1))) {
             throw new RateLimitExceededException("edit rate exceeded");
         }
+        // A poll message is edited as the command that created it, because that is the only
+        // form in which its options are visible and changeable. The stored body stays the short
+        // "📊 Poll: <question>" line that search and notifications read.
+        var pollEdit = PollCommand.parseEditedCommand(body.body());
+        if (pollEdit != null) {
+            // edit() first: it owns the author-only check, and doing the poll update before it
+            // would let anyone rewrite anyone's poll. Both run in this method's transaction, so a
+            // refused option change (votes already cast) rolls the question change back with it
+            // rather than half-applying.
+            var updated = messageService.edit(id, me, PollCommand.bodyFor(pollEdit.question()));
+            pollService.update(updated, pollEdit.question(), pollEdit.options());
+            return broadcastUpdate(updated, me);
+        }
         var updated = messageService.edit(id, me, body.body());
-        var attachments = attachmentService.findForMessage(updated);
-        var reactions = reactionService.groupingsFor(updated, me);
-        var dto = MessageDto.from(updated, markdown.render(updated.getBodyMarkdown()), attachments, reactions);
-        broker.convertAndSend("/topic/channels/" + dto.channelId(), MessageEvent.updated(dto));
-        return dto;
+        return broadcastUpdate(updated, me);
     }
 
     @DeleteMapping("/{id}")

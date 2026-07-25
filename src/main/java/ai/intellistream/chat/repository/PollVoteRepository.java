@@ -38,6 +38,9 @@ public interface PollVoteRepository extends JpaRepository<PollVote, Long> {
     @Transactional
     void deleteByPollAndVoter(Poll poll, User voter);
 
+    /** Has anybody voted yet? Decides whether a poll's options may still be rewritten. */
+    long countByPoll(Poll poll);
+
     /**
      * Per-option vote counts for the supplied polls in a single round-trip.
      * Returns rows of {@code (pollId, optionId, count)}.

@@ -1583,10 +1583,20 @@ presenceMenu.init();
   // they're emoji reactions, not votes. Mobile: each option is a full-width ≥44px button so
   // it's a comfortable tap target on phones; the bar fills the button's background instead
   // of sitting beside it.
+  // Rebuild the command that would have created this poll. A label containing a literal pipe is
+  // re-escaped, so round-tripping an edit through the parser gives back the same labels.
+  const pollCommandFor = (poll) => {
+    const parts = [poll.question, ...(poll.options || []).map((o) => o.label)];
+    return '/poll ' + parts.map((p) => String(p).replace(/\|/g, '\\|')).join(' | ');
+  };
+
   const renderPollWidget = (poll) => {
     const root = document.createElement('div');
     root.className = 'poll-widget';
     root.dataset.pollId = poll.id;
+    // Stashed so startEdit can rebuild the /poll command without another fetch. The command is
+    // the only representation that contains the options — the stored body is just the question.
+    root.dataset.pollCommand = pollCommandFor(poll);
 
     const q = document.createElement('div');
     q.className = 'poll-question';
@@ -1911,7 +1921,11 @@ presenceMenu.init();
     const right = li.querySelector(':scope > div');
     const body = right.querySelector('.message-body');
     if (!body) return;
-    const original = li.dataset.bodyMarkdown || '';
+    // A poll is edited as the command that created it. Offering "📊 Poll: Question" instead
+    // would let the author change the wording and never the choices — an edit box that looks
+    // like it works and cannot do the thing you opened it for.
+    const pollEl = li.querySelector('.poll-widget');
+    const original = (pollEl && pollEl.dataset.pollCommand) || li.dataset.bodyMarkdown || '';
     const wrap = document.createElement('div');
     wrap.className = 'message-edit';
     wrap.innerHTML =

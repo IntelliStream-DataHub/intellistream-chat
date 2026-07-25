@@ -65,10 +65,43 @@ public class PollCommand implements SlashCommand {
         // Body is intentionally short — the rich poll widget is rendered by the client from
         // PollDto, but search, mention notifications, and the message snippet still benefit
         // from having the question text inline.
-        var body = "📊 **Poll:** " + question;
+        var body = bodyFor(question);
         var saved = messageService.post(channel, author, body);
         pollService.create(saved, question, options);
         return saved;
+    }
+
+    /** The stored message body for a poll. Short on purpose — the widget carries the detail. */
+    public static String bodyFor(String question) {
+        return "📊 **Poll:** " + question;
+    }
+
+    /** A parsed {@code /poll} edit: the question and its option labels, in order. */
+    public record ParsedPoll(String question, List<String> options) {}
+
+    /**
+     * Parse an edited poll command back into its parts, or null if this body is not one.
+     *
+     * <p>Editing a poll means editing the command that made it, because the command is the only
+     * form in which the options are visible at all — the stored body is just the question line,
+     * so an edit box showing that could change the wording and never the choices, which is the
+     * shape of edit that looks like it worked and did not.
+     *
+     * <p>Returns null rather than throwing for a non-poll body: this is asked of every edit, and
+     * "no, that is an ordinary message" is the common answer, not an error.
+     */
+    public static ParsedPoll parseEditedCommand(String body) {
+        if (body == null) return null;
+        var trimmed = body.strip();
+        if (!trimmed.regionMatches(true, 0, "/poll", 0, 5)) return null;
+        // "/pollute the well" is not a poll command; require a separator after the name.
+        if (trimmed.length() > 5 && !Character.isWhitespace(trimmed.charAt(5))) return null;
+        var parts = parsePipeSeparated(trimmed.substring(5).strip());
+        if (parts.size() < 3) {
+            throw new IllegalArgumentException(
+                    "Usage: /poll Question? | Option A | Option B (need a question and at least 2 options)");
+        }
+        return new ParsedPoll(parts.get(0), List.copyOf(parts.subList(1, parts.size())));
     }
 
     /**

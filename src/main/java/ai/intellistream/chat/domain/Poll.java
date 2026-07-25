@@ -54,6 +54,11 @@ public class Poll {
         this.question = question;
     }
 
+    /** Rewrite the question. Editing it never invalidates a vote — see PollService.update. */
+    public void rename(String question) {
+        this.question = question;
+    }
+
     public PollOption addOption(int position, String label) {
         var o = new PollOption(this, position, label);
         options.add(o);
