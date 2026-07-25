@@ -103,13 +103,15 @@ class ChannelHttpSendIT {
 
     private static final AtomicInteger SEQ = new AtomicInteger();
 
+    @Autowired ai.intellistream.threadorbit.service.SidebarService sidebarService;
+
     @BeforeEach
     void wire() {
         currentUser = mock(CurrentUser.class);
         broker = mock(SimpMessagingTemplate.class);
         controller = new ChannelRestController(channels, messages, attachments, reactions,
                 reads, userService, pollService, markdown, currentUser, new RateLimiter(),
-                broker, mentionRepo);
+                broker, mentionRepo, sidebarService);
     }
 
     private User newUser(String prefix) {

@@ -174,4 +174,20 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     @org.springframework.data.jpa.repository.Query(
             "select m.id, m.channel.id, m.author.username, m.bodyMarkdown from Message m where m.author.id = :authorId")
     java.util.List<Object[]> findIndexRowsByAuthor(Long authorId);
+
+    /**
+     * {@code (channelId, messageCount)} since a cutoff, for the given channels — how the sidebar
+     * decides which of a user's channels are "most active". Native and grouped so it rides the
+     * {@code ix_messages_channel_created} index rather than counting rows per channel.
+     */
+    @org.springframework.data.jpa.repository.Query(value = """
+            select m.channel_id, count(*)
+              from messages m
+             where m.channel_id in (:channelIds)
+               and m.created_at >= :since
+             group by m.channel_id
+            """, nativeQuery = true)
+    java.util.List<Object[]> countRecentByChannel(
+            @org.springframework.data.repository.query.Param("channelIds") java.util.Collection<Long> channelIds,
+            @org.springframework.data.repository.query.Param("since") Instant since);
 }

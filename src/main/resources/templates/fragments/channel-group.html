@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+<!--/*
+  One group of sidebar channels ("Largest", "Most active"). Both groups render through this
+  fragment so their markup — unread badges, private/admin icons, the active highlight — can't
+  drift apart as one of them gets tweaked.
+
+  Usage: <ul th:replace="~{fragments/channel-group :: group(${sidebar.largest}, ${activeChannelId}, 'sidebar-channel-list')}"></ul>
+*/-->
+<th:block th:fragment="group(channels, activeChannelId, listId)">
+    <ul class="channel-list" th:id="${listId}">
+        <li th:each="c : ${channels}"
+            th:classappend="${c.joined ? 'joined' : 'public'} + ${c.joined and c.unreadCount > 0 ? ' has-unread' : ''}"
+            th:with="active=${activeChannelId != null and activeChannelId == c.id}"
+            th:attr="data-active=${active},data-name=${#strings.toLowerCase(c.name)},data-channel-id=${c.id}">
+            <a th:href="@{'/channels/' + ${c.id}}" th:classappend="${active ? 'active' : ''}">
+                <span class="hash">#</span>
+                <span class="channel-name" th:text="${c.name}">name</span>
+                <svg th:if="${c.type.name() == 'PRIVATE'}" class="icon icon-sm" title="Private">
+                    <use href="#icon-lock"/>
+                </svg>
+                <svg th:if="${c.admin}" class="icon icon-sm" title="Channel admin">
+                    <use href="#icon-star"/>
+                </svg>
+                <span class="unread-badge"
+                      th:if="${c.joined and c.unreadCount > 0}"
+                      th:classappend="${c.mentionCount > 0 ? 'mention' : ''}"
+                      th:text="${c.unreadCount > 99 ? '99+' : c.unreadCount}">3</span>
+            </a>
+        </li>
+    </ul>
+</th:block>
+</body>
+</html>

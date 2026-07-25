@@ -87,38 +87,38 @@
     <aside class="sidebar" id="app-sidebar">
       <div class="sidebar-inner">
         <div class="sidebar-search">
-            <input type="search" id="sidebar-filter" placeholder="Find channel…"/>
+            <input type="search" id="sidebar-filter" placeholder="Search channels…"
+                   autocomplete="off" aria-label="Search channels"/>
         </div>
 
+        <!--/* The sidebar is a shortlist, not a directory: the channels with the most people and
+               the ones with the most going on. Everything else is found through the search box
+               above, which renders its results in the main content area where there is room to
+               show them. Each group is rendered by the same fragment so the two can't drift. */-->
         <div class="sidebar-section">
             <h2>
-                Channels
+                Largest
                 <button type="button" class="add-btn" id="sidebar-create-add-btn"
                         title="Create channel" aria-label="Create channel">
                     <svg class="icon icon-sm"><use href="#icon-plus"/></svg>
                 </button>
             </h2>
-            <ul class="channel-list" id="sidebar-channel-list">
-                <li th:each="c : ${sidebar}"
-                    th:classappend="${c.joined ? 'joined' : 'public'} + ${c.joined and c.unreadCount > 0 ? ' has-unread' : ''}"
-                    th:with="active=${activeChannelId != null and activeChannelId == c.id}"
-                    th:attr="data-active=${active},data-name=${#strings.toLowerCase(c.name)}">
-                    <a th:href="@{'/channels/' + ${c.id}}" th:classappend="${active ? 'active' : ''}">
-                        <span class="hash">#</span>
-                        <span class="channel-name" th:text="${c.name}">name</span>
-                        <svg th:if="${c.type.name() == 'PRIVATE'}" class="icon icon-sm" title="Private">
-                            <use href="#icon-lock"/>
-                        </svg>
-                        <svg th:if="${c.admin}" class="icon icon-sm" title="Channel admin">
-                            <use href="#icon-star"/>
-                        </svg>
-                        <span class="unread-badge"
-                              th:if="${c.joined and c.unreadCount > 0}"
-                              th:classappend="${c.mentionCount > 0 ? 'mention' : ''}"
-                              th:text="${c.unreadCount > 99 ? '99+' : c.unreadCount}">3</span>
-                    </a>
-                </li>
-            </ul>
+            <ul class="channel-list" id="sidebar-channel-list"
+                th:replace="~{fragments/channel-group :: group(${sidebar.largest}, ${activeChannelId}, 'sidebar-channel-list')}"></ul>
+        </div>
+
+        <div class="sidebar-section" th:if="${!sidebar.mostActive.isEmpty()}">
+            <h2>Most active</h2>
+            <ul class="channel-list"
+                th:replace="~{fragments/channel-group :: group(${sidebar.mostActive}, ${activeChannelId}, 'sidebar-active-list')}"></ul>
+        </div>
+
+        <div class="sidebar-section">
+            <p class="sidebar-more" th:if="${sidebar.hiddenCount > 0}">
+                <span th:text="${sidebar.hiddenCount}">0</span>
+                more channel<span th:if="${sidebar.hiddenCount != 1}">s</span> —
+                <button type="button" class="linklike" id="sidebar-browse-all">search to find them</button>
+            </p>
 
             <details class="create-channel">
                 <summary id="sidebar-create-toggle">+ Create channel</summary>

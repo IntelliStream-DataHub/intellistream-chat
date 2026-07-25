@@ -62,6 +62,7 @@ public class ChannelRestController {
     private final RateLimiter rateLimiter;
     private final SimpMessagingTemplate broker;
     private final MessageMentionRepository mentionRepository;
+    private final ai.intellistream.threadorbit.service.SidebarService sidebarService;
 
     public ChannelRestController(ChannelService channelService,
                                  MessageService messageService,
@@ -74,7 +75,9 @@ public class ChannelRestController {
                                  CurrentUser currentUser,
                                  RateLimiter rateLimiter,
                                  SimpMessagingTemplate broker,
-                                 MessageMentionRepository mentionRepository) {
+                                 MessageMentionRepository mentionRepository,
+                                 ai.intellistream.threadorbit.service.SidebarService sidebarService) {
+        this.sidebarService = sidebarService;
         this.channelService = channelService;
         this.messageService = messageService;
         this.attachmentService = attachmentService;
@@ -92,6 +95,25 @@ public class ChannelRestController {
     @GetMapping
     public List<ChannelDto> listPublic() {
         return channelService.listPublic().stream().map(ChannelDto::from).toList();
+    }
+
+    /**
+     * Channel name/slug search, backing the sidebar's search box. The sidebar shows a shortlist,
+     * so this is how a user reaches everything else; results render in the main content area
+     * rather than in the sidebar, because there is room there to show what each channel is.
+     */
+    @GetMapping("/search")
+    public List<ai.intellistream.threadorbit.web.dto.ChannelSidebarDto> search(
+            @RequestParam String q,
+            @RequestParam(defaultValue = "25") int limit,
+            Principal principal) {
+        var me = currentUser.resolve(principal);
+        // Same budget as the user-lookup endpoints — enough for type-ahead, bounded against
+        // someone enumerating the channel list one query at a time.
+        if (!rateLimiter.tryAcquire(me.getUsername(), "channel-search", 120, Duration.ofMinutes(1))) {
+            throw new RateLimitExceededException("search rate exceeded");
+        }
+        return sidebarService.search(me, q, limit);
     }
 
     @GetMapping("/mine")

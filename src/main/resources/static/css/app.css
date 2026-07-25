@@ -2258,6 +2258,49 @@ body.lightbox-open { overflow: hidden; }
 /* ===========================================================
    Message hover toolbar + inline edit
    =========================================================== */
+/* ---------- Curated sidebar + channel search ---------- */
+.sidebar-more {
+  margin: 0 0 0.6rem;
+  font-size: 0.82rem;
+  color: var(--sb-muted);
+}
+.linklike {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.linklike:hover { color: var(--sb-text); }
+
+/* Channel search results live in the main content area, not the sidebar — there is room here to
+   say what a channel is and whether you're in it, which a 200px column cannot. */
+.channel-search-results { padding: 1.5rem 2rem; }
+.channel-search-results h2 { margin: 0 0 1rem; font-size: 1.3rem; }
+.channel-search-hint { color: var(--muted); font-size: 0.9rem; }
+.channel-search-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.15rem; }
+.channel-search-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 6px;
+}
+.channel-search-list li:hover { background: var(--hover-bg, rgba(127, 127, 127, 0.1)); }
+.channel-search-name { font-weight: 600; text-decoration: none; color: inherit; }
+.channel-search-name:hover { text-decoration: underline; }
+.channel-search-tag {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0.05rem 0.4rem;
+}
+
 .message { position: relative; }
 
 /* ---------- Optimistic send ----------
