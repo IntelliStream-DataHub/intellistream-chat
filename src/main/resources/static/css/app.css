@@ -1866,6 +1866,9 @@ button.icon-btn > .icon {
 [data-theme="dark"] .message-body code { color: #ff89c0; background: #2d2e34; }
 [data-theme="dark"] .day-divider span { background: var(--panel); }
 
+/* Accent colours carry white text (--accent-on: #fff) on buttons, so each one has to
+   clear 4.5:1 against white. Orange, green and cyan were between 4.06 and 4.38 and were
+   nudged darker by the smallest amount that crosses it — measured, not eyeballed. */
 /* Orange */
 [data-theme="orange"] {
   --sb-bg: #b8470b;
@@ -1873,7 +1876,7 @@ button.icon-btn > .icon {
   --sb-bg-3: #8e3608;
   --sb-active: #f4a623;
   --sb-active-text: #2a1505;
-  --accent: #cf5512;
+  --accent: #c35011;
   --accent-2: #b8470b;
 }
 
@@ -1895,7 +1898,7 @@ button.icon-btn > .icon {
   --sb-bg-3: #0f4d28;
   --sb-active: #5fdd8f;
   --sb-active-text: #062012;
-  --accent: #1f8a4a;
+  --accent: #1e8749;
   --accent-2: #176b3a;
 }
 
@@ -1928,8 +1931,95 @@ button.icon-btn > .icon {
   --sb-bg-3: #094c54;
   --sb-active: #5fdde6;
   --sb-active-text: #052126;
-  --accent: #128b98;
+  --accent: #11808c;
   --accent-2: #0d6f7a;
+}
+/* Indigo */
+[data-theme="indigo"] {
+  --sb-bg: #3730a3;
+  --sb-bg-2: #4338ca;
+  --sb-bg-3: #292481;
+  --sb-active: #a5b4fc;
+  --sb-active-text: #1e1b4b;
+  --accent: #4338ca;
+  --accent-2: #3730a3;
+}
+
+/* Teal */
+[data-theme="teal"] {
+  --sb-bg: #0f766e;
+  --sb-bg-2: #12897f;
+  --sb-bg-3: #0b5c56;
+  --sb-active: #5eead4;
+  --sb-active-text: #042f2c;
+  --accent: #0f766e;
+  --accent-2: #0b5c56;
+}
+
+/* Amber */
+[data-theme="amber"] {
+  --sb-bg: #92620e;
+  --sb-bg-2: #a97312;
+  --sb-bg-3: #744d0a;
+  --sb-active: #fbbf24;
+  --sb-active-text: #2c1d02;
+  --accent: #a16207;
+  --accent-2: #854d0e;
+}
+
+/* Slate */
+[data-theme="slate"] {
+  --sb-bg: #334155;
+  --sb-bg-2: #3f4f66;
+  --sb-bg-3: #253141;
+  --sb-active: #94a3b8;
+  --sb-active-text: #0f172a;
+  --accent: #475569;
+  --accent-2: #334155;
+}
+
+/* Mocha */
+[data-theme="mocha"] {
+  --sb-bg: #6b4423;
+  --sb-bg-2: #7f5129;
+  --sb-bg-3: #55351b;
+  --sb-active: #d9a066;
+  --sb-active-text: #2b1a0c;
+  --accent: #7f5129;
+  --accent-2: #6b4423;
+}
+
+/* Ocean */
+[data-theme="ocean"] {
+  --sb-bg: #0c4a6e;
+  --sb-bg-2: #0e5a85;
+  --sb-bg-3: #093a56;
+  --sb-active: #7dd3fc;
+  --sb-active-text: #082f49;
+  --accent: #0369a1;
+  --accent-2: #075985;
+}
+
+/* Plum */
+[data-theme="plum"] {
+  --sb-bg: #6b2154;
+  --sb-bg-2: #7f2864;
+  --sb-bg-3: #551a43;
+  --sb-active: #f0abfc;
+  --sb-active-text: #2e0a24;
+  --accent: #86198f;
+  --accent-2: #701a75;
+}
+
+/* Lime */
+[data-theme="lime"] {
+  --sb-bg: #3f6212;
+  --sb-bg-2: #4d7c0f;
+  --sb-bg-3: #33500f;
+  --sb-active: #bef264;
+  --sb-active-text: #1a2e05;
+  --accent: #4d7c0f;
+  --accent-2: #3f6212;
 }
 
 /* ===========================================================
@@ -2220,6 +2310,38 @@ button.icon-btn > .icon {
 .theme-swatch[data-theme="cyan"] .sw-sidebar { background: #0d6f7a; }
 .theme-swatch[data-theme="cyan"] .sw-accent  { background: #5fdde6; }
 .theme-swatch[data-theme="cyan"] .sw-content { background: #ffffff; }
+
+.theme-swatch[data-theme="indigo"] .sw-sidebar { background: #3730a3; }
+.theme-swatch[data-theme="indigo"] .sw-accent  { background: #a5b4fc; }
+.theme-swatch[data-theme="indigo"] .sw-content { background: #ffffff; }
+
+.theme-swatch[data-theme="teal"] .sw-sidebar { background: #0f766e; }
+.theme-swatch[data-theme="teal"] .sw-accent  { background: #5eead4; }
+.theme-swatch[data-theme="teal"] .sw-content { background: #ffffff; }
+
+.theme-swatch[data-theme="amber"] .sw-sidebar { background: #92620e; }
+.theme-swatch[data-theme="amber"] .sw-accent  { background: #fbbf24; }
+.theme-swatch[data-theme="amber"] .sw-content { background: #ffffff; }
+
+.theme-swatch[data-theme="slate"] .sw-sidebar { background: #334155; }
+.theme-swatch[data-theme="slate"] .sw-accent  { background: #94a3b8; }
+.theme-swatch[data-theme="slate"] .sw-content { background: #ffffff; }
+
+.theme-swatch[data-theme="mocha"] .sw-sidebar { background: #6b4423; }
+.theme-swatch[data-theme="mocha"] .sw-accent  { background: #d9a066; }
+.theme-swatch[data-theme="mocha"] .sw-content { background: #ffffff; }
+
+.theme-swatch[data-theme="ocean"] .sw-sidebar { background: #0c4a6e; }
+.theme-swatch[data-theme="ocean"] .sw-accent  { background: #7dd3fc; }
+.theme-swatch[data-theme="ocean"] .sw-content { background: #ffffff; }
+
+.theme-swatch[data-theme="plum"] .sw-sidebar { background: #6b2154; }
+.theme-swatch[data-theme="plum"] .sw-accent  { background: #f0abfc; }
+.theme-swatch[data-theme="plum"] .sw-content { background: #ffffff; }
+
+.theme-swatch[data-theme="lime"] .sw-sidebar { background: #3f6212; }
+.theme-swatch[data-theme="lime"] .sw-accent  { background: #bef264; }
+.theme-swatch[data-theme="lime"] .sw-content { background: #ffffff; }
 
 .theme-picker #theme-feedback { margin: 0.2rem 0 0; }
 
