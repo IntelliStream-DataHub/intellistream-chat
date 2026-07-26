@@ -1532,6 +1532,16 @@ button.icon-btn > .icon {
   /* Long handles shouldn't force a horizontal scroll — break like the rest of the body. */
   word-break: break-word;
 }
+/* @channel / @here / @everyone. Louder than a personal mention because it is: a stronger tint and
+   a full pill, so "this went to the room" is legible at a glance and not confusable with somebody's
+   name. Shape as well as colour — the two mention kinds have to be distinguishable without relying
+   on a tint difference nobody measures. */
+.message-body .mention-broadcast {
+  background: var(--accent-soft-2);
+  border-radius: var(--radius-full);
+  padding: 0 6px;
+  font-weight: 700;
+}
 
 /* Responsive wrapper for YouTube / Vimeo embeds inserted by MarkdownRenderer.
    Default is the landscape 4:1 compact strip used for /watch, /embed, youtu.be, and Vimeo.
@@ -1896,12 +1906,26 @@ button.icon-btn > .icon {
   /* Narrower than the search panel: a row is a name, not a message excerpt. */
   max-width: 340px;
 }
+/* Group label above the @channel / @here rows. They notify a roomful of people, so they are
+   separated from the list of individuals rather than sitting in it looking like one more name. */
 .mention-dropdown-hint {
   padding: 0.35rem 0.55rem 0.2rem;
   color: var(--muted);
   font-size: var(--fs-xs);
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+/* Stands in for the avatar on a broadcast row, at the same size, so the two row kinds line up. */
+.mention-row-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-full);
+  background: var(--accent-soft-2);
+  color: var(--accent-fg);
 }
 .mention-row {
   display: flex;

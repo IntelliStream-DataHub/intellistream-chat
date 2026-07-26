@@ -17,16 +17,21 @@
 package ai.intellistream.chat.integration;
 
 import ai.intellistream.chat.domain.ChannelType;
+import ai.intellistream.chat.domain.NotificationLevel;
 import ai.intellistream.chat.domain.User;
+import ai.intellistream.chat.repository.MessageMentionRepository;
 import ai.intellistream.chat.repository.UserRepository;
 import ai.intellistream.chat.service.ChannelService;
 import ai.intellistream.chat.service.MarkdownRenderer;
 import ai.intellistream.chat.service.MentionService;
 import ai.intellistream.chat.service.MessageService;
+import ai.intellistream.chat.service.NotificationPreferenceService;
+import ai.intellistream.chat.service.PresenceTracker;
 import ai.intellistream.chat.service.ReadStateService;
 import ai.intellistream.chat.service.SidebarService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -78,7 +83,16 @@ class ReadStateAndMentionsIT {
     @Autowired SidebarService sidebar;
     @Autowired MentionService mentionService;
     @Autowired MarkdownRenderer markdown;
+    @Autowired MessageMentionRepository mentions;
+    @Autowired NotificationPreferenceService notifications;
+    @Autowired PresenceTracker presence;
     @PersistenceContext EntityManager em;
+
+    @AfterEach
+    void clearPresence() {
+        // The tracker is process-wide in-memory state shared by every test in this context.
+        presence.resetForTests();
+    }
 
     private static final AtomicInteger SEQ = new AtomicInteger();
 
@@ -124,6 +138,119 @@ class ReadStateAndMentionsIT {
         var entry = withBob.stream().filter(d -> d.id().equals(room.getId())).findFirst().orElseThrow();
         assertThat(entry.joined()).isTrue();
         assertThat(entry.mentionCount()).isEqualTo(1);
+    }
+
+    // ---------- Broadcast mentions (@channel / @here / @everyone) ----------
+
+    /**
+     * @channel writes a row per member, which is what makes the bell inbox and the per-channel
+     * badge work for people who are not connected when it lands. The author is excluded — nobody
+     * needs their own bell to ring for their own announcement.
+     */
+    @Test
+    void channelBroadcastReachesEveryMemberButTheAuthor() {
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var carol = newUser("carol");
+        var room = channels.create("bc-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice);
+        channels.join(room, bob);
+        channels.join(room, carol);
+
+        var msg = messages.post(room, alice, "standup in five, @channel");
+        em.flush();
+
+        assertThat(mentions.usernamesByMessage(msg))
+                .containsExactlyInAnyOrder(bob.getUsername(), carol.getUsername());
+    }
+
+    /**
+     * The audience is the membership, so the N2 rule holds by construction: a broadcast in a private
+     * channel cannot put a row — and therefore a body snippet in the bell inbox — in front of
+     * somebody who cannot read the channel.
+     */
+    @Test
+    void privateChannelBroadcastDoesNotReachNonMembers() {
+        var alice = newUser("alice");
+        var member = newUser("bob");
+        var outsider = newUser("carol");
+        var room = channels.create("bc-priv-" + SEQ.incrementAndGet(), null, ChannelType.PRIVATE, alice);
+        channels.invite(room, member, alice);
+
+        var msg = messages.post(room, alice, "@channel please review");
+        em.flush();
+
+        assertThat(mentions.usernamesByMessage(msg)).containsExactly(member.getUsername());
+        assertThat(mentions.usernamesByMessage(msg)).doesNotContain(outsider.getUsername());
+    }
+
+    /** @here is the connected subset — that is the entire difference from @channel. */
+    @Test
+    void hereReachesOnlyConnectedMembers() {
+        var alice = newUser("alice");
+        var online = newUser("bob");
+        var offline = newUser("carol");
+        var room = channels.create("bc-here-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice);
+        channels.join(room, online);
+        channels.join(room, offline);
+        presence.connect(online.getUsername(), "stomp-session-1");
+
+        var msg = messages.post(room, alice, "@here quick question");
+        em.flush();
+
+        assertThat(mentions.usernamesByMessage(msg)).containsExactly(online.getUsername());
+    }
+
+    /**
+     * A mute is a mute. NONE means "nothing from this channel", and the existing client-side rule is
+     * explicit that a mute with exceptions is not a mute — so a broadcast does not even get a row,
+     * and cannot leave a badge on a channel the user silenced.
+     */
+    @Test
+    void mutedMemberIsNotReachedByABroadcast() {
+        var alice = newUser("alice");
+        var muted = newUser("bob");
+        var listening = newUser("carol");
+        var room = channels.create("bc-mute-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice);
+        channels.join(room, muted);
+        channels.join(room, listening);
+        notifications.setLevelFor(room, muted, NotificationLevel.NONE);
+        em.flush();
+
+        var msg = messages.post(room, alice, "@channel heads up");
+        em.flush();
+
+        assertThat(mentions.usernamesByMessage(msg)).containsExactly(listening.getUsername());
+    }
+
+    /** @everyone is a synonym for @channel here, not a no-op and not an error. */
+    @Test
+    void everyoneBehavesLikeChannel() {
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var room = channels.create("bc-every-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice);
+        channels.join(room, bob);
+
+        var msg = messages.post(room, alice, "@everyone welcome");
+        em.flush();
+
+        assertThat(mentions.usernamesByMessage(msg)).containsExactly(bob.getUsername());
+    }
+
+    /**
+     * A broadcast and a personal mention of the same person in one body must not collide on
+     * uk_message_mentions — the fan-out is idempotent, and one row is what the badge counts.
+     */
+    @Test
+    void personalAndBroadcastMentionOfTheSamePersonProducesOneRow() {
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var room = channels.create("bc-both-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice);
+        channels.join(room, bob);
+
+        var msg = messages.post(room, alice, "@" + bob.getUsername() + " and @channel");
+        em.flush();
+
+        assertThat(mentions.usernamesByMessage(msg)).containsExactly(bob.getUsername());
     }
 
     // ---------- Markdown highlight ----------

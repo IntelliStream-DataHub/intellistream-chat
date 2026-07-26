@@ -85,8 +85,28 @@ export function activeMentionToken(value, caretStart, caretEnd) {
 function matches(item, query) {
   if (!query) return true;
   const q = query.toLowerCase();
+  // Broadcasts are prefix-matched server-side, so narrow them the same way: "@ann" must not keep
+  // offering @channel just because "channel" contains "ann".
+  if (item.kind === 'broadcast') return (item.username || '').startsWith(q);
   return (item.username || '').toLowerCase().includes(q)
       || (item.displayName || '').toLowerCase().includes(q);
+}
+
+/**
+ * What a broadcast row says it will do. The member count comes from the server; @here reports none,
+ * because its audience is whoever is connected when Send is pressed and a number captured mid-typing
+ * would already be wrong.
+ */
+function broadcastNote(item) {
+  const n = item.notifyCount;
+  switch (item.username) {
+    case 'here':
+      return 'Notifies members who are online';
+    case 'everyone':
+      return n ? 'Same as @channel · notifies ' + n + ' members' : 'Same as @channel';
+    default:
+      return n ? 'Notifies all ' + n + ' members' : 'Notifies every member';
+  }
 }
 
 /**
@@ -126,6 +146,23 @@ function avatarFor(item) {
   initial.textContent = letter;
   span.appendChild(initial);
   return span;
+}
+
+/**
+ * Stand-in for the avatar on a broadcast row. From the SVG sprite, not an emoji: the sprite icons
+ * inherit currentColor and so follow the theme, which a glyph cannot (see AGENT.md).
+ */
+function broadcastIcon() {
+  const wrap = document.createElement('span');
+  wrap.className = 'mention-row-icon';
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('class', 'icon icon-sm');
+  svg.setAttribute('aria-hidden', 'true');
+  const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+  use.setAttribute('href', '#icon-users');
+  svg.appendChild(use);
+  wrap.appendChild(svg);
+  return wrap;
 }
 
 /**
@@ -216,24 +253,43 @@ export function attachMentionAutocomplete(input) {
     panel.setAttribute('role', 'listbox');
     panel.id = 'mention-dropdown-' + input.id;
     shown.forEach((item, i) => {
+      const broadcast = item.kind === 'broadcast';
+      if (broadcast && (i === 0 || shown[i - 1].kind !== 'broadcast')) {
+        // One label above the broadcast group. A handle that notifies a roomful of people should
+        // not sit in the list of individuals looking like one more name.
+        const hint = document.createElement('div');
+        hint.className = 'mention-dropdown-hint';
+        hint.textContent = 'Notify a group';
+        panel.appendChild(hint);
+      }
       const row = document.createElement('button');
       row.type = 'button';
       row.className = 'search-dropdown-row mention-row';
       row.id = panel.id + '-' + i;
       row.setAttribute('role', 'option');
-      row.appendChild(avatarFor(item));
+      row.appendChild(broadcast ? broadcastIcon() : avatarFor(item));
       const text = document.createElement('span');
       text.className = 'mention-row-text';
       const name = document.createElement('span');
       name.className = 'mention-row-name';
-      name.textContent = item.displayName || item.username;
-      const handle = document.createElement('span');
-      handle.className = 'mention-row-handle';
-      handle.textContent = '@' + item.username;
+      name.textContent = broadcast ? '@' + item.username : (item.displayName || item.username);
       text.appendChild(name);
-      text.appendChild(handle);
+      if (!broadcast) {
+        const handle = document.createElement('span');
+        handle.className = 'mention-row-handle';
+        handle.textContent = '@' + item.username;
+        text.appendChild(handle);
+      }
       row.appendChild(text);
-      if (item.member === false) {
+      if (broadcast) {
+        // The audience size, in front of the user while they are still choosing the handle. This is
+        // the whole warning: Slack shows "this will notify 240 people" in a dialog after the fact,
+        // and a number you read before typing is harder to dismiss by reflex.
+        const note = document.createElement('span');
+        note.className = 'mention-row-note';
+        note.textContent = broadcastNote(item);
+        row.appendChild(note);
+      } else if (item.member === false) {
         // A public channel can be mentioned into by name even for someone who hasn't joined; they
         // do get notified, but they won't have the channel in their sidebar, and saying so here is
         // cheaper than the confusion later.

@@ -150,7 +150,10 @@ class MentionCandidatesIT {
         var room = channels.create("cand-empty-" + n, null, ChannelType.PRIVATE, alice);
         channels.invite(room, bob, alice);
 
-        assertThat(handles(inChannel(alice, room.getId(), "")))
+        var people = inChannel(alice, room.getId(), "").stream()
+                .filter(r -> "user".equals(r.kind()))
+                .toList();
+        assertThat(handles(people))
                 .containsExactlyInAnyOrder(alice.getUsername(), bob.getUsername());
     }
 
@@ -222,6 +225,63 @@ class MentionCandidatesIT {
         assertThatThrownBy(() ->
                 controller.mentionCandidates(null, dm.getId(), "conv-", 8, mock(Principal.class)))
                 .isInstanceOf(AccessDeniedException.class);
+    }
+
+    /**
+     * The broadcast handles are offered from the same list, with the size of the audience attached.
+     * That number is the notice: it is in front of the user while they are choosing the handle,
+     * which is earlier and harder to reflex-dismiss than a confirmation dialog after the fact.
+     */
+    @Test
+    void broadcastHandlesAreOfferedWithTheirAudienceSize() {
+        var n = SEQ.incrementAndGet();
+        var alice = user("bcast-a" + n, "Bcast Alice");
+        var bob = user("bcast-b" + n, "Bcast Bob");
+        var room = channels.create("cand-bcast-" + n, null, ChannelType.PRIVATE, alice);
+        channels.invite(room, bob, alice);
+
+        // A real prefix of the handle: the broadcast leads, because "ch" is not a person's name.
+        var ch = inChannel(alice, room.getId(), "ch");
+        assertThat(ch).isNotEmpty();
+        assertThat(ch.get(0).kind()).isEqualTo("broadcast");
+        assertThat(ch.get(0).username()).isEqualTo("channel");
+        assertThat(ch.get(0).notifyCount()).isEqualTo(2);   // both members, however few are online
+
+        // @here reports no count on purpose: its audience is whoever is connected at send time.
+        var here = inChannel(alice, room.getId(), "her");
+        assertThat(handles(here)).containsExactly("here");
+        assertThat(here.get(0).notifyCount()).isZero();
+
+        // @everyone is offered too — it is a synonym here, not an error.
+        assertThat(handles(inChannel(alice, room.getId(), "every"))).containsExactly("everyone");
+    }
+
+    /**
+     * A bare "@" leads with people. The broadcast rows are still there, at the end: a megaphone
+     * under the first Enter of an empty query is the wrong default.
+     */
+    @Test
+    void emptyQueryPutsBroadcastsLast() {
+        var n = SEQ.incrementAndGet();
+        var alice = user("tail-a" + n, "Tail Alice");
+        var room = channels.create("cand-tail-" + n, null, ChannelType.PRIVATE, alice);
+
+        var rows = inChannel(alice, room.getId(), "");
+        assertThat(rows.get(0).kind()).isEqualTo("user");
+        assertThat(handles(rows)).containsSubsequence(alice.getUsername(), "channel", "here", "everyone");
+    }
+
+    /** A conversation has no channel to notify, so it is offered no broadcast handles. */
+    @Test
+    void conversationsAreOfferedNoBroadcastHandles() {
+        var n = SEQ.incrementAndGet();
+        var alice = user("nobc-a" + n, "Nobc Alice");
+        var bob = user("nobc-b" + n, "Nobc Bob");
+        var dm = conversations.directBetween(alice, bob);
+        when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
+
+        var rows = controller.mentionCandidates(null, dm.getId(), "ch", 8, mock(Principal.class));
+        assertThat(rows).noneMatch(r -> "broadcast".equals(r.kind()));
     }
 
     /** Neither scope, or both, is a client bug — answer 400 rather than guessing. */
