@@ -87,6 +87,11 @@ ichat:
     # user_storage.quota_bytes; negative here (or there) means unlimited. Admins are exempt —
     # see StorageQuotaService for why.
     #
+    # This is a *total*, not a per-file limit: there is no cap on how large one upload may be, so
+    # the largest file an ordinary account can send is whatever is left of this allowance. Raise it
+    # (or clear a specific account's quota in the admin console) for people who need to move
+    # something big.
+    #
     # This is not what keeps the volume from filling: a filesystem quota on the attachments
     # dataset is. This is what keeps one account from spending everybody else's share first.
     user-quota-bytes: ${ICHAT_USER_QUOTA_BYTES:2147483648}

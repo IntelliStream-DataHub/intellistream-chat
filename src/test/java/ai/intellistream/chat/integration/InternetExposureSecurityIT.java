@@ -140,17 +140,38 @@ class InternetExposureSecurityIT {
 
     // ---------- Per-user upload cap (Keycloak claim) ----------
 
+    /**
+     * No per-file cap unless an operator asks for one. The default was 50 MiB, which is under the
+     * size of a screen recording or a database dump — the two things people most often need to
+     * hand over — and the cap bought nothing the rest of the design does not already provide:
+     * uploads stream to disk rather than through memory, a per-account storage quota bounds the
+     * total, and a free-space floor protects the volume. A ceiling is still available per user
+     * through the {@code chat_max_upload_bytes} claim, which is where a policy belongs.
+     */
     @Test
-    void uploadCap_defaultsTo50MiB_whenNoClaim() {
+    void uploadCap_isUnlimited_whenNoClaim() {
         // OIDC/JWT not present in the test principal → CurrentUser falls back to default.
         var bareCurrent = new CurrentUser(userService, users);
         var dummy = new TestingAuthenticationToken("anon", "n/a", "ROLE_USER");
         dummy.setAuthenticated(true);
 
-        var cap = bareCurrent.uploadCapBytes(dummy);
+        assertThat(bareCurrent.uploadCapBytes(dummy)).isEqualTo(AttachmentBytes.UNLIMITED);
+    }
 
-        assertThat(cap).isEqualTo(AttachmentBytes.DEFAULT_MAX_BYTES);
-        assertThat(cap).isEqualTo(50L * 1024 * 1024);
+    /** An explicit claim is still honoured — the cap is opt-in, not gone. */
+    @Test
+    void uploadCap_honoursAnExplicitClaim() {
+        var bareCurrent = new CurrentUser(userService, users);
+        var jwt = org.springframework.security.oauth2.jwt.Jwt.withTokenValue("t")
+                .header("alg", "none")
+                .claim("sub", "cap-subject")
+                .claim("preferred_username", "capped")
+                .claim("chat_max_upload_bytes", 1048576L)
+                .build();
+        var auth = new org.springframework.security.oauth2.server.resource.authentication
+                .JwtAuthenticationToken(jwt, java.util.List.of());
+
+        assertThat(bareCurrent.uploadCapBytes(auth)).isEqualTo(1048576L);
     }
 
     @Test

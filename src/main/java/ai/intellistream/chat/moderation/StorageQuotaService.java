@@ -100,6 +100,8 @@ public class StorageQuotaService {
 
     /**
      * Default total per account, from {@code ichat.attachments.user-quota-bytes} (default 2 GiB).
+     * A total, not a per-file limit — there is no per-upload cap, so this allowance is what
+     * decides the largest single file an ordinary account can send.
      * Negative disables quotas deployment-wide. Overridden per account by
      * {@code user_storage.quota_bytes} — see {@link #setQuota}.
      */

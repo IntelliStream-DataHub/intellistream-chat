@@ -46,11 +46,12 @@ public final class AttachmentBytes {
     private static final Logger log = LoggerFactory.getLogger(AttachmentBytes.class);
 
     /**
-     * Server-side default cap on a single uploaded attachment. Applies when the
-     * caller doesn't pass an explicit limit (e.g. when the user has no
-     * {@code chat_max_upload_bytes} Keycloak attribute set). Admins and users
-     * with an explicit attribute get a different value via
-     * {@link ai.intellistream.chat.security.CurrentUser#uploadCapBytes}.
+     * A conventional per-upload cap, for callers that want to impose one — tests mostly, and any
+     * operator wiring their own policy. <b>It is not the default.</b>
+     * {@link ai.intellistream.chat.security.CurrentUser#uploadCapBytes} returns {@link #UNLIMITED}
+     * unless a {@code chat_max_upload_bytes} claim says otherwise, so an ordinary user can send a
+     * file of any size: uploads stream to disk and are never held in memory, which makes a large
+     * one a question of disk and patience rather than of heap.
      */
     public static final long DEFAULT_MAX_BYTES = 50L * 1024 * 1024; // 50 MiB
 

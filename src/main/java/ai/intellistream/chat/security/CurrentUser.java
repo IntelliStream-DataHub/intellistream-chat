@@ -166,20 +166,28 @@ public class CurrentUser {
      *       (a positive byte count, or any negative value meaning unlimited).
      *       Set per-user in Keycloak: <em>Users → pick user → Attributes →
      *       chat_max_upload_bytes</em>.</li>
-     *   <li>Default → {@link AttachmentBytes#DEFAULT_MAX_BYTES} (50 MiB).</li>
+     *   <li>Default → {@link AttachmentBytes#UNLIMITED}. There is no size a file has to be under
+     *       to be worth sending to a colleague, and the number that used to be here (50 MiB) was
+     *       small enough to refuse a screen recording or a database dump — the two things people
+     *       most often need to hand over. Uploads stream straight to disk and are never buffered
+     *       in memory, so a large one costs disk and time rather than heap; what protects the
+     *       volume is the free-space floor ({@code ichat.attachments.min-free-bytes}) and, if an
+     *       operator wants one, a per-account quota.</li>
      * </ol>
-     * Falls back to the default for any unknown principal type so we never
-     * accidentally grant unlimited uploads on a misconfigured request.
+     * An unknown principal type also gets unlimited, matching the signed-in default: this is a cap
+     * an operator opts into per user, not a guard the application depends on. If you want one, set
+     * {@code chat_max_upload_bytes} in Keycloak — for everyone, or for the accounts you don't trust
+     * with the disk.
      */
     public long uploadCapBytes(Principal principal) {
         if (!(principal instanceof Authentication auth) || auth.getPrincipal() == null) {
-            return AttachmentBytes.DEFAULT_MAX_BYTES;
+            return AttachmentBytes.UNLIMITED;
         }
         if (hasAdminAuthority(auth.getAuthorities())) {
             return AttachmentBytes.UNLIMITED;
         }
         var claim = readClaim(auth);
-        return claim == null ? AttachmentBytes.DEFAULT_MAX_BYTES : claim;
+        return claim == null ? AttachmentBytes.UNLIMITED : claim;
     }
 
     private static boolean hasAdminAuthority(Collection<? extends GrantedAuthority> authorities) {

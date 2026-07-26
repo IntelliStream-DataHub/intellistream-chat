@@ -1303,8 +1303,8 @@
   <table class="nowrap-1">
     <thead><tr><th>Limit</th><th>Value</th><th>Notes</th></tr></thead>
     <tbody>
-      <tr><td>Per file</td><td>50 MiB</td><td>Raisable per account through a Keycloak user attribute. Workspace admins are unlimited.</td></tr>
-      <tr><td>Per account, total</td><td>2 GiB</td><td>Configurable, and overridable per user. Admins are exempt.</td></tr>
+      <tr><td>Per file</td><td><b>None</b></td><td>Uploads stream to disk and are never held in memory, so a file is as large as it is. A ceiling can be imposed per account through a Keycloak user attribute.</td></tr>
+      <tr><td>Per account, total</td><td>2 GiB</td><td>Configurable, and overridable per user. Admins are exempt. Being a total rather than a per-file limit, this is what decides the largest single file an ordinary account can send.</td></tr>
       <tr><td>Uploads per minute</td><td>10</td><td>Downloads are capped at 200 a minute.</td></tr>
       <tr><td>Caption</td><td>8,000 characters</td><td>Same limit as a message body.</td></tr>
       <tr><td>Avatar</td><td>5 MiB</td><td>Separate and structural, avatars are decoded in memory to resize.</td></tr>
@@ -1754,9 +1754,9 @@
   </table>
   </div>
   <p>
-    The per-upload cap of 50 MiB is not a property. It is raised per account through a Keycloak user
-    attribute named <code>chat_max_upload_bytes</code>, mapped into the token by the bundled realm;
-    set it to a byte count, or to <code>-1</code> for unlimited. Workspace admins bypass it.
+    There is no per-upload cap to configure. If you want one for a particular account, set the
+    Keycloak user attribute <code>chat_max_upload_bytes</code> — mapped into the token by the
+    bundled realm — to a byte count. Workspace admins bypass it, and bypass the storage quota too.
   </p>
   <p>
     Back up <code>./data/</code> and the Postgres database and you have the whole product:

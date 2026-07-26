@@ -1063,19 +1063,23 @@ Hit `/actuator/env` to verify the `intellistream-vault` property source appeared
 
 ### Upload size cap
 
-Default cap is **50 MiB per upload**. The cap applies per user; admins (anyone with the `ichat-admin` realm role) get unlimited.
+**There is no per-file cap.** A file is as large as it is; uploads stream socket → disk and are never held in memory, so size costs disk and time rather than heap.
 
-To grant a non-admin a higher (or lower) cap:
+What bounds an ordinary account is its **storage quota** — 2 GiB by default (`ICHAT_USER_QUOTA_BYTES`), a *total* rather than a per-file limit, so the largest single file someone can send is whatever is left of their allowance. Admins (anyone with the `ichat-admin` realm role) have no quota and no cap. The volume itself is protected by the free-space floor (`ICHAT_MIN_FREE_BYTES`, 64 MiB), not by the quota.
+
+If you want a per-file ceiling for some account, it is opt-in:
 
 1. Open the Keycloak admin console → **chat** realm → **Users** → pick the user.
 2. **Attributes** tab → add an attribute named `chat_max_upload_bytes` with a positive byte count (e.g., `524288000` for 500 MiB), or `-1` for unlimited.
 3. Save. The user's next login picks up the new value via the JWT claim mapper that ships in `keycloak/realm.json`.
 
+Set `client_max_body_size 0` and `proxy_request_buffering off` in nginx to match — buffering is on by default, which spools an entire upload to the proxy's disk before the app sees a byte. See [`frontend.md`](frontend.md).
+
 Avatars have a separate, hard 5 MiB cap (they're decoded into memory for resize, so the cap is structural rather than configurable).
 
 Uploads are **not** `multipart/form-data`. The file is the raw request body and its metadata rides in headers (`X-Upload-Filename`, `X-Upload-Caption`, both percent-encoded), so the server copies socket → disk without parsing anything. Multipart has to scan every byte looking for the boundary, which caps a transfer well below line rate; the raw-body path moves ~380 MB/s on a loopback benchmark. Browsers send this natively with `fetch(url, {method: 'POST', body: file})`. See `RawUpload`.
 
-Server-side errors are returned as `413 Payload Too Large` with `{ code: "upload_too_large", maxBytes: <bytes> }`; the JS upload UX in `chat.js` / `conversation.js` / `profile.js` renders that as "File too large — your account is capped at N MiB per upload."
+Server-side errors are returned as `413 Payload Too Large` with `{ code: "upload_too_large", maxBytes: <bytes> }`; the JS upload UX in `chat.js` / `conversation.js` / `profile.js` renders that as "File too large — your account is capped at N MiB per upload." That path now only fires for an account with an explicit `chat_max_upload_bytes`; running out of storage quota is a separate `insufficient_storage` response.
 
 ### Session timeout
 
@@ -1118,7 +1122,7 @@ The systemd / SELinux / Quick start sections cover the mechanical setup. This is
 | ☐ | Change `KC_BOOTSTRAP_ADMIN_PASSWORD` from `admin` | Master key to every account in your realm. |
 | ☐ | Enable **Verify email** in Keycloak before opening self-registration | Without it, bots will mass-register. |
 | ☐ | Configure SMTP under Realm settings → Email | Otherwise password reset and email verification silently no-op. |
-| ☐ | Set `client_max_body_size` in nginx | Edge ceiling above the app's per-user 50 MiB cap — and the only ceiling for admins. See [`frontend.md`](frontend.md). |
+| ☐ | `client_max_body_size 0` + `proxy_request_buffering off` in nginx | There is no per-file cap in the app, and buffering (on by default) spools whole uploads to the proxy's disk first. See [`frontend.md`](frontend.md). |
 | ☐ | Schedule Postgres + `./data/` backups; verify restores work | The whole product fits in `pg_dump` + that directory. |
 | ☐ | Enable CVE scanning in CI (OWASP `dependency-check`, Dependabot, etc.) | Hibernate / Tomcat / Jackson ship CVEs over any deploy's lifetime. |
 | ☐ | Replace the in-memory `RateLimiter` before scaling past one replica | Per-process limits don't compose across N replicas. |
