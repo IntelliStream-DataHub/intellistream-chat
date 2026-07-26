@@ -89,23 +89,26 @@ public class ChatWebSocketController {
         var channel = channelService.requireByIdForMessaging(channelId);
         lap.mark(metrics.loadChannel);
         // Slash commands intercept the body BEFORE we treat it as a regular message — /poll
-        // posts a synthetic markdown message, /remind queues a row + posts a confirmation,
-        // unknown /typos fall through to the normal post path so users don't lose the text.
+        // posts a synthetic markdown message, /remind queues a row and confirms privately,
+        // /help answers privately, and a body naming no command at all is rejected privately
+        // rather than broadcast (a mistyped "/leave" is not a message the room wants).
         ai.intellistream.chat.slash.SlashCommandResult slashed;
         try {
             slashed = slashCommands.dispatch(channel, user, payload.body());
         } catch (IllegalArgumentException badArgs) {
             // Surface usage / validation errors only to the sender — they show as a transient
             // banner above their composer (chat.js subscribes to /user/queue/notices). Not
-            // broadcast to the channel because nobody else cares about a typo. Route by
-            // principal.getName() (the key Spring's user-destination registry uses), not the
-            // sanitized domain username — they differ for email-style or collision-suffixed
-            // usernames, and mismatching one silently delivers nothing (N19).
-            broker.convertAndSendToUser(principal.getName(), "/queue/notices",
-                    java.util.Map.of("level", "error", "text", badArgs.getMessage()));
+            // broadcast to the channel because nobody else cares about a typo.
+            sendNotice(principal, payload, "error", badArgs.getMessage());
             return;
         }
         lap.mark(metrics.slashDispatch);
+        // A command may say something to its caller and post nothing, post and say nothing, or
+        // (never today, but the shape allows it) both. The notice goes out first so a rejection
+        // is on screen before anything else can fail.
+        if (slashed.notice() != null) {
+            sendNotice(principal, payload, slashed.notice().level(), slashed.notice().text());
+        }
         ai.intellistream.chat.domain.Message saved;
         List<String> mentions;
         // Holds the broadcast back until the message is durably stored. On the batched write path
@@ -144,6 +147,27 @@ public class ChatWebSocketController {
                 MessageEvent.created(dto, payload.clientId())));
         lap.mark(metrics.broadcast);
         lap.finish(metrics.total);
+    }
+
+    /**
+     * Deliver a line to the sender alone.
+     *
+     * <p>Routed by {@code principal.getName()} (the key Spring's user-destination registry uses),
+     * not the sanitized domain username — they differ for email-style or collision-suffixed
+     * usernames, and mismatching one silently delivers nothing (N19).
+     *
+     * <p>The rejected body rides along under {@code body}. Nothing reads it yet; it is here so a
+     * client can put the text back in the composer instead of asking the user to retype it. The
+     * server has the text at exactly this moment and nowhere else — leaving it out would make
+     * "your message was not sent" true and unrecoverable at the same time.
+     */
+    private void sendNotice(Principal principal, SendMessageRequest payload,
+                            String level, String text) {
+        broker.convertAndSendToUser(principal.getName(), "/queue/notices",
+                java.util.Map.of(
+                        "level", level == null ? "error" : level,
+                        "text", text == null ? "" : text,
+                        "body", payload.body() == null ? "" : payload.body()));
     }
 
     /**

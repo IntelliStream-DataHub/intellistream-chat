@@ -17,7 +17,6 @@
 package ai.intellistream.chat.slash;
 
 import ai.intellistream.chat.domain.Channel;
-import ai.intellistream.chat.domain.Message;
 import ai.intellistream.chat.domain.Reminder;
 import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.repository.ReminderRepository;
@@ -94,7 +93,7 @@ public class RemindCommand implements SlashCommand {
 
     @Override
     @Transactional
-    public Message execute(Channel channel, User author, String args) {
+    public SlashCommandResult execute(Channel channel, User author, String args) {
         var parsed = parse(args, author);
         // Reuse the parent's @-mention infrastructure: when there's a target user, the message
         // body the scheduler posts later will start with "@username — …" so the standard mention
@@ -109,7 +108,7 @@ public class RemindCommand implements SlashCommand {
         var confirmation = "⏰ Reminder set for " + describeWhen(parsed.fireAt, clock.getZone())
                 + (parsed.target == null ? "" : " (will tag " + parsed.target.getUsername() + ")")
                 + ": _" + parsed.body + "_";
-        return messageService.post(channel, author, confirmation);
+        return SlashCommandResult.handled(messageService.post(channel, author, confirmation));
     }
 
     /** Visible for tests. */

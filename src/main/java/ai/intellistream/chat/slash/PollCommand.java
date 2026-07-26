@@ -17,7 +17,6 @@
 package ai.intellistream.chat.slash;
 
 import ai.intellistream.chat.domain.Channel;
-import ai.intellistream.chat.domain.Message;
 import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.service.MessageService;
 import ai.intellistream.chat.service.PollService;
@@ -51,7 +50,7 @@ public class PollCommand implements SlashCommand {
 
     @Override
     @Transactional
-    public Message execute(Channel channel, User author, String args) {
+    public SlashCommandResult execute(Channel channel, User author, String args) {
         var parts = parsePipeSeparated(args);
         if (parts.size() < 3) {
             throw new IllegalArgumentException(
@@ -68,7 +67,7 @@ public class PollCommand implements SlashCommand {
         var body = bodyFor(question);
         var saved = messageService.post(channel, author, body);
         pollService.create(saved, question, options);
-        return saved;
+        return SlashCommandResult.handled(saved);
     }
 
     /** The stored message body for a poll. Short on purpose — the widget carries the detail. */

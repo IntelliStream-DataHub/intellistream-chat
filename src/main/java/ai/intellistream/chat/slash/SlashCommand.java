@@ -17,7 +17,6 @@
 package ai.intellistream.chat.slash;
 
 import ai.intellistream.chat.domain.Channel;
-import ai.intellistream.chat.domain.Message;
 import ai.intellistream.chat.domain.User;
 
 /**
@@ -26,9 +25,13 @@ import ai.intellistream.chat.domain.User;
  * no leading slash.
  *
  * <p>{@link #execute(Channel, User, String)} receives the body MINUS the leading
- * {@code /name } so commands don't have to re-parse it. They return either a posted
- * {@link Message} (most commands; the broadcast layer announces it) or {@code null} when the
- * command had no visible chat output (e.g. a reminder that just queues for later).
+ * {@code /name } so commands don't have to re-parse it. What it returns says where the output
+ * goes: {@link SlashCommandResult#handled} for a message the whole channel sees,
+ * {@link SlashCommandResult#privately} for a line only the sender sees, or
+ * {@link SlashCommandResult#silent} for work with no visible output.
+ *
+ * <p>{@link #help()} is the one-line usage string. It is not decoration — {@code /help} is
+ * assembled from these, so write it the way you would want to read it in a list.
  */
 public interface SlashCommand {
 
@@ -40,7 +43,8 @@ public interface SlashCommand {
      * @param channel the channel the command was sent in
      * @param author  the user that typed it
      * @param args    everything after {@code /name } — never null, may be empty/blank
-     * @return the message produced by the command, or {@code null} if no immediate post was made
+     * @return where this command's output goes; {@code null} is tolerated and read as
+     *         {@link SlashCommandResult#silent()}
      */
-    Message execute(Channel channel, User author, String args);
+    SlashCommandResult execute(Channel channel, User author, String args);
 }

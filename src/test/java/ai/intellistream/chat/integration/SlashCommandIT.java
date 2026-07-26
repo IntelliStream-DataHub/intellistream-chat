@@ -365,21 +365,72 @@ class SlashCommandIT {
     // ============================================================
 
     @Test
-    void unknownSlashCommandFallsThroughAsRegularMessage() {
+    void unknownSlashCommandIsNotPostedAndTheSenderIsToldPrivately() {
+        // Used to fall through and broadcast "/typo just a normal message" to the whole room.
+        // Slack and Mattermost answer privately; so do we.
         var alice = newUser("alice");
         var room = channels.create("Pass-" + SEQ.incrementAndGet(),
                 null, ChannelType.PUBLIC, alice);
         when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
 
+        var principal = mock(Principal.class);
+        when(principal.getName()).thenReturn(alice.getUsername());
         controller.send(room.getId(),
                 new SendMessageRequest("/typo just a normal message"),
+                principal);
+
+        verify(broker, never()).convertAndSend(eq("/topic/channels/" + room.getId()),
+                any(Object.class));
+        var captor = ArgumentCaptor.forClass(Object.class);
+        verify(broker).convertAndSendToUser(eq(alice.getUsername()), eq("/queue/notices"),
+                captor.capture());
+        var payload = captor.getValue().toString();
+        assertThat(payload).contains("/typo").contains("nothing was sent").contains("/help");
+        // The text the user typed rides back on the notice, so a client can restore the composer
+        // instead of asking them to retype it.
+        assertThat(payload).contains("/typo just a normal message");
+    }
+
+    @Test
+    void escapedSlashIsPostedAsAnOrdinaryMessage() {
+        // The escape hatch the rejection notice advertises has to work through the real path.
+        var alice = newUser("alice");
+        var room = channels.create("Escape-" + SEQ.incrementAndGet(),
+                null, ChannelType.PUBLIC, alice);
+        when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
+
+        controller.send(room.getId(),
+                new SendMessageRequest("\\/typo just a normal message"),
                 mock(Principal.class));
 
         var captor = ArgumentCaptor.forClass(MessageEvent.class);
         verify(broker).convertAndSend(eq("/topic/channels/" + room.getId()), captor.capture());
-        // The whole literal text is preserved — the user didn't lose anything.
         assertThat(captor.getValue().message().bodyMarkdown())
-                .isEqualTo("/typo just a normal message");
+                .isEqualTo("\\/typo just a normal message");
+        // …and the reader sees a bare slash, not the backslash.
+        assertThat(captor.getValue().message().bodyHtml()).contains("/typo just a normal message");
+    }
+
+    @Test
+    void helpIsPrivateAndListsTheRegisteredCommands() {
+        var alice = newUser("alice");
+        var room = channels.create("Help-" + SEQ.incrementAndGet(),
+                null, ChannelType.PUBLIC, alice);
+        when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
+
+        var principal = mock(Principal.class);
+        when(principal.getName()).thenReturn(alice.getUsername());
+        controller.send(room.getId(), new SendMessageRequest("/help"), principal);
+
+        // Nobody else in the room learns that alice asked.
+        verify(broker, never()).convertAndSend(eq("/topic/channels/" + room.getId()),
+                any(Object.class));
+        var captor = ArgumentCaptor.forClass(Object.class);
+        verify(broker).convertAndSendToUser(eq(alice.getUsername()), eq("/queue/notices"),
+                captor.capture());
+        // Assembled from the live registry, so this fails if a command stops advertising itself.
+        assertThat(captor.getValue().toString())
+                .contains("/poll").contains("/remind").contains("/help");
     }
 
     @Test
