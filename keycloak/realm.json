@@ -28,7 +28,7 @@
       "directAccessGrantsEnabled": true,
       "protocol": "openid-connect",
       "attributes": {
-        "post.logout.redirect.uris": "http://localhost:8080/*"
+        "post.logout.redirect.uris": "+"
       },
       "protocolMappers": [
         {

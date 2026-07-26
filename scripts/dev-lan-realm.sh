@@ -45,8 +45,13 @@ if [[ -z "$ID" ]]; then
   exit 1
 fi
 
+# post.logout.redirect.uris is a THIRD list, and forgetting it is its own bug: sign-in works,
+# the app works, and only signing out fails — with "Invalid redirect uri" from Keycloak, which
+# reads like a login problem. "+" means "whatever the redirect URIs are", so the two lists cannot
+# drift apart again.
 "${KC[@]}" update "clients/$ID" -r "$REALM" \
-  -s "redirectUris=$REDIRECTS" -s "webOrigins=$ORIGINS" >/dev/null
+  -s "redirectUris=$REDIRECTS" -s "webOrigins=$ORIGINS" \
+  -s 'attributes."post.logout.redirect.uris"=+' >/dev/null
 
 echo "ichat-client now accepts http://${IP}:8080"
-"${KC[@]}" get "clients/$ID" -r "$REALM" --fields redirectUris,webOrigins
+"${KC[@]}" get "clients/$ID" -r "$REALM" --fields redirectUris,webOrigins,attributes
