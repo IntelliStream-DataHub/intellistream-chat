@@ -82,7 +82,7 @@ def _api(token: str, path: str, method: str = "GET", body=None, raw=None, header
         return e.code, e.read().decode()[:200]
 
 
-def seed():
+def seed(ctx):
     """Make sure the instance has something worth photographing. Safe to re-run."""
     me = _token(USER)
     status, channels = _api(me, "/api/channels")
@@ -113,7 +113,36 @@ def seed():
 
     # A direct conversation, so the sidebar and the DM shots are not empty.
     _api(me, "/api/conversations/direct", "POST", body={"username": SECOND_USER})
+
+    # A thread written for the manual. Without this the threads figure illustrates whatever
+    # thread happens to exist, which on a working instance is somebody's half-finished test —
+    # a screenshot explaining threads should not need the reader to ignore most of it.
+    ctx["thread_parent"] = _ensure_thread(me, channel_id)
     return channel_id
+
+
+THREAD_MARKER = "Deploy window for 1.1"
+
+
+def _ensure_thread(me, channel_id):
+    """Find the demo thread or create it. Idempotent: re-running does not add a second copy."""
+    status, msgs = _api(me, f"/api/channels/{channel_id}/messages")
+    if status == 200 and isinstance(msgs, list):
+        for m in msgs:
+            if THREAD_MARKER in (m.get("bodyMarkdown") or ""):
+                return m["id"]
+    status, parent = _api(me, f"/api/channels/{channel_id}/messages", "POST",
+                          body={"body": THREAD_MARKER + " — proposing Thursday 09:00 UTC, "
+                                        "which misses the Friday freeze. Objections?"})
+    if status != 200:
+        return None
+    pid = parent["id"]
+    other = _token(SECOND_USER)
+    _api(other, f"/api/messages/{pid}/replies", "POST",
+         body={"body": "Thursday works. I will have the migration reviewed by Wednesday."})
+    _api(me, f"/api/messages/{pid}/replies", "POST",
+         body={"body": "Booked. I will post the runbook here the evening before."})
+    return pid
 
 
 # ----------------------------------------------------------------------------- shots ----
@@ -239,12 +268,12 @@ SHOTS = [
 
 # ------------------------------------------------------------------------- encoding ----
 
-def to_webp_base64(png_bytes: bytes) -> str:
+def to_webp_base64(png_bytes: bytes, quality: str = WEBP_QUALITY) -> str:
     """PNG → WebP via cwebp. Pillow is not installed on the dev box; cwebp is the reference encoder."""
     with tempfile.TemporaryDirectory() as tmp:
         src, dst = Path(tmp) / "s.png", Path(tmp) / "d.webp"
         src.write_bytes(png_bytes)
-        subprocess.run(["cwebp", "-quiet", "-q", WEBP_QUALITY, str(src), "-o", str(dst)], check=True)
+        subprocess.run(["cwebp", "-quiet", "-q", quality, str(src), "-o", str(dst)], check=True)
         return base64.b64encode(dst.read_bytes()).decode()
 
 
@@ -266,13 +295,181 @@ def rewrite_index(entries):
     INDEX.write_text(html[:start] + "\n".join(figures).lstrip() + html[end:])
 
 
+
+# ------------------------------------------------------------------- doc figures ----
+# The manual explains behaviour in prose. A picture of the thing being described is worth more
+# than another paragraph, but only where the UI is the explanation — these are element crops, not
+# viewport captures, because docs.html is one self-contained file and a full page each would
+# triple it for no extra meaning.
+
+DOC_QUALITY = "72"
+
+
+async def doc_threads(page, ctx):
+    await page.goto(f"{BASE}/channels/{ctx['channel']}", wait_until="domcontentloaded")
+    await page.wait_for_timeout(1400)
+    pid = ctx.get("thread_parent")
+    opened = await page.evaluate("""(id) => {
+        const li = id ? document.querySelector(`li.message[data-id="${id}"]`) : null;
+        const b = (li && (li.querySelector('.thread-indicator') || li.querySelector('[data-action=reply]')))
+               || document.querySelector('.thread-indicator');
+        if (!b) return false; b.click(); return true; }""", pid)
+    if not opened:
+        return None
+    await page.wait_for_timeout(1500)
+    # The panel is a full-height column and a short thread leaves most of it blank. Crop from the
+    # panel's top to just under its last reply — the composer below is shown in the Messages
+    # figure already, and empty space is not information.
+    clip = await page.evaluate("""() => {
+        const p = document.querySelector('#thread-panel');
+        if (!p) return null;
+        const r = p.getBoundingClientRect();
+        const items = p.querySelectorAll('li.message');
+        if (!items.length) return null;
+        const last = items[items.length - 1].getBoundingClientRect();
+        return {x: r.x, y: r.y, width: r.width, height: Math.min(r.height, last.bottom - r.y + 16)};
+    }""")
+    return clip
+
+
+async def doc_sidebar(page, ctx):
+    await page.goto(f"{BASE}/channels/{ctx['channel']}", wait_until="domcontentloaded")
+    await page.wait_for_timeout(1300)
+    return await page.query_selector(".sidebar")
+
+
+async def doc_search(page, ctx):
+    await page.goto(f"{BASE}/channels/{ctx['channel']}", wait_until="domcontentloaded")
+    await page.wait_for_timeout(1200)
+    await page.fill("#global-search-input", "the")
+    try:
+        await page.wait_for_selector(".search-dropdown-row", timeout=6000)
+    except Exception:
+        return None
+    await page.wait_for_timeout(500)
+    return await page.query_selector(".search-dropdown")
+
+
+async def doc_polls(page, ctx):
+    await page.goto(f"{BASE}/channels/{ctx['channel']}", wait_until="domcontentloaded")
+    await page.wait_for_timeout(1400)
+    return await page.query_selector(".poll-widget")
+
+
+async def doc_poll_builder(page, ctx):
+    await page.goto(f"{BASE}/channels/{ctx['channel']}", wait_until="domcontentloaded")
+    await page.wait_for_timeout(1300)
+    await page.click("#composer-poll")
+    await page.wait_for_selector(".poll-modal", timeout=5000)
+    await page.fill(".poll-question-input", "Where should the offsite be?")
+    ins = await page.query_selector_all(".poll-option-input")
+    if len(ins) >= 2:
+        await ins[0].fill("Lisbon")
+        await ins[1].fill("Tallinn")
+    await page.wait_for_timeout(400)
+    return await page.query_selector(".poll-modal")
+
+
+async def doc_dms(page, ctx):
+    await page.goto(f"{BASE}/channels/{ctx['channel']}", wait_until="domcontentloaded")
+    await page.wait_for_timeout(1200)
+    await page.click("#sidebar-dm-btn")
+    await page.wait_for_timeout(500)
+    await page.fill('#sidebar-dm-popover input[name="members"]', f"{SECOND_USER}, carol")
+    await page.wait_for_timeout(400)
+    return await page.query_selector("#sidebar-dm-popover")
+
+
+async def doc_files(page, ctx):
+    await page.goto(f"{BASE}/files", wait_until="domcontentloaded")
+    await page.wait_for_timeout(1300)
+    return await page.query_selector("main") or await page.query_selector("body")
+
+
+async def doc_composer(page, ctx):
+    await page.goto(f"{BASE}/channels/{ctx['channel']}", wait_until="domcontentloaded")
+    await page.wait_for_timeout(1300)
+    await page.fill("#composer-input",
+                    "**Bold**, `code`, a [link](https://example.com) and a list:\n- one\n- two")
+    await page.wait_for_timeout(600)
+    return await page.query_selector("#composer")
+
+
+async def doc_admin(page, ctx):
+    await page.goto(f"{BASE}/admin", wait_until="domcontentloaded")
+    await page.wait_for_timeout(1400)
+    return await page.query_selector("main") or await page.query_selector("body")
+
+
+# (docs.html section id, recipe, caption)
+DOC_SHOTS = [
+    ("sidebar", doc_sidebar,
+     "The sidebar is a shortlist — your largest and most active channels, then direct messages — not every channel that exists."),
+    ("messages", doc_composer,
+     "The composer: Markdown with a formatting toolbar, and a live preview of what you are about to send."),
+    ("threads", doc_threads,
+     "A thread opens in a panel beside the conversation, so replies stay together without burying the channel."),
+    ("dms", doc_dms,
+     "Starting a conversation: one name opens a direct message, more than one creates a group and asks for a name."),
+    ("search", doc_search,
+     "Search spans every channel and every conversation you can read; each hit says where it came from."),
+    ("polls", doc_poll_builder,
+     "Polls are built in a dialog, or typed as a slash command — both produce the same poll."),
+    ("files", doc_files,
+     "Your files: everything you have uploaded, searchable by name, with the storage it accounts for."),
+    ("admin", doc_admin,
+     "The admin console: permissions, moderation and an append-only audit trail."),
+]
+
+
+def rewrite_docs(entries):
+    """Insert (or replace) one figure per documented section in docs.html."""
+    path = REPO / "website" / "docs.html"
+    html = path.read_text()
+    # Drop any figures from a previous run first, so this is idempotent rather than cumulative.
+    html = re.sub(r'\n\s*<figure class="doc-shot">.*?</figure>', "", html, flags=re.S)
+    for section_id, caption, b64 in entries:
+        marker = f'<section class="doc" id="{section_id}">'
+        start = html.find(marker)
+        if start == -1:
+            print(f"  ! docs section #{section_id} not found", file=sys.stderr)
+            continue
+        end = html.index("</section>", start)
+        alt = caption.replace('"', "&quot;")
+        fig = (f'\n  <figure class="doc-shot">\n'
+               f'    <img src="data:image/webp;base64,{b64}" alt="{alt}" loading="lazy"/>\n'
+               f'    <figcaption>{caption}</figcaption>\n'
+               f'  </figure>\n')
+        html = html[:end] + fig + html[end:]
+    path.write_text(html)
+    print(f"  wrote {len(entries)} figures into website/docs.html")
+
+
+async def capture_docs(page, ctx):
+    out = []
+    for section_id, recipe, caption in DOC_SHOTS:
+        try:
+            el = await recipe(page, ctx)
+            if el is None:
+                print(f"  ! doc shot {section_id}: nothing to capture", file=sys.stderr)
+                return None
+            png = (await page.screenshot(clip=el)) if isinstance(el, dict) else (await el.screenshot())
+            out.append((section_id, caption, to_webp_base64(png, DOC_QUALITY)))
+            print(f"  doc figure {section_id:10} {len(png) // 1024:>5} KB png")
+        except Exception as e:
+            print(f"  ! doc shot {section_id} failed: {e}", file=sys.stderr)
+            return None
+    return out
+
+
 # ----------------------------------------------------------------------------- main ----
 
 async def main():
-    channel = seed()
+    ctx = {}
+    channel = seed(ctx)
     if channel is None:
         return 1
-    ctx = {"channel": channel}
+    ctx["channel"] = channel
     captured = []
     async with async_playwright() as pw:
         browser = await pw.chromium.launch()
@@ -296,9 +493,14 @@ async def main():
                 print(f"  ! {name} failed: {e}", file=sys.stderr)
                 await browser.close()
                 return 1
+        doc_figures = await capture_docs(page, ctx)
         await browser.close()
 
+    if doc_figures is None:
+        print("  ! doc figures incomplete — nothing written", file=sys.stderr)
+        return 1
     rewrite_index(captured)
+    rewrite_docs(doc_figures)
     print(f"\n  wrote {len(captured)} shots into {INDEX.relative_to(REPO)}")
     return 0
 
