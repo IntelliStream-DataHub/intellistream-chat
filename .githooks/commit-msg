@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+#
+# Append a Signed-off-by trailer if the message does not already have one.
+#
+# Why a hook rather than `git commit -s`: -s has to be remembered on every commit, by every
+# person, including the ones made in a hurry. A missing sign-off is then found at review time or
+# at merge time, when fixing it means rewriting a commit that already exists. This makes it a
+# property of the repository instead.
+#
+# Enabled per clone, because hooks are not cloned:
+#
+#     git config core.hooksPath .githooks
+#
+# The trailer is a Developer Certificate of Origin attestation — it says the committer has the
+# right to submit the work under the project's licence. It is not a cryptographic signature and
+# does not claim to be.
+set -euo pipefail
+
+msg_file="$1"
+
+# Already signed off (by -s, by a template, or by a rebase carrying it forward): leave it alone.
+# Matching any Signed-off-by rather than this specific one, so a contributor's own trailer is
+# never duplicated or overwritten.
+if grep -qiE '^Signed-off-by: ' "$msg_file"; then
+    exit 0
+fi
+
+name=$(git config user.name  || true)
+email=$(git config user.email || true)
+if [[ -z "$name" || -z "$email" ]]; then
+    echo "commit-msg: user.name / user.email are not set, cannot sign off." >&2
+    echo "            git config user.name 'Your Name' && git config user.email you@example.com" >&2
+    exit 1
+fi
+
+# Comment lines are stripped by git after this hook runs, so a message that is only comments is
+# an abort in progress — appending to it would turn an abandoned commit into a real one.
+if ! grep -qvE '^\s*(#|$)' "$msg_file"; then
+    exit 0
+fi
+
+# git interpret-trailers places the trailer in the existing trailer block if there is one, so
+# Signed-off-by lands with Co-Authored-By rather than orphaned after a blank line.
+git interpret-trailers --in-place --trailer "Signed-off-by: $name <$email>" "$msg_file"

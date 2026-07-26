@@ -34,6 +34,23 @@ For a native (no-container) setup, see `QUICKSTART-MANUAL.md`. Container runtime
 Copy `application-dev.properties.example` to `application-dev.properties` (gitignored) if you
 need to override local dev settings — `bootRun` auto-activates the `dev` profile.
 
+## Sign your commits off
+
+Every commit carries a `Signed-off-by` trailer — a [Developer Certificate of
+Origin](https://developercertificate.org/) attestation that you have the right to submit the
+work under this project's licence. It is not a cryptographic signature.
+
+Hooks are not cloned, so enable it once per clone:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+The `commit-msg` hook then adds the trailer from your `user.name` / `user.email` if it is not
+already there. `git commit -s` still works and the hook leaves your trailer alone. Doing it this
+way rather than relying on `-s` means a forgotten sign-off is not something you discover at merge
+time, when fixing it means rewriting a commit that already exists.
+
 ## Running tests
 
 ```bash
