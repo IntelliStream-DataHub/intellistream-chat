@@ -13,7 +13,7 @@ Four commands to a running workspace on your own machine.
 
 ```bash
 # 1. Clone
-git clone https://github.com/intellistream/intellistream-chat.git
+git clone https://github.com/IntelliStream-DataHub/intellistream-chat.git
 cd intellistream-chat
 
 # 2. Install Java 25 and Podman

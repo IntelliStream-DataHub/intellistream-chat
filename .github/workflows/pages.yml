@@ -1,0 +1,70 @@
+name: Website
+
+# Publishes website/ to GitHub Pages.
+#
+# Pages' "deploy from a branch" mode can only serve the repository root or /docs, and the site
+# lives in website/. Rather than move it — /docs would collide with the idea of developer docs,
+# and the root would put two HTML files beside the source tree — this uploads the directory as an
+# artifact. It also means the published site is exactly the files in website/, with nothing
+# generated in between.
+on:
+  push:
+    branches: [main]
+    # Only when the site actually changes. A backend commit should not redeploy the site.
+    paths:
+      - 'website/**'
+      - '.github/workflows/pages.yml'
+  # Manual runs, for the first deploy and for re-publishing without a content change.
+  workflow_dispatch:
+
+# Pages needs these; the default GITHUB_TOKEN has neither.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time. Not cancel-in-progress: a half-finished deploy that gets cancelled can
+# leave the site on the previous commit with no indication why.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build & deploy
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stage the site
+        run: |
+          mkdir -p _site
+          cp website/index.html website/docs.html _site/
+          # Bypass Jekyll. The pages are hand-written HTML with inline data: URIs and need no
+          # preprocessing, and Jekyll would otherwise ignore any file starting with an underscore.
+          touch _site/.nojekyll
+          # website/shots/ is the screenshot capture tool, not part of the site.
+          ls -la _site
+
+      - name: Check the pages load nothing from another host
+        run: |
+          # The site is static with no build step and no assets directory — every image is an
+          # inline data: URI and the CSS is in a <style> block. So a remote RESOURCE would be a
+          # mistake: a page that silently depends on a host we do not control. Ordinary <a href>
+          # links to other sites are fine and expected, which is why this looks at src= and at
+          # <link rel="stylesheet">, not at every URL on the page.
+          if grep -nEo '(src="https?://[^"]*|<link[^>]+href="https?://[^"]*)' _site/*.html; then
+            echo "::error::The published pages load a resource from another host (see above)." >&2
+            exit 1
+          fi
+          echo "Self-contained: no external resource loads."
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
