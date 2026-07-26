@@ -240,8 +240,11 @@ public class ConversationService {
         requireMember(conversation, author);
         validateBody(body);
         var saved = messages.save(new ConversationMessage(conversation, author, body.trim(), parent));
+        // [attachment-filename search] No filenames, for the same reason as post(): the row was
+        // created a line ago, so nothing can be attached to it yet. ConversationAttachmentService
+        // re-indexes once an attachment row exists.
         indexAfterCommit(saved.getId(), conversation.getId(), author.getUsername(),
-                saved.getBodyMarkdown());
+                saved.getBodyMarkdown(), List.of());
         return saved;
     }
 
