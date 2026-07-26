@@ -16,11 +16,35 @@
 
 /**
  * Page-chrome bits that stand outside the message feed: the first-time-user
- * tutorial overlay and the typeahead sidebar filter. Imported once from
- * {@link ./index.js} on boot; each piece is a no-op when its anchor element
- * isn't on the page (e.g. tutorial doesn't render once dismissed).
+ * tutorial overlay, the typeahead sidebar filter, and the sidebar's favourite
+ * stars. Imported once from {@link ./index.js} on boot; each piece is a no-op
+ * when its anchor element isn't on the page (e.g. tutorial doesn't render once
+ * dismissed).
+ *
+ * <p><b>The sidebar is shared by two pages</b> — the channel page and the
+ * conversation page render the same fragment — so anything that makes it work
+ * belongs here rather than in index.js, which only the channel page loads.
+ * `conversation-chrome-boot.js` is the second caller. The fragment's own comment
+ * records what happens otherwise: a script that reaches into the sidebar from one
+ * page's entry point works on that page and silently does nothing on the other.
  */
 import { headers, fuzzyMatch } from './shared.js';
+
+/**
+ * A transient message at the bottom of the screen, for the small failures that have no
+ * natural place on the page — a star that didn't save, a link that didn't copy. Here
+ * rather than in index.js because the sidebar code below needs it and the conversation
+ * page has no index.js.
+ */
+export function flashToast(text) {
+    const el = document.createElement('div');
+    el.className = 'toast';
+    el.textContent = text;
+    document.body.appendChild(el);
+    setTimeout(() => { el.classList.add('show'); });
+    setTimeout(() => { el.classList.remove('show'); }, 2200);
+    setTimeout(() => { el.remove(); }, 2700);
+}
 
 /** First-time tutorial overlay — three buttons all dismiss the same way. */
 function initTutorial() {
@@ -81,6 +105,16 @@ export function initSidebarSearch() {
             const keep = !q || fuzzyMatch(q, li.dataset.name || '');
             li.style.display = keep ? '' : 'none';
             if (keep) shown++;
+        });
+        // Hide the Favourites group when every row in it filtered out, so its heading doesn't sit
+        // above nothing. Only .channel-group sections — the Channels section keeps its heading
+        // whatever happens, because that is where the create-channel button and the "none of yours
+        // match" line live. Only while filtering, too: with an empty query the groups are whatever
+        // the server rendered.
+        document.querySelectorAll('.sidebar .channel-group').forEach((group) => {
+            const visible = [...group.querySelectorAll('.channel-list > li')]
+                .some((li) => li.style.display !== 'none');
+            group.hidden = !!q && !visible;
         });
         if (noMatch) noMatch.hidden = !q || rows === 0 || shown > 0;
     };
@@ -197,7 +231,109 @@ export function initSidebarSearch() {
     });
 }
 
+/**
+ * The sidebar's favourite stars.
+ *
+ * The star means favourite, the way it does in Slack and Mattermost. (It used to mean "you are an
+ * admin of this channel", which is not what a star means anywhere and is not information worth
+ * carrying in a list you scan fifty times a day.)
+ *
+ * The row moves between the two groups immediately, without a reload: a star that only takes effect
+ * on the next page load reads as a control that didn't work. Delegated from the sidebar element so it
+ * survives rows being re-rendered, and bound from JS rather than inline because of the CSP.
+ */
+export function initFavouriteStars() {
+    const sidebarEl = document.getElementById('app-sidebar');
+    if (!sidebarEl) return;
+    const channelList = document.getElementById('sidebar-channel-list');
+
+    /** Insert li into list keeping the alphabetical order the server rendered. */
+    const insertAlphabetically = (list, li) => {
+        const name = li.dataset.name || '';
+        const before = [...list.children].find((other) => (other.dataset.name || '') > name);
+        list.insertBefore(li, before || null);
+    };
+
+    const ensureFavouriteGroup = () => {
+        const existing = document.getElementById('sidebar-favourite-list');
+        if (existing) return existing;
+        if (!channelList) return null;
+        const section = document.createElement('div');
+        section.className = 'sidebar-section channel-group';
+        const heading = document.createElement('h2');
+        heading.textContent = 'Favourites';
+        const list = document.createElement('ul');
+        list.className = 'channel-list';
+        list.id = 'sidebar-favourite-list';
+        section.append(heading, list);
+        channelList.closest('.sidebar-section').before(section);
+        return list;
+    };
+
+    /**
+     * Move a row into the Favourites group or back out of it.
+     *
+     * The Favourites heading only exists once something is starred, and the server does not render
+     * it when the group is empty — so the first star has to create the group and the last unstar has
+     * to remove it, or the row would have nowhere to go.
+     */
+    const regroup = (li, favourite) => {
+        const target = favourite ? ensureFavouriteGroup() : channelList;
+        if (!target) return;
+        insertAlphabetically(target, li);
+        const favourites = document.getElementById('sidebar-favourite-list');
+        if (!favourite && favourites && favourites.children.length === 0) {
+            favourites.closest('.sidebar-section')?.remove();
+        }
+    };
+
+    const paintStar = (btn, favourite, name) => {
+        btn.classList.toggle('is-favourite', favourite);
+        btn.setAttribute('aria-pressed', favourite ? 'true' : 'false');
+        btn.title = favourite ? 'Remove from favourites' : 'Add to favourites';
+        btn.setAttribute('aria-label', (favourite ? 'Remove #' : 'Add #') + name
+            + (favourite ? ' from favourites' : ' to favourites'));
+        btn.querySelector('use')?.setAttribute('href',
+            favourite ? '#icon-star' : '#icon-star-outline');
+    };
+
+    sidebarEl.addEventListener('click', async (e) => {
+        const btn = e.target.closest('.channel-star');
+        if (!btn) return;
+        e.preventDefault();
+        const li = btn.closest('li[data-channel-id]');
+        if (!li || btn.disabled) return;
+        const next = btn.getAttribute('aria-pressed') !== 'true';
+        const name = li.querySelector('.channel-name')?.textContent || '';
+        btn.disabled = true;
+        // Paint first: this is a one-bit toggle on the user's own row, so the optimistic version is
+        // right in the overwhelming majority of cases and the failure path below puts it back.
+        paintStar(btn, next, name);
+        regroup(li, next);
+        try {
+            const res = await fetch('/api/channels/' + li.dataset.channelId + '/favourite', {
+                method: 'PUT', headers: headers(), body: JSON.stringify({ favourite: next }),
+            });
+            if (!res.ok) throw new Error(res.statusText);
+            // Repaint from the server's answer, not from what we assumed, so two tabs racing each
+            // other converge on what was stored.
+            const stored = !!(await res.json().catch(() => ({ favourite: next }))).favourite;
+            if (stored !== next) {
+                paintStar(btn, stored, name);
+                regroup(li, stored);
+            }
+        } catch (_) {
+            paintStar(btn, !next, name);
+            regroup(li, !next);
+            flashToast('Could not save that favourite');
+        } finally {
+            btn.disabled = false;
+        }
+    });
+}
+
 export function init() {
     initTutorial();
     initSidebarSearch();
+    initFavouriteStars();
 }

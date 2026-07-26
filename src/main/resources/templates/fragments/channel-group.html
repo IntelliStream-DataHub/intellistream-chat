@@ -48,6 +48,23 @@
                     <use href="#icon-bell-slash"/>
                 </svg>
             </a>
+            <!--/* The star is a SIBLING of the <a>, not inside it: nested inside, every click on it
+                   would also navigate to the channel. Hidden until hover (or focus, or already
+                   starred) so fifty rows don't each carry a visible control; the mobile breakpoint
+                   makes it permanently visible, since there is no hover on a touch screen.
+
+                   Wired by index.js — the CSP forbids inline handlers. */-->
+            <button th:if="${c.joined}" type="button" class="channel-star"
+                    th:classappend="${c.favourite ? 'is-favourite' : ''}"
+                    th:attr="aria-pressed=${c.favourite},
+                             title=${c.favourite ? 'Remove from favourites' : 'Add to favourites'},
+                             aria-label=${c.favourite ? 'Remove #' + c.name + ' from favourites'
+                                                      : 'Add #' + c.name + ' to favourites'}">
+                <svg class="icon icon-sm" aria-hidden="true">
+                    <use th:attr="href=${c.favourite ? '#icon-star' : '#icon-star-outline'}"
+                         href="#icon-star-outline"/>
+                </svg>
+            </button>
         </li>
     </ul>
 </th:block>

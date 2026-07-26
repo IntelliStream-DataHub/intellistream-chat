@@ -293,6 +293,23 @@ public class ChannelRestController {
         return dto;
     }
 
+    /**
+     * Star / unstar a channel for the caller. Starred channels group at the top of their sidebar.
+     *
+     * <p>Returns the stored state rather than 204 so a client that raced itself repaints from the
+     * server's answer instead of from what it assumed.
+     */
+    @PutMapping("/{id}/favourite")
+    public java.util.Map<String, Boolean> setFavourite(
+            @PathVariable Long id,
+            @RequestBody @Valid ai.intellistream.chat.web.dto.SetFavouriteRequest body,
+            Principal principal) {
+        var me = currentUser.resolve(principal);
+        var channel = channelService.requireById(id);
+        return java.util.Map.of("favourite",
+                channelService.setFavourite(channel, me, body.favourite()));
+    }
+
     @PostMapping("/{id}/read")
     public ResponseEntity<Void> markRead(@PathVariable Long id, Principal principal) {
         var me = currentUser.resolve(principal);

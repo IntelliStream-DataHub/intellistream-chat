@@ -99,7 +99,12 @@ class ChannelGroupFragmentTest {
 
     private static ChannelSidebarDto row(String name, long unread, long mentions,
                                          NotificationLevel level) {
-        return new ChannelSidebarDto(42L, name, name, ChannelType.PUBLIC, true, false,
+        return row(name, unread, mentions, level, false);
+    }
+
+    private static ChannelSidebarDto row(String name, long unread, long mentions,
+                                         NotificationLevel level, boolean favourite) {
+        return new ChannelSidebarDto(42L, name, name, ChannelType.PUBLIC, true, favourite,
                 unread, mentions, level);
     }
 
@@ -170,6 +175,28 @@ class ChannelGroupFragmentTest {
         assertThat(html)
                 .describedAs("kept so it is findable, dimmed so it is not an interruption")
                 .contains("mention muted");
+    }
+
+    @Test
+    void theStarIsOutsideTheLinkSoClickingItDoesNotNavigate() {
+        var html = render(row("general", 0, 0, DEFAULT), MENTIONS);
+
+        // The button must close after </a>, not inside it. Nested in the link, every click on the
+        // star would also open the channel.
+        assertThat(html).contains("</a>");
+        assertThat(html.indexOf("channel-star")).isGreaterThan(html.indexOf("</a>"));
+        assertThat(html).contains("#icon-star-outline");
+        assertThat(html).contains("aria-pressed=\"false\"");
+    }
+
+    @Test
+    void aStarredChannelRendersTheFilledStar() {
+        var html = render(row("general", 0, 0, DEFAULT, true), MENTIONS);
+
+        assertThat(html).contains("channel-star is-favourite");
+        assertThat(html).contains("aria-pressed=\"true\"");
+        assertThat(html).contains("href=\"#icon-star\"");
+        assertThat(html).doesNotContain("#icon-star-outline");
     }
 
     @Test

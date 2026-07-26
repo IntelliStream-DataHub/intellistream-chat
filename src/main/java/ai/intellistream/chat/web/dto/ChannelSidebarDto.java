@@ -17,12 +17,23 @@
 package ai.intellistream.chat.web.dto;
 
 import ai.intellistream.chat.domain.Channel;
+import ai.intellistream.chat.domain.ChannelMember;
 import ai.intellistream.chat.domain.ChannelType;
 import ai.intellistream.chat.domain.NotificationLevel;
 
 
 /**
  * One channel row in the sidebar.
+ *
+ * <p>Everything per-user on this record comes off a {@link ChannelMember}, which is why the two
+ * factories are {@link #notJoined} and {@link #joined}: a channel the viewer is not in has no
+ * membership, and therefore no notification level, no star and no meaningful counts. Passing those
+ * as loose booleans invited exactly the mistake of claiming a setting for a row that cannot have one.
+ *
+ * <p>There is deliberately no {@code admin} flag. It existed to render a star meaning "you are an
+ * admin of this channel" — which is not what a star means in any comparable product, and is not
+ * something worth seeing in a list you scan fifty times a day. The role is shown where it is
+ * actually needed, in the members panel.
  *
  * @param notifyLevel this member's <b>raw</b> notification setting for the channel —
  *                    {@code DEFAULT} when they are following their account-wide default. Carried
@@ -33,6 +44,8 @@ import ai.intellistream.chat.domain.NotificationLevel;
  *                    {@link SidebarView#notifyDefault} for display. Always {@code DEFAULT} on a
  *                    channel the viewer has not joined ({@code joined == false}), where there is
  *                    no membership and so no setting.
+ * @param favourite   whether the viewer has starred the channel. Starred channels group at the top
+ *                    of the sidebar. Always {@code false} when {@code joined == false}.
  */
 public record ChannelSidebarDto(
         Long id,
@@ -40,7 +53,7 @@ public record ChannelSidebarDto(
         String name,
         ChannelType type,
         boolean joined,
-        boolean admin,
+        boolean favourite,
         long unreadCount,
         long mentionCount,
         NotificationLevel notifyLevel
@@ -58,19 +71,23 @@ public record ChannelSidebarDto(
             .comparing((ChannelSidebarDto d) -> d.name().toLowerCase(java.util.Locale.ROOT))
             .thenComparing(ChannelSidebarDto::id);
 
-    /** For a channel the viewer has not joined: no membership, so nothing but {@code DEFAULT}. */
-    public static ChannelSidebarDto of(Channel c, boolean joined, boolean admin) {
-        return of(c, joined, admin, NotificationLevel.DEFAULT);
+    /** A channel the viewer can see but has not joined: no membership, so no per-user state. */
+    public static ChannelSidebarDto notJoined(Channel c) {
+        return new ChannelSidebarDto(c.getId(), c.getSlug(), c.getName(), c.getType(),
+                false, false, 0, 0, NotificationLevel.DEFAULT);
     }
 
-    public static ChannelSidebarDto of(Channel c, boolean joined, boolean admin,
-                                       NotificationLevel notifyLevel) {
-        return new ChannelSidebarDto(c.getId(), c.getSlug(), c.getName(), c.getType(), joined, admin,
-                0, 0, notifyLevel == null ? NotificationLevel.DEFAULT : notifyLevel);
+    /** A channel the viewer is a member of. Counts are filled in later by {@link #withCounts}. */
+    public static ChannelSidebarDto joined(Channel c, ChannelMember membership) {
+        var level = membership.getNotifyLevel();
+        return new ChannelSidebarDto(c.getId(), c.getSlug(), c.getName(), c.getType(),
+                true, membership.isFavourite(), 0, 0,
+                level == null ? NotificationLevel.DEFAULT : level);
     }
 
     public ChannelSidebarDto withCounts(long unread, long mentions) {
-        return new ChannelSidebarDto(id, slug, name, type, joined, admin, unread, mentions, notifyLevel);
+        return new ChannelSidebarDto(id, slug, name, type, joined, favourite, unread, mentions,
+                notifyLevel);
     }
 
     /**

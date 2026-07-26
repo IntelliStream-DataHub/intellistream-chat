@@ -227,6 +227,27 @@ public class ChannelService {
         return memberRepository.findByChannelAndUser(channel, invitee).orElseThrow();
     }
 
+    /**
+     * Star or unstar a channel for one member — the Slack / Mattermost favourite.
+     *
+     * <p>Membership is required, and not merely because the row is stored on it: a star is a
+     * statement about your own sidebar, and there is no sidebar row to move for a channel you are
+     * not in. Deliberately stricter than {@code requireMember}, which lets any authenticated user
+     * read a PUBLIC channel, and the same posture {@code NotificationPreferenceService} takes for
+     * the same reason.
+     *
+     * <p>Nothing is evicted from {@link ChannelAccessCache}: the cache holds channels and
+     * write-access decisions, and a star is neither.
+     */
+    @Transactional
+    public boolean setFavourite(Channel channel, User user, boolean favourite) {
+        var membership = memberRepository.findByChannelAndUser(channel, user)
+                .orElseThrow(() -> new AccessDeniedException(
+                        "Join the channel before adding it to your favourites."));
+        membership.setFavourite(favourite);
+        return membership.isFavourite();
+    }
+
     @Transactional
     public void promote(Channel channel, User target, User actor) {
         requireAdmin(channel, actor);

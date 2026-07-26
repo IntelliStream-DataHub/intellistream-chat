@@ -30,8 +30,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 class SidebarViewTest {
 
     private static ChannelSidebarDto row(long id, String name) {
-        return new ChannelSidebarDto(id, name.toLowerCase(), name, ChannelType.PUBLIC, true, false,
-                0, 0, NotificationLevel.DEFAULT);
+        return row(id, name, false);
+    }
+
+    private static ChannelSidebarDto row(long id, String name, boolean favourite) {
+        return new ChannelSidebarDto(id, name.toLowerCase(), name, ChannelType.PUBLIC, true,
+                favourite, 0, 0, NotificationLevel.DEFAULT);
     }
 
     @Test
@@ -53,6 +57,19 @@ class SidebarViewTest {
                 NotificationLevel.MENTIONS);
 
         assertThat(view.channelIds()).isEqualTo("4,7,11");
+    }
+
+    @Test
+    void favouritesPartitionTheListWithoutLeavingAnythingOut() {
+        var view = new SidebarView(List.of(
+                row(1, "alfa", true), row(2, "bravo"), row(3, "charlie", true), row(4, "delta")),
+                NotificationLevel.MENTIONS);
+
+        assertThat(view.favourites()).extracting(ChannelSidebarDto::id).containsExactly(1L, 3L);
+        assertThat(view.unstarred()).extracting(ChannelSidebarDto::id).containsExactly(2L, 4L);
+        // The two groups are a rendering split; the subscription set spans everything, so starring
+        // a channel cannot quietly stop it notifying.
+        assertThat(view.channelIds()).isEqualTo("1,2,3,4");
     }
 
     @Test

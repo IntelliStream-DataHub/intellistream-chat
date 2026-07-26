@@ -80,7 +80,7 @@ public class SidebarService {
         var ids = new ArrayList<Long>(memberships.size());
         for (var m : memberships) {
             var c = m.getChannel();
-            rows.add(ChannelSidebarDto.of(c, true, m.getRole() == ADMIN, m.getNotifyLevel()));
+            rows.add(ChannelSidebarDto.joined(c, m));
             ids.add(c.getId());
         }
 
@@ -126,9 +126,8 @@ public class SidebarService {
                 .map(c -> {
                     var membership = membershipByChannelId.get(c.getId());
                     return membership == null
-                            ? ChannelSidebarDto.of(c, false, false)
-                            : ChannelSidebarDto.of(c, true, membership.getRole() == ADMIN,
-                                    membership.getNotifyLevel());
+                            ? ChannelSidebarDto.notJoined(c)
+                            : ChannelSidebarDto.joined(c, membership);
                 })
                 .toList();
     }

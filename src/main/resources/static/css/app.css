@@ -652,6 +652,12 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   display: grid;
   gap: 1px;
 }
+/* The row is a flex line holding the link and the star, because the star cannot live inside the
+   link — nested there, clicking it would also navigate. */
+.channel-list > li {
+  display: flex;
+  align-items: center;
+}
 .channel-list a {
   display: flex;
   align-items: center;
@@ -661,6 +667,43 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   border-radius: var(--radius-sm);
   font-size: var(--fs-md);
   font-weight: 500;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* ---------- Favourite (star) ----------
+   Invisible until you go looking for it. Fifty rows each showing a control is fifty pieces of
+   furniture competing with the channel names, and starring is something you do to a channel once.
+   It appears on hover, on keyboard focus, and permanently once the channel is starred — at which
+   point it is not a control any more, it is the reason the row is in this group. */
+.channel-star {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  margin-right: 0.15rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--sb-muted);
+  cursor: pointer;
+  opacity: 0;
+}
+.channel-list > li:hover .channel-star,
+.channel-star:focus-visible,
+.channel-star.is-favourite { opacity: 1; }
+.channel-star:hover { color: var(--sb-text); background: var(--sb-bg-2); }
+/* Starred stars are simply at full strength. No accent colour: the sidebar is a dark panel and the
+   theme accents are tuned for the light content sheet, and the filled-versus-outline shape is
+   already the difference — which is why the sprite carries both. */
+.channel-star.is-favourite { color: var(--sb-text); }
+@media (max-width: 768px) {
+  /* No hover on a touch screen, so the control has to be there. Dimmed rather than full strength:
+     it is still secondary to the channel name. */
+  .channel-star { opacity: 0.55; }
 }
 .channel-list a:hover {
   background: var(--sb-bg-2);

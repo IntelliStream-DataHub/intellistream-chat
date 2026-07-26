@@ -50,6 +50,16 @@
             </p>
         </div>
 
+        <!--/* Starred channels, at the top, as both Slack and Mattermost do. Hidden entirely when
+               nothing is starred rather than shown empty: a heading with nothing under it teaches
+               nobody what the star does, it just costs a row of vertical space. Users meet the
+               feature through the star on a channel row, which is where they can act on it. */-->
+        <div class="sidebar-section channel-group" th:if="${!sidebar.favourites.isEmpty()}">
+            <h2>Favourites</h2>
+            <ul class="channel-list"
+                th:replace="~{fragments/channel-group :: group(${sidebar.favourites}, ${activeChannelId}, ${sidebar.notifyDefault}, 'sidebar-favourite-list')}"></ul>
+        </div>
+
         <!--/* Every channel you are in, alphabetically. Not a ranked shortlist: see SidebarView
                for why "your five largest" and "your five most active" were worse than useless.
                The list scrolls — .sidebar-inner is the scroll container. */-->
@@ -83,7 +93,7 @@
                 </span>
             </h2>
             <ul class="channel-list" id="sidebar-channel-list"
-                th:replace="~{fragments/channel-group :: group(${sidebar.channels}, ${activeChannelId}, ${sidebar.notifyDefault}, 'sidebar-channel-list')}"></ul>
+                th:replace="~{fragments/channel-group :: group(${sidebar.unstarred}, ${activeChannelId}, ${sidebar.notifyDefault}, 'sidebar-channel-list')}"></ul>
             <p class="sidebar-empty" th:if="${sidebar.channels.isEmpty()}">
                 You're not in any channels yet — use + to create one, or search above to find one.
             </p>

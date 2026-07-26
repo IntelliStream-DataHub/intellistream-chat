@@ -63,6 +63,7 @@ class ChannelFlowIT {
         TestLuceneDirs.register(registry);
     }
 
+    @jakarta.persistence.PersistenceContext jakarta.persistence.EntityManager em;
     @Autowired UserRepository users;
     @Autowired ChannelService channels;
     @Autowired MessageService messages;
@@ -110,8 +111,54 @@ class ChannelFlowIT {
                         hit -> assertThat(hit.message().getBodyMarkdown()).contains("test message"));
 
         var alicesSidebar = sidebar.joinedFor(alice).channels();
-        assertThat(alicesSidebar).extracting("name", "joined", "admin")
-                .contains(org.assertj.core.groups.Tuple.tuple("General Discussion", true, true));
+        assertThat(alicesSidebar).extracting("name", "joined", "favourite")
+                .contains(org.assertj.core.groups.Tuple.tuple("General Discussion", true, false));
+    }
+
+    /** Starring is per member, persists, and groups the channel at the top of the sidebar. */
+    @Test
+    void favouritesArePerMemberAndPersist() {
+        var alice = users.save(new User("kc-fav", "favalice", "fav@example.com", "Alice"));
+        var bob = users.save(new User("kc-fav2", "favbob", "fav2@example.com", "Bob"));
+        var starred = channels.create("fav-starred", null, ChannelType.PUBLIC, alice);
+        var plain = channels.create("fav-plain", null, ChannelType.PUBLIC, alice);
+        channels.join(starred, bob);
+
+        channels.setFavourite(starred, alice, true);
+        em.flush();
+        em.clear();
+
+        var reread = users.findById(alice.getId()).orElseThrow();
+        var view = sidebar.joinedFor(reread);
+        assertThat(view.favourites()).extracting("name").containsExactly("fav-starred");
+        assertThat(view.unstarred()).extracting("name").containsExactly("fav-plain");
+        // channelIds is the notification subscription set and must span both groups, or starring a
+        // channel would stop it notifying.
+        assertThat(view.channelIds().split(","))
+                .containsExactlyInAnyOrder(String.valueOf(starred.getId()), String.valueOf(plain.getId()));
+
+        // Alice's star says nothing about Bob's sidebar.
+        var bobsView = sidebar.joinedFor(users.findById(bob.getId()).orElseThrow());
+        assertThat(bobsView.favourites()).isEmpty();
+        assertThat(bobsView.unstarred()).extracting("name").containsExactly("fav-starred");
+
+        // And it comes back off.
+        channels.setFavourite(starred, alice, false);
+        em.flush();
+        em.clear();
+        assertThat(sidebar.joinedFor(users.findById(alice.getId()).orElseThrow()).favourites()).isEmpty();
+    }
+
+    @Test
+    void aNonMemberCannotFavouriteAChannel() {
+        var alice = users.save(new User("kc-fav3", "favcarol", "fav3@example.com", "Carol"));
+        var outsider = users.save(new User("kc-fav4", "favdave", "fav4@example.com", "Dave"));
+        var room = channels.create("fav-public", null, ChannelType.PUBLIC, alice);
+
+        // Stricter than read access on purpose: a star is a statement about your own sidebar, and a
+        // channel you have not joined has no row in it to move.
+        assertThatThrownBy(() -> channels.setFavourite(room, outsider, true))
+                .isInstanceOf(AccessDeniedException.class);
     }
 
     /**

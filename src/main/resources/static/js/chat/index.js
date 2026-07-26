@@ -100,8 +100,10 @@ presenceMenu.init();
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && document.body.classList.contains('sidebar-open')) setOpen(false);
     });
-    document.getElementById('sidebar-channel-list')?.addEventListener('click', (e) => {
-      if (e.target.closest('a')) setOpen(false);
+    // Any channel list, not just the main one — there is a Favourites group above it now. The
+    // closest('a') test is what keeps the star button from counting as "picked a channel".
+    document.getElementById('app-sidebar')?.addEventListener('click', (e) => {
+      if (e.target.closest('.channel-list a, .dm-list a')) setOpen(false);
     });
     window.addEventListener('resize', () => {
       if (window.innerWidth > 768 && document.body.classList.contains('sidebar-open')) setOpen(false);
@@ -2156,20 +2158,11 @@ presenceMenu.init();
     const id = encodeURIComponent(messageId);
     return window.location.origin + '/channels/' + activeChannelId + '?m=' + id + '#m=' + id;
   };
-  const flashToast = (text) => {
-    const el = document.createElement('div');
-    el.className = 'toast';
-    el.textContent = text;
-    document.body.appendChild(el);
-    setTimeout(() => { el.classList.add('show'); });
-    setTimeout(() => { el.classList.remove('show'); }, 2200);
-    setTimeout(() => { el.remove(); }, 2700);
-  };
   async function copyPermalink(li) {
     const url = permalinkFor(li.dataset.id);
     try {
       await navigator.clipboard.writeText(url);
-      flashToast('Link copied');
+      chrome.flashToast('Link copied');
     } catch (_) {
       // Clipboard API may be unavailable on insecure origins — fall back to a prompt.
       window.prompt('Copy this link', url);

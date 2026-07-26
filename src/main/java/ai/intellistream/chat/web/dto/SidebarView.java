@@ -57,6 +57,23 @@ public record SidebarView(
     }
 
     /**
+     * Starred channels, in the same order — rendered as their own group at the top of the sidebar,
+     * as both Slack and Mattermost do.
+     *
+     * <p>Derived rather than stored as a second list, so {@link #channels} stays the one answer to
+     * "what is this person in": the grouping is a rendering decision and {@link #channelIds}, the
+     * notification subscription set, must not have to remember to union two lists.
+     */
+    public List<ChannelSidebarDto> favourites() {
+        return channels.stream().filter(ChannelSidebarDto::favourite).toList();
+    }
+
+    /** Everything not starred, in the same order. */
+    public List<ChannelSidebarDto> unstarred() {
+        return channels.stream().filter(c -> !c.favourite()).toList();
+    }
+
+    /**
      * The ids of every channel the viewer belongs to, comma-joined.
      *
      * <p>This is the <b>notification subscription set</b>, and it is deliberately derived here
