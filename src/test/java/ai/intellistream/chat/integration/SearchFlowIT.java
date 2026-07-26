@@ -752,6 +752,109 @@ class SearchFlowIT {
         assertThat(search.searchChannel(room, alice, "@nobody-here-123", 10)).isEmpty();
     }
 
+    // ---------- Paging and totals ----------
+
+    @Test
+    void aPagedSearchReportsTheWholeSetAndWalksItWithoutRepeatsOrGaps() {
+        // The count is what the results page shows and the pager is what it draws, so both are
+        // asserted against a set the test knows the size of. Collecting the ids across pages and
+        // comparing to the ids of one big page is the assertion that matters: a paging bug shows up
+        // as a duplicate or a missing row, not as a wrong total.
+        var alice = newUser("alice");
+        var room = newPublic("paging", alice);
+        var marker = "pagemarker" + SEQ.incrementAndGet();
+        for (int i = 0; i < 25; i++) {
+            messages.post(room, alice, marker + " message number " + i);
+        }
+
+        var first = search.searchPage(alice, marker, SearchService.ScopeKind.CHANNEL, room, null, 0, 10);
+        assertThat(first.total()).isEqualTo(25);
+        assertThat(first.totalIsLowerBound()).isFalse();
+        assertThat(first.hits()).hasSize(10);
+        assertThat(first.hasPrevious()).isFalse();
+        assertThat(first.hasNext()).isTrue();
+        assertThat(first.firstResultNumber()).isEqualTo(1);
+        assertThat(first.lastResultNumber()).isEqualTo(10);
+
+        var last = search.searchPage(alice, marker, SearchService.ScopeKind.CHANNEL, room, null, 2, 10);
+        assertThat(last.hits()).hasSize(5);
+        assertThat(last.hasNext()).isFalse();
+        assertThat(last.firstResultNumber()).isEqualTo(21);
+        assertThat(last.lastResultNumber()).isEqualTo(25);
+
+        var walked = new java.util.ArrayList<Long>();
+        for (int p = 0; p < 3; p++) {
+            search.searchPage(alice, marker, SearchService.ScopeKind.CHANNEL, room, null, p, 10)
+                    .hits().stream()
+                    .map(h -> ((SearchService.SearchHit.ChannelHit) h).message().getId())
+                    .forEach(walked::add);
+        }
+        var inOneGo = search.searchChannel(room, alice, marker, 25).stream()
+                .map(ai.intellistream.chat.domain.Message::getId)
+                .toList();
+        assertThat(walked).containsExactlyElementsOf(inOneGo);
+        assertThat(walked).doesNotHaveDuplicates();
+    }
+
+    @Test
+    void pagingPastTheEndIsEmptyRatherThanTheLastPageAgain() {
+        var alice = newUser("alice");
+        var room = newPublic("paging-end", alice);
+        var marker = "pastend" + SEQ.incrementAndGet();
+        messages.post(room, alice, marker + " the only one");
+
+        var beyond = search.searchPage(alice, marker, SearchService.ScopeKind.CHANNEL, room, null, 5, 10);
+        assertThat(beyond.hits()).isEmpty();
+    }
+
+    @Test
+    void pagingCannotBeUsedToAskForUnboundedWork() {
+        // offset is attacker-controlled and Lucene collects offset+size documents to serve a page,
+        // so an unbounded offset is a way to ask the server for arbitrary memory and CPU. Past the
+        // window the answer is empty, not expensive.
+        var alice = newUser("alice");
+        var room = newPublic("paging-window", alice);
+        var marker = "windowcap" + SEQ.incrementAndGet();
+        messages.post(room, alice, marker + " one message");
+
+        var absurd = search.searchPage(alice, marker, SearchService.ScopeKind.CHANNEL, room, null,
+                1_000_000, 100);
+        assertThat(absurd.hits()).isEmpty();
+    }
+
+    @Test
+    void theAclHoldsOnEveryPageAndNotJustTheFirst() {
+        // Pagination is where post-filtering fails worst: a page drawn from an unrestricted window
+        // arrives short, and the shortfall itself tells the viewer something exists. Every page of
+        // a paged search has to be filtered by the same query clause as the first.
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var open = newPublic("open", alice);
+        var secret = newPrivate("closed", alice);
+        channels.join(open, bob);
+        var marker = "pagedacl" + SEQ.incrementAndGet();
+        for (int i = 0; i < 12; i++) {
+            messages.post(open, alice, marker + " public number " + i);
+            messages.post(secret, alice, marker + " private number " + i);
+        }
+
+        var bodies = new java.util.ArrayList<String>();
+        long total = -1;
+        for (int p = 0; p < 3; p++) {
+            var pageOfResults = search.searchPage(bob, marker,
+                    SearchService.ScopeKind.ACCESSIBLE, null, null, p, 5);
+            total = pageOfResults.total();
+            pageOfResults.hits().stream()
+                    .map(h -> ((SearchService.SearchHit.ChannelHit) h).message().getBodyMarkdown())
+                    .forEach(bodies::add);
+        }
+
+        assertThat(total).isEqualTo(12);              // the count leaks nothing either
+        assertThat(bodies).hasSize(12);
+        assertThat(bodies).allMatch(b -> b.contains("public number"));
+        assertThat(bodies).noneMatch(b -> b.contains("private number"));
+    }
+
     // ---------- Snippet highlighting ----------
 
     @Autowired ai.intellistream.chat.search.MessageIndexService messageIndex;

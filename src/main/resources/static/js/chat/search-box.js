@@ -114,6 +114,17 @@ export function initSearchBox(inputId, opts = {}) {
   });
   syncClear();
 
+  // Where "see everything" goes: the server-rendered results page, carrying the query and — via
+  // the form's own hidden fields — where the search started, so its way-back link is right.
+  const fullResultsUrl = () => {
+    const params = new URLSearchParams({ q: input.value.trim() });
+    const form = input.form;
+    form?.querySelectorAll('input[type="hidden"][name]').forEach((el) => {
+      if (el.value) params.set(el.name, el.value);
+    });
+    return '/search?' + params.toString();
+  };
+
   const render = (items) => {
     close();
     dropdown = document.createElement('div');
@@ -168,6 +179,18 @@ export function initSearchBox(inputId, opts = {}) {
         dropdown.appendChild(row);
       });
     }
+    // Always offered, hits or not. The dropdown shows ten results and never said so, which made a
+    // list of ten look like the answer; this is the only thing on screen that admits there may be
+    // more, and it is also the way to a set you can actually review.
+    const all = document.createElement('button');
+    all.type = 'button';
+    all.className = 'search-dropdown-all';
+    all.textContent = 'See all results for “' + input.value.trim() + '”';
+    all.addEventListener('mousedown', (ev) => {
+      ev.preventDefault();
+      navigate(fullResultsUrl());
+    });
+    dropdown.appendChild(all);
     document.body.appendChild(dropdown);
     position();
     activeIndex = -1;
@@ -219,12 +242,16 @@ export function initSearchBox(inputId, opts = {}) {
       activeIndex = Math.max(activeIndex - 1, 0);
       highlight();
     } else if (e.key === 'Enter') {
+      // Only when the user has arrowed to a row, i.e. has said which result they meant. With no
+      // selection this falls through and the form submits to /search.
+      //
+      // It used to navigate to rows[0] instead: pressing Enter after typing threw you into whatever
+      // Lucene had ranked first — a different channel, scrolled to a message from last March, with
+      // the page you were reading gone and nothing but a "Jump to latest" banner to get out. A
+      // search box must never move the user somewhere they did not choose.
       if (activeIndex >= 0 && rows[activeIndex]) {
         e.preventDefault();
         navigate(rows[activeIndex].dataset.url);
-      } else if (rows.length > 0) {
-        e.preventDefault();
-        navigate(rows[0].dataset.url);
       }
     } else if (e.key === 'Escape') {
       close();

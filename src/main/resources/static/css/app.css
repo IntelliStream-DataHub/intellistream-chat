@@ -4510,3 +4510,179 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
   .files-table th:nth-child(3),
   .files-table td:nth-child(3) { display: none; }
 }
+
+/* ===========================================================
+   /search — the full results page
+   ===========================================================
+   No sidebar and a single centred column: the highlighted snippet is the part of a result anyone
+   actually reads, and a two-line excerpt squeezed into a narrow panel is what makes result lists
+   unreadable. Width is capped rather than fluid for the same reason paragraphs are.
+   =========================================================== */
+.search-main {
+  max-width: 56rem;
+  margin: 0 auto;
+  padding: 1.25rem 1.5rem 4rem;
+  width: 100%;
+}
+.search-return { margin-bottom: 0.75rem; }
+.search-return-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: var(--fs-md);
+}
+.search-return-link:hover { color: var(--accent-fg); }
+.search-title { margin: 0 0 1rem; font-size: 1.5rem; }
+
+.search-scope-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.search-scope-field { display: flex; flex-direction: column; gap: 0.25rem; }
+/* The query field takes the slack; the scope select is as wide as its longest option needs. */
+.search-scope-form .search-scope-field:first-child { flex: 1 1 18rem; }
+.search-scope-label {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.search-scope-form input[type="search"],
+.search-scope-form select { width: 100%; }
+
+.search-error {
+  margin: 1rem 0 0;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-md);
+  color: var(--danger);
+  font-size: var(--fs-md);
+}
+.search-count { margin: 1.25rem 0 0.5rem; color: var(--muted); font-size: var(--fs-md); }
+.search-count strong { color: var(--text); }
+
+.search-results { list-style: none; margin: 0; padding: 0; }
+.search-result + .search-result { border-top: 1px solid var(--border); }
+.search-result-link {
+  display: block;
+  padding: 0.8rem 0.6rem;
+  border-radius: var(--radius-md);
+  color: inherit;
+}
+.search-result-link:hover { background: var(--hover); }
+.search-result-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+.search-result-author { font-weight: 700; color: var(--text); font-size: var(--fs-md); }
+.search-result-where { color: var(--accent-fg); }
+/* Same pill as the dropdown's and the sidebar's, for the same fact. */
+.search-result-tag {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0 0.35rem;
+  white-space: nowrap;
+}
+.search-result-time { margin-left: auto; }
+.search-result-snippet {
+  margin-top: 0.3rem;
+  line-height: 1.45;
+  color: var(--text);
+}
+.search-result-snippet > :first-child { margin-top: 0; }
+.search-result-snippet > :last-child { margin-bottom: 0; }
+.search-result-snippet pre { white-space: pre-wrap; }
+/* Matching the dropdown's treatment of Lucene's <mark>: the browser default yellow is loud enough
+   to fight the text it is meant to help you find. */
+.search-result-snippet mark {
+  background: rgba(255, 193, 7, 0.35);
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
+  font-weight: 600;
+}
+
+.search-pager {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+.search-pager-link { display: inline-flex; align-items: center; gap: 0.35rem; }
+/* Keeps "Page 2" centred whether or not both arrows are present. */
+.search-pager-position { margin: 0 auto; color: var(--muted); font-size: var(--fs-md); }
+.search-pager-note { margin-top: 0.75rem; color: var(--muted); font-size: var(--fs-md); }
+
+/* The empty state, which is also the only place the query syntax is documented. */
+.search-help {
+  margin-top: 1.5rem;
+  padding: 1.1rem 1.2rem;
+  background: var(--panel-2);
+  border-radius: var(--radius-md);
+}
+.search-help h2 { margin: 0 0 0.75rem; font-size: 1.05rem; }
+.search-help-list { margin: 0; display: grid; gap: 0.45rem; }
+.search-help-row {
+  display: grid;
+  grid-template-columns: minmax(9rem, max-content) 1fr;
+  gap: 0.75rem;
+  align-items: baseline;
+}
+.search-help-row dt { margin: 0; }
+.search-help-row dd { margin: 0; color: var(--muted); font-size: var(--fs-md); }
+/* The examples are buttons because they load into the box — retyping an example you were just
+   shown is a small insult. Styled as code, since that is what they are. */
+.search-help-example {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: var(--fs-md);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.1rem 0.4rem;
+  color: var(--text);
+  cursor: pointer;
+}
+.search-help-example:hover { border-color: var(--accent-fg); color: var(--accent-fg); }
+.search-help-note { margin: 0.9rem 0 0; color: var(--muted); font-size: var(--fs-md); }
+.search-help-note code { font-size: var(--fs-sm); }
+
+/* The dropdown's own way into this page. Visually separated from the result rows above it because
+   it is a different kind of thing: not a result, but everything the ten results are a sample of. */
+.search-dropdown-all {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin-top: 0.25rem;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  color: var(--accent-fg);
+  font: inherit;
+  font-size: var(--fs-md);
+  cursor: pointer;
+}
+.search-dropdown-all:hover { background: var(--hover); }
+
+@media (max-width: 720px) {
+  .search-main { padding: 1rem 1rem 3rem; }
+  .search-scope-form { flex-direction: column; align-items: stretch; }
+  .search-help-row { grid-template-columns: 1fr; gap: 0.15rem; }
+}

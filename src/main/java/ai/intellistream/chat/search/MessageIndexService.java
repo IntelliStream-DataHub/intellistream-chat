@@ -38,6 +38,7 @@ import org.apache.lucene.search.Query;
 import org.apache.lucene.search.SearcherManager;
 import org.apache.lucene.search.TermInSetQuery;
 import org.apache.lucene.search.TermQuery;
+import org.apache.lucene.search.TotalHits;
 import org.apache.lucene.search.highlight.Highlighter;
 import org.apache.lucene.search.highlight.QueryScorer;
 import org.apache.lucene.search.highlight.SimpleHTMLEncoder;
@@ -133,6 +134,31 @@ public class MessageIndexService {
 
     /** One search result: the table it came from plus that table's primary key. */
     public record Hit(Scope scope, Long id) {}
+
+    /**
+     * One page of results plus how many there are altogether.
+     *
+     * @param totalHits         matching documents, subject to {@code totalIsLowerBound}
+     * @param totalIsLowerBound true when Lucene stopped counting: there are <em>at least</em>
+     *   {@code totalHits} matches and possibly many more. Lucene's block-max scorer skips whole
+     *   blocks of documents that cannot enter the top-N once it has seen
+     *   {@code TOTAL_HITS_THRESHOLD} (1,000) of them, and that skipping is most of why search is
+     *   fast. The flag exists so the UI can say "1,000+" instead of a precise number that is
+     *   simply wrong — an exact count would mean disabling the optimisation on every query to
+     *   satisfy a line of text.
+     */
+    public record Page(List<Hit> hits, long totalHits, boolean totalIsLowerBound) {
+        /** No results and no total — for the paths that short-circuit before any query runs. */
+        public static final Page EMPTY = new Page(List.of(), 0L, false);
+    }
+
+    /**
+     * Ceiling on {@code offset + limit} for a paged search, and the reason a total above it is a
+     * lower bound: it is Lucene's own {@code TotalHitCountCollector} threshold
+     * ({@code IndexSearcher.TOTAL_HITS_THRESHOLD}), so the same number bounds both the work a
+     * single query may do and the point at which counting stops being exact.
+     */
+    public static final int MAX_WINDOW = 1000;
 
     private final FSDirectory directory;
     private final IndexWriter writer;
@@ -430,13 +456,19 @@ public class MessageIndexService {
     /** Search a single channel's messages, returning message IDs in relevance order. */
     public List<Long> searchInChannel(Long channelId, String query, Collection<String> authors,
                                       Collection<String> mentions, int limit) {
+        return ids(searchInChannelPage(channelId, query, authors, mentions, 0, limit).hits());
+    }
+
+    /** One page of a single channel's messages, with the total. @see #searchAccessiblePage */
+    public Page searchInChannelPage(Long channelId, String query, Collection<String> authors,
+                                    Collection<String> mentions, int offset, int limit) {
         var main = mainQuery(query, authors, mentions);
-        if (main == null) return List.of();
+        if (main == null) return Page.EMPTY;
         var scoped = new BooleanQuery.Builder()
                 .add(main, BooleanClause.Occur.MUST)
                 .add(new TermQuery(new Term(F_CHANNEL, channelId.toString())), BooleanClause.Occur.FILTER)
                 .build();
-        return ids(runSearch(scoped, limit));
+        return runSearch(scoped, offset, limit);
     }
 
     /**
@@ -453,14 +485,20 @@ public class MessageIndexService {
     public List<Long> searchInConversation(Long conversationId, String query,
                                            Collection<String> authors, Collection<String> mentions,
                                            int limit) {
+        return ids(searchInConversationPage(conversationId, query, authors, mentions, 0, limit).hits());
+    }
+
+    /** One page of a single conversation's messages, with the total. @see #searchAccessiblePage */
+    public Page searchInConversationPage(Long conversationId, String query, Collection<String> authors,
+                                         Collection<String> mentions, int offset, int limit) {
         var main = mainQuery(query, authors, mentions);
-        if (main == null) return List.of();
+        if (main == null) return Page.EMPTY;
         var scoped = new BooleanQuery.Builder()
                 .add(main, BooleanClause.Occur.MUST)
                 .add(new TermQuery(new Term(F_CONVERSATION, conversationId.toString())),
                         BooleanClause.Occur.FILTER)
                 .build();
-        return ids(runSearch(scoped, limit));
+        return runSearch(scoped, offset, limit);
     }
 
     /**
@@ -521,11 +559,30 @@ public class MessageIndexService {
     public List<Hit> searchAccessible(Collection<Long> channelIds, Collection<Long> conversationIds,
                                       String query, Collection<String> authors,
                                       Collection<String> mentions, int limit) {
+        return searchAccessiblePage(channelIds, conversationIds, query, authors, mentions, 0, limit)
+                .hits();
+    }
+
+    /**
+     * One page of the viewer-scoped search, plus how many results there are in total.
+     *
+     * <p>The ACL clause is built exactly as {@link #searchAccessible} describes and for the same
+     * reason. Pagination is precisely where post-filtering fails worst — a page of 20 drawn from an
+     * unrestricted top-20 can arrive with 3 rows and a total of 240, which tells the viewer both
+     * that they are missing something and roughly how much — so the filter belongs in the query
+     * here more than anywhere.
+     *
+     * @param offset how many results to skip; bounded together with {@code limit} by
+     *               {@link #MAX_WINDOW}
+     */
+    public Page searchAccessiblePage(Collection<Long> channelIds, Collection<Long> conversationIds,
+                                     String query, Collection<String> authors,
+                                     Collection<String> mentions, int offset, int limit) {
         // No accessible container ⇒ no results. Deliberately explicit: an empty id collection must
         // never degrade into "no filter", which is how this kind of code turns into a total leak.
-        if (channelIds.isEmpty() && conversationIds.isEmpty()) return List.of();
+        if (channelIds.isEmpty() && conversationIds.isEmpty()) return Page.EMPTY;
         var main = mainQuery(query, authors, mentions);
-        if (main == null) return List.of();
+        if (main == null) return Page.EMPTY;
         var acl = new BooleanQuery.Builder();
         if (!channelIds.isEmpty()) {
             acl.add(termsIn(F_CHANNEL, channelIds), BooleanClause.Occur.SHOULD);
@@ -538,7 +595,7 @@ public class MessageIndexService {
                 .add(main, BooleanClause.Occur.MUST)
                 .add(acl.build(), BooleanClause.Occur.FILTER)
                 .build();
-        return runSearch(scoped, limit);
+        return runSearch(scoped, offset, limit);
     }
 
     /**
@@ -557,13 +614,19 @@ public class MessageIndexService {
     /** @see #searchEverywhere(String, Collection, int) */
     public List<Long> searchEverywhere(String query, Collection<String> authors,
                                        Collection<String> mentions, int limit) {
+        return ids(searchEverywherePage(query, authors, mentions, 0, limit).hits());
+    }
+
+    /** One page of the admin-wide channel search, with the total. @see #searchEverywhere */
+    public Page searchEverywherePage(String query, Collection<String> authors,
+                                     Collection<String> mentions, int offset, int limit) {
         var main = mainQuery(query, authors, mentions);
-        if (main == null) return List.of();
+        if (main == null) return Page.EMPTY;
         var channelsOnly = new BooleanQuery.Builder()
                 .add(main, BooleanClause.Occur.MUST)
                 .add(new TermQuery(new Term(F_KIND, K_CONVERSATION)), BooleanClause.Occur.MUST_NOT)
                 .build();
-        return ids(runSearch(channelsOnly, limit));
+        return runSearch(channelsOnly, offset, limit);
     }
 
     private static TermInSetQuery termsIn(String field, Collection<Long> values) {
@@ -799,22 +862,34 @@ public class MessageIndexService {
         @Override protected Query getRegexpQuery(String field, String termStr)   { return null; }
     }
 
-    private List<Hit> runSearch(Query query, int limit) {
+    private Page runSearch(Query query, int offset, int limit) {
+        int from = Math.max(offset, 0);
+        int size = Math.max(limit, 1);
+        // Lucene collects offset+size documents into a priority queue to serve a page starting at
+        // offset, so deep paging costs memory and CPU linear in the offset and buys nothing — page
+        // 400 of a relevance-ranked list is not a thing anybody reads. MAX_WINDOW is also the point
+        // past which the total stops being exact, so refusing to page beyond it and refusing to
+        // claim an exact count beyond it are the same cut-off, described once.
+        int window = Math.min(from + size, MAX_WINDOW);
+        if (from >= window) {
+            return Page.EMPTY;
+        }
         try {
             searcherManager.maybeRefresh();
             IndexSearcher searcher = searcherManager.acquire();
             try {
-                var top = searcher.search(query, Math.max(limit, 1));
-                var hits = new ArrayList<Hit>(top.scoreDocs.length);
+                var top = searcher.search(query, window);
+                var hits = new ArrayList<Hit>(Math.max(0, top.scoreDocs.length - from));
                 var storedFields = searcher.storedFields();
-                for (var scoreDoc : top.scoreDocs) {
-                    var doc = storedFields.document(scoreDoc.doc);
+                for (int i = from; i < top.scoreDocs.length; i++) {
+                    var doc = storedFields.document(top.scoreDocs[i].doc);
                     var hit = parseKey(doc.get(F_ID));
                     if (hit != null) {
                         hits.add(hit);
                     }
                 }
-                return Collections.unmodifiableList(hits);
+                return new Page(Collections.unmodifiableList(hits), top.totalHits.value(),
+                        top.totalHits.relation() != TotalHits.Relation.EQUAL_TO);
             } finally {
                 searcherManager.release(searcher);
             }

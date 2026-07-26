@@ -17,13 +17,24 @@
 <html xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <body>
 <!--/*
-  The application top bar: logo, global message search, mention bell, avatar link, sign-out form.
+  The application top bar: logo, the one message-search box, mention bell, avatar link, sign-out
+  form.
 
   Rendered by every signed-in page through this one fragment. It used to be copied into each
   template, which is how the direct-message page ended up with an empty <div class="topbar-center">
   and no message search at all — a whole feature missing from a page because a block was copied
-  before that feature existed. Nothing here is parameterised: `me` and `appTitle` are on the model
-  for every page that renders it.
+  before that feature existed.
+
+  The fragment now closes every element it opens, including the </header>. It used to stop halfway
+  down the mention-bell panel and leave each including page to finish the markup, so the same
+  eighteen lines of bell list, avatar link and logout form were copied into channels.html and
+  conversation.html — the exact duplication the fragment exists to prevent, reintroduced inside it.
+  A third page needing a top bar was the point at which that had to stop.
+
+  Model attributes read here, all optional and all already set by every page that renders a top bar:
+    searchQuery            prefills the box, so the results page shows what was searched for
+    activeChannelId        \ carried into /search as "where this search started", which is what the
+    activeConversationId   / results page builds its way-back link from
 */-->
 <th:block th:fragment="topbar">
 <header class="topbar">
@@ -40,15 +51,28 @@
         </a>
     </div>
     <div class="topbar-center">
-        <form class="search-form" id="global-search-form">
+        <!--/* A real GET form to /search, not a JavaScript-only box. Enter therefore lands on the
+               results page by default; the live dropdown only intercepts it when the user has
+               arrowed to a specific row, i.e. when they have said which result they meant. It used
+               to guess the top hit and navigate there, which threw you into a channel you had not
+               asked for with no way back. */-->
+        <form class="search-form" id="global-search-form" method="get" th:action="@{/search}">
             <span class="search-field">
-                <input type="search" id="global-search-input"
-                       placeholder="Search messages…" minlength="2" required/>
+                <input type="search" id="global-search-input" name="q"
+                       th:value="${searchQuery} ?: ''"
+                       placeholder="Search messages…" minlength="2" required
+                       autocomplete="off"/>
                 <button type="button" class="search-clear" tabindex="-1" hidden
                         title="Clear search" aria-label="Clear search">
                     <svg class="icon icon-sm" aria-hidden="true"><use href="#icon-close"/></svg>
                 </button>
             </span>
+            <!--/* Where the search started. Rendered only when there is one, so an absent origin
+                   is an absent parameter rather than an empty string the binder has to guess at. */-->
+            <input type="hidden" name="channelId" th:if="${activeChannelId != null}"
+                   th:value="${activeChannelId}"/>
+            <input type="hidden" name="conversationId" th:if="${activeConversationId != null}"
+                   th:value="${activeConversationId}"/>
             <button type="submit">Search</button>
         </form>
     </div>
@@ -67,6 +91,24 @@
                     <button type="button" id="topbar-bell-mark-all" class="topbar-bell-action"
                             title="Mark every channel with unread mentions as read">Mark all as read</button>
                 </header>
+                <ul class="topbar-bell-list" id="topbar-bell-list"></ul>
+                <p class="topbar-bell-empty" id="topbar-bell-empty">You're all caught up.</p>
+            </div>
+        </div>
+        <a th:href="@{/profile}" class="me" title="Profile settings">
+            <span class="avatar" th:data-author="${me.username}">
+                <img th:if="${me.hasAvatar()}" class="avatar-image" alt=""
+                     th:src="@{/api/users/{u}/avatar(u=${me.username},v=${me.avatarVersion()})}"/>
+                <span class="avatar-letter"
+                      th:text="${#strings.toUpperCase(#strings.substring(me.displayName ?: me.username, 0, 1))}">U</span>
+            </span>
+            <span th:text="${me.displayName ?: me.username}">user</span>
+        </a>
+        <!-- Submitted by the avatar dropdown's "Sign out" item (presence-menu.js);
+             kept as a hidden form so the POST carries the Thymeleaf CSRF token. -->
+        <form id="logout-form" th:action="@{/logout}" method="post" hidden></form>
+    </div>
+</header>
 </th:block>
 </body>
 </html>

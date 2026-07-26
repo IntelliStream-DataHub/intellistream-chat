@@ -86,7 +86,17 @@ import java.util.stream.Collectors;
 @Service
 public class SearchService {
 
-    static final int MAX_RESULTS = 100;
+    /**
+     * Most results one request may ask for. Unchanged in value, deliberate in meaning: this is a
+     * <em>page</em> size now, not a ceiling on how much of a result set is reachable. Reaching
+     * further is {@link #searchPage}'s job, and it is bounded separately by
+     * {@link MessageIndexService#MAX_WINDOW} — one cap on the work a single query does, one on how
+     * deep the sequence of queries can go. Collapsing them into "raise the number" is how a search
+     * endpoint becomes a way to ask for 100,000 rows.
+     */
+    static final int MAX_PAGE_SIZE = 100;
+    /** What the results page asks for when nothing else says otherwise. */
+    public static final int DEFAULT_PAGE_SIZE = 20;
     static final String ADMIN_ROLE = "ROLE_ADMIN";
     private static final String FROM_PREFIX = "from:";
     private static final String IN_PREFIX = "in:";
@@ -134,21 +144,59 @@ public class SearchService {
         record ConversationHit(ConversationMessage message) implements SearchHit {}
     }
 
+    /**
+     * Which corpus a search covers. Deliberately the same four options the results page offers as
+     * a control, so "what the user picked" and "what the service was asked for" are one vocabulary
+     * rather than a mapping somebody has to keep in sync.
+     */
+    public enum ScopeKind { CHANNEL, CONVERSATION, ACCESSIBLE, EVERYWHERE }
+
+    /**
+     * One page of results, with enough about the whole set to draw a count and a pager.
+     *
+     * @param total             matching messages, subject to {@code totalIsLowerBound}
+     * @param totalIsLowerBound the count is a floor, not a number — see
+     *   {@link MessageIndexService.Page}. The UI must say "1,000+" rather than pick a side.
+     */
+    public record ResultPage(List<SearchHit> hits, long total, boolean totalIsLowerBound,
+                             int page, int pageSize) {
+
+        public static ResultPage empty(int page, int pageSize) {
+            return new ResultPage(List.of(), 0L, false, page, pageSize);
+        }
+
+        /** True when a further page exists and is reachable without exceeding the paging window. */
+        public boolean hasNext() {
+            return (long) (page + 1) * pageSize < Math.min(total, MessageIndexService.MAX_WINDOW);
+        }
+
+        public boolean hasPrevious() {
+            return page > 0;
+        }
+
+        /**
+         * True when there are more matches than paging can reach. Worth saying out loud rather
+         * than just stopping: a pager that runs out while the count still climbs looks broken,
+         * whereas "narrow your search" is an instruction.
+         */
+        public boolean windowExhausted() {
+            return !hasNext() && total > MessageIndexService.MAX_WINDOW;
+        }
+
+        /** One-based index of the first result on this page, for "showing 21–40 of 240". */
+        public long firstResultNumber() {
+            return hits.isEmpty() ? 0 : (long) page * pageSize + 1;
+        }
+
+        public long lastResultNumber() {
+            return hits.isEmpty() ? 0 : firstResultNumber() + hits.size() - 1;
+        }
+    }
+
     @Transactional(readOnly = true)
     public List<Message> searchChannel(Channel channel, User viewer, String query, int limit) {
-        channelService.requireMember(channel, viewer);
-        var p = parsed(query);
-        if (p == null) return List.of();
-        // An in: that names this channel is redundant; one that names another is a contradiction,
-        // and an empty result is the honest answer to a query that asks for two scopes at once.
-        // Resolving it either way still rejects a channel the viewer can't read, visibly.
-        if (p.inChannel() != null
-                && !resolveInChannel(p.inChannel(), viewer, true).equals(channel.getId())) {
-            return List.of();
-        }
-        var hits = messageIndex.searchInChannel(
-                channel.getId(), p.body(), p.authors(), p.mentions(), clamp(limit));
-        return resolve(hits);
+        return channelMessagesOf(
+                searchPage(viewer, query, ScopeKind.CHANNEL, channel, null, 0, limit));
     }
 
     /**
@@ -159,14 +207,11 @@ public class SearchService {
     @Transactional(readOnly = true)
     public List<ConversationMessage> searchConversation(Conversation conversation, User viewer,
                                                         String query, int limit) {
-        conversationService.requireMember(conversation, viewer);
-        var p = parsed(query);
-        if (p == null) return List.of();
-        // in: names a channel; a conversation is not one, so the two scopes cannot both hold.
-        if (p.inChannel() != null) return List.of();
-        var hits = messageIndex.searchInConversation(
-                conversation.getId(), p.body(), p.authors(), p.mentions(), clamp(limit));
-        return resolveConversation(hits);
+        return searchPage(viewer, query, ScopeKind.CONVERSATION, null, conversation, 0, limit)
+                .hits().stream()
+                .filter(h -> h instanceof SearchHit.ConversationHit)
+                .map(h -> ((SearchHit.ConversationHit) h).message())
+                .toList();
     }
 
     /**
@@ -192,29 +237,7 @@ public class SearchService {
      */
     @Transactional(readOnly = true)
     public List<SearchHit> searchAccessible(User viewer, String query, int limit) {
-        var p = parsed(query);
-        if (p == null) return List.of();
-        // Joined is read separately from readable, not derived from it: it is what marks a hit as
-        // coming from a room the viewer has never opened, and that has to be true per channel.
-        Set<Long> joinedIds = joinedChannelIds(viewer);
-        List<Long> channelIds;
-        List<Long> conversationIds;
-        if (p.inChannel() != null) {
-            // in: narrows, and it can only narrow: the id it resolves to has already been checked
-            // against the viewer's read rules, so the filter handed to Lucene is still a subset of
-            // what they may see. Conversations drop out — in: names a channel.
-            channelIds = List.of(resolveInChannel(p.inChannel(), viewer, true));
-            conversationIds = List.of();
-        } else {
-            channelIds = readableChannelIds(joinedIds);
-            conversationIds = conversationMemberRepository.findConversationIdsForUser(viewer);
-        }
-        if (channelIds.isEmpty() && conversationIds.isEmpty()) {
-            return List.of();
-        }
-        var hits = messageIndex.searchAccessible(
-                channelIds, conversationIds, p.body(), p.authors(), p.mentions(), clamp(limit));
-        return resolveHits(hits, joinedIds);
+        return searchPage(viewer, query, ScopeKind.ACCESSIBLE, null, null, 0, limit).hits();
     }
 
     /** Channel ids the viewer belongs to. */
@@ -247,21 +270,117 @@ public class SearchService {
      */
     @Transactional(readOnly = true)
     public List<Message> searchEverywhere(User viewer, String query, int limit) {
-        if (!isPlatformAdmin()) {
-            throw new AccessDeniedException("Admin role required for cross-channel search.");
+        return channelMessagesOf(
+                searchPage(viewer, query, ScopeKind.EVERYWHERE, null, null, 0, limit));
+    }
+
+    /**
+     * One page of results for any scope — the single implementation every search goes through, and
+     * what the {@code /search} page calls.
+     *
+     * <p>The four methods above are thin wrappers over this one rather than parallel
+     * implementations, because they and the results page differ only in how much of the same result
+     * set they ask for. Two code paths would have meant two places to keep the {@code in:} handling,
+     * the access checks and the ACL filter correct, and the second one would be the one nobody looks
+     * at.
+     *
+     * @param scope        which corpus; the same four options the results page offers
+     * @param channel      required for {@link ScopeKind#CHANNEL}, ignored otherwise
+     * @param conversation required for {@link ScopeKind#CONVERSATION}, ignored otherwise
+     * @param page         zero-based page number
+     * @param pageSize     results per page, clamped to {@link #MAX_PAGE_SIZE}
+     */
+    @Transactional(readOnly = true)
+    public ResultPage searchPage(User viewer, String query, ScopeKind scope,
+                                 Channel channel, Conversation conversation,
+                                 int page, int pageSize) {
+        int size = clamp(pageSize);
+        int pageNumber = Math.max(page, 0);
+        int offset = pageNumber * size;
+        // Access checks happen before the query is even parsed, so a malformed query can never be
+        // the reason an unauthorised search "succeeded" with empty results.
+        switch (scope) {
+            case CHANNEL -> channelService.requireMember(channel, viewer);
+            case CONVERSATION -> conversationService.requireMember(conversation, viewer);
+            case EVERYWHERE -> {
+                if (!isPlatformAdmin()) {
+                    throw new AccessDeniedException("Admin role required for cross-channel search.");
+                }
+            }
+            case ACCESSIBLE -> { /* the ACL is the filter; nothing to check up front */ }
         }
         var p = parsed(query);
-        if (p == null) return List.of();
+        if (p == null) return ResultPage.empty(pageNumber, size);
+        // Joined is read separately from readable, not derived from it: it is what marks a hit as
+        // coming from a room the viewer has never opened, and that has to be true per channel.
+        Set<Long> joinedIds = joinedChannelIds(viewer);
+        var raw = switch (scope) {
+            case CHANNEL -> channelScopedPage(channel, viewer, p, offset, size);
+            case CONVERSATION -> conversationScopedPage(conversation, p, offset, size);
+            case ACCESSIBLE -> accessiblePage(viewer, p, joinedIds, offset, size);
+            case EVERYWHERE -> everywherePage(viewer, p, offset, size);
+        };
+        return new ResultPage(resolveHits(raw.hits(), joinedIds), raw.totalHits(),
+                raw.totalIsLowerBound(), pageNumber, size);
+    }
+
+    private MessageIndexService.Page channelScopedPage(Channel channel, User viewer, Parsed p,
+                                                       int offset, int size) {
+        // An in: that names this channel is redundant; one that names another is a contradiction,
+        // and an empty result is the honest answer to a query that asks for two scopes at once.
+        // Resolving it either way still rejects a channel the viewer can't read, visibly.
+        if (p.inChannel() != null
+                && !resolveInChannel(p.inChannel(), viewer, true).equals(channel.getId())) {
+            return MessageIndexService.Page.EMPTY;
+        }
+        return messageIndex.searchInChannelPage(
+                channel.getId(), p.body(), p.authors(), p.mentions(), offset, size);
+    }
+
+    private MessageIndexService.Page conversationScopedPage(Conversation conversation, Parsed p,
+                                                            int offset, int size) {
+        // in: names a channel; a conversation is not one, so the two scopes cannot both hold.
+        if (p.inChannel() != null) return MessageIndexService.Page.EMPTY;
+        return messageIndex.searchInConversationPage(
+                conversation.getId(), p.body(), p.authors(), p.mentions(), offset, size);
+    }
+
+    private MessageIndexService.Page accessiblePage(User viewer, Parsed p, Set<Long> joinedIds,
+                                                    int offset, int size) {
+        List<Long> channelIds;
+        List<Long> conversationIds;
+        if (p.inChannel() != null) {
+            // in: narrows, and it can only narrow: the id it resolves to has already been checked
+            // against the viewer's read rules, so the filter handed to Lucene is still a subset of
+            // what they may see. Conversations drop out — in: names a channel.
+            channelIds = List.of(resolveInChannel(p.inChannel(), viewer, true));
+            conversationIds = List.of();
+        } else {
+            channelIds = readableChannelIds(joinedIds);
+            conversationIds = conversationMemberRepository.findConversationIdsForUser(viewer);
+        }
+        if (channelIds.isEmpty() && conversationIds.isEmpty()) {
+            return MessageIndexService.Page.EMPTY;
+        }
+        return messageIndex.searchAccessiblePage(channelIds, conversationIds,
+                p.body(), p.authors(), p.mentions(), offset, size);
+    }
+
+    private MessageIndexService.Page everywherePage(User viewer, Parsed p, int offset, int size) {
         if (p.inChannel() != null) {
             // No read check: this scope reads every channel by definition, so requiring membership
             // of the named one would reject exactly the channels the scope exists to reach.
-            var hits = messageIndex.searchInChannel(
-                    resolveInChannel(p.inChannel(), viewer, false),
-                    p.body(), p.authors(), p.mentions(), clamp(limit));
-            return resolve(hits);
+            return messageIndex.searchInChannelPage(resolveInChannel(p.inChannel(), viewer, false),
+                    p.body(), p.authors(), p.mentions(), offset, size);
         }
-        var hits = messageIndex.searchEverywhere(p.body(), p.authors(), p.mentions(), clamp(limit));
-        return resolve(hits);
+        return messageIndex.searchEverywherePage(p.body(), p.authors(), p.mentions(), offset, size);
+    }
+
+    private static List<Message> channelMessagesOf(ResultPage page) {
+        return page.hits().stream()
+                .filter(h -> h instanceof SearchHit.ChannelHit)
+                .map(h -> ((SearchHit.ChannelHit) h).message())
+                .toList();
     }
 
     /**
@@ -444,6 +563,20 @@ public class SearchService {
     }
 
     /**
+     * The part of a raw query the highlighter should mark: the body text, with every modifier
+     * removed. Handing it the raw string instead makes it try to highlight {@code from:} and
+     * {@code in:} as content — harmless for the field-qualified forms, which the body scorer
+     * ignores, but a bare {@code @bob} used to come through the analyzer as the plain word "bob"
+     * and get marked in bodies that merely happen to contain it.
+     *
+     * @return the body clause, or an empty string when the query has none
+     */
+    public static String highlightableBody(String rawQuery) {
+        var p = parsed(rawQuery);
+        return p == null ? "" : p.body();
+    }
+
+    /**
      * Whitespace-separated tokens, except that a double-quoted run stays one token (quotes
      * included). Without this a phrase search for {@code "from: first principles"} would lose its
      * first two words to the author filter.
@@ -524,7 +657,7 @@ public class SearchService {
     }
 
     private static int clamp(int limit) {
-        return Math.min(Math.max(limit, 1), MAX_RESULTS);
+        return Math.min(Math.max(limit, 1), MAX_PAGE_SIZE);
     }
 
     private static boolean isPlatformAdmin() {
