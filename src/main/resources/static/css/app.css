@@ -1862,9 +1862,115 @@ button.icon-btn > .icon {
   --border: #3a3b42;
   --border-strong: #4a4b53;
 }
-[data-theme="dark"] .composer { box-shadow: none; }
+/* Structural, not palette: true of every dark theme, so the selector lists them rather than
+   each theme repeating the rule. A new dark theme must be added here too. */
+[data-theme="dark"] .composer,
+[data-theme="midnight"] .composer,
+[data-theme="carbon"] .composer,
+[data-theme="forest"] .composer,
+[data-theme="dusk"] .composer { box-shadow: none; }
 [data-theme="dark"] .message-body code { color: #ff89c0; background: #2d2e34; }
-[data-theme="dark"] .day-divider span { background: var(--panel); }
+[data-theme="dark"] .day-divider span,
+[data-theme="midnight"] .day-divider span,
+[data-theme="carbon"] .day-divider span,
+[data-theme="forest"] .day-divider span,
+[data-theme="dusk"] .day-divider span { background: var(--panel); }
+
+/* Midnight — dark */
+[data-theme="midnight"] {
+  --sb-bg: #131a2b;
+  --sb-bg-2: #1b2438;
+  --sb-bg-3: #0d1220;
+  --sb-text: #e6ebf5;
+  --sb-muted: rgba(255, 255, 255, 0.6);
+  --sb-active: #5b8dff;
+  --sb-active-text: #06101f;
+  --sb-border: rgba(255, 255, 255, 0.08);
+
+  --bg: #141a2b;
+  --panel: #1a2133;
+  --panel-2: #222b40;
+  --panel-3: #2e3950;
+  --text: #e6ebf5;
+  --muted: #94a0b8;
+  --accent: #2f6feb;
+  --accent-2: #2559c4;
+  --border: #2e3950;
+  --border-strong: #3d4a63;
+}
+[data-theme="midnight"] .message-body code { color: #8fb7ff; background: #222b40; }
+
+/* Carbon — dark */
+[data-theme="carbon"] {
+  --sb-bg: #161618;
+  --sb-bg-2: #1f1f22;
+  --sb-bg-3: #101012;
+  --sb-text: #ededf0;
+  --sb-muted: rgba(255, 255, 255, 0.6);
+  --sb-active: #f0883e;
+  --sb-active-text: #1a0f05;
+  --sb-border: rgba(255, 255, 255, 0.08);
+
+  --bg: #1b1b1e;
+  --panel: #202024;
+  --panel-2: #27272c;
+  --panel-3: #33333a;
+  --text: #ededf0;
+  --muted: #9b9ba3;
+  --accent: #c2410c;
+  --accent-2: #9a3412;
+  --border: #33333a;
+  --border-strong: #45454e;
+}
+[data-theme="carbon"] .message-body code { color: #ffab70; background: #27272c; }
+
+/* Forest — dark */
+[data-theme="forest"] {
+  --sb-bg: #10201a;
+  --sb-bg-2: #162c23;
+  --sb-bg-3: #0b1712;
+  --sb-text: #e4efe8;
+  --sb-muted: rgba(255, 255, 255, 0.6);
+  --sb-active: #4ade80;
+  --sb-active-text: #052014;
+  --sb-border: rgba(255, 255, 255, 0.08);
+
+  --bg: #131a15;
+  --panel: #18211b;
+  --panel-2: #1f2a23;
+  --panel-3: #2b3830;
+  --text: #e4efe8;
+  --muted: #93a89b;
+  --accent: #15803d;
+  --accent-2: #116632;
+  --border: #2b3830;
+  --border-strong: #3a4a41;
+}
+[data-theme="forest"] .message-body code { color: #86efac; background: #1f2a23; }
+
+/* Dusk — dark */
+[data-theme="dusk"] {
+  --sb-bg: #1d1630;
+  --sb-bg-2: #271d40;
+  --sb-bg-3: #150f23;
+  --sb-text: #ece7f5;
+  --sb-muted: rgba(255, 255, 255, 0.6);
+  --sb-active: #c4a6ff;
+  --sb-active-text: #150b26;
+  --sb-border: rgba(255, 255, 255, 0.08);
+
+  --bg: #1b1626;
+  --panel: #221c30;
+  --panel-2: #2b2440;
+  --panel-3: #392f52;
+  --text: #ece7f5;
+  --muted: #a094b8;
+  --accent: #7c3aed;
+  --accent-2: #6425ca;
+  --border: #392f52;
+  --border-strong: #4a3d69;
+}
+[data-theme="dusk"] .message-body code { color: #d8b4fe; background: #2b2440; }
 
 /* Accent colours carry white text (--accent-on: #fff) on buttons, so each one has to
    clear 4.5:1 against white. Orange, green and cyan were between 4.06 and 4.38 and were
@@ -2342,6 +2448,22 @@ button.icon-btn > .icon {
 .theme-swatch[data-theme="lime"] .sw-sidebar { background: #3f6212; }
 .theme-swatch[data-theme="lime"] .sw-accent  { background: #bef264; }
 .theme-swatch[data-theme="lime"] .sw-content { background: #ffffff; }
+
+.theme-swatch[data-theme="midnight"] .sw-sidebar { background: #131a2b; }
+.theme-swatch[data-theme="midnight"] .sw-accent  { background: #5b8dff; }
+.theme-swatch[data-theme="midnight"] .sw-content { background: #1a2133; }
+
+.theme-swatch[data-theme="carbon"] .sw-sidebar { background: #161618; }
+.theme-swatch[data-theme="carbon"] .sw-accent  { background: #f0883e; }
+.theme-swatch[data-theme="carbon"] .sw-content { background: #202024; }
+
+.theme-swatch[data-theme="forest"] .sw-sidebar { background: #10201a; }
+.theme-swatch[data-theme="forest"] .sw-accent  { background: #4ade80; }
+.theme-swatch[data-theme="forest"] .sw-content { background: #18211b; }
+
+.theme-swatch[data-theme="dusk"] .sw-sidebar { background: #1d1630; }
+.theme-swatch[data-theme="dusk"] .sw-accent  { background: #c4a6ff; }
+.theme-swatch[data-theme="dusk"] .sw-content { background: #221c30; }
 
 .theme-picker #theme-feedback { margin: 0.2rem 0 0; }
 

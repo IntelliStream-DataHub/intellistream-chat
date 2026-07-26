@@ -36,7 +36,8 @@ public class UserService {
 
     public static final Set<String> ALLOWED_THEMES = Set.of(
             "default", "dark", "orange", "pink", "green", "purple", "red", "cyan",
-            "indigo", "teal", "amber", "slate", "mocha", "ocean", "plum", "lime");
+            "indigo", "teal", "amber", "slate", "mocha", "ocean", "plum", "lime",
+            "midnight", "carbon", "forest", "dusk");
 
     /**
      * Accepts only handles that look like reasonable usernames: 1–100 chars of letters,
