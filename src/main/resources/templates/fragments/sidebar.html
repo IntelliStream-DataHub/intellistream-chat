@@ -83,7 +83,7 @@
                 </span>
             </h2>
             <ul class="channel-list" id="sidebar-channel-list"
-                th:replace="~{fragments/channel-group :: group(${sidebar.channels}, ${activeChannelId}, 'sidebar-channel-list')}"></ul>
+                th:replace="~{fragments/channel-group :: group(${sidebar.channels}, ${activeChannelId}, ${sidebar.notifyDefault}, 'sidebar-channel-list')}"></ul>
             <p class="sidebar-empty" th:if="${sidebar.channels.isEmpty()}">
                 You're not in any channels yet — use + to create one, or search above to find one.
             </p>

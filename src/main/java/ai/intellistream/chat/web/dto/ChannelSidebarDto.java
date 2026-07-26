@@ -72,4 +72,62 @@ public record ChannelSidebarDto(
     public ChannelSidebarDto withCounts(long unread, long mentions) {
         return new ChannelSidebarDto(id, slug, name, type, joined, admin, unread, mentions, notifyLevel);
     }
+
+    /**
+     * How loudly this row should announce what it is holding.
+     *
+     * <p>Three states, and the reason there are three rather than "badge / no badge" is that a
+     * number on every channel with any unread is noise. A busy channel produces one permanently,
+     * so the badge stops meaning "look at this" and starts meaning "this channel exists", and a
+     * user who learns to ignore all of them also ignores the one that mattered. Slack and
+     * Mattermost both solve it the same way and it is the right answer: ordinary unread is a
+     * <em>weight</em> change, and the number is reserved for the thing a number is useful for —
+     * how many times somebody addressed you by name.
+     */
+    public enum UnreadCue {
+        /** Nothing to say. Also what a muted channel says about ordinary traffic. */
+        NONE,
+        /** There is unread here: emphasise the name. No number. */
+        BOLD,
+        /** You were mentioned: show how many times. */
+        COUNT
+    }
+
+    /** The level actually in force for this row, resolving {@code DEFAULT} against the account. */
+    public NotificationLevel effectiveNotifyLevel(NotificationLevel accountDefault) {
+        return notifyLevel.resolvedAgainst(accountDefault);
+    }
+
+    /** True when this channel is muted ({@code NONE}, resolved) — visibly de-emphasised. */
+    public boolean muted(NotificationLevel accountDefault) {
+        return effectiveNotifyLevel(accountDefault) == NotificationLevel.NONE;
+    }
+
+    /**
+     * The cue for this row. One implementation, because the server render and the live JS update
+     * both go through it (JS reproduces this table against the same two counts, carried on the row
+     * as data attributes) — and a sidebar whose badges change when you reload is worse than either
+     * behaviour on its own.
+     *
+     * <p>Muting is the interesting case. A muted channel <b>still counts</b> its unread: muting
+     * means "stop telling me", not "pretend nothing happened", and a count that silently stopped
+     * accruing would be a lie the user could not detect. So the count is kept and the cue is NONE —
+     * no bold, no badge, and the row is dimmed by whoever renders it.
+     *
+     * <p>A mention in a muted channel is the one exception, and it gets its badge. The reasoning:
+     * mute governs <em>interruption</em>, and a badge is not an interruption — it makes no sound,
+     * raises no toast, and is only seen by someone already looking at the sidebar. What it does is
+     * make the thing findable later, which is exactly what you want from a channel you muted and
+     * where somebody has now called you by name. The toast and the chime stay suppressed, which is
+     * the part the user actually asked for. Slack behaves the same way.
+     */
+    public UnreadCue unreadCue(NotificationLevel accountDefault) {
+        if (mentionCount > 0) {
+            return UnreadCue.COUNT;
+        }
+        if (unreadCount <= 0 || muted(accountDefault)) {
+            return UnreadCue.NONE;
+        }
+        return UnreadCue.BOLD;
+    }
 }

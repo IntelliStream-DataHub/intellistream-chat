@@ -691,11 +691,26 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   font-size: var(--fs-xs);
   opacity: 0.8;
 }
-.channel-list li.has-unread > a {
+/* ---------- Unread cue ----------
+   Ordinary unread is a weight change; a number is reserved for mentions. A count on every busy
+   channel is permanent, so it stops meaning "look at this" and starts meaning "this channel
+   exists" — and someone who has learned to ignore all of them ignores the one that mattered.
+   Both surfaces (Thymeleaf here, index.js live) set data-unread-cue from the same rule in
+   ChannelSidebarDto.unreadCue, so a reload never changes what you were looking at. */
+.channel-list li[data-unread-cue="bold"] > a {
   color: var(--sb-text);
   font-weight: 600;
 }
-.channel-list li.has-unread > a .channel-name { font-weight: 700; }
+.channel-list li[data-unread-cue="bold"] > a .channel-name { font-weight: 700; }
+
+/* Muted: dimmed, never bold, and marked. The unread is still counted behind this — muting means
+   "stop telling me", not "pretend nothing happened" — it just does not interrupt. Hover restores
+   full strength so the row is still readable when you go looking for it. */
+.channel-list li[data-muted="true"] > a { opacity: 0.55; }
+.channel-list li[data-muted="true"] > a:hover,
+.channel-list li[data-muted="true"] > a.active { opacity: 1; }
+.channel-muted-marker { flex-shrink: 0; opacity: 0.8; }
+
 .unread-badge {
   flex-shrink: 0;
   display: inline-flex;
@@ -715,6 +730,12 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
 .unread-badge.mention {
   background: var(--danger);
   color: #fff;
+}
+/* A mention in a muted channel: kept, so it is findable, but not shouted. The red is what makes a
+   mention badge an interruption; without it the badge is a note to self. */
+.unread-badge.mention.muted {
+  background: var(--sb-bg-2);
+  color: var(--sb-text);
 }
 .channel-list a.active .unread-badge {
   background: rgba(255, 255, 255, 0.25);
@@ -2884,6 +2905,8 @@ main.content.searching > :not(.channel-search-results) { display: none; }
 }
 .channel-search-list li:hover { background: var(--hover-bg, rgba(127, 127, 127, 0.1)); }
 .channel-search-name { font-weight: 600; text-decoration: none; color: inherit; }
+/* Ordinary unread, same convention as the sidebar: weight, not a number. */
+.channel-search-list li.has-unread .channel-search-name { font-weight: 800; }
 .channel-search-name:hover { text-decoration: underline; }
 .channel-search-tag {
   font-size: 0.72rem;

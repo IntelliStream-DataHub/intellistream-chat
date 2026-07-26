@@ -384,21 +384,71 @@ presenceMenu.init();
     const a = li.querySelector('a');
     if (a && li.dataset.channelId) sidebarChannels.set(li.dataset.channelId, { li, a });
   });
-  const bumpSidebarUnread = (channelId, isMention) => {
-    const entry = sidebarChannels.get(channelId);
-    if (!entry) return;
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const MUTED_TITLE = "Muted — unread still counts, it just doesn't interrupt";
+
+  /**
+   * Paint one sidebar row's unread state from the two counts on the row.
+   *
+   * <p>This must produce exactly what `fragments/channel-group.html` produces from
+   * `ChannelSidebarDto.unreadCue` for the same numbers. Two renderers of the same decision is a
+   * standing hazard — if they disagree, reloading the page changes what the user is looking at, and
+   * whichever one is wrong is wrong only intermittently. The decision itself is documented on that
+   * enum: ordinary unread is a bold name, a number is reserved for mentions, and a muted channel
+   * keeps counting but stops shouting.
+   *
+   * <p>The counts live in data-unread / data-mentions rather than being read back out of the
+   * badge's text. That worked while every unread channel had a badge; with ordinary unread rendered
+   * as weight there is no number in the DOM to read.
+   */
+  const paintUnreadCue = (entry) => {
+    const li = entry.li;
+    const unread = Number(li.dataset.unread || 0);
+    const mentions = Number(li.dataset.mentions || 0);
+    const muted = notifyLevelFor(li.dataset.channelId) === 'NONE';
+    const cue = mentions > 0 ? 'count' : (unread > 0 && !muted ? 'bold' : 'none');
+    li.dataset.unreadCue = cue;
+    li.dataset.muted = String(muted);
+    // has-unread stays truthful — "there is unread here" — independently of how loud the row is.
+    li.classList.toggle('has-unread', unread > 0);
+
+    let marker = entry.a.querySelector('.channel-muted-marker');
+    if (muted && !marker) {
+      marker = document.createElementNS(SVG_NS, 'svg');
+      marker.setAttribute('class', 'icon icon-sm channel-muted-marker');
+      marker.setAttribute('title', MUTED_TITLE);
+      const use = document.createElementNS(SVG_NS, 'use');
+      use.setAttribute('href', '#icon-bell-slash');
+      marker.appendChild(use);
+      entry.a.appendChild(marker);
+    } else if (!muted && marker) {
+      marker.remove();
+      marker = null;
+    }
+
     let badge = entry.a.querySelector('.unread-badge');
+    if (cue !== 'count') {
+      badge?.remove();
+      return;
+    }
     if (!badge) {
       badge = document.createElement('span');
-      badge.className = 'unread-badge';
-      badge.textContent = '0';
-      entry.a.appendChild(badge);
+      // Before the muted marker, so the row reads the same as a server-rendered one.
+      if (marker) entry.a.insertBefore(badge, marker);
+      else entry.a.appendChild(badge);
     }
-    const cur = parseInt(badge.textContent.replace('+', ''), 10) || 0;
-    const next = cur + 1;
-    badge.textContent = next > 99 ? '99+' : String(next);
-    entry.li.classList.add('has-unread');
-    if (isMention) badge.classList.add('mention');
+    badge.className = 'unread-badge mention' + (muted ? ' muted' : '');
+    badge.textContent = mentions > 99 ? '99+' : String(mentions);
+  };
+
+  const bumpSidebarUnread = (channelId, isMention) => {
+    const entry = sidebarChannels.get(String(channelId));
+    if (!entry) return;
+    entry.li.dataset.unread = String(Number(entry.li.dataset.unread || 0) + 1);
+    if (isMention) {
+      entry.li.dataset.mentions = String(Number(entry.li.dataset.mentions || 0) + 1);
+    }
+    paintUnreadCue(entry);
   };
 
   // The per-channel picker in the settings panel. Writes through to the account so the choice
@@ -424,9 +474,13 @@ presenceMenu.init();
         if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || 'Could not save that.');
         picker.dataset.current = picker.value;
         // The sidebar row is what the notification rule reads, so it has to move with the
-        // setting or the change only takes effect after a reload.
+        // setting or the change only takes effect after a reload. Repaint it too: muting is
+        // visible on the row (dimmed, unbolded, marked), and a mute that only shows up after a
+        // reload looks like it didn't save.
         const row = document.querySelector(`[data-channel-id="${picker.dataset.channelId}"]`);
         if (row) row.dataset.notifyLevel = picker.value;
+        const entry = sidebarChannels.get(String(picker.dataset.channelId));
+        if (entry) paintUnreadCue(entry);
         say('Saved.', false);
         setTimeout(() => say('', false), 2000);
       } catch (e) {

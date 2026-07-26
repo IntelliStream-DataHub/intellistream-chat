@@ -142,11 +142,16 @@ export function initSidebarSearch() {
                 tag.textContent = 'joined';
                 li.append(tag);
             }
-            if (c.unreadCount > 0) {
+            // Same rule as the sidebar (ChannelSidebarDto.UnreadCue): a number only for mentions,
+            // ordinary unread carried by the name's weight. The two surfaces show the same channel
+            // at the same time, so a count here and a bold name there would read as a bug.
+            if (c.mentionCount > 0) {
                 const badge = document.createElement('span');
-                badge.className = 'unread-badge' + (c.mentionCount > 0 ? ' mention' : '');
-                badge.textContent = c.unreadCount > 99 ? '99+' : String(c.unreadCount);
+                badge.className = 'unread-badge mention';
+                badge.textContent = c.mentionCount > 99 ? '99+' : String(c.mentionCount);
                 li.append(badge);
+            } else if (c.unreadCount > 0) {
+                li.classList.add('has-unread');
             }
             list.append(li);
         }
