@@ -282,15 +282,35 @@ SHOTS = [
 ]
 
 
+# --------------------------------------------------------------------------- hero ----
+# The README's masthead. Unlike every other image here it is written as a real file rather than
+# inlined, because GitHub's markdown sanitiser drops data: URIs — a README that inlines its
+# screenshot the way docs/index.html does renders as a broken image on the project's front page.
+#
+# Two of them, light and dark, selected by the reader's own GitHub theme through <picture>. A
+# light screenshot on a dark README is the most conspicuous way to look like you did not try.
+
+HERO_DIR = REPO / "docs" / "shots"
+HERO_QUALITY = "82"
+HEROES = [
+    ("hero-light.webp", shot_channel, "default"),
+    ("hero-dark.webp", shot_channel, "midnight"),
+]
+
+
 # ------------------------------------------------------------------------- encoding ----
 
 def to_webp_base64(png_bytes: bytes, quality: str = WEBP_QUALITY) -> str:
     """PNG → WebP via cwebp. Pillow is not installed on the dev box; cwebp is the reference encoder."""
+    return base64.b64encode(to_webp_bytes(png_bytes, quality)).decode()
+
+
+def to_webp_bytes(png_bytes: bytes, quality: str = WEBP_QUALITY) -> bytes:
     with tempfile.TemporaryDirectory() as tmp:
         src, dst = Path(tmp) / "s.png", Path(tmp) / "d.webp"
         src.write_bytes(png_bytes)
         subprocess.run(["cwebp", "-quiet", "-q", quality, str(src), "-o", str(dst)], check=True)
-        return base64.b64encode(dst.read_bytes()).decode()
+        return dst.read_bytes()
 
 
 def rewrite_index(entries):
@@ -524,6 +544,21 @@ async def main():
                 await browser.close()
                 return 1
         doc_figures = await capture_docs(page, ctx)
+
+        heroes = []
+        for filename, recipe, theme in HEROES:
+            try:
+                clip = await recipe(page, ctx)
+                await page.evaluate("(t) => document.body.setAttribute('data-theme', t)", theme)
+                await page.wait_for_timeout(350)
+                png = await page.screenshot(clip=clip) if clip else await page.screenshot()
+                heroes.append((filename, to_webp_bytes(png, HERO_QUALITY)))
+                print(f"  captured {filename:17} {len(png) // 1024:>5} KB png")
+            except Exception as e:
+                print(f"  ! {filename} failed: {e}", file=sys.stderr)
+                await browser.close()
+                return 1
+
         await browser.close()
 
     if doc_figures is None:
@@ -531,7 +566,12 @@ async def main():
         return 1
     rewrite_index(captured)
     rewrite_docs(doc_figures)
+    # Written last, with everything else, so a partial run never leaves the README pointing at a
+    # screenshot from a different capture than the site's.
+    for filename, data in heroes:
+        (HERO_DIR / filename).write_bytes(data)
     print(f"\n  wrote {len(captured)} shots into {INDEX.relative_to(REPO)}")
+    print(f"  wrote {len(heroes)} README heroes into {HERO_DIR.relative_to(REPO)}/")
     return 0
 
 

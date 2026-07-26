@@ -4,6 +4,15 @@ Slack/Mattermost-style workspace chat: channels, threads, direct and group messa
 mentions, presence, polls, slash commands, full-text search, streamed file uploads and OIDC single
 sign-on. One JVM process, one Postgres database, one systemd unit.
 
+**[intellistream-datahub.github.io/intellistream-chat](https://intellistream-datahub.github.io/intellistream-chat/)** — screenshots, feature tour and the full manual.
+
+<a href="https://intellistream-datahub.github.io/intellistream-chat/">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/shots/hero-dark.webp">
+    <img src="docs/shots/hero-light.webp" alt="A channel in IntelliStream Chat: the sidebar listing channels and direct messages, a conversation with Markdown, a code block and a poll, and the message composer below." width="1200" height="733">
+  </picture>
+</a>
+
 Built on Java 25, Spring Boot 4, PostgreSQL 18, Keycloak and embedded Apache Lucene. A stack chosen
 for how well it ages, not for how new it is.
 
