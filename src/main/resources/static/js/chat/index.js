@@ -358,14 +358,31 @@ presenceMenu.init();
   // come from window.ChatKit (chat-kit.js). Pull them into local scope for terseness.
   const { wireAutoResize, insertAtCursor, openEmojiPicker } = ChatKit;
 
+  // ---------- Joined channels: the subscription set ----------
+  // Every channel the user is a member of, straight from the server (meta me-channel-ids, built
+  // from SidebarView.channelIds()). This — not the rendered sidebar — is what drives the STOMP
+  // subscriptions below.
+  //
+  // KEEP IT THAT WAY. This used to be derived from `#sidebar-channel-list li.joined`, so
+  // notification coverage was a side effect of what the sidebar happened to render: a mention in a
+  // channel outside the rendered set produced no toast, no chime, no badge and no bell update until
+  // the next page load. The sidebar now renders every joined channel, which fixes that by accident;
+  // reading the set from the server means a future rendering change cannot un-fix it. If you find
+  // yourself scraping channel ids out of the DOM again, this is the bug you are reintroducing.
+  const joinedChannelIds = (meta('me-channel-ids') || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
   // ---------- Sidebar unread tracking ----------
-  // Index every joined-channel <li> by id so STOMP listeners can bump the badge live.
+  // Index the rendered channel rows by id so STOMP listeners can bump a badge live. This IS
+  // DOM-derived, and that is correct: it is about painting a row, so a row that isn't on the page
+  // has nothing to paint and bumpSidebarUnread no-ops. Subscriptions are a different question and
+  // must not be answered from here.
   const sidebarChannels = new Map(); // channelId -> { li, a }
-  document.querySelectorAll('#sidebar-channel-list li.joined').forEach((li) => {
+  document.querySelectorAll('.sidebar .channel-list li[data-channel-id]').forEach((li) => {
     const a = li.querySelector('a');
-    if (!a) return;
-    const id = (a.getAttribute('href') || '').split('/').pop();
-    if (id) sidebarChannels.set(id, { li, a });
+    if (a && li.dataset.channelId) sidebarChannels.set(li.dataset.channelId, { li, a });
   });
   const bumpSidebarUnread = (channelId, isMention) => {
     const entry = sidebarChannels.get(channelId);
@@ -506,6 +523,10 @@ presenceMenu.init();
     let stompConnectedBefore = false;
     let backfilling = false;
     const pendingLive = [];
+    // channelId -> StompJS subscription, for the non-active joined channels. Kept so leaving a
+    // channel can drop its subscription without waiting for a reload: the client must stop
+    // listening the moment its membership ends, and the server-side revocation is the other half.
+    const channelSubscriptions = new Map();
 
     // Page the ?after= endpoint until caught up. The server caps each page at 50, so the old
     // single limit=200 request silently dropped every message past the first 50 (a permanent
@@ -552,10 +573,20 @@ presenceMenu.init();
           noteTyping(t.username, t.displayName || t.username);
         }
       });
-      // Bump sidebar badges when messages arrive in joined-but-not-active channels.
-      sidebarChannels.forEach((_, id) => {
-        if (id === activeChannelId) return;
-        stomp.subscribe('/topic/channels/' + id, (frame) => {
+      // One subscription per joined channel, so a message anywhere the user is a member reaches
+      // them — badge, chime, toast, bell — without a page load. Driven by joinedChannelIds (the
+      // server's membership list), never by what the sidebar rendered.
+      //
+      // Cost, since this is N frames on connect: every SUBSCRIBE is authorised by
+      // StompAuthorizationConfig, which resolves the channel through ChannelAccessCache (a map hit
+      // after the first user of that channel) and then calls requireMember — free for a PUBLIC
+      // channel, one cached membership check for a PRIVATE one. The per-session SUBSCRIBE rate cap
+      // was raised to match, because at 200 channels the old 200/min silently dropped the tail.
+      // A reconnect re-runs this block; the previous handles died with the socket.
+      channelSubscriptions.clear();
+      joinedChannelIds.forEach((id) => {
+        if (id === activeChannelId) return; // already subscribed above, with the full handler
+        channelSubscriptions.set(id, stomp.subscribe('/topic/channels/' + id, (frame) => {
           const ev = JSON.parse(frame.body);
           if (ev.type !== 'created' || ev.parentId) return;
           if (ev.message?.authorUsername === myUsername) return;
@@ -567,7 +598,7 @@ presenceMenu.init();
           if (shouldNotify(id, mentioned)) {
             maybeNotifyMention(ev.message, id, /* isActiveChannel */ false, mentioned);
           }
-        });
+        }));
       });
       stomp.subscribe('/topic/users', (frame) => {
         const ev = JSON.parse(frame.body);
@@ -581,6 +612,21 @@ presenceMenu.init();
         try {
           const n = JSON.parse(frame.body);
           showSlashNotice(n.text || '', n.level || 'info');
+          // An unknown slash command is answered privately rather than posted to the channel, so
+          // the text the user typed is not on screen anywhere — the composer was cleared on submit.
+          // The server sends it back on the notice as `body`; put it back where they typed it, with
+          // the caret at the end, so fixing a typo is an edit rather than retyping the line.
+          // Only when the composer is empty: they may have started something new in the meantime,
+          // and overwriting that would be a worse loss than the one this repairs.
+          if (n.body) {
+            const input = document.getElementById('composer-input');
+            if (input && !input.value) {
+              input.value = n.body;
+              input._autoResize?.();
+              input.focus();
+              input.setSelectionRange(input.value.length, input.value.length);
+            }
+          }
         } catch (e) { /* ignore malformed */ }
       });
       // Direct messages and group messages. On this page the user is never looking at the

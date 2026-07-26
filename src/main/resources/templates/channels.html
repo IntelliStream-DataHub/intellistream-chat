@@ -22,6 +22,16 @@
          confirms carries the same avatar as the real message that replaces it. -->
     <meta name="me-has-avatar" th:content="${me.hasAvatar() ? 'true' : 'false'}"/>
     <meta name="me-avatar-version" th:content="${me.avatarVersion()}"/>
+    <!--/* The notification subscription set: every channel the viewer is a member of, as ids.
+           index.js opens one /topic/channels/{id} subscription per id in here.
+
+           It comes from SidebarView, NOT from the rendered sidebar, and that distinction is the
+           whole point. When the subscriptions were derived from the sidebar's <li> rows, a channel
+           outside the rendered shortlist produced no toast, no chime, no badge and no bell update
+           until the next page load — an @mention in it was simply lost. Any future change to how
+           the sidebar renders (a collapsed group, a virtualised list, a server-side filter) would
+           silently reintroduce that. Rendering is a view of the membership; this is the membership. */-->
+    <meta name="me-channel-ids" th:content="${sidebar.channelIds()}"/>
     <meta name="active-channel-id" th:content="${activeChannelId}"/>
     <meta name="centered-on-anchor" th:content="${centeredOnAnchor != null and centeredOnAnchor ? 'true' : 'false'}"/>
     <meta name="anchor-message-id" th:content="${anchorMessageId}"/>

@@ -158,6 +158,29 @@ public class ChannelService {
         }
     }
 
+    /**
+     * {@link #requireMember} with the membership query served from cache after the first verified
+     * success — the STOMP SUBSCRIBE authorization path.
+     *
+     * <p>Worth having because subscription count is now membership count: the client subscribes to
+     * every channel the user is in, so a user in 200 private channels used to mean 200 uncached
+     * {@code exists} queries on the threads that are accepting connections, and a mass reconnect
+     * multiplies that by every client at once. PUBLIC channels never cost anything here —
+     * {@link #requireMember} short-circuits before any query — so this only changes the private
+     * case, where membership and write access are the same question and therefore the same cache
+     * entry.
+     *
+     * <p>Only positives are cached, so a user who has just been invited is never wrongly refused.
+     * A user whose membership is <em>removed</em> is a different matter: that is what
+     * {@code ChannelAccessCache.evictMember} is for, and every leave/kick path must call it.
+     */
+    public void requireMemberCached(Channel channel, User user) {
+        if (channel.getType() == ChannelType.PUBLIC) {
+            return;
+        }
+        requireWriteAccessCached(channel, user);
+    }
+
     @Transactional(readOnly = true)
     public Channel requireBySlug(String slug) {
         return channelRepository.findBySlug(slug)

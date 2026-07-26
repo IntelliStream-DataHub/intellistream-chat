@@ -143,12 +143,23 @@ public class StompAuthorizationConfig implements WebSocketMessageBrokerConfigure
                 if (!channelMatch.matches() && !convMatch.matches()) return message;
 
                 // Cap SUBSCRIBE frames per session so a client can't flood them to amplify the
-                // authorization work below. 200/min comfortably covers the initial burst of
-                // subscribing to every sidebar channel on connect; excess frames are dropped
-                // (return null) rather than throwing, so the connection isn't torn down.
+                // authorization work below. Excess frames are dropped (return null) rather than
+                // throwing, so the connection isn't torn down.
+                //
+                // The budget is 2000/min because the client now subscribes to *every* channel the
+                // user is a member of, not to the ten a curated sidebar happened to render. At the
+                // old 200 a user in 200 channels lost the tail of their own subscriptions to this
+                // limiter — silently, since a dropped frame produces no error — and the symptom
+                // would have been "notifications work for most of my channels", which is close to
+                // undebuggable. A budget has to be above legitimate use before it is a defence, and
+                // legitimate use here is now bounded by membership count.
+                //
+                // Dropping frames is still the right response above it: the authorization work per
+                // frame is a cache hit plus, for a private channel, one cached membership check, so
+                // the flood this guards against is cheap to absorb and expensive only in aggregate.
                 var sessionId = accessor.getSessionId();
                 if (sessionId != null
-                        && !rateLimiter.tryAcquire(sessionId, "ws-subscribe", 200, java.time.Duration.ofMinutes(1))) {
+                        && !rateLimiter.tryAcquire(sessionId, "ws-subscribe", 2000, java.time.Duration.ofMinutes(1))) {
                     return null;
                 }
 
@@ -164,8 +175,10 @@ public class StompAuthorizationConfig implements WebSocketMessageBrokerConfigure
                     // contract requireByIdForMessaging asks for.
                     var ch = channelService.requireByIdForMessaging(channelId);
                     // Subscribe = read; reuses the read-access semantic so PUBLIC channels
-                    // remain subscribable by any authenticated user.
-                    channelService.requireMember(ch, user);
+                    // remain subscribable by any authenticated user. Cached because a client now
+                    // subscribes once per channel it is a member of, so this runs membership-count
+                    // times per connect — free for PUBLIC, one cached decision for PRIVATE.
+                    channelService.requireMemberCached(ch, user);
                 } else {
                     Long conversationId;
                     try { conversationId = Long.parseLong(convMatch.group(1)); }
