@@ -67,11 +67,24 @@ class MessageIndexAclTest {
         index.close();
     }
 
+    /**
+     * Index one channel document with no attachments. These tests are about the membership filter,
+     * and every one of them would carry the same empty file list if it spelled it out.
+     */
+    private void indexChannelDoc(long id, long channelId, String author, String body) {
+        index.index(id, channelId, author, body, List.of());
+    }
+
+    /** The conversation-document counterpart of {@link #indexChannelDoc}. */
+    private void indexConversationDoc(long id, long conversationId, String author, String body) {
+        index.indexConversationMessage(id, conversationId, author, body, List.of());
+    }
+
     @Test
     void aDirectMessageBetweenTwoOtherPeopleIsUnreachable() {
-        index.indexConversationMessage(1L, DM_OF_OTHERS, "alice",
+        indexConversationDoc(1L, DM_OF_OTHERS, "alice",
                 "the deploy passphrase is correcthorsebattery");
-        index.indexConversationMessage(2L, SEARCHERS_OWN_DM, "carol",
+        indexConversationDoc(2L, SEARCHERS_OWN_DM, "carol",
                 "unrelated chatter about passphrase policy documents");
 
         // Carol is in her own DM and nothing else.
@@ -88,9 +101,9 @@ class MessageIndexAclTest {
 
     @Test
     void aGroupConversationTheSearcherIsNotInIsUnreachable() {
-        index.indexConversationMessage(3L, GROUP_OF_OTHERS, "bob",
+        indexConversationDoc(3L, GROUP_OF_OTHERS, "bob",
                 "acquisition codename thunderclap signs monday");
-        index.indexConversationMessage(4L, SEARCHERS_OWN_DM, "carol", "lunch at noon");
+        indexConversationDoc(4L, SEARCHERS_OWN_DM, "carol", "lunch at noon");
 
         var asOutsider = index.searchAccessible(
                 List.of(), List.of(SEARCHERS_OWN_DM), "thunderclap", Set.of(), 50);
@@ -107,8 +120,8 @@ class MessageIndexAclTest {
         // `@alice` with no keyword takes a different branch in mainQuery (MatchAllDocs + author
         // filter). The ACL is applied to the composed query, not to one branch of it, but a
         // regression here would be invisible to the keyword tests above.
-        index.indexConversationMessage(5L, DM_OF_OTHERS, "alice", "private words");
-        index.indexConversationMessage(6L, SEARCHERS_OWN_DM, "alice", "public-ish words");
+        indexConversationDoc(5L, DM_OF_OTHERS, "alice", "private words");
+        indexConversationDoc(6L, SEARCHERS_OWN_DM, "alice", "public-ish words");
 
         var asOutsider = index.searchAccessible(
                 List.of(), List.of(SEARCHERS_OWN_DM), "", Set.of("alice"), 50);
@@ -121,8 +134,8 @@ class MessageIndexAclTest {
         // `@bob` with no keyword takes the same MatchAllDocs branch the author filter does, and it
         // arrived later — so it gets its own test rather than trusting that "the ACL wraps the
         // composed query" stayed true when a second filter was threaded through mainQuery.
-        index.indexConversationMessage(20L, DM_OF_OTHERS, "alice", "hey @bob look at this");
-        index.indexConversationMessage(21L, SEARCHERS_OWN_DM, "alice", "@bob are you around");
+        indexConversationDoc(20L, DM_OF_OTHERS, "alice", "hey @bob look at this");
+        indexConversationDoc(21L, SEARCHERS_OWN_DM, "alice", "@bob are you around");
 
         var asOutsider = index.searchAccessible(
                 List.of(), List.of(SEARCHERS_OWN_DM), "", Set.of(), Set.of("bob"), 50);
@@ -139,8 +152,8 @@ class MessageIndexAclTest {
     void mentioningSomeoneAndBeingSomeoneAreDifferentFilters() {
         // The behaviour change the syntax exists for, at the index layer: one document is written
         // by bob, the other is about bob, and the two filters must not agree on either.
-        index.index(22L, 5L, "bob", "standup notes from bob himself");
-        index.index(23L, 5L, "alice", "@bob can you take standup");
+        indexChannelDoc(22L, 5L, "bob", "standup notes from bob himself");
+        indexChannelDoc(23L, 5L, "alice", "@bob can you take standup");
 
         assertThat(index.searchAccessible(List.of(5L), List.of(), "standup", Set.of("bob"), Set.of(), 50))
                 .containsExactly(new Hit(Scope.CHANNEL, 22L));
@@ -155,8 +168,8 @@ class MessageIndexAclTest {
     void noAccessibleContainerMatchesNothingRatherThanEverything() {
         // The degenerate case an ACL filter has to get right: "the viewer belongs to nothing"
         // must mean no results, never "no restriction".
-        index.index(7L, 42L, "alice", "channel content about widgets");
-        index.indexConversationMessage(8L, DM_OF_OTHERS, "alice", "dm content about widgets");
+        indexChannelDoc(7L, 42L, "alice", "channel content about widgets");
+        indexConversationDoc(8L, DM_OF_OTHERS, "alice", "dm content about widgets");
 
         assertThat(index.searchAccessible(List.of(), List.of(), "widgets", Set.of(), 50)).isEmpty();
     }
@@ -165,8 +178,8 @@ class MessageIndexAclTest {
     void channelIdsAndConversationIdsDoNotCollide() {
         // The two tables have independent id sequences, so channel 5 and conversation 5 both
         // exist. Membership of one must never grant the other.
-        index.index(9L, 5L, "alice", "shared-marker in a channel");
-        index.indexConversationMessage(10L, 5L, "alice", "shared-marker in a private conversation");
+        indexChannelDoc(9L, 5L, "alice", "shared-marker in a channel");
+        indexConversationDoc(10L, 5L, "alice", "shared-marker in a private conversation");
 
         assertThat(index.searchAccessible(List.of(5L), List.of(), "shared-marker", Set.of(), 50))
                 .containsExactly(new Hit(Scope.CHANNEL, 9L));
@@ -176,8 +189,8 @@ class MessageIndexAclTest {
 
     @Test
     void channelAndConversationHitsComeBackInOneRankedList() {
-        index.index(11L, 5L, "alice", "quarterly-review notes from the channel");
-        index.indexConversationMessage(12L, SEARCHERS_OWN_DM, "alice",
+        indexChannelDoc(11L, 5L, "alice", "quarterly-review notes from the channel");
+        indexConversationDoc(12L, SEARCHERS_OWN_DM, "alice",
                 "quarterly-review quarterly-review quarterly-review in the dm");
 
         var hits = index.searchAccessible(List.of(5L), List.of(SEARCHERS_OWN_DM),
@@ -200,7 +213,7 @@ class MessageIndexAclTest {
     @Test
     void aVeryLargeMembershipSetStaysCorrect() {
         long targetConversation = 4_321L;
-        index.indexConversationMessage(13L, targetConversation, "alice",
+        indexConversationDoc(13L, targetConversation, "alice",
                 "needle-in-a-haystack marker");
 
         var manyIds = new ArrayList<Long>(5_000);
@@ -231,7 +244,7 @@ class MessageIndexAclTest {
     @Test
     void aWorkspaceSizedChannelFilterStaysCorrect() {
         long targetChannel = 17_777L;
-        index.index(24L, targetChannel, "alice", "workspace-scale marker");
+        indexChannelDoc(24L, targetChannel, "alice", "workspace-scale marker");
 
         var manyIds = new ArrayList<Long>(20_000);
         for (long i = 1; i <= 20_000; i++) {
@@ -261,8 +274,8 @@ class MessageIndexAclTest {
 
     @Test
     void theAdminWideSearchNeverReachesConversations() {
-        index.index(14L, 5L, "alice", "budget-forecast in a channel nobody joined");
-        index.indexConversationMessage(15L, DM_OF_OTHERS, "alice", "budget-forecast in a private dm");
+        indexChannelDoc(14L, 5L, "alice", "budget-forecast in a channel nobody joined");
+        indexConversationDoc(15L, DM_OF_OTHERS, "alice", "budget-forecast in a private dm");
 
         // searchEverywhere is the unrestricted, admin-only query. It sees the private channel…
         assertThat(index.searchEverywhere("budget-forecast", Set.of(), 50)).containsExactly(14L);
@@ -273,7 +286,7 @@ class MessageIndexAclTest {
 
     @Test
     void aDeletedConversationMessageStopsMatching() {
-        index.indexConversationMessage(16L, SEARCHERS_OWN_DM, "carol", "retract this sentence");
+        indexConversationDoc(16L, SEARCHERS_OWN_DM, "carol", "retract this sentence");
         assertThat(index.searchAccessible(List.of(), List.of(SEARCHERS_OWN_DM), "retract", Set.of(), 50))
                 .containsExactly(new Hit(Scope.CONVERSATION, 16L));
 
@@ -287,8 +300,8 @@ class MessageIndexAclTest {
     void deletingAChannelMessageIdCannotDeleteTheConversationMessageWithTheSameId() {
         // Namespaced document keys, verified rather than assumed: the channel delete path builds
         // its term from the bare numeric id, and both tables have a row 17.
-        index.index(17L, 5L, "alice", "channel-side content");
-        index.indexConversationMessage(17L, SEARCHERS_OWN_DM, "carol", "conversation-side content");
+        indexChannelDoc(17L, 5L, "alice", "channel-side content");
+        indexConversationDoc(17L, SEARCHERS_OWN_DM, "carol", "conversation-side content");
 
         index.delete(17L);
 
@@ -299,8 +312,8 @@ class MessageIndexAclTest {
 
     @Test
     void theReconcileSweepsSeeTheirOwnDocumentsOnly() {
-        index.index(18L, 5L, "alice", "channel row");
-        index.indexConversationMessage(19L, SEARCHERS_OWN_DM, "carol", "conversation row");
+        indexChannelDoc(18L, 5L, "alice", "channel row");
+        indexConversationDoc(19L, SEARCHERS_OWN_DM, "carol", "conversation row");
 
         // Each sweep diffs its own table; crossing the id spaces would make every document of one
         // kind look "stale" to the other sweep and get it deleted.

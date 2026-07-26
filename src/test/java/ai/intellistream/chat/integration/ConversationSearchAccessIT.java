@@ -374,7 +374,7 @@ class ConversationSearchAccessIT {
         // delete leaves behind.
         long ghostId = 900_000_000L + SEQ.incrementAndGet();
         messageIndex.indexConversationMessage(ghostId, dm.getId(), alice.getUsername(),
-                marker + " should not survive");
+                marker + " should not survive", List.of());
         assertThat(messageIndex.allIndexedConversationIds()).contains(ghostId);
 
         luceneBootstrap.rebuildOrReconcile();

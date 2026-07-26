@@ -18,7 +18,11 @@ package ai.intellistream.chat.search;
 
 import jakarta.annotation.PreDestroy;
 import org.apache.lucene.analysis.Analyzer;
+import org.apache.lucene.analysis.TokenStream;
+import org.apache.lucene.analysis.core.LowerCaseFilter;
+import org.apache.lucene.analysis.miscellaneous.PerFieldAnalyzerWrapper;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
+import org.apache.lucene.analysis.util.CharTokenizer;
 import org.apache.lucene.document.Document;
 import org.apache.lucene.document.Field;
 import org.apache.lucene.document.StringField;
@@ -27,6 +31,7 @@ import org.apache.lucene.index.DirectoryReader;
 import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.index.Term;
+import org.apache.lucene.queryparser.classic.MultiFieldQueryParser;
 import org.apache.lucene.queryparser.classic.ParseException;
 import org.apache.lucene.queryparser.classic.QueryParser;
 import org.apache.lucene.search.BooleanClause;
@@ -40,6 +45,7 @@ import org.apache.lucene.search.TermInSetQuery;
 import org.apache.lucene.search.TermQuery;
 import org.apache.lucene.search.TotalHits;
 import org.apache.lucene.search.highlight.Highlighter;
+import org.apache.lucene.search.highlight.NullFragmenter;
 import org.apache.lucene.search.highlight.QueryScorer;
 import org.apache.lucene.search.highlight.SimpleHTMLEncoder;
 import org.apache.lucene.search.highlight.SimpleHTMLFormatter;
@@ -56,7 +62,9 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Embedded Lucene index over message bodies. One index holds <b>two</b> kinds of document:
@@ -82,7 +90,38 @@ import java.util.List;
  *       ({@code @bob}, this one) — the same token used to mean the former, which is the opposite
  *       of what it means in Slack.</li>
  *   <li>{@code body} — TextField. Tokenised + analysed Markdown body.</li>
+ *   <li>{@code filename} — TextField, <b>multi-valued</b>: one value per <em>live</em> attachment
+ *       hanging off the message. See below.</li>
  * </ul>
+ *
+ * <h2>Why a filename is a field on the message and not a document of its own</h2>
+ * A file is not a separate thing to find here — you are looking for the message that carried it,
+ * which is where the context, the author, the channel and the permalink live. Giving each
+ * attachment its own document would mean a query matching both a body and a filename returned the
+ * same message twice, with a hit count and a pagination window to match; deduplicating afterwards
+ * is the same post-filtering this class refuses to do for the ACL, and it fails the same way. So
+ * the filenames are values of a multi-valued field on the message document, and one message with
+ * three attachments is still exactly one hit.
+ *
+ * <p>The consequence, and the trap: <b>the document is rewritten as a whole</b>. Every path that
+ * writes a message document must supply the filenames along with the body, or an ordinary body
+ * edit silently erases them and the file stops being findable — invisibly, until somebody goes
+ * looking for it months later. {@link IndexedMessage} therefore carries them as a mandatory
+ * component rather than an optional extra, so a caller that has not thought about it does not
+ * compile.
+ *
+ * <p>Tombstoned attachments are excluded at the source (every query feeding this filters
+ * {@code deleted_at is null}), so a file removed from the file manager stops matching as soon as
+ * the message is re-indexed — which the tombstoning transaction triggers.
+ *
+ * <h2>Filenames are analysed differently from prose</h2>
+ * {@code quarterly-report.pdf} is a single token to {@link StandardAnalyzer} — UAX#29 does not
+ * break a word at a full stop between letters — so an index built with it answers "report" with
+ * nothing and only ever matches the filename typed out in full. The {@code filename} field is
+ * therefore analysed by {@link #FILENAME_ANALYZER}, which splits on every run of non-alphanumeric
+ * characters and lowercases: {@code quarterly-report.pdf} becomes {@code [quarterly, report,
+ * pdf]}, and each of those finds the file. The same analyzer runs at query time (that is what
+ * {@link PerFieldAnalyzerWrapper} is for), so the two halves cannot drift.
  *
  * <h2>Schema version</h2>
  * {@link #SCHEMA_VERSION} is written into the Lucene commit's user data and read back on open.
@@ -117,15 +156,29 @@ public class MessageIndexService {
     static final String F_MENTION = "mentions";
     /** Present only on conversation documents; see the class javadoc for why it is one-sided. */
     static final String F_KIND = "kind";
+    /**
+     * Names of the message's live attachments, one indexed value each. Multi-valued, and analysed
+     * by {@link #FILENAME_ANALYZER} rather than by the body's {@link StandardAnalyzer}.
+     */
+    static final String F_FILENAME = "filename";
     static final String K_CONVERSATION = "conversation";
     /** Namespace prefix on the stored document key of a conversation message. */
     static final String CONVERSATION_KEY_PREFIX = "conv:";
 
     /**
-     * Document-shape version stamped into the Lucene commit user data. 1 = the original
-     * (id/channelId/conversationId/kind/author/body); 2 added {@link #F_MENTION}.
+     * What a free-text query searches. Each clause of a query is parsed against both and the two
+     * parses OR'd, so a word finds a message either by what it says or by what it shared. The
+     * words of one clause have to land in the <em>same</em> field — see
+     * {@code FuzzyTermQueryParser.getFieldQuery}, which is also where the reason lives.
      */
-    static final int SCHEMA_VERSION = 2;
+    private static final String[] SEARCHED_FIELDS = {F_BODY, F_FILENAME};
+
+    /**
+     * Document-shape version stamped into the Lucene commit user data. 1 = the original
+     * (id/channelId/conversationId/kind/author/body); 2 added {@link #F_MENTION}; 3 added
+     * {@link #F_FILENAME}.
+     */
+    static final int SCHEMA_VERSION = 3;
     /** Commit user-data key holding {@link #SCHEMA_VERSION}. Namespaced — Lucene's own keys share the map. */
     static final String COMMIT_KEY_SCHEMA = "ichat.index.schema";
 
@@ -167,7 +220,41 @@ public class MessageIndexService {
      *  instance opened (0 for a fresh directory), then {@link #SCHEMA_VERSION} once
      *  {@link #markSchemaCurrent()} has confirmed a rebuild finished. */
     private volatile int schemaVersion;
-    private final StandardAnalyzer analyzer = new StandardAnalyzer();
+    /**
+     * Analysis for a filename: split on every run of characters that is neither a letter nor a
+     * digit, then lowercase. {@code 2026-Q3_quarterly-report.final.pdf} becomes
+     * {@code [2026, q3, quarterly, report, final, pdf]}.
+     *
+     * <p>Digits are kept as token characters, which rules out {@code SimpleAnalyzer} /
+     * {@code LetterTokenizer} — those drop them, and a workspace's filenames are half dates and
+     * invoice numbers. The extension survives as its own token on purpose: {@code pdf} finding
+     * every PDF is a useful accident of the same rule, not a special case anyone has to maintain.
+     */
+    static final Analyzer FILENAME_ANALYZER = new Analyzer() {
+        @Override
+        protected TokenStreamComponents createComponents(String fieldName) {
+            var source = CharTokenizer.fromTokenCharPredicate(Character::isLetterOrDigit);
+            return new TokenStreamComponents(source, new LowerCaseFilter(source));
+        }
+
+        @Override
+        protected TokenStream normalize(String fieldName, TokenStream in) {
+            return new LowerCaseFilter(in);
+        }
+    };
+
+    /**
+     * One analyzer per field, so indexing and querying agree field by field. The body keeps
+     * {@link StandardAnalyzer}; {@link #F_FILENAME} gets {@link #FILENAME_ANALYZER}. Doing this
+     * with the wrapper rather than by pre-mangling the text is what keeps query <em>syntax</em>
+     * intact: quotes and {@code -} exclusions are consumed by the parser before analysis, whereas
+     * rewriting the query string would turn {@code -draft} into a term to match.
+     *
+     * <p>{@link StringField}s ({@code author}, {@code mentions}, ids) are not analysed at all, so
+     * they are unaffected by which default sits here.
+     */
+    private final Analyzer analyzer =
+            new PerFieldAnalyzerWrapper(new StandardAnalyzer(), Map.of(F_FILENAME, FILENAME_ANALYZER));
     /** When true, per-message index/delete only stage the change; a scheduled task batches the
      *  {@link SearcherManager#maybeRefresh() refresh} (visibility) and the {@link IndexWriter#commit()
      *  commit} (durability) off the hot path. When false (tests), each op refreshes + commits inline
@@ -262,11 +349,20 @@ public class MessageIndexService {
         }
     }
 
-    /** Add or replace the document for a single message. Refreshes the searcher view. */
-    public void index(Long messageId, Long channelId, String author, String body) {
+    /**
+     * Add or replace the document for a single message. Refreshes the searcher view.
+     *
+     * @param filenames the message's <b>live</b> attachment filenames, empty when it has none.
+     *   This replaces the document wholesale, so passing an empty list for a message that has
+     *   files removes them from the index — see the class javadoc. Callers that are editing a body
+     *   must read the current set rather than assume it is empty.
+     */
+    public void index(Long messageId, Long channelId, String author, String body,
+                      Collection<String> filenames) {
         try {
             writer.updateDocument(new Term(F_ID, messageId.toString()),
-                    toDoc(messageId, channelId, author, body));
+                    toDoc(new IndexedMessage(messageId, channelId, author, body,
+                            List.copyOf(filenames))));
             afterWrite();
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to index message " + messageId, e);
@@ -289,7 +385,7 @@ public class MessageIndexService {
         }
         try {
             for (var row : rows) {
-                writer.addDocument(toDoc(row.id(), row.channelId(), row.author(), row.body()));
+                writer.addDocument(toDoc(row));
             }
             afterWrite();
         } catch (IOException e) {
@@ -303,8 +399,7 @@ public class MessageIndexService {
         if (rows.isEmpty()) return;
         try {
             for (var row : rows) {
-                writer.updateDocument(new Term(F_ID, row.id().toString()),
-                        toDoc(row.id(), row.channelId(), row.author(), row.body()));
+                writer.updateDocument(new Term(F_ID, row.id().toString()), toDoc(row));
             }
             writer.commit();
             searcherManager.maybeRefresh();
@@ -313,13 +408,14 @@ public class MessageIndexService {
         }
     }
 
-    private Document toDoc(Long messageId, Long channelId, String author, String body) {
+    private Document toDoc(IndexedMessage row) {
         var doc = new Document();
-        doc.add(new StringField(F_ID, messageId.toString(), Field.Store.YES));
-        doc.add(new StringField(F_CHANNEL, channelId.toString(), Field.Store.NO));
-        doc.add(new StringField(F_AUTHOR, lowerTerm(author), Field.Store.NO));
-        addMentions(doc, body);
-        doc.add(new TextField(F_BODY, body == null ? "" : body, Field.Store.NO));
+        doc.add(new StringField(F_ID, row.id().toString(), Field.Store.YES));
+        doc.add(new StringField(F_CHANNEL, row.channelId().toString(), Field.Store.NO));
+        doc.add(new StringField(F_AUTHOR, lowerTerm(row.author()), Field.Store.NO));
+        addMentions(doc, row.body());
+        addFilenames(doc, row.filenames());
+        doc.add(new TextField(F_BODY, row.body() == null ? "" : row.body(), Field.Store.NO));
         return doc;
     }
 
@@ -330,14 +426,29 @@ public class MessageIndexService {
         }
     }
 
-    private Document toConversationDoc(Long messageId, Long conversationId, String author, String body) {
+    /**
+     * One indexed value per live attachment name. Not stored: the row in Postgres is what the
+     * results page renders, so storing a second copy here would only create something to disagree
+     * with it.
+     */
+    private static void addFilenames(Document doc, Collection<String> filenames) {
+        if (filenames == null) return;
+        for (var filename : filenames) {
+            if (filename != null && !filename.isBlank()) {
+                doc.add(new TextField(F_FILENAME, filename, Field.Store.NO));
+            }
+        }
+    }
+
+    private Document toConversationDoc(IndexedConversationMessage row) {
         var doc = new Document();
-        doc.add(new StringField(F_ID, conversationKey(messageId), Field.Store.YES));
-        doc.add(new StringField(F_CONVERSATION, conversationId.toString(), Field.Store.NO));
+        doc.add(new StringField(F_ID, conversationKey(row.id()), Field.Store.YES));
+        doc.add(new StringField(F_CONVERSATION, row.conversationId().toString(), Field.Store.NO));
         doc.add(new StringField(F_KIND, K_CONVERSATION, Field.Store.NO));
-        doc.add(new StringField(F_AUTHOR, lowerTerm(author), Field.Store.NO));
-        addMentions(doc, body);
-        doc.add(new TextField(F_BODY, body == null ? "" : body, Field.Store.NO));
+        doc.add(new StringField(F_AUTHOR, lowerTerm(row.author()), Field.Store.NO));
+        addMentions(doc, row.body());
+        addFilenames(doc, row.filenames());
+        doc.add(new TextField(F_BODY, row.body() == null ? "" : row.body(), Field.Store.NO));
         return doc;
     }
 
@@ -356,11 +467,18 @@ public class MessageIndexService {
 
     // ------------------------------------------------------------ conversation writes ----
 
-    /** Add or replace the document for a single conversation (DM / group) message. */
-    public void indexConversationMessage(Long messageId, Long conversationId, String author, String body) {
+    /**
+     * Add or replace the document for a single conversation (DM / group) message.
+     *
+     * @param filenames the message's live attachment filenames; see {@link #index} for why this is
+     *   not optional
+     */
+    public void indexConversationMessage(Long messageId, Long conversationId, String author,
+                                         String body, Collection<String> filenames) {
         try {
             writer.updateDocument(conversationTerm(messageId),
-                    toConversationDoc(messageId, conversationId, author, body));
+                    toConversationDoc(new IndexedConversationMessage(messageId, conversationId,
+                            author, body, List.copyOf(filenames))));
             afterWrite();
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to index conversation message " + messageId, e);
@@ -400,8 +518,7 @@ public class MessageIndexService {
         if (rows.isEmpty()) return;
         try {
             for (var row : rows) {
-                writer.updateDocument(conversationTerm(row.id()),
-                        toConversationDoc(row.id(), row.conversationId(), row.author(), row.body()));
+                writer.updateDocument(conversationTerm(row.id()), toConversationDoc(row));
             }
             writer.commit();
             searcherManager.maybeRefresh();
@@ -638,9 +755,10 @@ public class MessageIndexService {
     }
 
     /**
-     * Combine the body fuzzy-match clause with the optional {@code from:} author filter and the
-     * optional {@code @handle} mention filter. Returns {@code null} when the user supplied none of
-     * the three, so the caller can short-circuit without touching the index.
+     * Combine the free-text fuzzy-match clause (body <em>and</em> attachment filenames — see
+     * {@link #parse}) with the optional {@code from:} author filter and the optional
+     * {@code @handle} mention filter. Returns {@code null} when the user supplied none of the
+     * three, so the caller can short-circuit without touching the index.
      *
      * <p>The two filters are separate {@code FILTER} clauses, so they intersect: {@code from:alice
      * @bob} is "written by alice AND mentioning bob". Within each, several values OR together —
@@ -747,8 +865,7 @@ public class MessageIndexService {
                 // updateDocument (not addDocument) so that a live index() landing for the same id
                 // between deleteAll and here — the bootstrap runs on ApplicationReadyEvent while the
                 // server already accepts posts — can't leave two docs with the same id (N25).
-                writer.updateDocument(new Term(F_ID, row.id().toString()),
-                        toDoc(row.id(), row.channelId(), row.author(), row.body()));
+                writer.updateDocument(new Term(F_ID, row.id().toString()), toDoc(row));
             }
             writer.commit();
             searcherManager.maybeRefresh();
@@ -811,7 +928,7 @@ public class MessageIndexService {
         if (query == null) return null;
         var trimmed = query.trim();
         if (trimmed.length() < 2) return null;
-        var parser = new FuzzyTermQueryParser(F_BODY, analyzer);
+        var parser = new FuzzyTermQueryParser(SEARCHED_FIELDS, analyzer);
         // websearch_to_tsquery treats unquoted whitespace as AND; preserve that semantic.
         parser.setDefaultOperator(QueryParser.Operator.AND);
         try {
@@ -823,16 +940,23 @@ public class MessageIndexService {
     }
 
     /**
-     * Subclass of Lucene's {@link QueryParser} that turns naked {@code TermQuery}s into
+     * Subclass of Lucene's {@link MultiFieldQueryParser} that turns naked {@code TermQuery}s into
      * {@link FuzzyQuery}s so typos like {@code wrold} still match {@code world}.
      * Edit distance scales with term length: 1 for 3-char terms, 2 for 4+ chars
      * (Lucene's max). Phrase queries, boolean operators, negation, prefix queries,
      * wildcards, and explicitly-fuzzy {@code term~N} input are all routed through
      * the parser's other hooks and stay unaffected.
+     *
+     * <p>Multi-field rather than body-only because a filename is searchable text on the same
+     * document. The cross-field expansion happens <b>per clause</b>, underneath the query's boolean
+     * structure, which is the property that matters: {@code release -draft} becomes
+     * {@code +(body:release | filename:release) -(body:draft | filename:draft)}, so an exclusion
+     * still excludes. Parsing the whole query twice — once per field — and OR-ing the results
+     * would let a message excluded by its body sneak back in through the filename half.
      */
-    private static final class FuzzyTermQueryParser extends QueryParser {
-        FuzzyTermQueryParser(String field, Analyzer analyzer) {
-            super(field, analyzer);
+    private static final class FuzzyTermQueryParser extends MultiFieldQueryParser {
+        FuzzyTermQueryParser(String[] fields, Analyzer analyzer) {
+            super(fields, analyzer);
         }
 
         @Override
@@ -850,6 +974,59 @@ public class MessageIndexService {
             int edits = text.length() < 6 ? 1 : FuzzyQuery.defaultMaxEdits;
             var fq = new FuzzyQuery(term, edits);
             return boost == 1f ? fq : new org.apache.lucene.search.BoostQuery(fq, boost);
+        }
+
+        /**
+         * Parse one unqualified clause against each searched field and OR the results, replacing
+         * the inherited implementation — which is quietly wrong when the fields have different
+         * analyzers, as these do.
+         *
+         * <h3>What the inherited version does</h3>
+         * It does not keep each field's parse intact. It takes the per-field queries apart term by
+         * term, regroups them <em>across</em> fields, and joins the groups with a hard-coded
+         * {@code SHOULD}. That is fine while one input token yields one term, and wrong the moment
+         * it yields several — which is every hyphenated or dotted word, and therefore every
+         * filename. {@code budget-2026.xlsx} analyses to three terms, so the inherited version asks
+         * for "budget <b>or</b> 2026 <b>or</b> xlsx" where the single-field parser asked for all
+         * three, and a search for one file starts returning every message that mentions the year.
+         * It also assumes the two fields produce comparable term lists, which per-field analysis
+         * exists precisely to break.
+         *
+         * <h3>Why the result is wrapped in a one-clause boolean</h3>
+         * The classic parser collects a run of consecutive bare words and hands the whole run here
+         * in a single call ({@code QueryParser.MultiTerm}); if what comes back is a
+         * {@code BooleanQuery} it then <b>splices that query's top-level clauses into the
+         * surrounding boolean, re-occurring them with the default operator</b>. Returning the bare
+         * disjunction would therefore have the parser turn "body-group OR filename-group" into
+         * "body-group AND filename-group" — every word required in the body <em>and</em> in a
+         * filename, which matches nothing. One MUST clause wrapping the disjunction survives the
+         * splice as a single unit and is semantically identical when there is no splice.
+         *
+         * <h3>The resulting semantics</h3>
+         * A run of words must match entirely within one field: all of them in the body, or all of
+         * them in one message's filenames. Across separate clauses the parser's own AND still
+         * applies, and negation is unaffected — {@code -draft} is its own clause and excludes on
+         * both fields, which is the property that must not be lost.
+         */
+        @Override
+        protected Query getFieldQuery(String field, String queryText, boolean quoted)
+                throws ParseException {
+            if (field != null) {
+                return super.getFieldQuery(field, queryText, quoted);
+            }
+            var perField = new ArrayList<Query>(fields.length);
+            for (var searched : fields) {
+                var q = super.getFieldQuery(searched, queryText, quoted);
+                if (q != null) perField.add(q);
+            }
+            if (perField.isEmpty()) return null;          // nothing survived analysis
+            var disjunction = new BooleanQuery.Builder();
+            for (var q : perField) {
+                disjunction.add(q, BooleanClause.Occur.SHOULD);
+            }
+            return new BooleanQuery.Builder()
+                    .add(disjunction.build(), BooleanClause.Occur.MUST)
+                    .build();
         }
 
         // Refuse user-supplied wildcards. A query like `a*` would scan every term in the
@@ -943,19 +1120,87 @@ public class MessageIndexService {
         }
     }
 
-    /** Minimal projection used by {@link #rebuild(Iterable)}. */
-    public record IndexedMessage(Long id, Long channelId, String author, String body) {}
+    /**
+     * The filename counterpart of {@link #highlight}: {@code null} when the query does not match
+     * this filename, otherwise the whole filename HTML-escaped with the matched runs wrapped in
+     * {@code <mark>} — {@code quarterly-<mark>report</mark>.pdf}.
+     *
+     * <p>Null-means-no-match is the point, not a side effect. A result whose body shows nothing the
+     * user typed reads as a bug in search, so the page has to be able to say <em>why</em> the row
+     * is there; running the highlighter over each of the message's filenames answers exactly that
+     * question, using the same query the search ran and without asking Lucene to explain a score.
+     *
+     * <p>Whole filename, not an excerpt ({@link NullFragmenter}): names are short, and half a
+     * filename is worse than none — you cannot tell {@code invoice-2025.pdf} from
+     * {@code invoice-2026.pdf} by its first fragment.
+     */
+    public String highlightFilename(String query, String filename) {
+        if (filename == null || filename.isBlank()) return null;
+        Query q = parse(query);
+        if (q == null) return null;
+        var highlighter = new Highlighter(new SimpleHTMLFormatter("<mark>", "</mark>"),
+                new SimpleHTMLEncoder(), new QueryScorer(q, F_FILENAME));
+        highlighter.setTextFragmenter(new NullFragmenter());
+        try (var stream = analyzer.tokenStream(F_FILENAME, new java.io.StringReader(filename))) {
+            return highlighter.getBestFragment(stream, filename);
+        } catch (IOException | org.apache.lucene.search.highlight.InvalidTokenOffsetsException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Group flat {@code (messageId, filename)} rows into the per-message lists the two projections
+     * below take. Lives here rather than in each caller because every path that writes documents in
+     * bulk — the bootstrap rebuild, both reconcile sweeps, the rename reindex, the moderation
+     * restore — needs the same shape, and a filename set assembled slightly differently in one of
+     * them is a document that quietly loses a file.
+     */
+    public static Map<Long, List<String>> groupFilenames(List<Object[]> rows) {
+        if (rows.isEmpty()) return Map.of();
+        var byMessage = new HashMap<Long, List<String>>();
+        for (var row : rows) {
+            byMessage.computeIfAbsent(((Number) row[0]).longValue(), k -> new ArrayList<>())
+                    .add((String) row[1]);
+        }
+        return byMessage;
+    }
+
+    /**
+     * Minimal projection used by {@link #rebuild(Iterable)}.
+     *
+     * @param filenames the message's live attachment filenames, {@code List.of()} when it has
+     *   none. Part of the record rather than an optional extra so that adding a document-writing
+     *   path without thinking about attachments does not compile — see the class javadoc.
+     */
+    public record IndexedMessage(Long id, Long channelId, String author, String body,
+                                 List<String> filenames) {
+
+        /** Map flat {@code (id, channelId, authorUsername, bodyMarkdown)} rows plus their files. */
+        public static List<IndexedMessage> fromRows(List<Object[]> rows,
+                                                    Map<Long, List<String>> filenamesByMessage) {
+            var docs = new ArrayList<IndexedMessage>(rows.size());
+            for (var r : rows) {
+                var id = ((Number) r[0]).longValue();
+                docs.add(new IndexedMessage(id, ((Number) r[1]).longValue(), (String) r[2],
+                        (String) r[3], filenamesByMessage.getOrDefault(id, List.of())));
+            }
+            return docs;
+        }
+    }
 
     /** Minimal projection used by {@link #reindexConversations(Collection)}. */
-    public record IndexedConversationMessage(Long id, Long conversationId, String author, String body) {
+    public record IndexedConversationMessage(Long id, Long conversationId, String author,
+                                             String body, List<String> filenames) {
 
-        /** Map flat {@code (id, conversationId, authorUsername, bodyMarkdown)} repository rows. */
-        public static List<IndexedConversationMessage> fromRows(List<Object[]> rows) {
+        /** Map flat {@code (id, conversationId, authorUsername, bodyMarkdown)} rows plus files. */
+        public static List<IndexedConversationMessage> fromRows(
+                List<Object[]> rows, Map<Long, List<String>> filenamesByMessage) {
             var docs = new ArrayList<IndexedConversationMessage>(rows.size());
             for (var r : rows) {
-                docs.add(new IndexedConversationMessage(
-                        ((Number) r[0]).longValue(), ((Number) r[1]).longValue(),
-                        (String) r[2], (String) r[3]));
+                var id = ((Number) r[0]).longValue();
+                docs.add(new IndexedConversationMessage(id, ((Number) r[1]).longValue(),
+                        (String) r[2], (String) r[3],
+                        filenamesByMessage.getOrDefault(id, List.of())));
             }
             return docs;
         }

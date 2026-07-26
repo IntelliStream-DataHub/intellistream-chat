@@ -31,7 +31,6 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -285,12 +284,10 @@ public class MessageModerationService {
     private void reindex(List<Long> ids) {
         try {
             var rows = messages.findIndexRowsByIds(ids);
-            var docs = new ArrayList<MessageIndexService.IndexedMessage>(rows.size());
-            for (var row : rows) {
-                docs.add(new MessageIndexService.IndexedMessage(
-                        ((Number) row[0]).longValue(), ((Number) row[1]).longValue(),
-                        (String) row[2], (String) row[3]));
-            }
+            // With their attachment filenames: a restored message has to come back findable by the
+            // whole of what it said, files included, or the restore is only half a restore.
+            var docs = MessageIndexService.IndexedMessage.fromRows(rows,
+                    MessageIndexService.groupFilenames(messages.findIndexFilenamesByIds(ids)));
             // updateDocument semantics, not addDocument: a restore of something the index never
             // dropped must not leave two documents with the same id.
             messageIndex.reindex(docs);

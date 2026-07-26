@@ -203,22 +203,25 @@ public class UserService {
             try {
                 var rows = messageRepository.findIndexRowsByAuthor(authorId);
                 if (!rows.isEmpty()) {
-                    var docs = new java.util.ArrayList<
-                            ai.intellistream.chat.search.MessageIndexService.IndexedMessage>(rows.size());
-                    for (var r : rows) {
-                        docs.add(new ai.intellistream.chat.search.MessageIndexService.IndexedMessage(
-                                ((Number) r[0]).longValue(), ((Number) r[1]).longValue(),
-                                (String) r[2], (String) r[3]));
-                    }
-                    messageIndex.reindex(docs);
+                    // Their attachment filenames too. This rewrites whole documents, so leaving
+                    // them out would make a rename the thing that silently un-finds every file the
+                    // renamed account ever shared.
+                    var ids = rows.stream().map(r -> ((Number) r[0]).longValue()).toList();
+                    messageIndex.reindex(
+                            ai.intellistream.chat.search.MessageIndexService.IndexedMessage.fromRows(
+                                    rows, ai.intellistream.chat.search.MessageIndexService
+                                            .groupFilenames(messageRepository.findIndexFilenamesByIds(ids))));
                 }
                 // The same is true of their DMs and group messages: those documents cache the
                 // username too, so `@newhandle` has to find them as well.
                 var convRows = conversationMessageRepository.findIndexRowsByAuthor(authorId);
                 if (!convRows.isEmpty()) {
+                    var convIds = convRows.stream().map(r -> ((Number) r[0]).longValue()).toList();
                     messageIndex.reindexConversations(
                             ai.intellistream.chat.search.MessageIndexService.IndexedConversationMessage
-                                    .fromRows(convRows));
+                                    .fromRows(convRows, ai.intellistream.chat.search.MessageIndexService
+                                            .groupFilenames(conversationMessageRepository
+                                                    .findIndexFilenamesByIds(convIds))));
                 }
             } catch (RuntimeException e) {
                 log.warn("Failed to reindex messages for renamed user {}; search-by-author may be "

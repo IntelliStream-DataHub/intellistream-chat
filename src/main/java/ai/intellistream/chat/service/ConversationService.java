@@ -137,8 +137,10 @@ public class ConversationService {
             throw new IllegalArgumentException("Message body too long (max 8000 chars)");
         }
         var saved = messages.save(new ConversationMessage(conversation, author, body.trim()));
+        // [attachment-filename search] No filenames: the row was created a line ago, so nothing can
+        // be attached yet. ConversationAttachmentService re-indexes once its row exists.
         indexAfterCommit(saved.getId(), conversation.getId(), author.getUsername(),
-                saved.getBodyMarkdown());
+                saved.getBodyMarkdown(), List.of());
         return saved;
     }
 
@@ -163,8 +165,11 @@ public class ConversationService {
             throw new IllegalArgumentException("Message body too long (max 8000 chars)");
         }
         message.setBodyMarkdown(newBody.trim());
+        // [attachment-filename search] The document is rewritten whole, so the live filenames have
+        // to be re-read here — otherwise editing a caption un-finds the file it was captioning.
         indexAfterCommit(message.getId(), message.getConversation().getId(),
-                message.getAuthor().getUsername(), message.getBodyMarkdown());
+                message.getAuthor().getUsername(), message.getBodyMarkdown(),
+                messages.findIndexFilenames(message.getId()));
         return message;
     }
 
@@ -190,8 +195,26 @@ public class ConversationService {
      * side the ordering matters more than convenience — an index document that outlives its row
      * is content that stays searchable after the user removed it.
      */
-    private void indexAfterCommit(Long messageId, Long conversationId, String author, String body) {
-        afterCommit(() -> messageIndex.indexConversationMessage(messageId, conversationId, author, body));
+    private void indexAfterCommit(Long messageId, Long conversationId, String author, String body,
+                                  List<String> filenames) {
+        afterCommit(() -> messageIndex.indexConversationMessage(messageId, conversationId, author,
+                body, filenames));
+    }
+
+    /**
+     * [attachment-filename search] Rewrite this message's index document because its attachment set
+     * changed — a file was uploaded onto it, or one of its files was tombstoned in the file manager.
+     *
+     * <p>The mirror of {@code MessageService.reindexAfterAttachmentChange}, and here for the same
+     * reason: an attachment is created after the message it hangs on, so the filename is not known
+     * when the document is first written. Callers are
+     * {@code ConversationAttachmentService.upload} and {@code UserFileService}, both of which own
+     * the change and neither of which holds the index.
+     */
+    public void reindexAfterAttachmentChange(ConversationMessage message) {
+        indexAfterCommit(message.getId(), message.getConversation().getId(),
+                message.getAuthor().getUsername(), message.getBodyMarkdown(),
+                messages.findIndexFilenames(message.getId()));
     }
 
     /**

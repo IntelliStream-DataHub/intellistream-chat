@@ -200,8 +200,8 @@ class MessageModerationServiceTest {
         assertThat(service.restoreAllByAuthor(admin, target)).isEqualTo(2);
 
         verify(index).reindex(List.of(
-                new MessageIndexService.IndexedMessage(11L, 3L, "mallory", "first"),
-                new MessageIndexService.IndexedMessage(12L, 3L, "mallory", "second")));
+                new MessageIndexService.IndexedMessage(11L, 3L, "mallory", "first", List.of()),
+                new MessageIndexService.IndexedMessage(12L, 3L, "mallory", "second", List.of())));
         verify(audit).recordOnUser(admin, AdminAudit.RESTORE_MESSAGES, target,
                 "restored 2 message(s)");
     }
@@ -220,7 +220,7 @@ class MessageModerationServiceTest {
         service.restoreAllByAuthor(admin, target);
 
         verify(index).reindex(List.of(
-                new MessageIndexService.IndexedMessage(11L, 3L, "mallory", "first")));
+                new MessageIndexService.IndexedMessage(11L, 3L, "mallory", "first", List.of())));
     }
 
     @Test

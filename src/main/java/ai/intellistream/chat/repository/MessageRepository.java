@@ -345,6 +345,34 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     List<Object[]> findIndexRowsByIds(@Param("ids") Collection<Long> ids);
 
     /**
+     * The other half of the index projection: flat {@code (messageId, filename)} rows for the
+     * <b>live</b> attachments hanging off these messages.
+     *
+     * <p>A separate query rather than a join onto {@link #findIndexRowsByIds} because a message may
+     * carry several files, and joining would multiply the body rows — one document per attachment
+     * instead of one document per message. {@code MessageIndexService.groupFilenames} folds these
+     * rows back onto their messages.
+     *
+     * <p>It lives on this repository, next to the row projection it completes, rather than on
+     * {@code AttachmentRepository} where its root entity is: every caller that needs it already
+     * holds this repository to fetch the bodies, and splitting the pair across two repositories
+     * would mean injecting one of them into four more classes to say the same thing.
+     *
+     * <p>{@code deletedAt is null} is the tombstone rule: a file the uploader removed from the file
+     * manager keeps its row (the message says who deleted it) but must stop being findable.
+     */
+    @Query("select a.message.id, a.filename from Attachment a "
+           + "where a.message.id in :ids and a.deletedAt is null "
+           + "order by a.createdAt asc, a.id asc")
+    List<Object[]> findIndexFilenamesByIds(@Param("ids") Collection<Long> ids);
+
+    /** {@link #findIndexFilenamesByIds} for a single message — the write path's edit/attach hooks. */
+    @Query("select a.filename from Attachment a "
+           + "where a.message.id = :messageId and a.deletedAt is null "
+           + "order by a.createdAt asc, a.id asc")
+    List<String> findIndexFilenames(@Param("messageId") Long messageId);
+
+    /**
      * One bounded batch of messages the retention purge may hard-delete: removed before
      * {@code cutoff}, oldest removal first.
      *

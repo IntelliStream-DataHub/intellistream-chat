@@ -143,14 +143,20 @@ public class AttachmentService {
 
         // A non-empty caption goes through MessageService.post so it gets the SAME treatment as a
         // normal message: @mention rows synced (so mentions in a caption actually notify) and the
-        // body indexed for search. A blank caption (file only) skips that — nothing to mention or
-        // index — and keeps the bare save. (post re-checks write access, harmless; it doesn't
+        // body indexed for search. A blank caption (file only) keeps the bare save — there is no
+        // body to mention anything or to index. (post re-checks write access, harmless; it doesn't
         // broadcast, so no double-send.)
         Message message = (captionText == null || captionText.isBlank())
                 ? messageRepository.save(new Message(channel, uploader, captionText))
                 : messageService.post(channel, uploader, captionText);
         var saved = attachmentRepository.save(
                 new Attachment(message, safeName, resolvedType, bytesWritten, storageKey));
+        // The document is written before the filename exists — post() above indexed a message that
+        // had no attachment yet, and the caption-less branch indexed nothing at all — so the file's
+        // name only becomes searchable if the document is rewritten here, now that the row exists.
+        // Registered after post()'s own hook, so on the caption path this one runs second and its
+        // document (body + filename) is the one that survives.
+        messageService.reindexAfterAttachmentChange(message);
         // Charged only now, and with the bytes actually written rather than the declared length.
         // Inside this transaction on purpose: if the row above had failed, the file would have been
         // removed by the rollback hook and usage must roll back with it.

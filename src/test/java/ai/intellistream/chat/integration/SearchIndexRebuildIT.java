@@ -80,6 +80,7 @@ class SearchIndexRebuildIT {
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         registry.add("spring.flyway.enabled", () -> "true");
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "validate");
+        registry.add("ichat.attachments.dir", () -> "build/test-attachments-index-rebuild");
         TestLuceneDirs.register(registry);
     }
 
@@ -91,6 +92,7 @@ class SearchIndexRebuildIT {
     @Autowired MessageIndexService messageIndex;
     @Autowired LuceneBootstrap luceneBootstrap;
     @Autowired AttachmentService attachmentService;
+    @Autowired ai.intellistream.chat.service.ConversationAttachmentService conversationAttachmentService;
     @Autowired AvatarService avatarService;
     @Autowired AttachmentRepository attachmentRepo;
     @Autowired ConversationAttachmentRepository convAttachmentRepo;
@@ -211,5 +213,122 @@ class SearchIndexRebuildIT {
 
         assertThat(bodiesFor(bob, "@" + bob.getUsername() + " " + marker))
                 .singleElement().asString().contains(marker);
+    }
+
+    // ---------- attachment filenames ----------
+    //
+    // Filenames are the second derived field on these documents and they have a worse failure mode
+    // than mentions: a body still has its own text to fall back on, whereas a file posted with no
+    // caption is findable by its name or not at all. Every test below asserts on a document one of
+    // the bulk paths wrote, because the write path having it proves nothing about them.
+
+    /** How many results a channel-scoped search returns for {@code viewer}. */
+    private int channelHits(Channel room, User viewer, String query) {
+        return search.searchChannel(room, viewer, query, 50).size();
+    }
+
+    @Test
+    void theStartupRebuildCarriesTheAttachmentFilenames() throws java.io.IOException {
+        var alice = newUser("alice");
+        var room = newPublic("rebuild-files", alice);
+        var name = "rebuildfile" + SEQ.incrementAndGet() + ".pdf";
+        upload(room, alice, name);
+
+        wipeIndex();
+        luceneBootstrap.rebuildOrReconcile();
+
+        assertThat(channelHits(room, alice, name)).isEqualTo(1);
+    }
+
+    @Test
+    void theStartupRebuildCarriesConversationAttachmentFilenames() throws java.io.IOException {
+        // Different code path (reconcileConversationTail → reindexConversations), same trap.
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var dm = conversations.directBetween(alice, bob);
+        var name = "dmrebuildfile" + SEQ.incrementAndGet() + ".zip";
+        dmUpload(dm, alice, name);
+
+        wipeIndex();
+        luceneBootstrap.rebuildOrReconcile();
+
+        assertThat(search.searchConversation(dm, bob, name, 50)).hasSize(1);
+    }
+
+    @Test
+    void theCleanupReconcileRewritesAMissingChannelDocumentWithItsFilenames() {
+        var alice = newUser("alice");
+        var room = newPublic("reconcile-files", alice);
+        var name = "reconcilefile" + SEQ.incrementAndGet() + ".pdf";
+        var attachment = uploadUnchecked(room, alice, name);
+
+        messageIndex.delete(attachment.getMessage().getId());
+        assertThat(channelHits(room, alice, name)).isZero();
+
+        armedCleanup().reconcileSearchIndex();
+
+        assertThat(channelHits(room, alice, name)).isEqualTo(1);
+    }
+
+    @Test
+    void theCleanupReconcileRewritesAMissingConversationDocumentWithItsFilenames()
+            throws java.io.IOException {
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var dm = conversations.directBetween(alice, bob);
+        var name = "dmreconcilefile" + SEQ.incrementAndGet() + ".zip";
+        var attachment = dmUpload(dm, alice, name);
+
+        messageIndex.deleteConversationMessage(attachment.getMessage().getId());
+        assertThat(search.searchConversation(dm, bob, name, 50)).isEmpty();
+
+        armedCleanup().reconcileConversationSearchIndex();
+
+        assertThat(search.searchConversation(dm, bob, name, 50)).hasSize(1);
+    }
+
+    @Test
+    void aReconcileSweepLeavesAnUpToDateDocumentWithFilesAlone() throws java.io.IOException {
+        // The failure AGENT.md warns about, in its quietest form: a sweep that decided a document
+        // it did not recognise was stale, or that rewrote a healthy one from a projection missing
+        // half its fields. Either way the file is gone from search an hour after it was uploaded,
+        // and nothing anywhere says so.
+        var alice = newUser("alice");
+        var room = newPublic("untouched-files", alice);
+        var name = "untouchedfile" + SEQ.incrementAndGet() + ".pdf";
+        upload(room, alice, name);
+        assertThat(channelHits(room, alice, name)).isEqualTo(1);
+
+        var cleanup = armedCleanup();
+        cleanup.reconcileSearchIndex();
+        cleanup.reconcileConversationSearchIndex();
+
+        assertThat(channelHits(room, alice, name)).isEqualTo(1);
+    }
+
+    private ai.intellistream.chat.domain.Attachment upload(Channel room, User uploader, String filename)
+            throws java.io.IOException {
+        return attachmentService.upload(room, uploader, filename, "application/octet-stream", 4,
+                ai.intellistream.chat.attachments.AttachmentBytes.DEFAULT_MAX_BYTES, "",
+                new java.io.ByteArrayInputStream(new byte[4]));
+    }
+
+    /** {@link #upload} where the checked exception would only add noise to the test body. */
+    private ai.intellistream.chat.domain.Attachment uploadUnchecked(Channel room, User uploader,
+                                                                    String filename) {
+        try {
+            return upload(room, uploader, filename);
+        } catch (java.io.IOException e) {
+            throw new java.io.UncheckedIOException(e);
+        }
+    }
+
+    private ai.intellistream.chat.domain.ConversationAttachment dmUpload(
+            ai.intellistream.chat.domain.Conversation dm, User uploader, String filename)
+            throws java.io.IOException {
+        return conversationAttachmentService.upload(dm, uploader, filename,
+                "application/octet-stream", 4,
+                ai.intellistream.chat.attachments.AttachmentBytes.DEFAULT_MAX_BYTES, "",
+                new java.io.ByteArrayInputStream(new byte[4]));
     }
 }
