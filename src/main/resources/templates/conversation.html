@@ -170,6 +170,18 @@
                                         <span class="reaction-count" th:text="${r.count}">1</span>
                                     </button>
                                 </div>
+                                <!--/* Same "N replies" widget the channel feed carries, anchored at
+                                       the bottom of the message. Rendered server-side here and in
+                                       conversation.js for live updates — a message's furniture is
+                                       drawn in two places on both pages, and this is the DM half. */-->
+                                <button th:if="${msg.replyCount > 0}" type="button"
+                                        class="thread-indicator"
+                                        th:attr="data-count=${msg.replyCount}"
+                                        th:title="|Open thread (${msg.replyCount} ${msg.replyCount == 1 ? 'reply' : 'replies'})|">
+                                    <svg class="icon thread-indicator-icon" aria-hidden="true"><use href="#icon-thread"/></svg>
+                                    <span class="thread-indicator-count"
+                                          th:text="|${msg.replyCount} ${msg.replyCount == 1 ? 'reply' : 'replies'}|">1 reply</span>
+                                </button>
                             </div>
                         </li>
                     </th:block>
@@ -214,6 +226,45 @@
             </div>
         </div>
     </main>
+
+    <!--/* The thread panel, with the same ids and classes as the one in channels.html so the
+           existing .thread-* CSS (and body.thread-open, which widens .layout by --thread-w)
+           applies unchanged. The logic behind it is ChatKit.createThreadPanel, shared by
+           construction rather than copied — see the note there. */-->
+    <aside id="thread-panel" class="thread-panel" hidden>
+        <header class="thread-header">
+            <h3>Thread</h3>
+            <button type="button" id="thread-close" class="icon-btn" title="Close thread" aria-label="Close thread">
+                <svg class="icon"><use href="#icon-close"/></svg>
+            </button>
+        </header>
+        <div id="thread-parent" class="thread-parent"></div>
+        <ol id="thread-replies" class="thread-replies"></ol>
+        <form id="thread-composer" class="composer thread-composer">
+            <textarea id="thread-input" placeholder="Reply to thread…" rows="2" maxlength="8000"></textarea>
+            <div id="thread-preview" class="composer-preview" hidden>
+                <div class="composer-preview-label">Preview</div>
+                <div id="thread-preview-body" class="message-body"></div>
+            </div>
+            <div class="composer-toolbar" data-format-target="thread-input">
+                <button type="button" class="tool" data-format="bold" title="Bold (Ctrl/Cmd+B)"><b>B</b></button>
+                <button type="button" class="tool" data-format="italic" title="Italic (Ctrl/Cmd+I)"><i>I</i></button>
+                <button type="button" class="tool" data-format="strike" title="Strikethrough"><s>S</s></button>
+                <button type="button" class="tool" data-format="link" title="Link (Ctrl/Cmd+K)"><svg class="icon" aria-hidden="true"><use href="#icon-link"/></svg></button>
+                <button type="button" class="tool" data-format="code" title="Code (Ctrl/Cmd+E)">{ }</button>
+                <button type="button" class="tool" data-format="quote" title="Quote"><svg class="icon" aria-hidden="true"><use href="#icon-quote"/></svg></button>
+                <button type="button" class="tool" data-format="list" title="Bulleted list"><svg class="icon" aria-hidden="true"><use href="#icon-list"/></svg></button>
+                <button type="button" class="tool" id="thread-emoji" title="Insert emoji"><svg class="icon" aria-hidden="true"><use href="#icon-face-smile"/></svg></button>
+                <span class="spacer"></span>
+                <button type="submit" class="send-btn">
+                    <svg class="send-icon" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <path d="M2.5 20.5 22 12 2.5 3.5 2.5 10 16 12 2.5 14z"/>
+                    </svg>
+                    <span>Reply</span>
+                </button>
+            </div>
+        </form>
+    </aside>
 </div>
 
 <script th:src="@{/js/vendor/stomp.umd.min.js}"></script>

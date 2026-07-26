@@ -25,7 +25,8 @@ import java.time.Instant;
 
 @Entity
 @Table(name = "conversation_messages", indexes = {
-        @Index(name = "ix_conv_messages_created", columnList = "conversation_id, created_at")
+        @Index(name = "ix_conv_messages_created", columnList = "conversation_id, created_at"),
+        @Index(name = "ix_conv_messages_parent", columnList = "parent_id")
 })
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -43,6 +44,19 @@ public class ConversationMessage {
     @JoinColumn(name = "author_id", nullable = false)
     private User author;
 
+    /**
+     * The message this one replies to, or {@code null} for a top-level message. Exactly
+     * {@code Message.parent}'s shape, and for the same reason: a thread is a parent plus the
+     * messages that name it, not a separate table with its own lifecycle.
+     *
+     * <p>One level only. A reply may not be replied to — {@code ConversationService.replyInThread}
+     * refuses it — so this is a two-deep tree and never a chain, which is what lets the panel render
+     * a flat list and the reply count be a single {@code count(*)}.
+     */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "parent_id")
+    private ConversationMessage parent;
+
     @Column(name = "body_markdown", nullable = false, columnDefinition = "text")
     private String bodyMarkdown;
 
@@ -53,9 +67,20 @@ public class ConversationMessage {
     private Instant editedAt;
 
     public ConversationMessage(Conversation conversation, User author, String bodyMarkdown) {
+        this(conversation, author, bodyMarkdown, null);
+    }
+
+    public ConversationMessage(Conversation conversation, User author, String bodyMarkdown,
+                               ConversationMessage parent) {
         this.conversation = conversation;
         this.author = author;
         this.bodyMarkdown = bodyMarkdown;
+        this.parent = parent;
+    }
+
+    /** True when this message lives in a thread rather than in the conversation feed. */
+    public boolean isThreadReply() {
+        return parent != null;
     }
 
     public void setBodyMarkdown(String bodyMarkdown) {

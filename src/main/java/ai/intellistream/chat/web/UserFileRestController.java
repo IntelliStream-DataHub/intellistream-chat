@@ -108,7 +108,11 @@ public class UserFileRestController {
                             deleted.parentMessageId()));
         } else {
             broker.convertAndSend("/topic/conversations/" + deleted.conversationId(),
-                    ConversationEvent.messageDeleted(deleted.conversationId(), deleted.messageId()));
+                    // parentMessageId is what the conversation client decrements a thread indicator
+                    // by; it comes through the same field the channel branch above uses, and is
+                    // null until UserFileService starts populating it for the conversation scope.
+                    ConversationEvent.messageDeleted(deleted.conversationId(), deleted.messageId(),
+                            deleted.parentMessageId()));
         }
         // What was actually freed, echoed back so a caller that is not the file-manager page (a
         // script, a future bulk delete) learns it without re-listing. The page itself re-lists —

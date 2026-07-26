@@ -208,11 +208,14 @@ public class HomeController {
         var rows = conversationService.recent(conversation, me, 50);
         var attachmentMap = conversationAttachmentService.findForMessages(rows);
         var reactionMap = conversationReactionService.groupingsFor(rows, me);
+        var replyCounts = conversationService.threadReplyCounts(rows);
         var messages = rows.stream()
                 .map(m -> ConversationMessageDto.from(m,
                         markdown.render(m.getBodyMarkdown()),
                         attachmentMap.getOrDefault(m.getId(), List.of()),
-                        reactionMap.getOrDefault(m.getId(), List.of())))
+                        reactionMap.getOrDefault(m.getId(), List.of()),
+                        replyCounts.getOrDefault(m.getId(), 0L),
+                        List.of()))
                 .toList();
 
         var other = conversation.getType() == ConversationType.DIRECT

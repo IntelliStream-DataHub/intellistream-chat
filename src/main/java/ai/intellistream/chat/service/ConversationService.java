@@ -127,15 +127,19 @@ public class ConversationService {
         return members.findByConversationAndUserFetchingUser(conversation, invitee).orElseThrow();
     }
 
-    @Transactional
-    public ConversationMessage post(Conversation conversation, User author, String body) {
-        requireMember(conversation, author);
+    private static void validateBody(String body) {
         if (body == null || body.isBlank()) {
             throw new IllegalArgumentException("Message body cannot be empty");
         }
         if (body.length() > 8000) {
             throw new IllegalArgumentException("Message body too long (max 8000 chars)");
         }
+    }
+
+    @Transactional
+    public ConversationMessage post(Conversation conversation, User author, String body) {
+        requireMember(conversation, author);
+        validateBody(body);
         var saved = messages.save(new ConversationMessage(conversation, author, body.trim()));
         indexAfterCommit(saved.getId(), conversation.getId(), author.getUsername(),
                 saved.getBodyMarkdown());
@@ -148,6 +152,99 @@ public class ConversationService {
                 .orElseThrow(() -> new ai.intellistream.chat.security.ResourceNotFoundException("Message not found: " + id));
     }
 
+    // ------------------------------------------------------------------ threads
+
+    /**
+     * Reply in {@code parentId}'s thread. Mirrors {@code MessageService.replyInThread}, including
+     * the one rule that matters: a reply may not be replied to.
+     *
+     * <p>Threads are one level deep because that is what makes a thread readable — a tree turns
+     * "what did people say about this" into a navigation problem, and both Slack and Mattermost
+     * settled on the same shape. It is also what lets the reply count be one {@code count(*)} and
+     * the panel a flat list.
+     *
+     * <p>Membership is checked against the <em>parent's</em> conversation, never against a
+     * conversation id the caller supplied: the reply endpoint is keyed on the message, so taking the
+     * conversation from anywhere else would let a member of conversation A reply into conversation B
+     * by naming one of B's message ids.
+     */
+    @Transactional
+    public ConversationMessage replyInThread(Long parentId, User author, String body) {
+        var parent = requireMessageById(parentId);
+        if (parent.isThreadReply()) {
+            throw new IllegalArgumentException(
+                    "Cannot reply to a thread reply — reply to its parent instead");
+        }
+        var conversation = parent.getConversation();
+        requireMember(conversation, author);
+        validateBody(body);
+        var saved = messages.save(new ConversationMessage(conversation, author, body.trim(), parent));
+        indexAfterCommit(saved.getId(), conversation.getId(), author.getUsername(),
+                saved.getBodyMarkdown());
+        return saved;
+    }
+
+    /** A thread's replies, oldest first. Read access is the conversation's membership, as ever. */
+    @Transactional(readOnly = true)
+    public List<ConversationMessage> threadReplies(Long parentId, User viewer) {
+        var parent = requireMessageById(parentId);
+        requireMember(parent.getConversation(), viewer);
+        return messages.findByParentOrderByCreatedAtAsc(parent);
+    }
+
+    @Transactional(readOnly = true)
+    public long threadReplyCount(ConversationMessage parent) {
+        return messages.countByParent(parent);
+    }
+
+    /** Reply-count map for a batch of top-level messages — parents with 0 replies are absent. */
+    @Transactional(readOnly = true)
+    public Map<Long, Long> threadReplyCounts(java.util.Collection<ConversationMessage> parents) {
+        if (parents == null || parents.isEmpty()) return Map.of();
+        var ids = parents.stream().map(ConversationMessage::getId).toList();
+        var rows = messages.countRepliesByParentIds(ids);
+        var out = new HashMap<Long, Long>(rows.size());
+        for (var row : rows) {
+            out.put(((Number) row[0]).longValue(), ((Number) row[1]).longValue());
+        }
+        return out;
+    }
+
+    /**
+     * The usernames to tell about a reply in {@code parentId}'s thread: everyone who has written in
+     * it — the parent's author plus every replier — except {@code excluding}, narrowed to people who
+     * are still members of the conversation.
+     *
+     * <p>The narrowing is not theoretical now that a group conversation can be left: a thread can
+     * hold messages from someone who has since gone, and the participant list rides on a broadcast
+     * the client acts on.
+     */
+    @Transactional(readOnly = true)
+    public List<String> threadParticipants(Long parentId, User excluding) {
+        var parent = requireMessageById(parentId);
+        var rows = messages.findThreadParticipants(parentId);
+        if (rows.isEmpty()) return List.of();
+        var byId = new java.util.LinkedHashMap<Long, String>(rows.size());
+        for (var row : rows) {
+            var id = ((Number) row[0]).longValue();
+            if (excluding != null && id == excluding.getId().longValue()) continue;
+            byId.put(id, (String) row[1]);
+        }
+        if (byId.isEmpty()) return List.of();
+        var stillMembers = members.findAllByConversationOrderByJoinedAtAsc(parent.getConversation())
+                .stream().map(m -> m.getUser().getId()).collect(Collectors.toSet());
+        return byId.entrySet().stream()
+                .filter(e -> stillMembers.contains(e.getKey()))
+                .map(Map.Entry::getValue)
+                .toList();
+    }
+
+    /** Ids of a message's thread replies — read before a delete so their files and index docs go too. */
+    @Transactional(readOnly = true)
+    public List<Long> replyIdsOf(Long parentId) {
+        return messages.findReplyIds(parentId);
+    }
+
     /** Edit own message body. Author-only; admins do not edit other users' DMs. */
     @Transactional
     public ConversationMessage editMessage(Long messageId, User actor, String newBody) {
@@ -156,12 +253,7 @@ public class ConversationService {
         if (!message.getAuthor().getId().equals(actor.getId())) {
             throw new AccessDeniedException("You can only edit your own messages.");
         }
-        if (newBody == null || newBody.isBlank()) {
-            throw new IllegalArgumentException("Message body cannot be empty");
-        }
-        if (newBody.length() > 8000) {
-            throw new IllegalArgumentException("Message body too long (max 8000 chars)");
-        }
+        validateBody(newBody);
         message.setBodyMarkdown(newBody.trim());
         indexAfterCommit(message.getId(), message.getConversation().getId(),
                 message.getAuthor().getUsername(), message.getBodyMarkdown());
@@ -177,9 +269,23 @@ public class ConversationService {
         if (!isAuthor && !actor.isAdmin()) {
             throw new AccessDeniedException("You can only delete your own messages.");
         }
+        // Replies go with the parent. The FK cascades the rows; the index does not cascade, so the
+        // ids are collected here — while they still exist — and their documents dropped after the
+        // commit. An index entry that outlives its row is content that stays searchable after
+        // somebody removed it, which is the one failure this ordering exists to prevent.
+        var doomed = new java.util.ArrayList<Long>();
+        doomed.add(message.getId());
+        if (!message.isThreadReply()) {
+            // Removed through the repository rather than left to the FK cascade: a row the database
+            // deletes behind Hibernate's back is a row the session still believes in, and it errors
+            // on the next flush. Same reason MessageService.delete walks its replies first.
+            var replies = messages.findByParentOrderByCreatedAtAsc(message);
+            replies.forEach(r -> doomed.add(r.getId()));
+            messages.deleteAll(replies);
+        }
         messages.delete(message);
-        var doomedId = message.getId();
-        afterCommit(() -> messageIndex.deleteConversationMessage(doomedId));
+        var doomedSnapshot = List.copyOf(doomed);
+        afterCommit(() -> doomedSnapshot.forEach(messageIndex::deleteConversationMessage));
         return message;
     }
 

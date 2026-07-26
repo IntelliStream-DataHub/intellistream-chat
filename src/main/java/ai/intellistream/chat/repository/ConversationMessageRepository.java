@@ -31,11 +31,18 @@ import java.util.Optional;
 
 public interface ConversationMessageRepository extends JpaRepository<ConversationMessage, Long> {
 
+    /**
+     * The conversation feed: top-level messages only, newest first.
+     *
+     * <p>{@code m.parent is null} is what keeps a thread's replies out of the feed, mirroring
+     * {@code MessageRepository.findByChannelAndParentIsNullOrderByCreatedAtDesc}. Without it a busy
+     * thread would push the conversation it belongs to off its own page.
+     */
     @Query("""
             select m from ConversationMessage m
             join fetch m.author
             join fetch m.conversation
-            where m.conversation = :conversation
+            where m.conversation = :conversation and m.parent is null
             order by m.createdAt desc
             """)
     List<ConversationMessage> findByConversationOrderByCreatedAtDesc(Conversation conversation, Pageable pageable);
@@ -45,11 +52,52 @@ public interface ConversationMessageRepository extends JpaRepository<Conversatio
             select m from ConversationMessage m
             join fetch m.author
             join fetch m.conversation
-            where m.conversation = :conversation and m.createdAt > :after
+            where m.conversation = :conversation and m.parent is null and m.createdAt > :after
             order by m.createdAt asc, m.id asc
             """)
     List<ConversationMessage> findByConversationAndCreatedAtAfterOrderByCreatedAtAsc(
             Conversation conversation, Instant after, Pageable pageable);
+
+    /** One thread's replies, oldest first — what the thread panel renders under the parent. */
+    @Query("""
+            select m from ConversationMessage m
+            join fetch m.author
+            join fetch m.conversation
+            where m.parent = :parent
+            order by m.createdAt asc, m.id asc
+            """)
+    List<ConversationMessage> findByParentOrderByCreatedAtAsc(ConversationMessage parent);
+
+    long countByParent(ConversationMessage parent);
+
+    /**
+     * Reply counts for a page of parents in one query — parents with no replies are absent from the
+     * result rather than present with a zero, so the caller's {@code getOrDefault(id, 0L)} is the
+     * only place the default is written.
+     */
+    @Query("select m.parent.id, count(m) from ConversationMessage m where m.parent.id in :parentIds group by m.parent.id")
+    List<Object[]> countRepliesByParentIds(@Param("parentIds") Collection<Long> parentIds);
+
+    /**
+     * Ids of a message's replies. Read before a delete so the caller can reap their attachments and
+     * their Lucene documents: the {@code on delete cascade} takes the rows, and nothing else.
+     */
+    @Query("select m.id from ConversationMessage m where m.parent.id = :parentId")
+    List<Long> findReplyIds(@Param("parentId") Long parentId);
+
+    /**
+     * The distinct authors of a thread — the parent's author plus everyone who has replied — as
+     * {@code [userId, username]} rows, ordered so the parent's author comes first.
+     *
+     * <p>Derived from the messages rather than a follow table, exactly as the channel side does it:
+     * having written in a thread is what being in it means, and a table saying the same thing can
+     * only ever disagree with the messages.
+     */
+    @Query("""
+            select distinct m.author.id, m.author.username from ConversationMessage m
+            where m.id = :parentId or m.parent.id = :parentId
+            """)
+    List<Object[]> findThreadParticipants(@Param("parentId") Long parentId);
 
     /**
      * Eager fetch for read-then-render paths (edit/delete/react endpoints) that build a
@@ -61,6 +109,7 @@ public interface ConversationMessageRepository extends JpaRepository<Conversatio
             select m from ConversationMessage m
             join fetch m.author
             join fetch m.conversation
+            left join fetch m.parent
             where m.id = :id
             """)
     Optional<ConversationMessage> findByIdWithAuthor(Long id);

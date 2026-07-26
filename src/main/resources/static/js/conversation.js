@@ -17,8 +17,14 @@
 /*
  * Direct-message page client. Subscribes to /topic/conversations/{id} and posts
  * to /app/conversations/{id}/send via STOMP. Mirrors the channel chat patterns in
- * chat.js: messages render with reactions, edit/delete buttons, and attachment
- * trays. Threads / typing indicators / read counts intentionally stay channel-only.
+ * chat.js: messages render with reactions, edit/delete buttons, attachment trays
+ * and threads.
+ *
+ * Threads used to be channel-only, and the reason given was that a DM is a simpler
+ * surface. It is not: a DM gets long and busy exactly the way a channel does, and
+ * when it does, the room three pixels to its left is visibly better at it. The
+ * panel, its composer and its stale-request guard are ChatKit.createThreadPanel —
+ * shared with the channel page by construction rather than by copy.
  */
 (function () {
   const meta = (name) => document.querySelector(`meta[name="${name}"]`)?.content || '';
@@ -43,6 +49,9 @@
   const {
     backfillAvatarColors,
     buildAvatarEl,
+    appendAuthorHandle,
+    applyThreadIndicator,
+    createThreadPanel,
     dayKey,
     formatTime,
     formatBytes,
@@ -61,6 +70,14 @@
 
   const appendMessage = (msg) => {
     if (!msg || !msg.id) return;
+    // A reply belongs in its thread, not in the feed. Its parent's "N replies" indicator moves
+    // either way — that is the only trace a thread leaves in the conversation, and it has to move
+    // whether or not the panel happens to be open on it.
+    if (msg.parentId) {
+      threadPanel?.appendReply(msg);
+      bumpThreadIndicator(msg.parentId, +1);
+      return;
+    }
     // De-dupe across WS replays (and the upcoming local-append optimisation).
     if (messagesEl.querySelector('li.message[data-id="' + msg.id + '"]')) return;
     // Measure BEFORE appending: only follow the tail if the reader is already near it, or the
@@ -122,6 +139,9 @@
     if (msg.attachments && msg.attachments.length) {
       right.appendChild(renderAttachmentTray(msg.attachments));
     }
+    if (msg.replyCount > 0) {
+      right.appendChild(window.ChatKit.buildThreadIndicator(msg.replyCount));
+    }
 
     li.append(avatar, right);
     messagesEl.appendChild(li);
@@ -162,9 +182,12 @@
     btn.querySelector('.reaction-count').textContent = g.count;
     return btn;
   };
-  const buildActions = (authorUsername, hasBody) => {
+  const buildActions = (li) => {
+    const authorUsername = li.dataset.author;
+    const hasBody = !!(li.dataset.bodyMarkdown && li.dataset.bodyMarkdown.length > 0);
     const isMine = authorUsername === myUsername;
     const canDelete = isMine || isAdmin;
+    const isThreadReply = !!li.dataset.parentId;
     const actions = document.createElement('div');
     actions.className = 'message-actions';
     // Sprite icons, matching the channel view — see the note in chat/index.js buildActions.
@@ -173,7 +196,12 @@
         + ' aria-label="' + title + '"><svg class="icon" aria-hidden="true"><use href="#icon-'
         + icon + '"/></svg></button>';
     let html = '';
-    if (!isMine) html += action('react', 'face-smile', 'Add reaction');
+    // React on every message including your own, as the channel row does — a ✅ on your own
+    // announcement is a normal thing to want, and the server has allowed it since this session.
+    html += action('react', 'face-smile', 'Add reaction');
+    // A reply may not be replied to: threads are one level deep, which is what the server enforces
+    // and what makes the panel a flat list. Offering the button anyway would be a guaranteed 400.
+    if (!isThreadReply) html += action('reply', 'reply', 'Reply in thread');
     if (isMine && hasBody) html += action('edit', 'pencil', 'Edit');
     if (canDelete) html += action('delete', 'trash', 'Delete');
     actions.innerHTML = html;
@@ -181,16 +209,27 @@
   };
   const attachActions = (li) => {
     if (!li || li.querySelector('.message-actions')) return;
-    const author = li.dataset.author;
-    const hasBody = !!(li.dataset.bodyMarkdown && li.dataset.bodyMarkdown.length > 0);
-    const actions = buildActions(author, hasBody);
+    const actions = buildActions(li);
     if (actions.children.length > 0) li.appendChild(actions);
   };
   // Wire actions for server-rendered messages on initial load.
   messagesEl?.querySelectorAll('li.message').forEach(attachActions);
 
-  const findMessageEl = (id) =>
-      messagesEl ? messagesEl.querySelector('li.message[data-id="' + CSS.escape(id) + '"]') : null;
+  // Feed first, then the thread panel: an older reply lives only in the panel's <ol>, so a
+  // reaction or edit broadcast for it has nowhere else to land.
+  const findMessageEl = (id) => {
+    const sel = 'li.message[data-id="' + CSS.escape(String(id)) + '"]';
+    return (messagesEl && messagesEl.querySelector(sel))
+        || document.querySelector('#thread-replies ' + sel)
+        || document.querySelector('#thread-parent ' + sel);
+  };
+
+  /** Move the "N replies" widget on a parent that is on screen. Silent when it isn't. */
+  const bumpThreadIndicator = (parentId, delta) => {
+    const li = findMessageEl(parentId);
+    const right = li?.querySelector(':scope > div');
+    applyThreadIndicator(right, delta);
+  };
 
   const replaceMessageDom = (msg) => {
     const li = findMessageEl(msg.id);
@@ -208,7 +247,7 @@
       return;
     }
     li.dataset.bodyMarkdown = msg.bodyMarkdown || '';
-    right.querySelectorAll('.message-body, .message-reactions, .message-attachments, .message-edit, .edited-tag').forEach(n => n.remove());
+    right.querySelectorAll('.message-body, .message-reactions, .message-attachments, .message-edit, .edited-tag, .thread-indicator').forEach(n => n.remove());
     const meta = right.querySelector('.message-meta');
     if (msg.bodyMarkdown) {
       const body = document.createElement('div');
@@ -227,6 +266,12 @@
     }
     if (msg.attachments && msg.attachments.length) {
       right.appendChild(renderAttachmentTray(msg.attachments));
+    }
+    // Re-added last so it keeps its place at the bottom of the message. It was stripped above with
+    // the rest of the content column rather than preserved: leaving it in place would put the
+    // freshly appended trays underneath it, which is not where they go.
+    if (msg.replyCount > 0) {
+      right.appendChild(window.ChatKit.buildThreadIndicator(msg.replyCount));
     }
     li.querySelector('.message-actions')?.remove();
     attachActions(li);
@@ -316,8 +361,17 @@
     wireAutoResize(ta);
   };
 
-  // Click delegation for reactions / edit / delete / react.
-  messagesEl?.addEventListener('click', (e) => {
+  // Click delegation for reactions / edit / delete / react / reply. Bound at the document rather
+  // than on #messages because the same rows exist inside the thread panel, which is a sibling of
+  // the feed — a listener on the feed alone would leave every action in the panel inert.
+  document.addEventListener('click', (e) => {
+    if (!(e.target instanceof Element)) return;
+    const indicator = e.target.closest('.thread-indicator');
+    if (indicator) {
+      const li = indicator.closest('li.message');
+      if (li) threadPanel?.open(li.dataset.id);
+      return;
+    }
     const reactionBtn = e.target.closest('.reaction');
     if (reactionBtn) {
       const li = reactionBtn.closest('li.message');
@@ -331,9 +385,84 @@
     const id = li.dataset.id;
     if (btn.dataset.action === 'edit') startEdit(li);
     else if (btn.dataset.action === 'delete') deleteMessage(id);
+    else if (btn.dataset.action === 'reply') threadPanel?.open(id);
     else if (btn.dataset.action === 'react') {
       openEmojiPicker(btn, (emoji) => toggleReaction(id, emoji, false));
     }
+  });
+
+  // ---------- Thread panel ----------
+  // The panel itself is ChatKit.createThreadPanel; what is local to this page is where a thread
+  // comes from and how one of its messages is drawn.
+  const renderThreadMessage = (msg, isParent) => {
+    const li = document.createElement('li');
+    li.className = 'message thread-message' + (isParent ? ' thread-parent-msg' : '');
+    li.dataset.id = msg.id;
+    li.dataset.author = msg.authorUsername;
+    li.dataset.bodyMarkdown = msg.bodyMarkdown || '';
+    if (msg.parentId) li.dataset.parentId = msg.parentId;
+    const name = msg.authorDisplayName || msg.authorUsername;
+    const created = new Date(msg.createdAt);
+    const avatar = buildAvatarEl({
+      username: msg.authorUsername,
+      letter: (name || '?').slice(0, 1).toUpperCase(),
+      hasAvatar: msg.authorHasAvatar,
+      avatarVersion: msg.authorAvatarVersion,
+    });
+    const right = document.createElement('div');
+    const meta = document.createElement('div');
+    meta.className = 'message-meta';
+    const author = document.createElement('span');
+    author.className = 'author';
+    author.dataset.author = msg.authorUsername;
+    author.textContent = name;
+    meta.appendChild(author);
+    appendAuthorHandle(meta, msg.authorDisplayName, msg.authorUsername);
+    const time = document.createElement('time');
+    time.textContent = formatTime(created);
+    meta.appendChild(time);
+    if (msg.editedAt) {
+      const tag = document.createElement('span');
+      tag.className = 'edited-tag';
+      tag.textContent = '(edited)';
+      meta.appendChild(tag);
+    }
+    right.appendChild(meta);
+    if (msg.bodyMarkdown) {
+      const body = document.createElement('div');
+      body.className = 'message-body';
+      body.innerHTML = msg.bodyHtml || '';
+      right.appendChild(body);
+    }
+    if (msg.reactions && msg.reactions.length) right.appendChild(renderReactionTray(msg.reactions));
+    if (msg.attachments && msg.attachments.length) {
+      right.appendChild(renderAttachmentTray(msg.attachments));
+    }
+    li.append(avatar, right);
+    attachActions(li);
+    return li;
+  };
+
+  const threadPanel = createThreadPanel({
+    ids: {},
+    headers,
+    loadThread: async (parentId) => {
+      const res = await fetch('/api/conversations/messages/' + encodeURIComponent(parentId) + '/thread',
+          { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+      if (!res.ok) throw new Error(res.statusText);
+      return res.json();
+    },
+    postReply: async (parentId, body) => {
+      const res = await fetch('/api/conversations/messages/' + encodeURIComponent(parentId) + '/replies', {
+        method: 'POST', headers: headers(), body: JSON.stringify({ body }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.message || err.error || res.statusText);
+      }
+      return res.json().catch(() => null);
+    },
+    renderMessage: renderThreadMessage,
   });
 
   // ---------- Attachment rendering ----------
@@ -400,6 +529,11 @@
     }
     if (payload && payload.type === 'message-deleted') {
       if (payload.messageId) removeMessageDom(payload.messageId);
+      // A deleted reply takes one off its parent's count. A deleted parent takes its whole thread
+      // with it, and the panel showing that thread has to close rather than sit there displaying
+      // a conversation that no longer exists.
+      if (payload.parentId) bumpThreadIndicator(payload.parentId, -1);
+      else if (String(threadPanel?.openId()) === String(payload.messageId)) threadPanel.close();
       return;
     }
     appendMessage(payload);
