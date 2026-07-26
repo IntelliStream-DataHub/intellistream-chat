@@ -126,13 +126,26 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             """)
     List<Message> findTopLevelAfterKeyset(Channel channel, Instant ts, Long id, Pageable pageable);
 
+    /**
+     * The channel's pins. {@code left join fetch m.pinnedBy} is what lets the DTO say who pinned
+     * each one: this is the only query that fetches that association, so {@code pinnedByUsername}
+     * is populated here and null on the feed paths, which never pay for the join. See
+     * {@code MessageDto#build}.
+     */
     @Query("""
             select m from Message m
             join fetch m.author
+            left join fetch m.pinnedBy
             where m.channel = :channel and m.pinnedAt is not null and m.deletedAt is null
             order by m.pinnedAt desc
             """)
     List<Message> findByChannelAndPinnedAtIsNotNullOrderByPinnedAtDesc(Channel channel);
+
+    @Query("""
+            select count(m) from Message m
+            where m.channel = :channel and m.pinnedAt is not null and m.deletedAt is null
+            """)
+    long countByChannelAndPinnedAtIsNotNull(Channel channel);
 
     @Query("""
             select m from Message m

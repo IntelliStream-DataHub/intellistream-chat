@@ -40,7 +40,14 @@ public record MessageDto(
         long replyCount,
         List<String> mentions,
         PollDto poll,
-        List<String> threadParticipants
+        List<String> threadParticipants,
+        /** When this message was pinned to its channel, or null if it isn't pinned. */
+        Instant pinnedAt,
+        /**
+         * Who pinned it — populated only where the query paid for the association (the pins
+         * endpoint), null on the feed. See {@link #build} for why it is not simply read.
+         */
+        String pinnedByUsername
 ) {
     public static MessageDto from(Message message, String html) {
         return from(message, html, List.of(), List.of(), 0L, List.of(), null);
@@ -106,7 +113,8 @@ public record MessageDto(
         return new MessageDto(id, channelId, parentId, authorUsername, authorDisplayName,
                 authorHasAvatar, authorAvatarVersion, bodyMarkdown, bodyHtml, createdAt, editedAt,
                 attachments, reactions, replyCount, mentions, poll,
-                participants == null ? List.of() : List.copyOf(participants));
+                participants == null ? List.of() : List.copyOf(participants),
+                pinnedAt, pinnedByUsername);
     }
 
     private static MessageDto build(Message message, String html,
@@ -133,7 +141,27 @@ public record MessageDto(
                 replyCount,
                 mentions,
                 poll,
-                List.of()
+                List.of(),
+                message.getPinnedAt(),
+                pinnerUsername(message)
         );
+    }
+
+    /**
+     * Who pinned this, but only if reading that costs nothing.
+     *
+     * <p>{@code pinnedBy} is a lazy {@code @ManyToOne} and open-in-view is off, so on every path
+     * except the pins query it is an uninitialised proxy on a detached entity — calling
+     * {@code getUsername()} would throw {@code LazyInitializationException} in the middle of
+     * serialising a message feed. The alternative, adding the join to the feed queries, puts a
+     * fourth join on the hot read path to populate a field the feed does not render. So: fetched
+     * where it is wanted, null where it is not.
+     */
+    private static String pinnerUsername(Message message) {
+        var pinnedBy = message.getPinnedBy();
+        if (pinnedBy == null || !org.hibernate.Hibernate.isInitialized(pinnedBy)) {
+            return null;
+        }
+        return pinnedBy.getUsername();
     }
 }

@@ -118,6 +118,37 @@ public class MessageRestController {
         return dto;
     }
 
+    /**
+     * Pin a message to its channel. Any member may pin — see {@code MessageService.pin} for why
+     * that is the line rather than the admin role.
+     *
+     * <p>POST/DELETE on a {@code /pin} sub-resource rather than a PATCH carrying a boolean, for
+     * the same reason archive and unarchive are two endpoints: both are reached from a deliberate
+     * click, and the verb is then legible in a server log and a proxy access log without anyone
+     * having to read the body.
+     *
+     * <p>Broadcast on the channel topic so every open client repaints the message's pin marker and
+     * re-reads the header count. A pin nobody else sees until they reload is not a channel-level
+     * fact, which is the only thing a pin is.
+     */
+    @PostMapping("/{id}/pin")
+    public MessageDto pin(@PathVariable Long id, Principal principal) {
+        var me = currentUser.resolve(principal);
+        if (!rateLimiter.tryAcquire(me.getUsername(), "msg-pin", 30, Duration.ofMinutes(1))) {
+            throw new RateLimitExceededException("pin rate exceeded");
+        }
+        return broadcastUpdate(messageService.pin(id, me), me);
+    }
+
+    @DeleteMapping("/{id}/pin")
+    public MessageDto unpin(@PathVariable Long id, Principal principal) {
+        var me = currentUser.resolve(principal);
+        if (!rateLimiter.tryAcquire(me.getUsername(), "msg-pin", 30, Duration.ofMinutes(1))) {
+            throw new RateLimitExceededException("pin rate exceeded");
+        }
+        return broadcastUpdate(messageService.unpin(id, me), me);
+    }
+
     @PatchMapping("/{id}")
     @org.springframework.transaction.annotation.Transactional
     public MessageDto edit(@PathVariable Long id,

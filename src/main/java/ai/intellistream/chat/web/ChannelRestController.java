@@ -421,6 +421,27 @@ public class ChannelRestController {
                 .toList();
     }
 
+    /**
+     * The channel's pinned messages, most recently pinned first.
+     *
+     * <p>Read access, not membership: {@code MessageService.pinned} calls {@code requireMember},
+     * which short-circuits for PUBLIC channels, so someone deciding whether to join can read what
+     * the channel put at the top. That is most of what a pin is for.
+     *
+     * <p>Reactions, attachments and polls are deliberately not batch-loaded here. The panel renders
+     * a compact list — author, time, body, a link into the feed — and loading three more tables to
+     * render nothing is work for its own sake. Clicking an entry jumps to the real message, which
+     * has all of it.
+     */
+    @GetMapping("/{id}/pins")
+    public List<MessageDto> pins(@PathVariable Long id, Principal principal) {
+        var me = currentUser.resolve(principal);
+        var channel = channelService.requireById(id);
+        return messageService.pinned(channel, me).stream()
+                .map(m -> MessageDto.from(m, markdown.render(m.getBodyMarkdown())))
+                .toList();
+    }
+
     @PostMapping("/{id}/messages")
     public MessageDto post(@PathVariable Long id,
                            @RequestBody @Valid SendMessageRequest body,

@@ -926,6 +926,41 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   left: 1rem;
   right: auto;
 }
+
+/* ---------- Pinned messages panel ---------- */
+/* Wider than the members panel and scrollable: entries carry real message bodies, and a channel
+   with a dozen pins should not push the panel past the bottom of the window. */
+.channel-pins-panel { min-width: 360px; max-width: 460px; }
+.channel-pins-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: min(60vh, 480px);
+  overflow-y: auto;
+}
+.channel-pin {
+  padding: 0.6rem 0;
+  border-top: 1px solid var(--border);
+}
+.channel-pin:first-child { border-top: 0; }
+.channel-pin-meta {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+.channel-pin-author { font-weight: 600; color: var(--text); font-size: var(--fs-sm); }
+.channel-pin-by { font-style: italic; }
+/* Pins are a summary, not a second feed — cap the body so one long message can't own the panel. */
+.channel-pin-body {
+  margin-top: 0.2rem;
+  max-height: 7.5em;
+  overflow: hidden;
+}
+.channel-pin-actions { display: flex; gap: 0.75rem; margin-top: 0.3rem; }
+.icon-btn.is-hidden { display: none; }
 .channel-admin-dropdown[hidden] { display: none; }
 .channel-admin-dropdown header {
   display: flex;
@@ -3452,6 +3487,60 @@ main.content.searching > :not(.channel-search-results) { display: none; }
 /* Destructive action reads as destructive on hover — the emoji 🗑 carried that signal in its
    own colour, an inherited-currentColor icon has to be told. */
 .msg-action[data-action="delete"]:hover { color: var(--danger); }
+
+/* The overflow tier. Every action is a real button in .message-actions — the mobile action sheet
+   builds its rows from them and wants the full list — but on a pointer device only the two most
+   used ones and the ⋯ are drawn. Hidden with display:none rather than by not rendering them,
+   because "which actions does this message have" then has exactly one answer, in the DOM, that
+   both alternative renderers can read. */
+.message-actions .msg-action.is-overflow { display: none; }
+
+.msg-more-menu {
+  position: fixed;
+  z-index: 60;
+  min-width: 190px;
+  padding: 0.25rem;
+  background: var(--panel);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-3);
+}
+.msg-more-menu[hidden] { display: none; }
+.msg-more-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.45rem 0.6rem;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+.msg-more-item > .icon { width: 1rem; height: 1rem; flex: none; color: var(--muted); }
+.msg-more-item:hover, .msg-more-item:focus-visible { background: var(--panel-2); }
+.msg-more-item[data-action="delete"] { color: var(--danger); }
+.msg-more-item[data-action="delete"] > .icon { color: var(--danger); }
+
+/* Pinned marker. Its own grid row spanning both columns, so it reads as a label on the whole
+   message rather than as something attached to the avatar or buried in the meta line — and so it
+   survives the live re-render, which only clears the content column. */
+.message-pin-flag {
+  grid-column: 1 / -1;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.message-pin-flag > .icon { color: inherit; }
 
 .edited-tag {
   font-size: var(--fs-xs);

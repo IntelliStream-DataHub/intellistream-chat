@@ -36,6 +36,11 @@
     <meta name="centered-on-anchor" th:content="${centeredOnAnchor != null and centeredOnAnchor ? 'true' : 'false'}"/>
     <meta name="anchor-message-id" th:content="${anchorMessageId}"/>
     <meta name="me-is-admin" th:content="${isAdmin == true ? 'true' : 'false'}"/>
+    <!--/* May the viewer write here — the same condition the composer is rendered behind, named
+           once so the message action row does not have to infer it from the composer's presence.
+           Pinning is a write, so it is offered on exactly this flag; the server checks anyway. */-->
+    <meta name="me-can-write"
+          th:content="${activeChannel != null and isMember and !activeChannel.archived ? 'true' : 'false'}"/>
 </head>
 <body class="app" th:attr="data-theme=${me.theme}">
 
@@ -112,6 +117,18 @@
                        the box says "Search #general", and the results page it opens has the scope
                        control for widening — plus in:#channel for naming a different one. */-->
                 <div class="channel-header-actions">
+                    <!--/* Pins live in the header because that is where a channel says what it is:
+                           the name, the purpose, and the handful of messages it wants read first.
+                           The count is filled by index.js from /api/channels/{id}/pins, the same
+                           way the members count is — one request, and its answer is also what the
+                           panel renders, so opening the panel costs nothing. */-->
+                    <button type="button" id="channel-pins-toggle" class="icon-btn is-hidden"
+                            aria-haspopup="true" aria-expanded="false"
+                            aria-controls="channel-pins-panel"
+                            title="Pinned messages" aria-label="Pinned messages">
+                        <svg class="icon"><use href="#icon-pin"/></svg>
+                        <span id="channel-pins-count">0</span>
+                    </button>
                     <button type="button" id="channel-members-toggle" class="icon-btn"
                             aria-haspopup="true" aria-expanded="false"
                             aria-controls="channel-members-panel"
@@ -126,6 +143,22 @@
                             id="join-channel-btn" type="button"
                             th:data-channel-id="${activeChannel.id}">Join channel</button>
                 </div>
+
+                <section id="channel-pins-panel"
+                         class="channel-admin-dropdown channel-pins-panel"
+                         role="dialog"
+                         aria-labelledby="channel-pins-title"
+                         hidden>
+                    <header>
+                        <h3 id="channel-pins-title">Pinned messages</h3>
+                        <button type="button" id="channel-pins-close" class="icon-btn" title="Close" aria-label="Close">
+                            <svg class="icon"><use href="#icon-close"/></svg>
+                        </button>
+                    </header>
+                    <ol class="channel-pins-list" id="channel-pins-list">
+                        <li class="dm-empty">Loading…</li>
+                    </ol>
+                </section>
 
                 <section id="channel-members-panel"
                          class="channel-admin-dropdown"
@@ -369,7 +402,15 @@
                         th:data-author="${msg.authorUsername}"
                         th:data-day="${curDay}"
                         th:attr="data-body-markdown=${msg.bodyMarkdown},
-                                 data-parent-id=${msg.parentId}">
+                                 data-parent-id=${msg.parentId},
+                                 data-pinned=${msg.pinnedAt != null}">
+                        <!--/* Pinned marker. Rendered above the row rather than inside the meta
+                               line so it reads as a label on the message, and so it survives the
+                               live re-render, which rewrites everything under .message-meta. */-->
+                        <span th:if="${msg.pinnedAt != null}" class="message-pin-flag">
+                            <svg class="icon icon-sm" aria-hidden="true"><use href="#icon-pin"/></svg>
+                            Pinned
+                        </span>
                         <span class="avatar" th:data-author="${msg.authorUsername}">
                             <img th:if="${msg.authorHasAvatar}" class="avatar-image" alt=""
                                  th:src="@{/api/users/{u}/avatar(u=${msg.authorUsername},v=${msg.authorAvatarVersion})}"/>

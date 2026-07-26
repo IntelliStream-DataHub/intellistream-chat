@@ -112,23 +112,33 @@ class AdminAndConversationFlowIT {
                 .anyMatch(s -> s.contains("welcome to **#general**"))
                 .anyMatch(s -> s.contains("Clark here"));
 
-        // Non-admins cannot pin.
-        assertThatThrownBy(() -> messages.pin(aliceMsg.getId(), c.bob()))
-                .isInstanceOf(AccessDeniedException.class);
-        assertThatThrownBy(() -> messages.pin(clarkMsg.getId(), c.clark()))
+        // Pinning is a plain member's action now, not an admin's — this pair of assertions used to
+        // say "non-admins cannot pin" and that is exactly the rule that has been removed. A pin is
+        // the channel's "read this first", the person who knows which message that is is usually
+        // whoever just read it, and an unpin is as available as the pin. See MessageService.pin.
+        var bobsPin = messages.pin(aliceMsg.getId(), c.bob());
+        assertThat(bobsPin.isPinned()).isTrue();
+        assertThat(bobsPin.getPinnedBy().getUsername()).isEqualTo(c.bob().getUsername());
+
+        // What has NOT changed: a non-member is still refused, because pinning is a write and a
+        // write always needs actual membership, public channel or not.
+        var outsider = users.save(new User("kc-outsider-admin", "outsider-admin",
+                "outsider-admin@x", "Outsider"));
+        assertThatThrownBy(() -> messages.pin(clarkMsg.getId(), outsider))
                 .isInstanceOf(AccessDeniedException.class);
 
-        // Alice (admin) pins one of Clark's messages.
+        // Alice (admin) pins one of Clark's messages too.
         var pinned = messages.pin(clarkMsg.getId(), c.alice());
         assertThat(pinned.isPinned()).isTrue();
         assertThat(pinned.getPinnedBy().getUsername()).isEqualTo(c.alice().getUsername());
 
         var pinnedList = messages.pinned(general, c.bob());
-        assertThat(pinnedList).hasSize(1);
-        assertThat(pinnedList.get(0).getId()).isEqualTo(clarkMsg.getId());
+        assertThat(pinnedList).extracting(m -> m.getId())
+                .containsExactlyInAnyOrder(aliceMsg.getId(), clarkMsg.getId());
 
-        // Alice can unpin and the list goes back to empty.
+        // And whoever may pin may unpin, including a pin somebody else placed.
         messages.unpin(clarkMsg.getId(), c.alice());
+        messages.unpin(aliceMsg.getId(), c.clark());
         assertThat(messages.pinned(general, c.bob())).isEmpty();
 
         // Deleting a channel is a workspace-admin action now, not a channel-admin one. This

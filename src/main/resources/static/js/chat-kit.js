@@ -512,7 +512,11 @@
 
     const list = document.createElement('div');
     list.className = 'action-sheet-items';
-    li.querySelectorAll('.msg-action:not([data-action="react"])').forEach((orig) => {
+    // Every action, including the ones a pointer device hides behind the ⋯ overflow — the sheet is
+    // full-width labelled rows and has the room the hover strip does not. The ⋯ itself is excluded:
+    // a list that already contains everything has no "more" to offer.
+    li.querySelectorAll('.msg-action:not([data-action="react"]):not([data-action="more"])')
+        .forEach((orig) => {
       const row = document.createElement('button');
       row.type = 'button';
       row.className = 'action-sheet-item';

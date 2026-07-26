@@ -349,6 +349,135 @@ presenceMenu.init();
     loadMembers();
   }
 
+  // ---------- Pinned messages panel ----------
+  // A channel's pins are what it wants read first, so they live in the header next to the name and
+  // the purpose. The button appears only once there is at least one — an always-present control
+  // reading "0" is a permanent invitation to click on nothing, and pinning is discovered from a
+  // message's own action menu, which is where someone is when they decide to pin something.
+  //
+  // Declared out here (rather than inside the block below) so togglePin can call it whether or not
+  // this page has a channel open.
+  let refreshPins = () => {};
+  {
+    const pinsToggle = document.getElementById('channel-pins-toggle');
+    const pinsPanel = document.getElementById('channel-pins-panel');
+    const pinsClose = document.getElementById('channel-pins-close');
+    const pinsList = document.getElementById('channel-pins-list');
+    const pinsCountEl = document.getElementById('channel-pins-count');
+
+    if (pinsToggle && pinsPanel && pinsList && activeChannelId) {
+      const isPinsOpen = () => !pinsPanel.hidden;
+      const setPinsOpen = (open) => {
+        pinsPanel.hidden = !open;
+        pinsToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      };
+
+      const renderPins = (rows) => {
+        pinsCountEl.textContent = String(rows.length);
+        pinsToggle.classList.toggle('is-hidden', rows.length === 0);
+        if (!rows.length) {
+          setPinsOpen(false);
+          pinsList.innerHTML = '<li class="dm-empty">Nothing pinned yet.</li>';
+          return;
+        }
+        pinsList.textContent = '';
+        for (const msg of rows) {
+          const li = document.createElement('li');
+          li.className = 'channel-pin';
+          li.dataset.id = msg.id;
+
+          const head = document.createElement('div');
+          head.className = 'channel-pin-meta';
+          const who = document.createElement('span');
+          who.className = 'channel-pin-author';
+          who.textContent = msg.authorDisplayName || msg.authorUsername;
+          const when = document.createElement('time');
+          // window.ChatKit rather than the destructured formatTime far below, for the same reason
+          // the members panel pulls buildAvatarEl locally: this block runs before that destructure.
+          when.textContent = window.ChatKit.formatTime(new Date(msg.createdAt));
+          head.append(who, when);
+          if (msg.pinnedByUsername) {
+            const by = document.createElement('span');
+            by.className = 'channel-pin-by';
+            by.textContent = 'pinned by ' + msg.pinnedByUsername;
+            head.append(by);
+          }
+          li.append(head);
+
+          // bodyHtml is server-rendered and server-sanitized (MarkdownRenderer + jsoup), the same
+          // string the feed renders with innerHTML.
+          const body = document.createElement('div');
+          body.className = 'message-body channel-pin-body';
+          body.innerHTML = msg.bodyHtml || '';
+          li.append(body);
+
+          const actions = document.createElement('div');
+          actions.className = 'channel-pin-actions';
+          const jump = document.createElement('button');
+          jump.type = 'button';
+          jump.className = 'link-btn';
+          jump.textContent = 'Go to message';
+          jump.addEventListener('click', () => {
+            setPinsOpen(false);
+            // Already on screen → scroll to it. Otherwise it is somewhere up the history and the
+            // permalink route is what loads context around it.
+            const el = findMessageEl(msg.id);
+            if (el) {
+              el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+              el.classList.add('flash-highlight');
+              setTimeout(() => el.classList.remove('flash-highlight'), 1800);
+            } else {
+              window.location.href = permalinkFor(msg.id);
+            }
+          });
+          actions.append(jump);
+          if (canWrite) {
+            const unpin = document.createElement('button');
+            unpin.type = 'button';
+            unpin.className = 'link-btn';
+            unpin.textContent = 'Unpin';
+            unpin.addEventListener('click', () => {
+              unpin.disabled = true;
+              togglePin(msg.id, false);
+            });
+            actions.append(unpin);
+          }
+          li.append(actions);
+          pinsList.append(li);
+        }
+      };
+
+      refreshPins = async () => {
+        try {
+          const res = await fetch('/api/channels/' + encodeURIComponent(activeChannelId) + '/pins',
+              { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+          if (!res.ok) throw new Error('pins load failed: ' + res.status);
+          renderPins(await res.json());
+        } catch (e) {
+          pinsList.innerHTML = '<li class="dm-empty">Could not load pinned messages.</li>';
+        }
+      };
+
+      pinsToggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        setPinsOpen(!isPinsOpen());
+      });
+      pinsClose?.addEventListener('click', () => setPinsOpen(false));
+      document.addEventListener('click', (e) => {
+        if (!isPinsOpen()) return;
+        if (pinsPanel.contains(e.target) || pinsToggle.contains(e.target)) return;
+        setPinsOpen(false);
+      });
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && isPinsOpen()) setPinsOpen(false);
+      });
+
+      // One request on load: it fills the badge and is also what the panel renders, so opening it
+      // costs nothing.
+      refreshPins();
+    }
+  }
+
   // ---------- Leave channel ----------
   // Two-step: the trigger reveals a confirmation with the consequence spelled out, and only the
   // second button leaves. Destructive, and for a private channel irreversible from this side.
@@ -1658,6 +1787,8 @@ presenceMenu.init();
     if (indicator) right.append(indicator);
 
     li.append(avatar, right);
+    if (msg.parentId) li.dataset.parentId = msg.parentId;
+    applyPinFlag(li, msg.pinnedAt);
     return li;
   };
 
@@ -2099,35 +2230,175 @@ presenceMenu.init();
         || document.querySelector('#thread-parent ' + sel);
   };
 
-  const buildActions = (authorUsername, hasBody) => {
+  const canWrite = meta('me-can-write') === 'true';
+
+  /**
+   * The hover action row.
+   *
+   * Two tiers, because the row grew past what a row can be. React and reply are the two things
+   * people do to a message often enough to want them under the cursor; everything else sits behind
+   * a "⋯" that opens a labelled menu. A strip of nine unlabelled 16px icons appearing on hover is
+   * worse than five, not better — you have to read it every time, and it covers the message it
+   * belongs to. Slack solved this the same way and for the same reason.
+   *
+   * Every action is a real button in the DOM either way; the overflow ones just carry `.is-overflow`
+   * and are hidden by CSS. That is deliberate and load-bearing: the mobile action sheet in
+   * chat-kit.js builds its rows by enumerating this element's buttons, so it gets the full set — a
+   * bottom sheet has room for labelled rows and should use it — without either renderer knowing
+   * about the other. The desktop menu is built from the same buttons the same way.
+   *
+   * Icons come from the sprite in fragments/icon-sprite.html rather than being emoji: emoji render
+   * as full-colour glyphs from whatever font the OS picked, so they ignore the theme, change shape
+   * per platform, and can't be dimmed to --muted the way the rest of the row is. The `title` on each
+   * button is load-bearing beyond the tooltip — both alternative renderers read it for the label.
+   */
+  const buildActions = (li) => {
+    const authorUsername = li.dataset.author;
+    const hasBody = !!(li.dataset.bodyMarkdown && li.dataset.bodyMarkdown.length > 0);
     const isMine = authorUsername === myUsernameMeta;
     const canDelete = isMine || isAdmin;
+    const isPinned = li.dataset.pinned === 'true';
+    const isThreadReply = !!li.dataset.parentId;
     const actions = document.createElement('div');
     actions.className = 'message-actions';
-    // Icons come from the sprite in fragments/icon-sprite.html rather than being emoji: emoji
-    // render as full-colour glyphs from whatever font the OS picked, so they ignore the theme,
-    // change shape per platform, and can't be dimmed to --muted the way the rest of the row is.
-    // The `title` on each button is load-bearing beyond the tooltip — the mobile action sheet in
-    // chat-kit.js reads it for the row label.
-    const action = (name, icon, title) =>
-        '<button type="button" class="msg-action" data-action="' + name + '" title="' + title + '"'
+    const action = (name, icon, title, overflow) =>
+        '<button type="button" class="msg-action' + (overflow ? ' is-overflow' : '')
+        + '" data-action="' + name + '" title="' + title + '"'
         + ' aria-label="' + title + '"><svg class="icon" aria-hidden="true"><use href="#icon-'
         + icon + '"/></svg></button>';
     let html = '';
     // React is offered on every message including your own. The server allows it; a ✅ on your
     // own announcement or the first 👍 under your own question is a normal thing to want.
-    html += action('react', 'face-smile', 'Add reaction');
-    html += action('reply', 'reply', 'Reply in thread');
-    html += action('permalink', 'link', 'Copy link to message');
+    html += action('react', 'face-smile', 'Add reaction', false);
+    html += action('reply', 'reply', 'Reply in thread', false);
+    // --- overflow, in the order the menu shows them ---
+    // Pinning is a write, so it needs write access; a thread reply has nowhere to be pinned to
+    // (the pins panel links into the channel feed, which replies are not in), matching the server.
+    if (canWrite && !isThreadReply) {
+      html += isPinned
+          ? action('unpin', 'pin', 'Unpin from channel', true)
+          : action('pin', 'pin', 'Pin to channel', true);
+    }
+    html += action('permalink', 'link', 'Copy link to message', true);
     if (isMine && hasBody) {
-      html += action('edit', 'pencil', 'Edit');
+      html += action('edit', 'pencil', 'Edit', true);
     }
     if (canDelete) {
-      html += action('delete', 'trash', 'Delete');
+      html += action('delete', 'trash', 'Delete', true);
     }
     actions.innerHTML = html;
+    // The overflow trigger goes last and only when there is something behind it. Excluded from the
+    // mobile sheet by chat-kit.js — a sheet that already lists every action has no "more".
+    if (actions.querySelector('.msg-action.is-overflow')) {
+      actions.insertAdjacentHTML('beforeend',
+          '<button type="button" class="msg-action msg-action-more" data-action="more"'
+          + ' title="More actions" aria-label="More actions" aria-haspopup="true"'
+          + ' aria-expanded="false"><svg class="icon" aria-hidden="true">'
+          + '<use href="#icon-dots"/></svg></button>');
+    }
     return actions;
   };
+
+  // ---------- Overflow menu ----------
+  // One menu element for the whole page, re-filled per message and positioned under the ⋯ that
+  // opened it. Appended to <body> with fixed positioning rather than inside the message: the
+  // message list is a scroll container with its own overflow, and a menu parented inside it gets
+  // clipped by the row above the last message in the viewport.
+  let overflowMenuEl = null;
+  const closeOverflowMenu = () => {
+    if (!overflowMenuEl || overflowMenuEl.hidden) return;
+    overflowMenuEl.hidden = true;
+    overflowMenuEl.textContent = '';
+    document.querySelectorAll('.msg-action-more[aria-expanded="true"]')
+        .forEach((b) => b.setAttribute('aria-expanded', 'false'));
+  };
+  const openOverflowMenu = (moreBtn, li) => {
+    if (!overflowMenuEl) {
+      overflowMenuEl = document.createElement('div');
+      overflowMenuEl.className = 'msg-more-menu';
+      overflowMenuEl.setAttribute('role', 'menu');
+      overflowMenuEl.hidden = true;
+      document.body.append(overflowMenuEl);
+    }
+    overflowMenuEl.textContent = '';
+    li.querySelectorAll('.msg-action.is-overflow').forEach((orig) => {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = 'msg-more-item';
+      row.setAttribute('role', 'menuitem');
+      row.dataset.action = orig.dataset.action || '';
+      const svg = orig.querySelector('svg');
+      if (svg) row.append(svg.cloneNode(true));
+      const label = document.createElement('span');
+      label.textContent = orig.title;
+      row.append(label);
+      // Forward to the original button so the delegated handler stays the only place that knows
+      // what an action does. Same trick the mobile sheet uses.
+      row.addEventListener('click', () => {
+        closeOverflowMenu();
+        orig.click();
+      });
+      overflowMenuEl.append(row);
+    });
+    overflowMenuEl.hidden = false;
+    moreBtn.setAttribute('aria-expanded', 'true');
+    // Position after unhiding so offsetWidth/Height are real. Flip up when there is no room below
+    // and clamp to the viewport's right edge, so a message near the bottom-right still gets a
+    // menu you can read all of.
+    const r = moreBtn.getBoundingClientRect();
+    const w = overflowMenuEl.offsetWidth;
+    const h = overflowMenuEl.offsetHeight;
+    const top = (r.bottom + h + 8 > window.innerHeight) ? Math.max(8, r.top - h - 4) : r.bottom + 4;
+    overflowMenuEl.style.top = top + 'px';
+    overflowMenuEl.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + 'px';
+    overflowMenuEl.querySelector('.msg-more-item')?.focus();
+  };
+  document.addEventListener('click', (e) => {
+    if (!overflowMenuEl || overflowMenuEl.hidden) return;
+    if (e.target instanceof Element
+        && (overflowMenuEl.contains(e.target) || e.target.closest('.msg-action-more'))) return;
+    closeOverflowMenu();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeOverflowMenu();
+  });
+  // A menu pinned to a viewport coordinate is wrong the moment the list moves under it.
+  messagesEl?.addEventListener('scroll', closeOverflowMenu, { passive: true });
+  window.addEventListener('resize', closeOverflowMenu);
+
+  // ---------- Pin marker ----------
+  // Drawn as the row's first grid child spanning both columns, so it sits above the avatar and the
+  // body like a label on the whole message. replaceMessageDom leaves it alone (it only clears the
+  // content column), so this is the single place that adds or removes it.
+  const applyPinFlag = (li, pinnedAt) => {
+    const pinned = !!pinnedAt;
+    li.dataset.pinned = String(pinned);
+    const existing = li.querySelector(':scope > .message-pin-flag');
+    if (!pinned) {
+      existing?.remove();
+      return;
+    }
+    if (existing) return;
+    const flag = document.createElement('span');
+    flag.className = 'message-pin-flag';
+    flag.innerHTML = '<svg class="icon icon-sm" aria-hidden="true"><use href="#icon-pin"/></svg>';
+    flag.append('Pinned');
+    li.prepend(flag);
+  };
+
+  async function togglePin(id, pin) {
+    const res = await fetch('/api/messages/' + encodeURIComponent(id) + '/pin', {
+      method: pin ? 'POST' : 'DELETE', headers: headers(),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      alert((pin ? 'Pin' : 'Unpin') + ' failed: ' + (err.message || err.error || res.statusText));
+      return;
+    }
+    // The broadcast repaints the message everywhere, including here; the pins panel is this
+    // client's own view of the list and has to be told separately.
+    refreshPins();
+  }
 
   // ---------- Reactions ----------
   const renderReactionTray = (groups) => {
@@ -2174,9 +2445,7 @@ presenceMenu.init();
 
   const attachActions = (li) => {
     if (!li || li.querySelector('.message-actions')) return;
-    const author = li.dataset.author;
-    const hasBody = !!(li.dataset.bodyMarkdown && li.dataset.bodyMarkdown.length > 0);
-    li.appendChild(buildActions(author, hasBody));
+    li.appendChild(buildActions(li));
   };
 
   const buildAttachmentLink = (a) => {
@@ -2386,6 +2655,10 @@ presenceMenu.init();
     const prevBody = li.dataset.bodyMarkdown || '';
     const newBody = msg.bodyMarkdown || '';
     const isEdit = newBody !== prevBody;
+    // Somebody else pinned or unpinned this: our copy of the pin list is now wrong, and the header
+    // badge with it. Checked here because the broadcast carries no "what changed" — an `updated`
+    // frame is the same frame whether it followed a reaction, an edit or a pin.
+    if ((li.dataset.pinned === 'true') !== !!msg.pinnedAt) refreshPins();
     const right = li.querySelector(':scope > div');
     if (!right) return;
     // If the author has an edit form open and this update is only a reaction/attachment/poll
@@ -2396,6 +2669,11 @@ presenceMenu.init();
       if (msg.poll) right.appendChild(renderPollWidget(msg.poll));
       if (msg.attachments && msg.attachments.length) right.appendChild(renderAttachmentTray(msg.attachments));
       if (msg.reactions && msg.reactions.length) right.appendChild(renderReactionTray(msg.reactions));
+      // Someone else pinning this message while its author has the edit box open is not a reason
+      // to lose their draft, but it is still a reason to show the marker.
+      applyPinFlag(li, msg.pinnedAt);
+      li.querySelector('.message-actions')?.remove();
+      attachActions(li);
       positionDayDividers();
       return;
     }
@@ -2429,6 +2707,9 @@ presenceMenu.init();
     if (msg.reactions && msg.reactions.length) {
       right.appendChild(renderReactionTray(msg.reactions));
     }
+    // Pin state before the toolbar is rebuilt — buildActions reads data-pinned to decide whether
+    // the overflow offers Pin or Unpin, so the order here is not incidental.
+    applyPinFlag(li, msg.pinnedAt);
     // Refresh action toolbar so edit visibility tracks the new body
     li.querySelector('.message-actions')?.remove();
     attachActions(li);
@@ -2479,12 +2760,21 @@ presenceMenu.init();
     const li = btn.closest('li.message');
     if (!li) return;
     const id = li.dataset.id;
+    if (btn.dataset.action === 'more') {
+      e.stopPropagation();
+      const alreadyOpen = btn.getAttribute('aria-expanded') === 'true';
+      closeOverflowMenu();
+      if (!alreadyOpen) openOverflowMenu(btn, li);
+      return;
+    }
     if (btn.dataset.action === 'edit') startEdit(li);
     else if (btn.dataset.action === 'delete') doDelete(id);
     else if (btn.dataset.action === 'reply') openThread(id);
     else if (btn.dataset.action === 'react') {
       openEmojiPicker(btn, (emoji) => toggleReaction(li.dataset.id, emoji, false));
     }
+    else if (btn.dataset.action === 'pin') togglePin(id, true);
+    else if (btn.dataset.action === 'unpin') togglePin(id, false);
     else if (btn.dataset.action === 'permalink') copyPermalink(li);
   };
   if (messagesEl) {

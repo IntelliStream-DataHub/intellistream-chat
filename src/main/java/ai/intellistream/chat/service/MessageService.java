@@ -272,28 +272,65 @@ public class MessageService {
     // findById: it filters soft-deleted rows, so a removed message is "not found" to pinning,
     // replying, thread reads and deletion alike, instead of only being hidden from the feed.
 
+    /**
+     * Pin a message to its channel. <b>Any member may pin</b>, which is a widening of what this
+     * method used to require ({@code requireAdmin}).
+     *
+     * <p>Slack draws the line here and it is the right one for a tool that trusts the people using
+     * it: a pin is the channel's "read this first", and the person who knows which message that is
+     * is usually the person who just read it, not whoever happens to hold the admin role. The cost
+     * of being wrong is one click to undo — an unpin is as available as the pin, to the same people
+     * — which is not the shape of a decision worth gating. Admin-only pinning has the failure mode
+     * every unnecessary permission has: the useful thing does not happen at all.
+     *
+     * <p>{@code requireWriteAccess}, not {@code requireMember}, because pinning writes to the
+     * channel: it changes what the channel says about itself to everybody who reads it. That also
+     * makes it refuse on an archived channel for free, which is right — an archive is a record, and
+     * re-curating a record is exactly the sort of change archiving exists to stop.
+     */
     @Transactional
     public Message pin(Long messageId, User actor) {
         var message = messageRepository.findByIdWithChannelAndAuthor(messageId)
                 .orElseThrow(() -> new ai.intellistream.chat.security.ResourceNotFoundException("Message not found: " + messageId));
-        channelService.requireAdmin(message.getChannel(), actor);
+        channelService.requireWriteAccess(message.getChannel(), actor);
+        if (message.isThreadReply()) {
+            // A pinned reply has no home in the list: the pins panel links into the channel feed,
+            // and a reply is not in it. Pin the parent, which is what someone means anyway.
+            throw new ai.intellistream.chat.security.PublicBadRequestException(
+                    "Thread replies can't be pinned — pin the message that starts the thread.");
+        }
         message.pin(actor);
         return message;
     }
 
+    /** Unpin. Same bar as {@link #pin}: whoever may pin may unpin, including someone else's pin. */
     @Transactional
     public Message unpin(Long messageId, User actor) {
         var message = messageRepository.findByIdWithChannelAndAuthor(messageId)
                 .orElseThrow(() -> new ai.intellistream.chat.security.ResourceNotFoundException("Message not found: " + messageId));
-        channelService.requireAdmin(message.getChannel(), actor);
+        channelService.requireWriteAccess(message.getChannel(), actor);
         message.unpin();
         return message;
     }
 
+    /**
+     * The channel's pins, most recently pinned first.
+     *
+     * <p>{@code requireMember} — the read check — so a public channel's pins are visible to anyone
+     * who can read the channel, member or not. Pins belong to the channel, not to its membership
+     * list, and a "read this first" nobody can read before joining is the wrong way round.
+     */
     @Transactional(readOnly = true)
     public List<Message> pinned(Channel channel, User viewer) {
         channelService.requireMember(channel, viewer);
         return messageRepository.findByChannelAndPinnedAtIsNotNullOrderByPinnedAtDesc(channel);
+    }
+
+    /** How many pins the channel has — the header badge, without shipping the bodies. */
+    @Transactional(readOnly = true)
+    public long pinnedCount(Channel channel, User viewer) {
+        channelService.requireMember(channel, viewer);
+        return messageRepository.countByChannelAndPinnedAtIsNotNull(channel);
     }
 
     @Transactional

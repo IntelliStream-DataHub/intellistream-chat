@@ -178,6 +178,23 @@
                   d="M8.625 12a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 0 1-2.555-.337A5.972 5.972 0 0 1 5.41 20.97a5.969 5.969 0 0 1-.474-.065 4.48 4.48 0 0 0 .978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25Z"/>
         </symbol>
 
+        <!-- Pushpin (pin a message to its channel). Drawn here rather than lifted from Heroicons,
+             which has no pushpin — only map-pin, which means "a place" and would read as a location
+             marker on a message. Same construction rules as the rest of the sheet (24×24, 1.5
+             stroke, round caps and joins) so it sits at the same weight beside them. -->
+        <symbol id="icon-pin" viewBox="0 0 24 24">
+            <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+                  d="M8.25 3.75h7.5M10.5 3.75v6.75l-3 3.75h9l-3-3.75V3.75M12 14.25v6"/>
+        </symbol>
+
+        <!-- Three dots (overflow — "more actions"). Circles rather than a stroked path, matching
+             #icon-list's bullets, so the dots are the same weight as that icon's at 16px. -->
+        <symbol id="icon-dots" viewBox="0 0 24 24">
+            <circle fill="currentColor" cx="5.5" cy="12" r="1.6"/>
+            <circle fill="currentColor" cx="12" cy="12" r="1.6"/>
+            <circle fill="currentColor" cx="18.5" cy="12" r="1.6"/>
+        </symbol>
+
         <!-- Arrow out of a box (open in new tab) -->
         <symbol id="icon-external" viewBox="0 0 24 24">
             <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
