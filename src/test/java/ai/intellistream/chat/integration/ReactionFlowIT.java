@@ -127,8 +127,8 @@ class ReactionFlowIT {
         var room = channels.create("r-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice);
         channels.join(room, bob);
         channels.join(room, carol);
-        // bob authors so the other two are free to react and the `mine` assertions stay clean
-        // from alice's POV (authors can't react to their own messages).
+        // bob authors, so alice and carol are the only reactors and the `mine` assertions below
+        // read from alice's point of view without the author's own reaction in the counts.
         var msg = messages.post(room, bob, "hi");
         em.flush();
 
@@ -247,17 +247,28 @@ class ReactionFlowIT {
         assertThat(reactionRepo.findById(reactionId)).isEmpty();
     }
 
+    /**
+     * Inverted, deliberately. This test used to assert that the author was refused, on the stated
+     * grounds that the refusal matched Slack and Mattermost. It does not — both products allow it,
+     * and so does this one now. Kept rather than deleted because the assertion is what pins the
+     * behaviour down: the author's own reaction is a real row, counted, and {@code mine} to them.
+     */
     @Test
-    void authorCannotReactToOwnMessage() {
+    void authorCanReactToOwnMessage() {
         var alice = newUser("alice");
         var msg = messages.post(
                 channels.create("r-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice),
                 alice, "hi");
         em.flush();
 
-        assertThatThrownBy(() -> reactions.addReaction(msg.getId(), alice, "👍"))
-                .isInstanceOf(AccessDeniedException.class);
-        // Nothing was persisted by the rejected call.
-        assertThat(reactions.groupingsFor(msg, alice)).isEmpty();
+        reactions.addReaction(msg.getId(), alice, "✅");
+        em.flush();
+
+        var groups = reactions.groupingsFor(msg, alice);
+        assertThat(groups).hasSize(1);
+        assertThat(groups.get(0).emoji()).isEqualTo("✅");
+        assertThat(groups.get(0).count()).isEqualTo(1);
+        assertThat(groups.get(0).mine()).isTrue();
+        assertThat(groups.get(0).usernames()).containsExactly(alice.getUsername());
     }
 }

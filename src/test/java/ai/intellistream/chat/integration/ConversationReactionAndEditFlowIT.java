@@ -150,17 +150,25 @@ class ConversationReactionAndEditFlowIT {
                 .contains("message-updated");
     }
 
+    /**
+     * Inverted along with its channel sibling in {@code ReactionFlowIT}. The rule it used to assert
+     * — author may not react to their own message — was never Slack's or Mattermost's, and it read
+     * worst of all in a DM, where half the messages are yours and the other person may not be
+     * looking.
+     */
     @Test
-    void authorCannotReactToOwnMessage() {
+    void authorCanReactToOwnMessage() {
         var alice = newUser("alice-self-react");
         var bob   = newUser("bob-self-react");
         var conv  = conversations.directBetween(alice, bob);
         var msg   = conversations.post(conv, alice, "hi");
 
         when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
-        assertThatThrownBy(() -> controller.addReaction(msg.getId(),
-                new ReactionRequest("👍"), mock(Principal.class)))
-                .isInstanceOf(AccessDeniedException.class);
+        var after = controller.addReaction(msg.getId(), new ReactionRequest("✅"), mock(Principal.class));
+        assertThat(after.reactions()).hasSize(1);
+        assertThat(after.reactions().get(0).emoji()).isEqualTo("✅");
+        assertThat(after.reactions().get(0).count()).isEqualTo(1);
+        assertThat(after.reactions().get(0).mine()).isTrue();
     }
 
     @Test

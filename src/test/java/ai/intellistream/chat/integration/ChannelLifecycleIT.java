@@ -221,7 +221,8 @@ class ChannelLifecycleIT {
         // Editing an existing message.
         assertThatThrownBy(() -> messages.edit(existing.getId(), alice, "rewritten"))
                 .isInstanceOf(AccessDeniedException.class);
-        // Reacting.
+        // Reacting. alice is this message's author, and reacting to your own message is allowed
+        // now \u2014 so this assertion rests on the archive rule alone, which is what it is for.
         assertThatThrownBy(() -> reactions.addReaction(existing.getId(), alice, "\uD83D\uDC4D"))
                 .isInstanceOf(AccessDeniedException.class);
         // Inviting — a member's write, which is why it goes through requireWriteAccess and not

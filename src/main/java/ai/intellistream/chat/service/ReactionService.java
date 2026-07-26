@@ -22,7 +22,6 @@ import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.repository.MessageReactionRepository;
 import ai.intellistream.chat.repository.MessageRepository;
 import ai.intellistream.chat.web.dto.ReactionGroupDto;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -58,10 +57,11 @@ public class ReactionService {
     public Message addReaction(Long messageId, User actor, String emoji) {
         var message = requireMessage(messageId);
         channelService.requireWriteAccess(message.getChannel(), actor);
-        // Authors can't react to their own messages — matches Slack/Mattermost.
-        if (message.getAuthor() != null && actor.getId().equals(message.getAuthor().getId())) {
-            throw new AccessDeniedException("You cannot react to your own message.");
-        }
+        // Reacting to your own message is allowed. It used to be refused here, with a comment
+        // claiming the refusal matched Slack and Mattermost; neither product has ever had that
+        // rule. Both let an author react to their own post, and people use it deliberately —
+        // ✅ on your own announcement to say it is done, the first 👍 on a poll-shaped question
+        // so the next reader has something to click rather than a blank row to start.
         var trimmed = sanitize(emoji);
         // Insert-or-ignore (N1): idempotent on a concurrent identical reaction, and ON CONFLICT
         // keeps the transaction usable (the old saveAndFlush + catch aborted the tx on Postgres).

@@ -218,10 +218,8 @@ class FivePersonThreadIT {
                 messages.replyInThread(parent.getId(), eve,   "4"),
                 messages.replyInThread(parent.getId(), alice, "5"));
         // Spice each reply with a reaction to make sure the cascade gets the dependents too.
-        // Authors can't react to their own messages, so swap in bob when alice authored.
         for (var r : replies) {
-            var reactor = r.getAuthor().getId().equals(alice.getId()) ? bob : alice;
-            reactions.addReaction(r.getId(), reactor, "👀");
+            reactions.addReaction(r.getId(), alice, "👀");
         }
         em.flush();
 

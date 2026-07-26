@@ -22,7 +22,6 @@ import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.repository.ConversationMessageRepository;
 import ai.intellistream.chat.repository.ConversationReactionRepository;
 import ai.intellistream.chat.web.dto.ReactionGroupDto;
-import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -59,9 +58,9 @@ public class ConversationReactionService {
     public ConversationMessage addReaction(Long messageId, User actor, String emoji) {
         var message = requireMessage(messageId);
         conversationService.requireMember(message.getConversation(), actor);
-        if (message.getAuthor() != null && actor.getId().equals(message.getAuthor().getId())) {
-            throw new AccessDeniedException("You cannot react to your own message.");
-        }
+        // Self-reactions are allowed, exactly as in a channel — see ReactionService#addReaction
+        // for why the rule that used to live here was wrong. The two paths have to agree: a DM is
+        // where you are most likely to be the only person who could react at all.
         var trimmed = sanitize(emoji);
         // Insert-or-ignore (N1): idempotent on a concurrent identical reaction, tx stays usable.
         reactionRepository.insertReactionIgnore(message.getId(), actor.getId(), trimmed);

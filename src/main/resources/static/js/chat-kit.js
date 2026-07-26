@@ -485,8 +485,10 @@
     handle.className = 'action-sheet-handle';
     sheetEl.append(handle);
 
-    // Quick-reaction strip — only when this message is reactable (the page adds
-    // a react button; own messages don't get one) and a toggler is registered.
+    // Quick-reaction strip — only when this message is reactable (the page adds a react
+    // button for anything the viewer may react to, own messages included) and a toggler
+    // is registered. Still a presence test rather than an assumption: a page that renders
+    // messages without a react action gets a sheet without an emoji strip.
     if (quickReactionFn && li.dataset.id
         && li.querySelector('.msg-action[data-action="react"]')) {
       const strip = document.createElement('div');

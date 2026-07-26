@@ -2104,8 +2104,6 @@ presenceMenu.init();
     const canDelete = isMine || isAdmin;
     const actions = document.createElement('div');
     actions.className = 'message-actions';
-    // Authors can't react to their own messages — server enforces it; hide the button so users
-    // don't get a 403 toast on click.
     // Icons come from the sprite in fragments/icon-sprite.html rather than being emoji: emoji
     // render as full-colour glyphs from whatever font the OS picked, so they ignore the theme,
     // change shape per platform, and can't be dimmed to --muted the way the rest of the row is.
@@ -2116,9 +2114,9 @@ presenceMenu.init();
         + ' aria-label="' + title + '"><svg class="icon" aria-hidden="true"><use href="#icon-'
         + icon + '"/></svg></button>';
     let html = '';
-    if (!isMine) {
-      html += action('react', 'face-smile', 'Add reaction');
-    }
+    // React is offered on every message including your own. The server allows it; a ✅ on your
+    // own announcement or the first 👍 under your own question is a normal thing to want.
+    html += action('react', 'face-smile', 'Add reaction');
     html += action('reply', 'reply', 'Reply in thread');
     html += action('permalink', 'link', 'Copy link to message');
     if (isMine && hasBody) {
