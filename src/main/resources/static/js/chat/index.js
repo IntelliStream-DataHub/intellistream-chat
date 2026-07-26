@@ -1836,66 +1836,10 @@ presenceMenu.init();
   hydratePollPlaceholders();
 
   // ---------- Image lightbox ----------
-  // One delegate covers both server-rendered messages (Thymeleaf in channels.html) and
-  // JS-rendered ones; otherwise the historical-message links would just download via href.
-  document.addEventListener('click', (e) => {
-    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-    const link = e.target.closest('a.attachment-image');
-    if (!link) return;
-    e.preventDefault();
-    const img = link.querySelector('img');
-    openLightbox(link.getAttribute('href'), img?.alt || link.title || '');
-  });
-
-  let lightboxEl = null;
-  const ensureLightbox = () => {
-    if (lightboxEl) return lightboxEl;
-    lightboxEl = document.createElement('div');
-    lightboxEl.className = 'lightbox';
-    lightboxEl.hidden = true;
-    lightboxEl.innerHTML =
-        '<div class="lightbox-toolbar">' +
-          '<a class="lightbox-btn" data-action="download" title="Download" aria-label="Download">' +
-            '<svg class="icon"><use href="#icon-download"/></svg>' +
-          '</a>' +
-          '<a class="lightbox-btn" data-action="open" target="_blank" rel="noopener" title="Open in new tab" aria-label="Open in new tab">' +
-            '<svg class="icon"><use href="#icon-external"/></svg>' +
-          '</a>' +
-          '<button type="button" class="lightbox-btn" data-action="close" title="Close (Esc)" aria-label="Close">' +
-            '<svg class="icon"><use href="#icon-close"/></svg>' +
-          '</button>' +
-        '</div>' +
-        '<img class="lightbox-img" alt=""/>';
-    document.body.appendChild(lightboxEl);
-    lightboxEl.addEventListener('click', (e) => {
-      if (e.target === lightboxEl) closeLightbox();
-    });
-    lightboxEl.querySelector('[data-action="close"]').addEventListener('click', closeLightbox);
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && lightboxEl && !lightboxEl.hidden) closeLightbox();
-    });
-    return lightboxEl;
-  };
-  const openLightbox = (url, filename) => {
-    const el = ensureLightbox();
-    el.querySelector('.lightbox-img').src = url;
-    el.querySelector('.lightbox-img').alt = filename || '';
-    const dl = el.querySelector('[data-action="download"]');
-    dl.href = url;
-    dl.setAttribute('download', filename || '');
-    // The download endpoint returns Content-Disposition: attachment by default, which would
-    // trigger a download instead of rendering in the new tab. Ask for inline disposition here.
-    const sep = url.indexOf('?') === -1 ? '?' : '&';
-    el.querySelector('[data-action="open"]').href = url + sep + 'disposition=inline';
-    el.hidden = false;
-    document.body.classList.add('lightbox-open');
-  };
-  const closeLightbox = () => {
-    if (!lightboxEl) return;
-    lightboxEl.hidden = true;
-    lightboxEl.querySelector('.lightbox-img').src = '';
-    document.body.classList.remove('lightbox-open');
-  };
+  // Lives in chat-kit.js: the conversation page needs the identical one, and it used to make do
+  // with window.open — a new browser tab instead of the in-page viewer, which is the difference
+  // people notice when they say attachments "behave differently" in a DM.
+  window.ChatKit.wireImageLightbox();
 
   const replaceMessageDom = (msg) => {
     const li = findMessageEl(msg.id);

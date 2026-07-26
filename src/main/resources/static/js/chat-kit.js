@@ -629,6 +629,80 @@
     return el;
   };
 
+  // ---------- Image lightbox ----------
+  // Clicking an image attachment opens it in place, with download / open-in-tab / close, rather
+  // than navigating away. Shared because both pages have image attachments and only one of them
+  // had this: the conversation page opened a new browser tab instead, which is a different
+  // product decision made by accident, in a copy nobody compared.
+  //
+  // Idempotent — the channel page calls it once and so does the conversation page, and a second
+  // call must not attach a second delegate.
+  let lightboxWired = false;
+  const wireImageLightbox = () => {
+    if (lightboxWired) return;
+    lightboxWired = true;
+  // One delegate covers both server-rendered messages (Thymeleaf in channels.html) and
+  // JS-rendered ones; otherwise the historical-message links would just download via href.
+  document.addEventListener('click', (e) => {
+    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    const link = e.target.closest('a.attachment-image');
+    if (!link) return;
+    e.preventDefault();
+    const img = link.querySelector('img');
+    openLightbox(link.getAttribute('href'), img?.alt || link.title || '');
+  });
+
+  let lightboxEl = null;
+  const ensureLightbox = () => {
+    if (lightboxEl) return lightboxEl;
+    lightboxEl = document.createElement('div');
+    lightboxEl.className = 'lightbox';
+    lightboxEl.hidden = true;
+    lightboxEl.innerHTML =
+        '<div class="lightbox-toolbar">' +
+          '<a class="lightbox-btn" data-action="download" title="Download" aria-label="Download">' +
+            '<svg class="icon"><use href="#icon-download"/></svg>' +
+          '</a>' +
+          '<a class="lightbox-btn" data-action="open" target="_blank" rel="noopener" title="Open in new tab" aria-label="Open in new tab">' +
+            '<svg class="icon"><use href="#icon-external"/></svg>' +
+          '</a>' +
+          '<button type="button" class="lightbox-btn" data-action="close" title="Close (Esc)" aria-label="Close">' +
+            '<svg class="icon"><use href="#icon-close"/></svg>' +
+          '</button>' +
+        '</div>' +
+        '<img class="lightbox-img" alt=""/>';
+    document.body.appendChild(lightboxEl);
+    lightboxEl.addEventListener('click', (e) => {
+      if (e.target === lightboxEl) closeLightbox();
+    });
+    lightboxEl.querySelector('[data-action="close"]').addEventListener('click', closeLightbox);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && lightboxEl && !lightboxEl.hidden) closeLightbox();
+    });
+    return lightboxEl;
+  };
+  const openLightbox = (url, filename) => {
+    const el = ensureLightbox();
+    el.querySelector('.lightbox-img').src = url;
+    el.querySelector('.lightbox-img').alt = filename || '';
+    const dl = el.querySelector('[data-action="download"]');
+    dl.href = url;
+    dl.setAttribute('download', filename || '');
+    // The download endpoint returns Content-Disposition: attachment by default, which would
+    // trigger a download instead of rendering in the new tab. Ask for inline disposition here.
+    const sep = url.indexOf('?') === -1 ? '?' : '&';
+    el.querySelector('[data-action="open"]').href = url + sep + 'disposition=inline';
+    el.hidden = false;
+    document.body.classList.add('lightbox-open');
+  };
+  const closeLightbox = () => {
+    if (!lightboxEl) return;
+    lightboxEl.hidden = true;
+    lightboxEl.querySelector('.lightbox-img').src = '';
+    document.body.classList.remove('lightbox-open');
+  };
+  };
+
   // ---------- Popover ----------
   // Anchored dialog hung off a button, for occasional actions that would otherwise sit in the
   // sidebar flow pushing the lists down and competing with them for attention.
@@ -763,6 +837,7 @@
   // ---------- Public surface ----------
   window.ChatKit = {
     wirePopover,
+    wireImageLightbox,
     buildRemovedAttachmentEl,
     hashCode,
     avatarColor,

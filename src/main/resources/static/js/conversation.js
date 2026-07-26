@@ -375,16 +375,9 @@
     for (const a of attachments) tray.append(buildAttachmentLink(a));
     return tray;
   }
-  // Minimal lightbox delegate so DM image attachments open full-screen on click.
-  document.addEventListener('click', (e) => {
-    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-    const link = e.target.closest('a.attachment-image');
-    if (!link) return;
-    e.preventDefault();
-    const url = link.getAttribute('href');
-    const sep = url.indexOf('?') === -1 ? '?' : '&';
-    window.open(url + sep + 'disposition=inline', '_blank', 'noopener');
-  });
+  // The same in-page lightbox the channel page uses. This was a window.open to a new browser
+  // tab — the "minimal" version — which is why image attachments felt different in a DM.
+  window.ChatKit.wireImageLightbox();
 
   // ---------- STOMP connection ----------
   const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
