@@ -1,0 +1,217 @@
+<!--
+  Copyright 2026 IntelliStream AS
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+    <meta name="theme-color" content="#1e325c"/>
+    <title th:text="${#strings.isEmpty(query) ? 'Search · ' + appTitle : 'Search: ' + query + ' · ' + appTitle}">Search · IntelliStream Chat</title>
+    <link rel="icon" th:href="${appFaviconUrl}"/>
+    <th:block th:replace="~{fragments/assets :: css('app')}"/>
+    <meta name="_csrf" th:content="${_csrf != null ? _csrf.token : ''}"/>
+    <meta name="_csrf_header" th:content="${_csrf != null ? _csrf.headerName : ''}"/>
+    <meta name="me-is-workspace-admin" sec:authorize="hasRole('ADMIN')" content="true"/>
+    <meta name="me-username" th:content="${me.username}"/>
+    <meta name="me-display" th:content="${me.displayName}"/>
+</head>
+<body class="app search-page" th:attr="data-theme=${me.theme}">
+
+<th:block th:replace="~{fragments/icon-sprite :: sprite}"/>
+<th:block th:replace="~{fragments/topbar :: topbar}"></th:block>
+
+<!--/*
+  No sidebar here, deliberately. Results get the full width — the snippet is the part you read, and
+  a two-line excerpt in a narrow column is the thing that makes result lists useless. Getting back
+  is the one affordance a full-page result set owes, and it is the link below plus the browser's own
+  Back button, which works because this is a plain navigation with nothing to lose.
+*/-->
+<main class="search-main">
+
+    <nav class="search-return">
+        <a th:if="${originChannel != null}"
+           th:href="@{'/channels/' + ${originChannel.id}}" class="search-return-link">
+            <svg class="icon icon-sm" aria-hidden="true"><use href="#icon-arrow-left"/></svg>
+            <span th:text="'Back to #' + ${originChannel.name}">Back to #general</span>
+        </a>
+        <a th:if="${originChannel == null and originConversation != null}"
+           th:href="@{'/conversations/' + ${originConversation.id}}" class="search-return-link">
+            <svg class="icon icon-sm" aria-hidden="true"><use href="#icon-arrow-left"/></svg>
+            <span>Back to the conversation</span>
+        </a>
+        <a th:if="${originChannel == null and originConversation == null}"
+           th:href="@{/channels}" class="search-return-link">
+            <svg class="icon icon-sm" aria-hidden="true"><use href="#icon-arrow-left"/></svg>
+            <span>Back to chat</span>
+        </a>
+    </nav>
+
+    <h1 class="search-title">Search</h1>
+
+    <!--/* The scope control. A GET form so a result set is a URL you can bookmark, send to a
+           colleague or reload — and so it works with JavaScript off, submitted by the button.
+           search-page.js only makes the select submit on change, which is a nicety and not the
+           mechanism. */-->
+    <form class="search-scope-form" method="get" th:action="@{/search}">
+        <label class="search-scope-field">
+            <span class="search-scope-label">Search for</span>
+            <input type="search" name="q" th:value="${query}" minlength="2" required
+                   autocomplete="off" placeholder="Words, from:someone, @someone, in:#channel"/>
+        </label>
+        <label class="search-scope-field">
+            <span class="search-scope-label">In</span>
+            <select name="scope" id="search-scope-select">
+                <option th:if="${originChannel != null}" value="channel"
+                        th:selected="${scope == 'channel'}"
+                        th:text="'#' + ${originChannel.name}">#general</option>
+                <option th:if="${originConversation != null}" value="conversation"
+                        th:selected="${scope == 'conversation'}">This conversation</option>
+                <option value="accessible" th:selected="${scope == 'accessible'}">Everything I can read</option>
+                <!--/* Named for what it does rather than "everywhere". Public channels are already
+                       in the scope above, so the only thing this adds is private channels the admin
+                       was never invited to — and a menu item should say that out loud rather than
+                       let it be discovered. */-->
+                <option th:if="${canSearchEverywhere}" value="all" th:selected="${scope == 'all'}">
+                    All channels, including ones I was not invited to
+                </option>
+            </select>
+        </label>
+        <input type="hidden" name="channelId" th:if="${originChannel != null}"
+               th:value="${originChannel.id}"/>
+        <input type="hidden" name="conversationId" th:if="${originConversation != null}"
+               th:value="${originConversation.id}"/>
+        <button type="submit">Search</button>
+    </form>
+
+    <p class="search-error" th:if="${error != null}" th:text="${error}">Something was wrong with that query.</p>
+
+    <!--/* The count. "About" only when Lucene stopped counting: it skips blocks of documents that
+           cannot reach the top of the ranking once it has seen a thousand matches, which is most of
+           why search is fast, so past that point the honest answer is a floor and not a number. */-->
+    <p class="search-count" th:if="${error == null and !#strings.isEmpty(query)}">
+        <span th:if="${results.total == 0}">No results for
+            <strong th:text="${query}">query</strong>.</span>
+        <span th:if="${results.total > 0 and results.totalIsLowerBound}">More than
+            <strong th:text="${#numbers.formatInteger(results.total, 1, 'COMMA')}">1,000</strong>
+            results for <strong th:text="${query}">query</strong> — showing
+            <span th:text="${results.firstResultNumber} + '–' + ${results.lastResultNumber}">1–20</span>.</span>
+        <span th:if="${results.total > 0 and !results.totalIsLowerBound}">
+            <strong th:text="${#numbers.formatInteger(results.total, 1, 'COMMA')}">240</strong>
+            <span th:text="${results.total == 1 ? 'result' : 'results'}">results</span>
+            for <strong th:text="${query}">query</strong>
+            <span th:if="${results.total > results.pageSize}"
+                  th:text="'— showing ' + ${results.firstResultNumber} + '–' + ${results.lastResultNumber}">— showing 1–20</span>.</span>
+    </p>
+
+    <ol class="search-results" th:if="${!hits.isEmpty()}">
+        <li class="search-result" th:each="hit : ${hits}">
+            <a class="search-result-link" th:href="@{${hit.url}}">
+                <div class="search-result-meta">
+                    <span class="avatar" th:data-author="${hit.authorUsername}">
+                        <img th:if="${hit.authorHasAvatar}" class="avatar-image" alt=""
+                             th:src="@{/api/users/{u}/avatar(u=${hit.authorUsername},v=${hit.authorAvatarVersion})}"/>
+                        <span class="avatar-letter"
+                              th:text="${#strings.toUpperCase(#strings.substring(hit.authorDisplayName ?: hit.authorUsername, 0, 1))}">U</span>
+                    </span>
+                    <span class="search-result-author"
+                          th:text="${hit.authorDisplayName ?: hit.authorUsername}">user</span>
+                    <span class="search-result-where" th:if="${hit.scope == 'channel'}"
+                          th:text="'#' + ${hit.channelName}">#general</span>
+                    <span class="search-result-where" th:if="${hit.scope == 'conversation'}"
+                          th:text="${hit.conversationTitle} ?: (${hit.conversationType == 'DIRECT'} ? 'Direct message' : 'Group')">Direct message</span>
+                    <!--/* Search covers every public channel, so a hit can come from a room the
+                           viewer has never opened. The page it opens is readable but has no
+                           composer until they join, and that flow already exists — this tag is what
+                           turns it from a surprise into an expectation. */-->
+                    <span class="search-result-tag" th:unless="${hit.channelJoined}">not joined</span>
+                    <time class="search-result-time"
+                          th:datetime="${hit.createdAt}"
+                          th:text="${#temporals.format(hit.createdAt, 'd MMM yyyy, HH:mm')}">date</time>
+                </div>
+                <!--/* bodySnippet is the Lucene-highlighted excerpt: the body is HTML-escaped before
+                       the matched terms are wrapped in <mark>, so utext is safe here. Falls back to
+                       bodyHtml, which jsoup has already sanitized. */-->
+                <div class="search-result-snippet"
+                     th:utext="${hit.bodySnippet} ?: ${hit.bodyHtml}">snippet</div>
+            </a>
+        </li>
+    </ol>
+
+    <nav class="search-pager" th:if="${results.hasPrevious or results.hasNext}">
+        <a class="search-pager-link" th:if="${results.hasPrevious}"
+           th:href="@{/search(q=${query},scope=${scope},channelId=${originChannel?.id},conversationId=${originConversation?.id},page=${results.page - 1})}">
+            <svg class="icon icon-sm" aria-hidden="true"><use href="#icon-arrow-left"/></svg>
+            <span>Previous</span>
+        </a>
+        <span class="search-pager-position" th:text="'Page ' + ${results.page + 1}">Page 1</span>
+        <a class="search-pager-link" th:if="${results.hasNext}"
+           th:href="@{/search(q=${query},scope=${scope},channelId=${originChannel?.id},conversationId=${originConversation?.id},page=${results.page + 1})}">
+            <span>Next</span>
+            <svg class="icon icon-sm" aria-hidden="true"><use href="#icon-arrow-right"/></svg>
+        </a>
+    </nav>
+
+    <!--/* Said out loud rather than just stopping. A pager that runs out while the count is still
+           climbing looks broken; "narrow it down" is an instruction. */-->
+    <p class="search-pager-note" th:if="${results.windowExhausted}">
+        That is as far as paging goes. Add a word, a <code>from:</code> or an <code>in:#channel</code>
+        to narrow it down.
+    </p>
+
+    <!--/* The empty state carries the syntax, because it is the only screen where somebody is both
+           looking at search and not getting what they wanted. It doubles as the reference for the
+           whole grammar — there is nowhere else in the product a user could read it. */-->
+    <section class="search-help" th:if="${hits.isEmpty()}">
+        <h2 th:text="${#strings.isEmpty(query) ? 'What you can search for' : 'Things to try'}">What you can search for</h2>
+        <dl class="search-help-list">
+            <div class="search-help-row">
+                <dt><button type="button" class="search-help-example" data-example="deploy failed">deploy failed</button></dt>
+                <dd>Both words, anywhere you can read.</dd>
+            </div>
+            <div class="search-help-row">
+                <dt><button type="button" class="search-help-example" data-example="&quot;deploy failed&quot;">"deploy failed"</button></dt>
+                <dd>That exact phrase.</dd>
+            </div>
+            <div class="search-help-row">
+                <dt><button type="button" class="search-help-example" data-example="from:">from:someone</button></dt>
+                <dd>Messages that person wrote.</dd>
+            </div>
+            <div class="search-help-row">
+                <dt><button type="button" class="search-help-example" data-example="@">@someone</button></dt>
+                <dd>Messages that <em>mention</em> them — where you were pinged, not what they said.</dd>
+            </div>
+            <div class="search-help-row">
+                <dt><button type="button" class="search-help-example" data-example="in:#">in:#channel</button></dt>
+                <dd>Only that channel.</dd>
+            </div>
+            <div class="search-help-row">
+                <dt><button type="button" class="search-help-example" data-example="release -draft">release -draft</button></dt>
+                <dd>Has "release", does not have "draft".</dd>
+            </div>
+        </dl>
+        <p class="search-help-note">
+            Two characters minimum. Small typos still match. <code>before:</code>, <code>after:</code>
+            and <code>has:</code> are not supported yet, and are searched for as ordinary words
+            rather than quietly ignored.
+        </p>
+    </section>
+
+</main>
+
+<th:block th:replace="~{fragments/assets :: js('search')}"/>
+<script type="module" th:src="@{/js/chat/search-page.js}" defer></script>
+</body>
+</html>

@@ -58,8 +58,19 @@ public class LuceneBootstrap {
     @EventListener(ApplicationReadyEvent.class)
     @Transactional(readOnly = true)
     public void rebuildOrReconcile() {
-        if (messageIndex.isEmpty()) {
-            if (messageRepository.count() > 0) {
+        // An index written by an older build has documents missing a field the current queries
+        // read (see MessageIndexService.SCHEMA_VERSION). Reconciling wouldn't touch them — every
+        // id is present, so nothing looks missing or stale — and the result would be a modifier
+        // that works only on messages posted since the deploy. Treat it as a rebuild.
+        var schemaStale = messageIndex.schemaOutdated();
+        if (messageIndex.isEmpty() || schemaStale) {
+            if (schemaStale && !messageIndex.isEmpty()) {
+                log.info("Lucene index predates document schema v{}; rebuilding from Postgres…",
+                        MessageIndexService.SCHEMA_VERSION);
+            }
+            // rebuild() opens with deleteAll(), so it must run even with no channel messages when
+            // the schema is stale — otherwise stale conversation documents would survive it.
+            if (schemaStale || messageRepository.count() > 0) {
                 log.info("Rebuilding Lucene index from the messages table (streaming, {} per page)…", PAGE_SIZE);
                 // Feed rebuild a LAZY iterable that keyset-pages a flat (id, channelId, author, body)
                 // projection — no Message entities, no per-author N+1, and only one page in memory at a
@@ -82,7 +93,14 @@ public class LuceneBootstrap {
         // channels: identical — the index is non-empty, but it holds no conversation documents, so
         // the whole DM corpus backfills on first boot. Steady state: it heals the crash tail, the
         // same way reconcileTail() does for channels.
+        //
+        // It also completes a schema rebuild: rebuild() wiped every conversation document, so all
+        // of them read as missing here and come back carrying the new fields.
         reconcileConversationTail();
+        // Last, and only now. The stamp asserts that every document in the index matches the
+        // current shape, which is only true once both halves have finished. A crash before this
+        // point leaves the old stamp and the next boot repeats the rebuild — the safe way round.
+        messageIndex.markSchemaCurrent();
     }
 
     private void reconcileTail() {

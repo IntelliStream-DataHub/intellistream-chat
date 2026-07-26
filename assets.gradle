@@ -48,6 +48,8 @@ def assetBundles = [
 		[name: 'admin',        type: 'js',  manifest: 'js/admin.manifest.js',        output: 'js/admin.bundle.min.js'],
 		// Per-user file manager (/files).
 		[name: 'files',        type: 'js',  manifest: 'js/files.manifest.js',        output: 'js/files.bundle.min.js'],
+		// Full-page search results (/search) — top-bar chrome only, no message feed.
+		[name: 'search',       type: 'js',  manifest: 'js/search.manifest.js',       output: 'js/search.bundle.min.js'],
 		// Site stylesheet (vendor highlight.js themes stay separate — theme-loader.js picks one
 		// at runtime per user theme).
 		[name: 'app',          type: 'css', manifest: 'css/app.manifest.css',        output: 'css/app.bundle.min.css'],

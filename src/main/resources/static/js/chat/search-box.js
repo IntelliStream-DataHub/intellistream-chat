@@ -15,30 +15,27 @@
  */
 
 /*
- * Live message-search box: debounced query, keyboard-navigable dropdown, clear button.
+ * The message-search box: debounced query, keyboard-navigable dropdown, clear button.
  *
- * Lives in its own module because both the channel page and the direct-message page carry one.
- * It used to be a closure inside chat/index.js, which is why the DM page had no message search
- * at all — the behaviour was reachable from exactly one page, and the fix was either to copy it
- * or to move it. Copies of this much logic drift.
+ * There is one of these per page and it lives in the top bar. There used to be three search inputs
+ * on screen at once — "Search messages…" here, "Search channels…" in the sidebar, "Search this
+ * channel…" in the channel header — with three different meanings and nothing to tell them apart
+ * but their placeholder text. The channel-header box is gone; the sidebar's is a different tool
+ * (find a channel, not a message) and stays.
+ *
+ * Scope is read from the form's own hidden fields rather than passed in, so the dropdown and the
+ * results page the form submits to are searching the same thing by construction. The box's
+ * placeholder names that scope, because a search that silently narrows itself is the same class of
+ * bug as one that silently means something else.
  *
  * Results come back as SearchHitDto: a discriminated `scope` plus a precomputed `url`, so this
  * never has to know how to build a link to a channel message versus a conversation message.
  */
 
-/**
- * @param inputId      id of the <input type="search">
- * @param opts.scopeChannelIdFn  () => channelId, to scope the query to one channel; null = global
- * @param opts.anchorRight       hang the panel off the window's right margin instead of the
- *                               field's left edge. True for narrow fields sitting at the right of
- *                               a header, where left-anchoring runs the panel off-screen.
- */
-export function initSearchBox(inputId, opts = {}) {
+/** @param inputId id of the <input type="search">; it must live inside a form pointing at /search */
+export function initSearchBox(inputId) {
   const input = document.getElementById(inputId);
   if (!input) return;
-
-  const scopeChannelIdFn = opts.scopeChannelIdFn || null;
-  const anchorRight = !!opts.anchorRight;
 
   // channelId → channel name, read from the sidebar so a row can say "#general" without a second
   // round-trip. Only a hint: the server also sends channelName, which is the fallback for a
@@ -73,13 +70,8 @@ export function initSearchBox(inputId, opts = {}) {
     if (!dropdown) return;
     const r = input.getBoundingClientRect();
     dropdown.style.top = (r.bottom + 4) + 'px';
-    if (anchorRight) {
-      dropdown.style.right = '10px';
-      dropdown.style.left = 'auto';
-    } else {
-      dropdown.style.left = r.left + 'px';
-      dropdown.style.right = 'auto';
-    }
+    dropdown.style.left = r.left + 'px';
+    dropdown.style.right = 'auto';
     dropdown.style.minWidth = Math.max(r.width, 320) + 'px';
   };
 
@@ -114,6 +106,25 @@ export function initSearchBox(inputId, opts = {}) {
   });
   syncClear();
 
+  // The scope, straight off the form. channelId / conversationId are rendered by the top-bar
+  // fragment when the page has one, and they say both what to search and where to get back to.
+  // Reading them here instead of taking them as an argument is what keeps the dropdown and the
+  // results page from being able to disagree.
+  const scopeParams = () => {
+    const params = new URLSearchParams();
+    input.form?.querySelectorAll('input[type="hidden"][name]').forEach((el) => {
+      if (el.value) params.set(el.name, el.value);
+    });
+    return params;
+  };
+
+  /** Where "see everything" goes: the server-rendered results page, same query, same scope. */
+  const fullResultsUrl = () => {
+    const params = scopeParams();
+    params.set('q', input.value.trim());
+    return '/search?' + params.toString();
+  };
+
   const render = (items) => {
     close();
     dropdown = document.createElement('div');
@@ -142,12 +153,17 @@ export function initSearchBox(inputId, opts = {}) {
             '<div class="search-dropdown-meta">' +
               '<span class="search-dropdown-author"></span>' +
               '<span class="search-dropdown-channel"></span>' +
+              '<span class="search-dropdown-tag" hidden>not joined</span>' +
               '<time class="search-dropdown-time"></time>' +
             '</div>' +
             '<div class="search-dropdown-snippet"></div>';
         row.querySelector('.search-dropdown-author').textContent =
             m.authorDisplayName || m.authorUsername;
         row.querySelector('.search-dropdown-channel').textContent = label;
+        // Search spans every public channel, so a hit can come from a room the user has never
+        // opened. Saying so here is what stops the read-only page it leads to reading as a bug:
+        // no composer, no membership, and until now nothing that explained either.
+        row.querySelector('.search-dropdown-tag').hidden = m.channelJoined !== false;
         row.querySelector('.search-dropdown-time').textContent =
             new Date(m.createdAt).toLocaleString();
         // bodySnippet is the Lucene-highlighted excerpt with <mark>-wrapped match terms
@@ -163,15 +179,28 @@ export function initSearchBox(inputId, opts = {}) {
         dropdown.appendChild(row);
       });
     }
+    // Always offered, hits or not. The dropdown shows ten results and never said so, which made a
+    // list of ten look like the answer; this is the only thing on screen that admits there may be
+    // more, and it is also the way to a set you can actually review.
+    const all = document.createElement('button');
+    all.type = 'button';
+    all.className = 'search-dropdown-all';
+    all.textContent = 'See all results for “' + input.value.trim() + '”';
+    all.addEventListener('mousedown', (ev) => {
+      ev.preventDefault();
+      navigate(fullResultsUrl());
+    });
+    dropdown.appendChild(all);
     document.body.appendChild(dropdown);
     position();
     activeIndex = -1;
   };
 
   async function fetchResults(q) {
-    const params = new URLSearchParams({ q });
-    const cid = scopeChannelIdFn ? scopeChannelIdFn() : null;
-    if (cid) params.set('channelId', cid);
+    const params = scopeParams();
+    params.set('q', q);
+    // Ten is a taste of the result set, not the result set. The "See all results" row below them
+    // is what admits that, and is why this number no longer has to be a compromise.
     params.set('limit', '10');
     const res = await fetch('/api/search?' + params.toString());
     if (!res.ok) return [];
@@ -214,12 +243,16 @@ export function initSearchBox(inputId, opts = {}) {
       activeIndex = Math.max(activeIndex - 1, 0);
       highlight();
     } else if (e.key === 'Enter') {
+      // Only when the user has arrowed to a row, i.e. has said which result they meant. With no
+      // selection this falls through and the form submits to /search.
+      //
+      // It used to navigate to rows[0] instead: pressing Enter after typing threw you into whatever
+      // Lucene had ranked first — a different channel, scrolled to a message from last March, with
+      // the page you were reading gone and nothing but a "Jump to latest" banner to get out. A
+      // search box must never move the user somewhere they did not choose.
       if (activeIndex >= 0 && rows[activeIndex]) {
         e.preventDefault();
         navigate(rows[activeIndex].dataset.url);
-      } else if (rows.length > 0) {
-        e.preventDefault();
-        navigate(rows[0].dataset.url);
       }
     } else if (e.key === 'Escape') {
       close();

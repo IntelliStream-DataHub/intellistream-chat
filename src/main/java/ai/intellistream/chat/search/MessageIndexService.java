@@ -38,6 +38,7 @@ import org.apache.lucene.search.Query;
 import org.apache.lucene.search.SearcherManager;
 import org.apache.lucene.search.TermInSetQuery;
 import org.apache.lucene.search.TermQuery;
+import org.apache.lucene.search.TotalHits;
 import org.apache.lucene.search.highlight.Highlighter;
 import org.apache.lucene.search.highlight.QueryScorer;
 import org.apache.lucene.search.highlight.SimpleHTMLEncoder;
@@ -75,8 +76,21 @@ import java.util.List;
  *   <li>{@code kind} — StringField, <b>conversation documents only</b>, constant value
  *       {@code "conversation"}.</li>
  *   <li>{@code author} — StringField, lowercased username.</li>
+ *   <li>{@code mentions} — StringField, <b>multi-valued</b>: one value per {@code @handle} the
+ *       body refers to, lowercased (see {@link MentionTokens}). This is what separates
+ *       "written by bob" ({@code from:bob}, the {@code author} field) from "mentions bob"
+ *       ({@code @bob}, this one) — the same token used to mean the former, which is the opposite
+ *       of what it means in Slack.</li>
  *   <li>{@code body} — TextField. Tokenised + analysed Markdown body.</li>
  * </ul>
+ *
+ * <h2>Schema version</h2>
+ * {@link #SCHEMA_VERSION} is written into the Lucene commit's user data and read back on open.
+ * A field added to {@code toDoc} only exists on documents written after the upgrade, so without
+ * this an index already on disk would answer {@code @bob} with the handful of messages posted
+ * since the deploy and give no sign that the rest were never considered. {@code LuceneBootstrap}
+ * treats an older stamp exactly like an empty directory and rebuilds from Postgres. Bump it
+ * whenever the document shape changes in a way a query depends on.
  *
  * <h2>Why the asymmetry (bare vs prefixed key, kind on one side only)</h2>
  * An index built by an earlier version of this application is on disk in production and is only
@@ -97,13 +111,23 @@ public class MessageIndexService {
     static final String F_CHANNEL = "channelId";
     static final String F_CONVERSATION = "conversationId";
     static final String F_BODY = "body";
-    /** Lowercased author username — exact-match {@link StringField} so {@code @bob} filters cleanly. */
+    /** Lowercased author username — exact-match {@link StringField} so {@code from:bob} filters cleanly. */
     static final String F_AUTHOR = "author";
+    /** Lowercased {@code @handle}s the body refers to, one indexed value each. Multi-valued. */
+    static final String F_MENTION = "mentions";
     /** Present only on conversation documents; see the class javadoc for why it is one-sided. */
     static final String F_KIND = "kind";
     static final String K_CONVERSATION = "conversation";
     /** Namespace prefix on the stored document key of a conversation message. */
     static final String CONVERSATION_KEY_PREFIX = "conv:";
+
+    /**
+     * Document-shape version stamped into the Lucene commit user data. 1 = the original
+     * (id/channelId/conversationId/kind/author/body); 2 added {@link #F_MENTION}.
+     */
+    static final int SCHEMA_VERSION = 2;
+    /** Commit user-data key holding {@link #SCHEMA_VERSION}. Namespaced — Lucene's own keys share the map. */
+    static final String COMMIT_KEY_SCHEMA = "ichat.index.schema";
 
     /** Which table a hit came from. */
     public enum Scope { CHANNEL, CONVERSATION }
@@ -111,9 +135,38 @@ public class MessageIndexService {
     /** One search result: the table it came from plus that table's primary key. */
     public record Hit(Scope scope, Long id) {}
 
+    /**
+     * One page of results plus how many there are altogether.
+     *
+     * @param totalHits         matching documents, subject to {@code totalIsLowerBound}
+     * @param totalIsLowerBound true when Lucene stopped counting: there are <em>at least</em>
+     *   {@code totalHits} matches and possibly many more. Lucene's block-max scorer skips whole
+     *   blocks of documents that cannot enter the top-N once it has seen
+     *   {@code TOTAL_HITS_THRESHOLD} (1,000) of them, and that skipping is most of why search is
+     *   fast. The flag exists so the UI can say "1,000+" instead of a precise number that is
+     *   simply wrong — an exact count would mean disabling the optimisation on every query to
+     *   satisfy a line of text.
+     */
+    public record Page(List<Hit> hits, long totalHits, boolean totalIsLowerBound) {
+        /** No results and no total — for the paths that short-circuit before any query runs. */
+        public static final Page EMPTY = new Page(List.of(), 0L, false);
+    }
+
+    /**
+     * Ceiling on {@code offset + limit} for a paged search, and the reason a total above it is a
+     * lower bound: it is Lucene's own {@code TotalHitCountCollector} threshold
+     * ({@code IndexSearcher.TOTAL_HITS_THRESHOLD}), so the same number bounds both the work a
+     * single query may do and the point at which counting stops being exact.
+     */
+    public static final int MAX_WINDOW = 1000;
+
     private final FSDirectory directory;
     private final IndexWriter writer;
     private final SearcherManager searcherManager;
+    /** The document shape this index is known to satisfy: what was stamped on disk when this
+     *  instance opened (0 for a fresh directory), then {@link #SCHEMA_VERSION} once
+     *  {@link #markSchemaCurrent()} has confirmed a rebuild finished. */
+    private volatile int schemaVersion;
     private final StandardAnalyzer analyzer = new StandardAnalyzer();
     /** When true, per-message index/delete only stage the change; a scheduled task batches the
      *  {@link SearcherManager#maybeRefresh() refresh} (visibility) and the {@link IndexWriter#commit()
@@ -138,6 +191,9 @@ public class MessageIndexService {
         try {
             Files.createDirectories(path);
             this.directory = FSDirectory.open(path);
+            // Read the stamp BEFORE opening the writer: the constructor commits, and a commit is
+            // exactly the thing that would overwrite what we are trying to read.
+            this.schemaVersion = readSchemaVersion(directory);
             var config = new IndexWriterConfig(analyzer);
             config.setOpenMode(IndexWriterConfig.OpenMode.CREATE_OR_APPEND);
             // A chat firehose indexes small documents very fast, and Lucene's 16 MB default buffer
@@ -156,10 +212,53 @@ public class MessageIndexService {
                 tiered.setMaxMergeAtOnce(20);
             }
             this.writer = new IndexWriter(directory, config);
+            // Carry the stamp we found forward verbatim, so ordinary commits preserve it however
+            // Lucene chooses to source a commit's user data. Advancing it is the bootstrap's job
+            // (markSchemaCurrent), and only once the rebuild it implies has actually finished —
+            // a crash mid-rebuild must leave the index looking stale, not looking done.
+            this.writer.setLiveCommitData(schemaData(schemaVersion));
             this.writer.commit();
             this.searcherManager = new SearcherManager(writer, true, true, null);
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to open Lucene index at " + path.toAbsolutePath(), e);
+        }
+    }
+
+    private static Iterable<java.util.Map.Entry<String, String>> schemaData(int version) {
+        return java.util.Map.of(COMMIT_KEY_SCHEMA, Integer.toString(version)).entrySet();
+    }
+
+    /** The stamp on the last commit, or 0 for a directory that has never been written. */
+    private static int readSchemaVersion(FSDirectory directory) {
+        try {
+            if (!org.apache.lucene.index.DirectoryReader.indexExists(directory)) return 0;
+            var data = org.apache.lucene.index.SegmentInfos.readLatestCommit(directory).getUserData();
+            var raw = data == null ? null : data.get(COMMIT_KEY_SCHEMA);
+            return raw == null ? 0 : Integer.parseInt(raw);
+        } catch (IOException | RuntimeException e) {
+            // Unreadable or nonsense stamp reads as "older than current", which costs one rebuild.
+            // The other way round costs a silently half-populated field, which nobody notices.
+            log.warn("Could not read the Lucene schema stamp; treating the index as out of date", e);
+            return 0;
+        }
+    }
+
+    /**
+     * True when the index on disk predates {@link #SCHEMA_VERSION} and therefore has documents
+     * missing a field some query now depends on. {@code LuceneBootstrap} rebuilds when this holds.
+     */
+    public boolean schemaOutdated() {
+        return schemaVersion < SCHEMA_VERSION;
+    }
+
+    /** Stamp the index as matching {@link #SCHEMA_VERSION}. Call only after a full rebuild. */
+    public void markSchemaCurrent() {
+        try {
+            writer.setLiveCommitData(schemaData(SCHEMA_VERSION));
+            writer.commit();
+            schemaVersion = SCHEMA_VERSION;
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to stamp the Lucene index schema version", e);
         }
     }
 
@@ -218,9 +317,17 @@ public class MessageIndexService {
         var doc = new Document();
         doc.add(new StringField(F_ID, messageId.toString(), Field.Store.YES));
         doc.add(new StringField(F_CHANNEL, channelId.toString(), Field.Store.NO));
-        doc.add(new StringField(F_AUTHOR, normalizeAuthor(author), Field.Store.NO));
+        doc.add(new StringField(F_AUTHOR, lowerTerm(author), Field.Store.NO));
+        addMentions(doc, body);
         doc.add(new TextField(F_BODY, body == null ? "" : body, Field.Store.NO));
         return doc;
+    }
+
+    /** One indexed value per {@code @handle} in the body. Nothing added when there are none. */
+    private static void addMentions(Document doc, String body) {
+        for (var handle : MentionTokens.in(body)) {
+            doc.add(new StringField(F_MENTION, handle, Field.Store.NO));
+        }
     }
 
     private Document toConversationDoc(Long messageId, Long conversationId, String author, String body) {
@@ -228,7 +335,8 @@ public class MessageIndexService {
         doc.add(new StringField(F_ID, conversationKey(messageId), Field.Store.YES));
         doc.add(new StringField(F_CONVERSATION, conversationId.toString(), Field.Store.NO));
         doc.add(new StringField(F_KIND, K_CONVERSATION, Field.Store.NO));
-        doc.add(new StringField(F_AUTHOR, normalizeAuthor(author), Field.Store.NO));
+        doc.add(new StringField(F_AUTHOR, lowerTerm(author), Field.Store.NO));
+        addMentions(doc, body);
         doc.add(new TextField(F_BODY, body == null ? "" : body, Field.Store.NO));
         return doc;
     }
@@ -241,8 +349,9 @@ public class MessageIndexService {
         return new Term(F_ID, conversationKey(messageId));
     }
 
-    private static String normalizeAuthor(String author) {
-        return author == null ? "" : author.toLowerCase(java.util.Locale.ROOT);
+    /** Both {@link #F_AUTHOR} and {@link #F_MENTION} are stored lowercased, so search is case-blind. */
+    private static String lowerTerm(String value) {
+        return value == null ? "" : value.toLowerCase(java.util.Locale.ROOT);
     }
 
     // ------------------------------------------------------------ conversation writes ----
@@ -341,13 +450,25 @@ public class MessageIndexService {
 
     /** Search a single channel's messages, returning message IDs in relevance order. */
     public List<Long> searchInChannel(Long channelId, String query, Collection<String> authors, int limit) {
-        var main = mainQuery(query, authors);
-        if (main == null) return List.of();
+        return searchInChannel(channelId, query, authors, List.of(), limit);
+    }
+
+    /** Search a single channel's messages, returning message IDs in relevance order. */
+    public List<Long> searchInChannel(Long channelId, String query, Collection<String> authors,
+                                      Collection<String> mentions, int limit) {
+        return ids(searchInChannelPage(channelId, query, authors, mentions, 0, limit).hits());
+    }
+
+    /** One page of a single channel's messages, with the total. @see #searchAccessiblePage */
+    public Page searchInChannelPage(Long channelId, String query, Collection<String> authors,
+                                    Collection<String> mentions, int offset, int limit) {
+        var main = mainQuery(query, authors, mentions);
+        if (main == null) return Page.EMPTY;
         var scoped = new BooleanQuery.Builder()
                 .add(main, BooleanClause.Occur.MUST)
                 .add(new TermQuery(new Term(F_CHANNEL, channelId.toString())), BooleanClause.Occur.FILTER)
                 .build();
-        return ids(runSearch(scoped, limit));
+        return runSearch(scoped, offset, limit);
     }
 
     /**
@@ -357,14 +478,27 @@ public class MessageIndexService {
      */
     public List<Long> searchInConversation(Long conversationId, String query,
                                            Collection<String> authors, int limit) {
-        var main = mainQuery(query, authors);
-        if (main == null) return List.of();
+        return searchInConversation(conversationId, query, authors, List.of(), limit);
+    }
+
+    /** @see #searchInConversation(Long, String, Collection, int) */
+    public List<Long> searchInConversation(Long conversationId, String query,
+                                           Collection<String> authors, Collection<String> mentions,
+                                           int limit) {
+        return ids(searchInConversationPage(conversationId, query, authors, mentions, 0, limit).hits());
+    }
+
+    /** One page of a single conversation's messages, with the total. @see #searchAccessiblePage */
+    public Page searchInConversationPage(Long conversationId, String query, Collection<String> authors,
+                                         Collection<String> mentions, int offset, int limit) {
+        var main = mainQuery(query, authors, mentions);
+        if (main == null) return Page.EMPTY;
         var scoped = new BooleanQuery.Builder()
                 .add(main, BooleanClause.Occur.MUST)
                 .add(new TermQuery(new Term(F_CONVERSATION, conversationId.toString())),
                         BooleanClause.Occur.FILTER)
                 .build();
-        return ids(runSearch(scoped, limit));
+        return runSearch(scoped, offset, limit);
     }
 
     /**
@@ -418,11 +552,37 @@ public class MessageIndexService {
      */
     public List<Hit> searchAccessible(Collection<Long> channelIds, Collection<Long> conversationIds,
                                       String query, Collection<String> authors, int limit) {
+        return searchAccessible(channelIds, conversationIds, query, authors, List.of(), limit);
+    }
+
+    /** @see #searchAccessible(Collection, Collection, String, Collection, int) */
+    public List<Hit> searchAccessible(Collection<Long> channelIds, Collection<Long> conversationIds,
+                                      String query, Collection<String> authors,
+                                      Collection<String> mentions, int limit) {
+        return searchAccessiblePage(channelIds, conversationIds, query, authors, mentions, 0, limit)
+                .hits();
+    }
+
+    /**
+     * One page of the viewer-scoped search, plus how many results there are in total.
+     *
+     * <p>The ACL clause is built exactly as {@link #searchAccessible} describes and for the same
+     * reason. Pagination is precisely where post-filtering fails worst — a page of 20 drawn from an
+     * unrestricted top-20 can arrive with 3 rows and a total of 240, which tells the viewer both
+     * that they are missing something and roughly how much — so the filter belongs in the query
+     * here more than anywhere.
+     *
+     * @param offset how many results to skip; bounded together with {@code limit} by
+     *               {@link #MAX_WINDOW}
+     */
+    public Page searchAccessiblePage(Collection<Long> channelIds, Collection<Long> conversationIds,
+                                     String query, Collection<String> authors,
+                                     Collection<String> mentions, int offset, int limit) {
         // No accessible container ⇒ no results. Deliberately explicit: an empty id collection must
         // never degrade into "no filter", which is how this kind of code turns into a total leak.
-        if (channelIds.isEmpty() && conversationIds.isEmpty()) return List.of();
-        var main = mainQuery(query, authors);
-        if (main == null) return List.of();
+        if (channelIds.isEmpty() && conversationIds.isEmpty()) return Page.EMPTY;
+        var main = mainQuery(query, authors, mentions);
+        if (main == null) return Page.EMPTY;
         var acl = new BooleanQuery.Builder();
         if (!channelIds.isEmpty()) {
             acl.add(termsIn(F_CHANNEL, channelIds), BooleanClause.Occur.SHOULD);
@@ -435,7 +595,7 @@ public class MessageIndexService {
                 .add(main, BooleanClause.Occur.MUST)
                 .add(acl.build(), BooleanClause.Occur.FILTER)
                 .build();
-        return runSearch(scoped, limit);
+        return runSearch(scoped, offset, limit);
     }
 
     /**
@@ -448,13 +608,25 @@ public class MessageIndexService {
      * surface, not a query parameter on the same endpoint everybody uses.
      */
     public List<Long> searchEverywhere(String query, Collection<String> authors, int limit) {
-        var main = mainQuery(query, authors);
-        if (main == null) return List.of();
+        return searchEverywhere(query, authors, List.of(), limit);
+    }
+
+    /** @see #searchEverywhere(String, Collection, int) */
+    public List<Long> searchEverywhere(String query, Collection<String> authors,
+                                       Collection<String> mentions, int limit) {
+        return ids(searchEverywherePage(query, authors, mentions, 0, limit).hits());
+    }
+
+    /** One page of the admin-wide channel search, with the total. @see #searchEverywhere */
+    public Page searchEverywherePage(String query, Collection<String> authors,
+                                     Collection<String> mentions, int offset, int limit) {
+        var main = mainQuery(query, authors, mentions);
+        if (main == null) return Page.EMPTY;
         var channelsOnly = new BooleanQuery.Builder()
                 .add(main, BooleanClause.Occur.MUST)
                 .add(new TermQuery(new Term(F_KIND, K_CONVERSATION)), BooleanClause.Occur.MUST_NOT)
                 .build();
-        return ids(runSearch(channelsOnly, limit));
+        return runSearch(channelsOnly, offset, limit);
     }
 
     private static TermInSetQuery termsIn(String field, Collection<Long> values) {
@@ -466,36 +638,41 @@ public class MessageIndexService {
     }
 
     /**
-     * Combine a body fuzzy-match clause with an optional {@code @username} author filter.
-     * Returns {@code null} when the user supplied neither (so the caller can short-circuit),
-     * the body alone when authors aren't provided, or a {@code MatchAllDocsQuery + filter}
-     * when only authors are given (e.g. {@code @alice} with no keyword).
+     * Combine the body fuzzy-match clause with the optional {@code from:} author filter and the
+     * optional {@code @handle} mention filter. Returns {@code null} when the user supplied none of
+     * the three, so the caller can short-circuit without touching the index.
+     *
+     * <p>The two filters are separate {@code FILTER} clauses, so they intersect: {@code from:alice
+     * @bob} is "written by alice AND mentioning bob". Within each, several values OR together —
+     * {@code @bob @carol} finds messages naming either. That asymmetry is deliberate and matches
+     * how the tokens read aloud; it is also what the equivalent Slack query does.
+     *
+     * <p>With no body term the query becomes {@code MatchAllDocsQuery} plus the filters, which is
+     * how {@code from:alice} on its own returns everything Alice wrote.
      */
-    private Query mainQuery(String query, Collection<String> authors) {
+    private Query mainQuery(String query, Collection<String> authors, Collection<String> mentions) {
         Query bodyQuery = parse(query);
-        Query authorFilter = authorFilter(authors);
-        if (bodyQuery == null && authorFilter == null) return null;
-        if (authorFilter == null) return bodyQuery;
-        if (bodyQuery == null) {
-            return new BooleanQuery.Builder()
-                    .add(new MatchAllDocsQuery(), BooleanClause.Occur.MUST)
-                    .add(authorFilter, BooleanClause.Occur.FILTER)
-                    .build();
-        }
-        return new BooleanQuery.Builder()
-                .add(bodyQuery, BooleanClause.Occur.MUST)
-                .add(authorFilter, BooleanClause.Occur.FILTER)
-                .build();
+        Query authorFilter = termsFilter(F_AUTHOR, authors);
+        Query mentionFilter = termsFilter(F_MENTION, mentions);
+        if (bodyQuery == null && authorFilter == null && mentionFilter == null) return null;
+        if (authorFilter == null && mentionFilter == null) return bodyQuery;
+        var builder = new BooleanQuery.Builder()
+                .add(bodyQuery == null ? new MatchAllDocsQuery() : bodyQuery, BooleanClause.Occur.MUST);
+        if (authorFilter != null) builder.add(authorFilter, BooleanClause.Occur.FILTER);
+        if (mentionFilter != null) builder.add(mentionFilter, BooleanClause.Occur.FILTER);
+        return builder.build();
     }
 
-    private static Query authorFilter(Collection<String> authors) {
-        if (authors == null || authors.isEmpty()) return null;
-        var terms = authors.stream()
-                .map(MessageIndexService::normalizeAuthor)
+    /** Exact-match filter over a lowercased {@link StringField}; {@code null} for an empty set. */
+    private static Query termsFilter(String field, Collection<String> values) {
+        if (values == null || values.isEmpty()) return null;
+        var terms = values.stream()
+                .map(MessageIndexService::lowerTerm)
                 .filter(s -> !s.isEmpty())
+                .distinct()
                 .map(BytesRef::new)
                 .toList();
-        return terms.isEmpty() ? null : new TermInSetQuery(F_AUTHOR, terms);
+        return terms.isEmpty() ? null : new TermInSetQuery(field, terms);
     }
 
     /**
@@ -685,22 +862,34 @@ public class MessageIndexService {
         @Override protected Query getRegexpQuery(String field, String termStr)   { return null; }
     }
 
-    private List<Hit> runSearch(Query query, int limit) {
+    private Page runSearch(Query query, int offset, int limit) {
+        int from = Math.max(offset, 0);
+        int size = Math.max(limit, 1);
+        // Lucene collects offset+size documents into a priority queue to serve a page starting at
+        // offset, so deep paging costs memory and CPU linear in the offset and buys nothing — page
+        // 400 of a relevance-ranked list is not a thing anybody reads. MAX_WINDOW is also the point
+        // past which the total stops being exact, so refusing to page beyond it and refusing to
+        // claim an exact count beyond it are the same cut-off, described once.
+        int window = Math.min(from + size, MAX_WINDOW);
+        if (from >= window) {
+            return Page.EMPTY;
+        }
         try {
             searcherManager.maybeRefresh();
             IndexSearcher searcher = searcherManager.acquire();
             try {
-                var top = searcher.search(query, Math.max(limit, 1));
-                var hits = new ArrayList<Hit>(top.scoreDocs.length);
+                var top = searcher.search(query, window);
+                var hits = new ArrayList<Hit>(Math.max(0, top.scoreDocs.length - from));
                 var storedFields = searcher.storedFields();
-                for (var scoreDoc : top.scoreDocs) {
-                    var doc = storedFields.document(scoreDoc.doc);
+                for (int i = from; i < top.scoreDocs.length; i++) {
+                    var doc = storedFields.document(top.scoreDocs[i].doc);
                     var hit = parseKey(doc.get(F_ID));
                     if (hit != null) {
                         hits.add(hit);
                     }
                 }
-                return Collections.unmodifiableList(hits);
+                return new Page(Collections.unmodifiableList(hits), top.totalHits.value(),
+                        top.totalHits.relation() != TotalHits.Relation.EQUAL_TO);
             } finally {
                 searcherManager.release(searcher);
             }

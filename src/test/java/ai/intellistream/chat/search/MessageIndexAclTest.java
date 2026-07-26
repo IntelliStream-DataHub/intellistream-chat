@@ -117,6 +117,41 @@ class MessageIndexAclTest {
     }
 
     @Test
+    void aMentionFilterDoesNotBypassTheMembershipFilter() {
+        // `@bob` with no keyword takes the same MatchAllDocs branch the author filter does, and it
+        // arrived later — so it gets its own test rather than trusting that "the ACL wraps the
+        // composed query" stayed true when a second filter was threaded through mainQuery.
+        index.indexConversationMessage(20L, DM_OF_OTHERS, "alice", "hey @bob look at this");
+        index.indexConversationMessage(21L, SEARCHERS_OWN_DM, "alice", "@bob are you around");
+
+        var asOutsider = index.searchAccessible(
+                List.of(), List.of(SEARCHERS_OWN_DM), "", Set.of(), Set.of("bob"), 50);
+        assertThat(asOutsider).containsExactly(new Hit(Scope.CONVERSATION, 21L));
+        assertThat(asOutsider).doesNotContain(new Hit(Scope.CONVERSATION, 20L));
+
+        // Control: the mention really is indexed on the document the outsider couldn't reach.
+        assertThat(index.searchAccessible(
+                List.of(), List.of(DM_OF_OTHERS), "", Set.of(), Set.of("bob"), 50))
+                .containsExactly(new Hit(Scope.CONVERSATION, 20L));
+    }
+
+    @Test
+    void mentioningSomeoneAndBeingSomeoneAreDifferentFilters() {
+        // The behaviour change the syntax exists for, at the index layer: one document is written
+        // by bob, the other is about bob, and the two filters must not agree on either.
+        index.index(22L, 5L, "bob", "standup notes from bob himself");
+        index.index(23L, 5L, "alice", "@bob can you take standup");
+
+        assertThat(index.searchAccessible(List.of(5L), List.of(), "standup", Set.of("bob"), Set.of(), 50))
+                .containsExactly(new Hit(Scope.CHANNEL, 22L));
+        assertThat(index.searchAccessible(List.of(5L), List.of(), "standup", Set.of(), Set.of("bob"), 50))
+                .containsExactly(new Hit(Scope.CHANNEL, 23L));
+        // Both at once is an intersection, and these two documents satisfy one condition each.
+        assertThat(index.searchAccessible(List.of(5L), List.of(), "standup",
+                Set.of("bob"), Set.of("bob"), 50)).isEmpty();
+    }
+
+    @Test
     void noAccessibleContainerMatchesNothingRatherThanEverything() {
         // The degenerate case an ACL filter has to get right: "the viewer belongs to nothing"
         // must mean no results, never "no restriction".
@@ -183,6 +218,45 @@ class MessageIndexAclTest {
         manyIdsWithout.add(999_999L);
         assertThat(index.searchAccessible(List.of(), manyIdsWithout, "needle-in-a-haystack", Set.of(), 50))
                 .isEmpty();
+    }
+
+    /**
+     * The same claim on the channel side, which is where the id set got big.
+     *
+     * <p>The channel filter used to hold only the viewer's joined channels — tens, for anyone. It
+     * now holds every public channel in the workspace, so its size is a property of the deployment
+     * rather than of the user, and 1,024 stops being a number nobody reaches. 20,000 is far past
+     * any plausible workspace and is here to show there is no cliff rather than to model one.
+     */
+    @Test
+    void aWorkspaceSizedChannelFilterStaysCorrect() {
+        long targetChannel = 17_777L;
+        index.index(24L, targetChannel, "alice", "workspace-scale marker");
+
+        var manyIds = new ArrayList<Long>(20_000);
+        for (long i = 1; i <= 20_000; i++) {
+            manyIds.add(i);
+        }
+        assertThat(manyIds).contains(targetChannel);
+
+        assertThat(index.searchAccessible(manyIds, List.of(), "workspace-scale", Set.of(), 50))
+                .containsExactly(new Hit(Scope.CHANNEL, 24L));
+
+        // Drop the one id that matters, keep the size: still no leak, still no truncation.
+        var without = new ArrayList<>(manyIds);
+        without.remove(Long.valueOf(targetChannel));
+        without.add(9_999_999L);
+        assertThat(index.searchAccessible(without, List.of(), "workspace-scale", Set.of(), 50))
+                .isEmpty();
+
+        // And mixed with a large conversation set, which is how the real filter is shaped: two
+        // TermInSetQuery clauses OR'd together, neither of them a BooleanQuery clause list.
+        var manyConversations = new ArrayList<Long>(5_000);
+        for (long i = 1; i <= 5_000; i++) {
+            manyConversations.add(i);
+        }
+        assertThat(index.searchAccessible(manyIds, manyConversations, "workspace-scale", Set.of(), 50))
+                .contains(new Hit(Scope.CHANNEL, 24L));
     }
 
     @Test

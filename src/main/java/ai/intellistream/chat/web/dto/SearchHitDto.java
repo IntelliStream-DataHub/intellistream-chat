@@ -42,6 +42,13 @@ public record SearchHitDto(
         Long channelId,
         /** Channel name, non-null iff {@code scope == "channel"}. */
         String channelName,
+        /**
+         * Whether the viewer belongs to this hit's channel. Channel hits only; always true for a
+         * conversation hit, which you cannot see without being in it. Search spans every public
+         * channel, so false is routine — and a result the viewer has no membership of has to say
+         * so, or the read-only page it opens looks broken rather than joinable.
+         */
+        boolean channelJoined,
         /** Non-null iff {@code scope == "conversation"}. */
         Long conversationId,
         /** {@code "DIRECT"} or {@code "GROUP"}; non-null iff {@code scope == "conversation"}. */
@@ -62,7 +69,7 @@ public record SearchHitDto(
         Instant editedAt
 ) {
 
-    public static SearchHitDto ofChannel(Message message, String html, String snippet) {
+    public static SearchHitDto ofChannel(Message message, boolean joined, String html, String snippet) {
         var author = message.getAuthor();
         var channel = message.getChannel();
         return new SearchHitDto(
@@ -70,6 +77,7 @@ public record SearchHitDto(
                 "channel",
                 channel.getId(),
                 channel.getName(),
+                joined,
                 null, null, null,
                 "/channels/" + channel.getId() + "?m=" + message.getId() + "#m=" + message.getId(),
                 author.getUsername(),
@@ -94,6 +102,7 @@ public record SearchHitDto(
                 message.getId(),
                 "conversation",
                 null, null,
+                true, // a conversation you can see is one you are in; there is no non-member tier
                 conversation.getId(),
                 type == null ? null : type.name(),
                 title,

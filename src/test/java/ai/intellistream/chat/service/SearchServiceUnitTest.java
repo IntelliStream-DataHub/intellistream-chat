@@ -17,8 +17,10 @@
 package ai.intellistream.chat.service;
 
 import ai.intellistream.chat.domain.Channel;
+import ai.intellistream.chat.domain.ChannelType;
 import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.repository.ChannelMemberRepository;
+import ai.intellistream.chat.repository.ChannelRepository;
 import ai.intellistream.chat.repository.ConversationMemberRepository;
 import ai.intellistream.chat.repository.ConversationMessageRepository;
 import ai.intellistream.chat.repository.MessageRepository;
@@ -49,6 +51,7 @@ class SearchServiceUnitTest {
 
     private MessageRepository messages;
     private ChannelMemberRepository members;
+    private ChannelRepository channelRepository;
     private ChannelService channels;
     private MessageIndexService index;
     private ConversationMessageRepository conversationMessages;
@@ -58,12 +61,13 @@ class SearchServiceUnitTest {
     private SearchService newService() {
         messages = mock(MessageRepository.class);
         members = mock(ChannelMemberRepository.class);
+        channelRepository = mock(ChannelRepository.class);
         channels = mock(ChannelService.class);
         index = mock(MessageIndexService.class);
         conversationMessages = mock(ConversationMessageRepository.class);
         conversationMembers = mock(ConversationMemberRepository.class);
         conversations = mock(ConversationService.class);
-        return new SearchService(messages, members, channels, index,
+        return new SearchService(messages, members, channelRepository, channels, index,
                 conversationMessages, conversationMembers, conversations);
     }
 
@@ -99,10 +103,14 @@ class SearchServiceUnitTest {
     }
 
     @Test
-    void accessibleSearchPassesTheViewersMembershipIntoTheQuery() {
+    void accessibleSearchPassesTheViewersReadableSetIntoTheQuery() {
         // The ACL must reach the index as query input. If this ever stops holding — if the
         // service starts calling an unrestricted search and trimming the results — the
         // membership sets stop being arguments and the leak is back.
+        //
+        // The channel side is joined ∪ every public channel, which is the read rule
+        // ChannelService.requireMember applies. Both halves are stubbed distinctly so the
+        // assertion fails if either is dropped rather than passing on the union by accident.
         var service = newService();
         var user = new User("sub", "u", "u@e", "U");
         // Channel is deliberately immutable (no id setter — see ChannelImmutabilityTest), so a
@@ -110,17 +118,41 @@ class SearchServiceUnitTest {
         var joined = mock(Channel.class);
         when(joined.getId()).thenReturn(7L);
         when(members.findChannelsForUser(user)).thenReturn(List.of(joined));
+        when(channelRepository.findIdsByType(ChannelType.PUBLIC)).thenReturn(List.of(8L, 9L));
         when(conversationMembers.findConversationIdsForUser(user)).thenReturn(List.of(11L, 12L));
-        when(index.searchAccessible(List.of(7L), List.of(11L, 12L), "hello", Set.of(), 10))
-                .thenReturn(List.of());
+        when(index.searchAccessiblePage(List.of(7L, 8L, 9L), List.of(11L, 12L), "hello",
+                Set.of(), Set.of(), 0, 10))
+                .thenReturn(MessageIndexService.Page.EMPTY);
 
         assertThat(service.searchAccessible(user, "hello", 10)).isEmpty();
 
-        verify(index).searchAccessible(List.of(7L), List.of(11L, 12L), "hello", Set.of(), 10);
-        verify(index, never()).searchEverywhere(
+        verify(index).searchAccessiblePage(List.of(7L, 8L, 9L), List.of(11L, 12L), "hello",
+                Set.of(), Set.of(), 0, 10);
+        verify(index, never()).searchEverywherePage(
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyInt(),
                 org.mockito.ArgumentMatchers.anyInt());
+    }
+
+    @Test
+    void aPrivateChannelTheViewerHasNotJoinedNeverReachesTheFilter() {
+        // The one id set that must not grow when the scope did. findIdsByType is asked for PUBLIC
+        // and only PUBLIC; a private room the viewer is not in has no route into the query at all.
+        var service = newService();
+        var user = new User("sub", "u", "u@e", "U");
+        when(members.findChannelsForUser(user)).thenReturn(List.of());
+        when(channelRepository.findIdsByType(ChannelType.PUBLIC)).thenReturn(List.of(8L));
+        when(conversationMembers.findConversationIdsForUser(user)).thenReturn(List.of());
+        when(index.searchAccessiblePage(List.of(8L), List.of(), "hello", Set.of(), Set.of(), 0, 10))
+                .thenReturn(MessageIndexService.Page.EMPTY);
+
+        assertThat(service.searchAccessible(user, "hello", 10)).isEmpty();
+
+        verify(channelRepository).findIdsByType(ChannelType.PUBLIC);
+        verify(channelRepository, never()).findIdsByType(ChannelType.PRIVATE);
+        verify(index).searchAccessiblePage(List.of(8L), List.of(), "hello", Set.of(), Set.of(), 0, 10);
     }
 
     @Test

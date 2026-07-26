@@ -26,24 +26,6 @@
 <th:block th:replace="~{fragments/icon-sprite :: sprite}"/>
 
 <th:block th:replace="~{fragments/topbar :: topbar}"></th:block>
-                <ul class="topbar-bell-list" id="topbar-bell-list"></ul>
-                <p class="topbar-bell-empty" id="topbar-bell-empty">You're all caught up.</p>
-            </div>
-        </div>
-        <a th:href="@{/profile}" class="me" title="Profile settings">
-            <span class="avatar" th:data-author="${me.username}">
-                <img th:if="${me.hasAvatar()}" class="avatar-image" alt=""
-                     th:src="@{/api/users/{u}/avatar(u=${me.username},v=${me.avatarVersion()})}"/>
-                <span class="avatar-letter"
-                      th:text="${#strings.toUpperCase(#strings.substring(me.displayName ?: me.username, 0, 1))}">U</span>
-            </span>
-            <span th:text="${me.displayName ?: me.username}">user</span>
-        </a>
-        <!-- Submitted by the avatar dropdown's "Sign out" item (presence-menu.js);
-             kept as a hidden form so the POST carries the Thymeleaf CSRF token. -->
-        <form id="logout-form" th:action="@{/logout}" method="post" hidden></form>
-    </div>
-</header>
 
 <div class="layout">
     <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>

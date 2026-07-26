@@ -323,6 +323,9 @@ class ConversationSearchAccessIT {
 
     @Test
     void renamingAnAuthorReindexesTheirConversationMessages() {
+        // Spelled `from:` since the syntax change — a bare `@handle` now asks who a message is
+        // about, not who wrote it. The behaviour under test (the doc caches the username at write
+        // time, so a rename has to rewrite it) is unchanged.
         var subject = "kc-dmrename-" + SEQ.incrementAndGet();
         var oldName = "dmold" + SEQ.incrementAndGet();
         var alice = userService.upsert(subject, oldName, "a@e.com", "Alice", false);
@@ -334,7 +337,7 @@ class ConversationSearchAccessIT {
         var newName = "dmnew" + SEQ.incrementAndGet();
         var renamed = userService.upsert(subject, newName, "a@e.com", "Alice", false);
 
-        assertThat(bodiesVisibleTo(renamed, "@" + newName + " " + marker))
+        assertThat(bodiesVisibleTo(renamed, "from:" + newName + " " + marker))
                 .anyMatch(b -> b.contains("sent under the old handle"));
     }
 

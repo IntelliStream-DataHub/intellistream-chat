@@ -20,6 +20,7 @@ import ai.intellistream.chat.domain.Channel;
 import ai.intellistream.chat.domain.ChannelType;
 import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.repository.UserRepository;
+import ai.intellistream.chat.security.PublicBadRequestException;
 import ai.intellistream.chat.service.ChannelService;
 import ai.intellistream.chat.service.MessageService;
 import ai.intellistream.chat.service.SearchService;
@@ -40,6 +41,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 
 /**
  * End-to-end coverage for {@link SearchService}: exercises the embedded Lucene index
@@ -225,6 +227,50 @@ class SearchFlowIT {
     }
 
     @Test
+    void theDefaultScopeReachesAPublicChannelTheViewerNeverJoined() {
+        // requireMember short-circuits for PUBLIC channels, so Bob may open this room, read every
+        // message in it and download its files. Search used to be the one surface that pretended
+        // it wasn't there — you could read #incidents cover to cover and be told the workspace
+        // contains no message with the word "outage" in it.
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var lobby = newPublic("lobby", alice);
+        var joinedRoom = newPublic("joined", alice);
+        channels.join(joinedRoom, bob); // so bob has a non-empty footprint of his own
+        var marker = "neverjoined-" + SEQ.incrementAndGet();
+        messages.post(lobby, alice, marker + " posted where bob is not a member");
+
+        var hits = channelMessages(search.searchAccessible(bob, marker, 10));
+
+        assertThat(hits).singleElement()
+                .satisfies(m -> assertThat(m.getChannel().getId()).isEqualTo(lobby.getId()));
+    }
+
+    @Test
+    void aResultFromAChannelTheViewerHasNotJoinedIsMarkedAsSuch() {
+        // The flag the UI hangs a "not joined" tag on. Without it the result opens a page with no
+        // composer and no explanation, which reads as a broken channel rather than a joinable one.
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var lobby = newPublic("lobby", alice);
+        var joinedRoom = newPublic("joined", alice);
+        channels.join(joinedRoom, bob);
+        var marker = "joinflag-" + SEQ.incrementAndGet();
+        messages.post(lobby, alice, marker + " over here");
+        messages.post(joinedRoom, alice, marker + " and over here");
+
+        var hits = search.searchAccessible(bob, marker, 10).stream()
+                .map(h -> (SearchService.SearchHit.ChannelHit) h)
+                .toList();
+
+        assertThat(hits).hasSize(2);
+        assertThat(hits).filteredOn(h -> h.message().getChannel().getId().equals(lobby.getId()))
+                .singleElement().satisfies(h -> assertThat(h.joined()).isFalse());
+        assertThat(hits).filteredOn(h -> h.message().getChannel().getId().equals(joinedRoom.getId()))
+                .singleElement().satisfies(h -> assertThat(h.joined()).isTrue());
+    }
+
+    @Test
     void allJoinedSearchExcludesPrivateChannelsViewerHasntJoined() {
         var alice = newUser("alice");
         var bob = newUser("bob");
@@ -239,8 +285,27 @@ class SearchFlowIT {
 
         var hits = channelMessages(search.searchAccessible(bob, marker, 10));
 
+        // The line the widening must not cross: public in, private-and-not-joined out.
         assertThat(hits).hasSize(1);
         assertThat(hits.get(0).getChannel().getId()).isEqualTo(publicRoom.getId());
+    }
+
+    @Test
+    void aPrivateChannelStaysInvisibleEvenWithNothingElseToSearch() {
+        // The degenerate case the widening could break: a viewer who belongs to nothing at all now
+        // has a non-empty channel filter (every public channel), so "no accessible container" no
+        // longer short-circuits before the query runs. The private room must be excluded by the
+        // filter itself rather than by there being no query at all.
+        var alice = newUser("alice");
+        var loner = newUser("loner"); // joins nothing, is in no conversation
+        var secret = newPrivate("secret", alice);
+        var marker = "lonertest-" + SEQ.incrementAndGet();
+        messages.post(secret, alice, marker + " behind a closed door");
+
+        assertThat(search.searchAccessible(loner, marker, 10)).isEmpty();
+
+        // Control: the message is indexed and matchable — a member finds it.
+        assertThat(channelMessages(search.searchAccessible(alice, marker, 10))).hasSize(1);
     }
 
     // ---------- Authorisation ----------
@@ -414,12 +479,186 @@ class SearchFlowIT {
         assertThat(search.searchChannel(room, alice, marker, 10)).isEmpty();
     }
 
-    // ---------- @author filter ----------
+    // ---------- from: (author) vs @handle (mention) ----------
 
     @Test
-    void renamingAnAuthorReindexesTheirMessagesForAtUserSearch() {
+    void fromAndAtHandleSelectGenuinelyDifferentMessages() {
+        // The heart of the syntax change. Both queries name Bob; one asks who wrote the message
+        // and the other asks who it is about, and they must not return the same row. Asserting
+        // both directions is what makes this a test rather than a coincidence: a build that
+        // ignored the mention field entirely would return Bob's own message for both.
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var room = newPublic("general", alice);
+        channels.join(room, bob);
+        var marker = "standup-" + SEQ.incrementAndGet();
+        messages.post(room, bob, marker + " notes, written by bob");
+        messages.post(room, alice, "@" + bob.getUsername() + " " + marker + " is yours today");
+
+        var written = search.searchChannel(room, alice, "from:" + bob.getUsername() + " " + marker, 10);
+        assertThat(written).singleElement()
+                .satisfies(m -> assertThat(m.getBodyMarkdown()).contains("written by bob"));
+
+        var mentioning = search.searchChannel(room, alice, "@" + bob.getUsername() + " " + marker, 10);
+        assertThat(mentioning).singleElement()
+                .satisfies(m -> assertThat(m.getBodyMarkdown()).contains("is yours today"));
+    }
+
+    @Test
+    void fromAcceptsTheHandleWithOrWithoutItsAtSign() {
+        var alice = newUser("alice");
+        var room = newPublic("general", alice);
+        var marker = "fromsigil-" + SEQ.incrementAndGet();
+        messages.post(room, alice, marker + " from alice");
+
+        assertThat(search.searchChannel(room, alice, "from:" + alice.getUsername() + " " + marker, 10))
+                .hasSize(1);
+        assertThat(search.searchChannel(room, alice, "from:@" + alice.getUsername() + " " + marker, 10))
+                .hasSize(1);
+    }
+
+    @Test
+    void aMentionInsideAnEditedBodyFollowsTheEdit() {
+        // The mention field is derived from the body at index time, so an edit has to rewrite it.
+        // Left stale, @bob would keep finding a message that no longer names him.
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var room = newPublic("general", alice);
+        channels.join(room, bob);
+        var marker = "editmention-" + SEQ.incrementAndGet();
+        var msg = messages.post(room, alice, "@" + bob.getUsername() + " " + marker);
+
+        assertThat(search.searchChannel(room, alice, "@" + bob.getUsername() + " " + marker, 10))
+                .hasSize(1);
+
+        messages.edit(msg.getId(), alice, marker + " never mind");
+
+        assertThat(search.searchChannel(room, alice, "@" + bob.getUsername() + " " + marker, 10))
+                .isEmpty();
+        assertThat(search.searchChannel(room, alice, marker, 10)).hasSize(1);
+    }
+
+    // ---------- in:#channel ----------
+
+    @Test
+    void inChannelNarrowsAGlobalSearchToOneChannel() {
+        var alice = newUser("alice");
+        var roomA = newPublic("alpha", alice);
+        var roomB = newPublic("beta", alice);
+        var marker = "inscope-" + SEQ.incrementAndGet();
+        messages.post(roomA, alice, marker + " in the first room");
+        messages.post(roomB, alice, marker + " in the second room");
+
+        assertThat(channelMessages(search.searchAccessible(alice, marker, 10))).hasSize(2);
+
+        var scoped = channelMessages(
+                search.searchAccessible(alice, "in:#" + roomA.getSlug() + " " + marker, 10));
+        assertThat(scoped).singleElement()
+                .satisfies(m -> assertThat(m.getChannel().getId()).isEqualTo(roomA.getId()));
+    }
+
+    @Test
+    void inChannelResolvesTheDisplayNameAsWellAsTheSlug() {
+        var alice = newUser("alice");
+        var room = newPublic("alpha", alice);
+        var marker = "byname-" + SEQ.incrementAndGet();
+        messages.post(room, alice, marker + " findable by either identifier");
+
+        assertThat(channelMessages(search.searchAccessible(alice, "in:#" + room.getName() + " " + marker, 10)))
+                .hasSize(1);
+        assertThat(channelMessages(search.searchAccessible(alice, "in:#" + room.getSlug() + " " + marker, 10)))
+                .hasSize(1);
+    }
+
+    @Test
+    void inChannelFailsVisiblyForAChannelTheViewerCannotRead() {
+        // The failure that matters. A silently-ignored in: would widen the search back to
+        // everything the viewer can read and hand them results from a different channel, which
+        // reads as if the modifier had worked.
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var secret = newPrivate("secret", alice);
+        messages.post(secret, alice, "closed-door planning notes");
+
+        assertThatThrownBy(() -> search.searchAccessible(bob, "in:#" + secret.getSlug() + " planning", 10))
+                .isInstanceOf(PublicBadRequestException.class);
+    }
+
+    @Test
+    void inChannelFailsTheSameWayForAChannelThatDoesNotExist() {
+        // Deliberately indistinguishable from the unreadable case: a different message for
+        // "exists but not for you" turns the search box into a private-channel name oracle.
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var secret = newPrivate("secret", alice);
+
+        var unreadable = catchThrowable(
+                () -> search.searchAccessible(bob, "in:#" + secret.getSlug() + " anything", 10));
+        var missing = catchThrowable(
+                () -> search.searchAccessible(bob, "in:#no-such-channel-here anything", 10));
+
+        assertThat(unreadable).isInstanceOf(PublicBadRequestException.class);
+        assertThat(missing).isInstanceOf(PublicBadRequestException.class);
+        // The message is a pure function of what the user typed — it echoes their own input and
+        // says nothing else. Both cases produce the same sentence, so no reply distinguishes
+        // "that channel exists and is not for you" from "there is no such channel".
+        assertThat(unreadable.getMessage())
+                .isEqualTo("No channel called #" + secret.getSlug() + " that you can read.");
+        assertThat(missing.getMessage())
+                .isEqualTo("No channel called #no-such-channel-here that you can read.");
+    }
+
+    @Test
+    void inChannelReachesAPublicChannelTheViewerNeverJoined() {
+        var alice = newUser("alice");
+        var bob = newUser("bob"); // never joins
+        var lobby = newPublic("lobby", alice);
+        var marker = "openroom-" + SEQ.incrementAndGet();
+        messages.post(lobby, alice, marker + " anyone can read this");
+
+        assertThat(channelMessages(search.searchAccessible(bob, "in:#" + lobby.getSlug() + " " + marker, 10)))
+                .hasSize(1);
+    }
+
+    // ---------- unknown modifiers ----------
+
+    @Test
+    void anUnknownModifierIsSearchedForAsText() {
+        // Lucene would otherwise read `note:xyz` as a query on a field called "note", which does
+        // not exist, and answer with a confident zero.
+        var alice = newUser("alice");
+        var room = newPublic("general", alice);
+        var marker = "unknownmod" + SEQ.incrementAndGet();
+        messages.post(room, alice, "note:" + marker + " written with a colon in it");
+        messages.post(room, alice, "unrelated line");
+
+        assertThat(search.searchChannel(room, alice, "note:" + marker, 10)).hasSize(1);
+    }
+
+    @Test
+    void theUnimplementedDateModifiersFindNothingRatherThanEverything() {
+        // before:/after:/has: are not supported. As text they simply don't match, which is a
+        // visible "no results" instead of a modifier that quietly widened the search.
+        var alice = newUser("alice");
+        var room = newPublic("general", alice);
+        var marker = "datemod-" + SEQ.incrementAndGet();
+        messages.post(room, alice, marker + " a message with no date modifier in its body");
+
+        assertThat(search.searchChannel(room, alice, "before:friday " + marker, 10)).isEmpty();
+        assertThat(search.searchChannel(room, alice, marker, 10)).hasSize(1);
+    }
+
+    // ---------- from: (author) filter ----------
+    //
+    // These were written when a bare `@name` was the author filter. The token now means "mentions
+    // name", so every one of them moved to `from:` — the same assertions about the same behaviour,
+    // spelled the way the syntax spells it now. `fromAndAtHandleSelectGenuinelyDifferentMessages`
+    // above is the test that the two spellings really do ask different questions.
+
+    @Test
+    void renamingAnAuthorReindexesTheirMessagesForFromSearch() {
         // N23: the Lucene doc caches the author's username at write time; after a rename,
-        // @newname search must still find the renamed user's older messages.
+        // from:newname search must still find the renamed user's older messages.
         var subject = "kc-rename-" + SEQ.incrementAndGet();
         var oldName = "oldhandle" + SEQ.incrementAndGet();
         var alice = userService.upsert(subject, oldName, "a@e.com", "Alice", false);
@@ -431,12 +670,12 @@ class SearchFlowIT {
         assertThat(renamed.getId()).isEqualTo(alice.getId());
         assertThat(renamed.getUsername()).isEqualTo(newName);
 
-        assertThat(search.searchChannel(room, renamed, "@" + newName, 10))
+        assertThat(search.searchChannel(room, renamed, "from:" + newName, 10))
                 .extracting(m -> m.getBodyMarkdown()).contains("reindex me after the rename");
     }
 
     @Test
-    void atUserOnlyReturnsAllMessagesByThatAuthor() {
+    void fromAloneReturnsAllMessagesByThatAuthor() {
         var alice = newUser("alice");
         var bob = newUser("bob");
         var room = newPublic("general", alice);
@@ -445,14 +684,14 @@ class SearchFlowIT {
         messages.post(room, alice, "second alice message");
         messages.post(room, bob,   "bob says hi");
 
-        var hits = search.searchChannel(room, alice, "@" + alice.getUsername(), 10);
+        var hits = search.searchChannel(room, alice, "from:" + alice.getUsername(), 10);
 
         assertThat(hits).hasSize(2);
         assertThat(hits).allMatch(m -> m.getAuthor().getId().equals(alice.getId()));
     }
 
     @Test
-    void atUserCombinedWithKeywordIntersects() {
+    void fromCombinedWithKeywordIntersects() {
         var alice = newUser("alice");
         var bob = newUser("bob");
         var room = newPublic("general", alice);
@@ -461,7 +700,7 @@ class SearchFlowIT {
         messages.post(room, alice, "lunch plans for friday");
         messages.post(room, bob,   "release notes draft from bob");
 
-        var hits = search.searchChannel(room, alice, "@" + alice.getUsername() + " release", 10);
+        var hits = search.searchChannel(room, alice, "from:" + alice.getUsername() + " release", 10);
 
         assertThat(hits).hasSize(1);
         assertThat(hits.get(0).getAuthor().getId()).isEqualTo(alice.getId());
@@ -469,7 +708,7 @@ class SearchFlowIT {
     }
 
     @Test
-    void multipleAtUsersOrTogether() {
+    void multipleFromValuesOrTogether() {
         var alice = newUser("alice");
         var bob = newUser("bob");
         var carol = newUser("carol");
@@ -482,7 +721,7 @@ class SearchFlowIT {
 
         var hits = search.searchChannel(
                 room, alice,
-                "@" + alice.getUsername() + " @" + bob.getUsername(), 10);
+                "from:" + alice.getUsername() + " from:" + bob.getUsername(), 10);
 
         assertThat(hits).hasSize(2);
         assertThat(hits).extracting(m -> m.getAuthor().getId())
@@ -496,19 +735,124 @@ class SearchFlowIT {
         var msg = messages.post(room, alice, "before");
         messages.edit(msg.getId(), alice, "after edit");
 
-        var hits = search.searchChannel(room, alice, "@" + alice.getUsername() + " after", 10);
+        var hits = search.searchChannel(room, alice, "from:" + alice.getUsername() + " after", 10);
 
         assertThat(hits).hasSize(1);
         assertThat(hits.get(0).getBodyMarkdown()).isEqualTo("after edit");
     }
 
     @Test
-    void unknownAtUserReturnsEmpty() {
+    void anUnknownFromHandleReturnsEmpty() {
         var alice = newUser("alice");
         var room = newPublic("general", alice);
         messages.post(room, alice, "anything");
 
+        assertThat(search.searchChannel(room, alice, "from:nobody-here-123", 10)).isEmpty();
+        // And the mention spelling of a handle nobody has named is equally empty.
         assertThat(search.searchChannel(room, alice, "@nobody-here-123", 10)).isEmpty();
+    }
+
+    // ---------- Paging and totals ----------
+
+    @Test
+    void aPagedSearchReportsTheWholeSetAndWalksItWithoutRepeatsOrGaps() {
+        // The count is what the results page shows and the pager is what it draws, so both are
+        // asserted against a set the test knows the size of. Collecting the ids across pages and
+        // comparing to the ids of one big page is the assertion that matters: a paging bug shows up
+        // as a duplicate or a missing row, not as a wrong total.
+        var alice = newUser("alice");
+        var room = newPublic("paging", alice);
+        var marker = "pagemarker" + SEQ.incrementAndGet();
+        for (int i = 0; i < 25; i++) {
+            messages.post(room, alice, marker + " message number " + i);
+        }
+
+        var first = search.searchPage(alice, marker, SearchService.ScopeKind.CHANNEL, room, null, 0, 10);
+        assertThat(first.total()).isEqualTo(25);
+        assertThat(first.totalIsLowerBound()).isFalse();
+        assertThat(first.hits()).hasSize(10);
+        assertThat(first.hasPrevious()).isFalse();
+        assertThat(first.hasNext()).isTrue();
+        assertThat(first.firstResultNumber()).isEqualTo(1);
+        assertThat(first.lastResultNumber()).isEqualTo(10);
+
+        var last = search.searchPage(alice, marker, SearchService.ScopeKind.CHANNEL, room, null, 2, 10);
+        assertThat(last.hits()).hasSize(5);
+        assertThat(last.hasNext()).isFalse();
+        assertThat(last.firstResultNumber()).isEqualTo(21);
+        assertThat(last.lastResultNumber()).isEqualTo(25);
+
+        var walked = new java.util.ArrayList<Long>();
+        for (int p = 0; p < 3; p++) {
+            search.searchPage(alice, marker, SearchService.ScopeKind.CHANNEL, room, null, p, 10)
+                    .hits().stream()
+                    .map(h -> ((SearchService.SearchHit.ChannelHit) h).message().getId())
+                    .forEach(walked::add);
+        }
+        var inOneGo = search.searchChannel(room, alice, marker, 25).stream()
+                .map(ai.intellistream.chat.domain.Message::getId)
+                .toList();
+        assertThat(walked).containsExactlyElementsOf(inOneGo);
+        assertThat(walked).doesNotHaveDuplicates();
+    }
+
+    @Test
+    void pagingPastTheEndIsEmptyRatherThanTheLastPageAgain() {
+        var alice = newUser("alice");
+        var room = newPublic("paging-end", alice);
+        var marker = "pastend" + SEQ.incrementAndGet();
+        messages.post(room, alice, marker + " the only one");
+
+        var beyond = search.searchPage(alice, marker, SearchService.ScopeKind.CHANNEL, room, null, 5, 10);
+        assertThat(beyond.hits()).isEmpty();
+    }
+
+    @Test
+    void pagingCannotBeUsedToAskForUnboundedWork() {
+        // offset is attacker-controlled and Lucene collects offset+size documents to serve a page,
+        // so an unbounded offset is a way to ask the server for arbitrary memory and CPU. Past the
+        // window the answer is empty, not expensive.
+        var alice = newUser("alice");
+        var room = newPublic("paging-window", alice);
+        var marker = "windowcap" + SEQ.incrementAndGet();
+        messages.post(room, alice, marker + " one message");
+
+        var absurd = search.searchPage(alice, marker, SearchService.ScopeKind.CHANNEL, room, null,
+                1_000_000, 100);
+        assertThat(absurd.hits()).isEmpty();
+    }
+
+    @Test
+    void theAclHoldsOnEveryPageAndNotJustTheFirst() {
+        // Pagination is where post-filtering fails worst: a page drawn from an unrestricted window
+        // arrives short, and the shortfall itself tells the viewer something exists. Every page of
+        // a paged search has to be filtered by the same query clause as the first.
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var open = newPublic("open", alice);
+        var secret = newPrivate("closed", alice);
+        channels.join(open, bob);
+        var marker = "pagedacl" + SEQ.incrementAndGet();
+        for (int i = 0; i < 12; i++) {
+            messages.post(open, alice, marker + " public number " + i);
+            messages.post(secret, alice, marker + " private number " + i);
+        }
+
+        var bodies = new java.util.ArrayList<String>();
+        long total = -1;
+        for (int p = 0; p < 3; p++) {
+            var pageOfResults = search.searchPage(bob, marker,
+                    SearchService.ScopeKind.ACCESSIBLE, null, null, p, 5);
+            total = pageOfResults.total();
+            pageOfResults.hits().stream()
+                    .map(h -> ((SearchService.SearchHit.ChannelHit) h).message().getBodyMarkdown())
+                    .forEach(bodies::add);
+        }
+
+        assertThat(total).isEqualTo(12);              // the count leaks nothing either
+        assertThat(bodies).hasSize(12);
+        assertThat(bodies).allMatch(b -> b.contains("public number"));
+        assertThat(bodies).noneMatch(b -> b.contains("private number"));
     }
 
     // ---------- Snippet highlighting ----------
