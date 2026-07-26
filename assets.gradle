@@ -48,6 +48,8 @@ def assetBundles = [
 		[name: 'admin',        type: 'js',  manifest: 'js/admin.manifest.js',        output: 'js/admin.bundle.min.js'],
 		// Per-user file manager (/files).
 		[name: 'files',        type: 'js',  manifest: 'js/files.manifest.js',        output: 'js/files.bundle.min.js'],
+		// One channel's shared files (/channels/{id}/files).
+		[name: 'channel-files', type: 'js', manifest: 'js/channel-files.manifest.js', output: 'js/channel-files.bundle.min.js'],
 		// Per-user saved items (/saved).
 		[name: 'saved',        type: 'js',  manifest: 'js/saved.manifest.js',        output: 'js/saved.bundle.min.js'],
 		// Full-page search results (/search) — top-bar chrome only, no message feed.

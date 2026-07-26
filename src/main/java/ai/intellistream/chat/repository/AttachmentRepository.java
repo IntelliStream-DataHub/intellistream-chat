@@ -143,4 +143,53 @@ public interface AttachmentRepository extends JpaRepository<Attachment, Long> {
             """)
     long sumBytesUploadedBy(
             @org.springframework.data.repository.query.Param("owner") ai.intellistream.chat.domain.User owner);
+
+    // -------------------------------------------------- channel files (GET /channels/{id}/files)
+
+    /**
+     * One page of the files posted in a channel, newest first, optionally narrowed by a filename
+     * pattern. Unlike {@link #findUploadedBy} this is a listing of <em>everybody's</em> files, so
+     * the authorization is not in the query — the caller establishes read access to the channel
+     * first ({@code ChannelService.requireMember}) and this only scopes.
+     *
+     * <p>Two {@code deletedAt is null} predicates, for two different reasons.
+     * {@code a.deletedAt is null} drops attachments the uploader removed from the file manager:
+     * the bytes are gone, so a row here would be a download link to nothing. {@code m.deletedAt is
+     * null} drops files hanging off a message a moderator removed — those bytes still exist and
+     * are still charged to their uploader, but a removed message is not readable and its file is
+     * not downloadable ({@code AttachmentService.requireForDownload} refuses it), so listing it
+     * would advertise content the workspace decided to take down.
+     *
+     * <p>The parent is fetch-joined because the "posted in" link has to anchor on a thread's
+     * parent — the channel page's {@code ?m=} anchor rejects reply ids. Every fetch join here is
+     * to-one, so Hibernate still applies the {@code Pageable} as a real SQL LIMIT.
+     */
+    @org.springframework.data.jpa.repository.Query("""
+            select a from Attachment a
+            join fetch a.message m
+            join fetch m.author
+            left join fetch m.parent
+            where m.channel = :channel
+              and m.deletedAt is null
+              and a.deletedAt is null
+              and lower(a.filename) like :pattern escape '!'
+            order by a.createdAt desc, a.id desc
+            """)
+    List<Attachment> findLiveInChannel(
+            @org.springframework.data.repository.query.Param("channel") ai.intellistream.chat.domain.Channel channel,
+            @org.springframework.data.repository.query.Param("pattern") String pattern,
+            org.springframework.data.domain.Pageable pageable);
+
+    /** Row count behind {@link #findLiveInChannel}, for the count line and the pager. */
+    @org.springframework.data.jpa.repository.Query("""
+            select count(a) from Attachment a
+            join a.message m
+            where m.channel = :channel
+              and m.deletedAt is null
+              and a.deletedAt is null
+              and lower(a.filename) like :pattern escape '!'
+            """)
+    long countLiveInChannel(
+            @org.springframework.data.repository.query.Param("channel") ai.intellistream.chat.domain.Channel channel,
+            @org.springframework.data.repository.query.Param("pattern") String pattern);
 }

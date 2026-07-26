@@ -1365,6 +1365,15 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   font-size: var(--fs-md);
 }
 .icon-btn:hover { background: var(--panel-2); color: var(--text); }
+/* Some header actions are links, not buttons — the channel's files page is a page, so it is an
+   <a> and gets Back for free. It still has to sit on the same baseline as the buttons beside it. */
+a.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  text-decoration: none;
+  line-height: 1;
+}
 
 /* ---------- Inline SVG icon sizing ----------
    .icon         — 20px, the standard for buttons (cog, members, attach, close, …).
@@ -5084,6 +5093,32 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
   font-size: var(--fs-sm);
 }
 .files-pager button:disabled { opacity: 0.45; cursor: default; }
+
+/* ---------- One channel's files (/channels/{id}/files) ----------
+   Reuses the file manager's chrome and table wholesale, because it is the same table answering a
+   different question. Only two columns are new: who shared it, which the personal page cannot need
+   (everything there is yours), and a link to the message, which replaces the delete button. */
+.files-uploader {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+.files-uploader .avatar {
+  width: 22px;
+  height: 22px;
+  font-size: var(--fs-xs);
+  flex: 0 0 auto;
+}
+.files-goto {
+  display: inline-block;
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  line-height: 0;
+}
+.files-goto:hover { background: var(--panel-2); color: var(--text); }
 
 /* ---------- Saved items (/saved) ----------
    Reuses the file manager's page chrome (.files-content / .files-wrap / .files-section) because it

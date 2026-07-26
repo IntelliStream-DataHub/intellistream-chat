@@ -28,11 +28,13 @@ import ai.intellistream.chat.repository.MessageRepository;
 import ai.intellistream.chat.repository.UserRepository;
 import ai.intellistream.chat.security.ResourceNotFoundException;
 import ai.intellistream.chat.service.AttachmentService;
+import ai.intellistream.chat.service.ChannelFileService;
 import ai.intellistream.chat.service.ChannelService;
 import ai.intellistream.chat.service.ConversationAttachmentService;
 import ai.intellistream.chat.service.ConversationService;
 import ai.intellistream.chat.service.MessageService;
 import ai.intellistream.chat.service.UserFileService;
+import ai.intellistream.chat.web.dto.ChannelFileDto;
 import ai.intellistream.chat.web.dto.UserFileDto;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -55,8 +57,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * The per-user file manager against real Postgres: what it shows, what it refuses, and — the part
- * that has no cheaper test — whether the storage credit actually reaches the database.
+ * The two file listings against real Postgres: the per-user file manager (what it shows, what it
+ * refuses, and — the part that has no cheaper test — whether the storage credit actually reaches the
+ * database), and one channel's shared files.
+ *
+ * <p>They share a class because they share every fixture and because the contrast is the point: the
+ * file manager is scoped by <em>uploader</em> and needs no access check, while the channel list is
+ * scoped by <em>channel</em> and is nothing but one. Tests that assert "alice never sees bob's
+ * files" and "alice sees bob's file in a channel they share" sitting next to each other is how the
+ * distinction stays deliberate rather than accidental.
  *
  * <p>{@code user_storage} moves only through an atomic {@code addBytes} delta, so "did the number
  * come back down" is a question only a committed transaction can answer. The credit is asserted
@@ -103,6 +112,7 @@ class UserFileManagerIT {
     @Autowired StorageQuotaService quotas;
     @Autowired MessageModerationService moderation;
     @Autowired UserFileService files;
+    @Autowired ChannelFileService channelFiles;
     @PersistenceContext EntityManager em;
 
     private static final AtomicInteger SEQ = new AtomicInteger();
@@ -192,6 +202,113 @@ class UserFileManagerIT {
                 .containsExactly("report_2026.csv");
         // And a bare "%" must not turn into "match everything".
         assertThat(files.list(alice, "%", 0).files()).isEmpty();
+    }
+
+    // ------------------------------------------------- a channel's files (GET /channels/{id}/files)
+
+    @Test
+    void aChannelsFilesListEverybodysUploadsWithTheirUploaderAndAWayBackToTheMessage()
+            throws IOException {
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var room = newChannel(alice);
+        channels.join(room, bob);
+        upload(room, alice, "alices-deck.pdf", 120);
+        var bobsFile = upload(room, bob, "bobs-notes.txt", 80);
+        em.flush();
+
+        var page = channelFiles.list(room, alice, null, 0);
+
+        // The whole point: this list is not scoped by uploader the way /files is.
+        assertThat(page.files()).extracting(ChannelFileDto::filename)
+                .containsExactlyInAnyOrder("alices-deck.pdf", "bobs-notes.txt");
+        assertThat(page.total()).isEqualTo(2);
+        var bobsRow = page.files().stream()
+                .filter(f -> f.filename().equals("bobs-notes.txt")).findFirst().orElseThrow();
+        assertThat(bobsRow.uploaderUsername()).isEqualTo(bob.getUsername());
+        assertThat(bobsRow.uploaderDisplayName()).isEqualTo(bob.getDisplayName());
+        assertThat(bobsRow.sizeBytes()).isEqualTo(80);
+        assertThat(bobsRow.downloadUrl())
+                .isEqualTo("/api/attachments/" + bobsFile.getId() + "/download");
+        assertThat(bobsRow.messageUrl())
+                .isEqualTo("/channels/" + room.getId() + "?m=" + bobsFile.getMessage().getId()
+                        + "#m=" + bobsFile.getMessage().getId());
+    }
+
+    @Test
+    void aPublicChannelsFilesAreVisibleToSomeoneWhoNeverJoined() throws IOException {
+        var alice = newUser("alice");
+        var stranger = newUser("stranger");
+        var room = newChannel(alice); // PUBLIC
+        upload(room, alice, "public-notes.md", 40);
+        em.flush();
+
+        // requireMember short-circuits for PUBLIC, and it has to here too: a non-member can already
+        // read every message in this channel and download this very file from the feed. A file list
+        // that refused would be the one surface pretending the channel is closed.
+        assertThat(channelFiles.list(room, stranger, null, 0).files())
+                .extracting(ChannelFileDto::filename).containsExactly("public-notes.md");
+    }
+
+    @Test
+    void aPrivateChannelsFilesAreRefusedToANonMemberAndListedForAMember() throws IOException {
+        var alice = newUser("alice");
+        var invited = newUser("invited");
+        var outsider = newUser("outsider");
+        var room = channels.create("private-files-" + SEQ.incrementAndGet(), null,
+                ChannelType.PRIVATE, alice);
+        channels.invite(room, invited, alice);
+        upload(room, alice, "board-pack.pdf", 60);
+        // Committed before the refusal: the throw marks this transaction rollback-only, and the
+        // member's half of the assertion has to run in a fresh one that can still see the invite.
+        Tx.commit();
+
+        // Not an empty page: an empty page is an answer, and "there are no files in the private
+        // channel you asked about" is already more than a non-member is owed.
+        assertThatThrownBy(() -> channelFiles.list(room, outsider, null, 0))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+
+        TestTx.freshRead(() -> assertThat(channelFiles.list(room, invited, null, 0).files())
+                .extracting(ChannelFileDto::filename).containsExactly("board-pack.pdf"));
+    }
+
+    @Test
+    void aChannelsFileListOmitsTombstonesAndFilesOnRemovedMessages() throws IOException {
+        var alice = newUser("alice");
+        var moderator = newUser("mod");
+        var room = newChannel(alice);
+        var deleted = upload(room, alice, "withdrawn.bin", 30);
+        var moderated = upload(room, alice, "taken-down.bin", 30);
+        upload(room, alice, "still-here.bin", 30);
+        Tx.commit();
+
+        // Two different removals, both of which make the download refuse — so neither may be
+        // offered as a row on a page whose only verb is "open this".
+        files.delete(alice, UserFileService.Scope.CHANNEL, deleted.getId());
+        moderation.deleteOne(moderator, moderated.getMessage().getId());
+        Tx.commit();
+
+        assertThat(channelFiles.list(room, alice, null, 0).files())
+                .extracting(ChannelFileDto::filename).containsExactly("still-here.bin");
+    }
+
+    @Test
+    void aChannelsFileListFiltersOnFilename() throws IOException {
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var room = newChannel(alice);
+        channels.join(room, bob);
+        upload(room, alice, "2026-Invoice-final.pdf", 10);
+        upload(room, bob, "cat.png", 20);
+        em.flush();
+
+        var hits = channelFiles.list(room, bob, "invoice", 0);
+
+        assertThat(hits.files()).extracting(ChannelFileDto::filename)
+                .containsExactly("2026-Invoice-final.pdf");
+        assertThat(hits.total()).isEqualTo(1);
+        // Same escaping rules as the file manager — the pattern builder is shared.
+        assertThat(channelFiles.list(room, bob, "%", 0).files()).isEmpty();
     }
 
     // ------------------------------------------------------------------ delete: the quota credit

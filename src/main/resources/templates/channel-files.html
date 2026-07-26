@@ -1,0 +1,132 @@
+<!--
+  Copyright 2026 IntelliStream AS
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+    <meta name="theme-color" content="#1e325c"/>
+    <title th:text="'Files in #' + ${channel.name} + ' · ' + ${appTitle}">Files · IntelliStream Chat</title>
+    <link rel="icon" th:href="${appFaviconUrl}"/>
+    <th:block th:replace="~{fragments/assets :: css('app')}"/>
+    <meta name="_csrf" th:content="${_csrf != null ? _csrf.token : ''}"/>
+    <meta name="_csrf_header" th:content="${_csrf != null ? _csrf.headerName : ''}"/>
+    <!-- Read by the avatar dropdown to decide whether to offer the Admin console item. -->
+    <meta name="me-is-workspace-admin" sec:authorize="hasRole('ADMIN')" content="true"/>
+</head>
+<body class="app files-page" th:attr="data-theme=${me.theme}">
+
+<th:block th:replace="~{fragments/icon-sprite :: sprite}"/>
+
+<header class="topbar">
+    <div class="topbar-left">
+        <a th:href="@{/channels}" class="logo">
+            <th:block th:replace="~{fragments/logo :: mark('logo-mark')}"/>
+            <span class="logo-text" th:text="${appTitle}">IntelliStream Chat</span>
+        </a>
+    </div>
+    <div class="topbar-center"></div>
+    <div class="topbar-right">
+        <a th:href="@{'/channels/' + ${channel.id}}" class="link-btn"
+           th:text="'Back to #' + ${channel.name}">Back to #general</a>
+        <span class="me">
+            <span class="avatar" th:data-author="${me.username}">
+                <img th:if="${me.hasAvatar()}" class="avatar-image" alt=""
+                     th:src="@{/api/users/{u}/avatar(u=${me.username},v=${me.avatarVersion()})}"/>
+                <span class="avatar-letter"
+                      th:text="${#strings.toUpperCase(#strings.substring(me.displayName ?: me.username, 0, 1))}">U</span>
+            </span>
+            <span th:text="${me.displayName ?: me.username}">user</span>
+        </span>
+        <!-- Submitted by the avatar dropdown's "Sign out" item (presence-menu.js). -->
+        <form id="logout-form" th:action="@{/logout}" method="post" hidden></form>
+    </div>
+</header>
+
+<main class="files-content">
+    <div class="files-wrap">
+        <h1>Files in <span th:text="'#' + ${channel.name}">#general</span></h1>
+
+        <!--/* Not a member of a private channel. The same answer /channels/{id} gives, and it says
+               the same thing: the channel's name is already visible from the sidebar and from any
+               link to it, so what is withheld is the contents, not the fact that it exists. The
+               table below is not rendered at all — and the API the script would fill it from
+               refuses the same request with a 403, so this branch is a courtesy and not the
+               control. */-->
+        <div th:unless="${canRead}" class="empty-state">
+            <p>This is a private channel. Ask an admin for an invitation.</p>
+        </div>
+
+        <th:block th:if="${canRead}">
+            <p class="files-help">
+                Every file shared in this channel, newest first — whoever uploaded it. Anyone who can
+                read the channel can read its files, which is already true of the messages they were
+                posted with.
+            </p>
+            <p class="files-help">
+                Files an uploader has since deleted are not listed: the bytes are gone, so there is
+                nothing to open. The message they were posted with still says one was removed, and
+                when. Removing a file is done from
+                <a th:href="@{/files}">your files</a>, for your own uploads.
+            </p>
+
+            <section class="files-section">
+                <div class="files-toolbar">
+                    <label class="files-search">
+                        <span class="visually-hidden">Filter this channel's files by name</span>
+                        <input type="search" id="channel-files-search" autocomplete="off"
+                               placeholder="Filter by file name…" maxlength="120"/>
+                    </label>
+                    <span class="files-count" id="channel-files-count" aria-live="polite"></span>
+                </div>
+
+                <p class="files-error" id="channel-files-error" hidden></p>
+
+                <div class="files-table-wrap">
+                    <table class="files-table" th:data-channel-id="${channel.id}" id="channel-files-table">
+                        <thead>
+                        <tr>
+                            <th scope="col">File</th>
+                            <th scope="col">Size</th>
+                            <th scope="col">Type</th>
+                            <th scope="col">Shared by</th>
+                            <th scope="col">When</th>
+                            <th scope="col"><span class="visually-hidden">Message</span></th>
+                        </tr>
+                        </thead>
+                        <tbody id="channel-files-tbody">
+                        <tr><td colspan="6" class="files-empty">Loading…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div class="files-pager" id="channel-files-pager" hidden>
+                    <button type="button" id="channel-files-prev" class="link-btn">Newer</button>
+                    <span id="channel-files-page-label"></span>
+                    <button type="button" id="channel-files-next" class="link-btn">Older</button>
+                </div>
+            </section>
+        </th:block>
+    </div>
+</main>
+
+<!-- Bundled page scripts (assets.gradle); dev serves the source files. See ASSETS.md. -->
+<th:block th:replace="~{fragments/assets :: js('channel-files')}"/>
+<!-- Avatar dropdown (presence + sign out); ES module, outside the Closure bundle. -->
+<script type="module" th:src="@{/js/chat/presence-menu-boot.js}" defer></script>
+
+</body>
+</html>

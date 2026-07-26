@@ -135,6 +135,15 @@
                         <svg class="icon"><use href="#icon-pin"/></svg>
                         <span id="channel-pins-count">0</span>
                     </button>
+                    <!--/* Files. A link, not a panel: name, uploader, size, date, the message it
+                           came from and a download is six columns, and six columns in a dropdown is
+                           a table nobody can read. It sits here rather than behind the cog because
+                           the cog is settings — it is only rendered for members, and browsing a
+                           public channel's files needs no membership at all. */-->
+                    <a th:href="@{'/channels/' + ${activeChannel.id} + '/files'}" class="icon-btn"
+                       title="Files shared in this channel" aria-label="Files shared in this channel">
+                        <svg class="icon"><use href="#icon-folder"/></svg>
+                    </a>
                     <button type="button" id="channel-members-toggle" class="icon-btn"
                             aria-haspopup="true" aria-expanded="false"
                             aria-controls="channel-members-panel"
