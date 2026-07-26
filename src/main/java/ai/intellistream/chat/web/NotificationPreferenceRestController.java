@@ -18,6 +18,7 @@ package ai.intellistream.chat.web;
 
 import ai.intellistream.chat.security.CurrentUser;
 import ai.intellistream.chat.service.ChannelService;
+import ai.intellistream.chat.service.ConversationService;
 import ai.intellistream.chat.service.NotificationPreferenceService;
 import ai.intellistream.chat.web.dto.NotifyLevelDto;
 import ai.intellistream.chat.web.dto.SetNotifyLevelRequest;
@@ -61,13 +62,16 @@ public class NotificationPreferenceRestController {
 
     private final NotificationPreferenceService preferences;
     private final ChannelService channelService;
+    private final ConversationService conversationService;
     private final CurrentUser currentUser;
 
     public NotificationPreferenceRestController(NotificationPreferenceService preferences,
                                                 ChannelService channelService,
+                                                ConversationService conversationService,
                                                 CurrentUser currentUser) {
         this.preferences = preferences;
         this.channelService = channelService;
+        this.conversationService = conversationService;
         this.currentUser = currentUser;
     }
 
@@ -85,6 +89,27 @@ public class NotificationPreferenceRestController {
         var me = currentUser.resolve(principal);
         var channel = channelService.requireById(id);
         return NotifyLevelDto.of(preferences.setLevelFor(channel, me, body.level()));
+    }
+
+    /**
+     * The same control for a direct or group conversation. Same raw-value contract, same account
+     * default underneath, same membership requirement — a conversation is private to its
+     * participants, so there is not even a public tier to relax it to.
+     */
+    @GetMapping("/api/conversations/{id}/notify")
+    public NotifyLevelDto conversationLevel(@PathVariable Long id, Principal principal) {
+        var me = currentUser.resolve(principal);
+        var conversation = conversationService.requireById(id);
+        return NotifyLevelDto.of(preferences.levelFor(conversation, me));
+    }
+
+    @PutMapping("/api/conversations/{id}/notify")
+    public NotifyLevelDto setConversationLevel(@PathVariable Long id,
+                                               @RequestBody @Valid SetNotifyLevelRequest body,
+                                               Principal principal) {
+        var me = currentUser.resolve(principal);
+        var conversation = conversationService.requireById(id);
+        return NotifyLevelDto.of(preferences.setLevelFor(conversation, me, body.level()));
     }
 
     @GetMapping("/api/profile/notify-default")

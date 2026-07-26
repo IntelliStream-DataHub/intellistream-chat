@@ -35,6 +35,7 @@
   const conversationId = meta('active-conversation-id');
   const lastReadAt = meta('conversation-last-read-at');
   const isSoloConversation = meta('conversation-solo') === 'true';
+  const accountNotifyDefault = meta('me-notify-default') || 'MENTIONS';
   if (!conversationId) return;
 
   const messagesEl = document.getElementById('messages');
@@ -825,6 +826,73 @@
       }
     });
   }
+
+  // ---------- Notification level ----------
+  // Same control the channel page has, against the same account-wide default: the row stores
+  // DEFAULT ("follow the account default") rather than a copy of what it resolved to, so changing
+  // the account setting moves every conversation the user has not explicitly overridden.
+  (() => {
+    const toggle = document.getElementById('conversation-settings-toggle');
+    const panel = document.getElementById('conversation-settings-panel');
+    const closeBtn = document.getElementById('conversation-settings-close');
+    const select = document.getElementById('conversation-notify-level');
+    const status = document.getElementById('conversation-notify-status');
+    if (!toggle || !panel) return;
+
+    const setOpen = (open) => {
+      panel.hidden = !open;
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    };
+    toggle.addEventListener('click', (e) => { e.stopPropagation(); setOpen(panel.hidden); });
+    closeBtn?.addEventListener('click', () => setOpen(false));
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !panel.hidden) setOpen(false);
+    });
+
+    select?.addEventListener('change', async () => {
+      const level = select.value;
+      const previous = select.dataset.current || 'DEFAULT';
+      try {
+        const res = await fetch('/api/conversations/' + conversationId + '/notify', {
+          method: 'PUT', headers: headers(), body: JSON.stringify({ level }),
+        });
+        if (!res.ok) throw new Error(res.statusText);
+        const dto = await res.json();
+        // Repaint from what the server stored, not from what we asked for — the two differ if
+        // anything ever normalises the value, and a picker showing the request rather than the
+        // result is a picker that can lie.
+        select.value = dto.level;
+        select.dataset.current = dto.level;
+        applyMuteCue(dto.level);
+        if (status) {
+          status.hidden = false;
+          status.textContent = 'Saved.';
+          setTimeout(() => { status.hidden = true; }, 2000);
+        }
+      } catch (e) {
+        select.value = previous;
+        if (status) {
+          status.hidden = false;
+          status.textContent = 'Could not save that setting.';
+        }
+      }
+    });
+
+    // The sidebar row and the header bell both show mute state; both move with the picker rather
+    // than waiting for a reload, since the whole point of the setting is felt immediately.
+    const applyMuteCue = (rawLevel) => {
+      const resolved = rawLevel === 'DEFAULT' ? accountNotifyDefault : rawLevel;
+      const li = document.querySelector('#sidebar-dm-list li[data-conv-id="'
+          + CSS.escape(String(conversationId)) + '"]');
+      if (li) {
+        li.dataset.notifyLevel = rawLevel;
+        li.dataset.muted = String(resolved === 'NONE');
+      }
+      toggle.querySelector('use')?.setAttribute('href',
+          resolved === 'NONE' ? '#icon-bell-slash' : '#icon-bell');
+    };
+    applyMuteCue(select?.dataset.current || 'DEFAULT');
+  })();
 
   // Sidebar mobile toggle (mirrors chat/index.js). The CSS slide-in keys off
   // body.sidebar-open — the earlier `.sidebar.open` class had no CSS behind it,

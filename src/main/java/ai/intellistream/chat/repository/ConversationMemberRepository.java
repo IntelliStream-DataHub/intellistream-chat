@@ -112,6 +112,18 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
             @org.springframework.data.repository.query.Param("conversationIds") Collection<Long> conversationIds,
             @org.springframework.data.repository.query.Param("excludeUserId") Long excludeUserId);
 
+    /**
+     * The viewer's raw notification level in every conversation they belong to, as
+     * {@code [conversationId, level]} rows.
+     *
+     * <p>One query for the whole sidebar rather than a lookup per row, and raw rather than resolved
+     * for the same reason the channel sidebar carries a raw level: the row resolves it against the
+     * account default in the template, so a user changing that default moves every un-overridden
+     * row without anything being recomputed per conversation.
+     */
+    @Query("select m.conversation.id, m.notifyLevel from ConversationMember m where m.user = :user")
+    List<Object[]> findNotifyLevelsForUser(@Param("user") User user);
+
     /** Insert a membership if absent, ignore on the (conversation,user) conflict (N1). */
     @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
     @org.springframework.data.jpa.repository.Query(value = "insert into conversation_members (conversation_id, user_id) values (:conversationId, :userId) on conflict (conversation_id, user_id) do nothing", nativeQuery = true)

@@ -240,7 +240,11 @@ public class HomeController {
         // is highlighted, and a page that silently omits one is how the two sidebars drifted apart
         // in the first place.
         model.addAttribute("activeChannelId", null);
-        model.addAttribute("activeConversation", ConversationDto.of(conversation, other));
+        var notifyLevel = conversationService.notifyLevelsFor(me).get(conversation.getId());
+        model.addAttribute("activeConversation",
+                ConversationDto.of(conversation, other, 0L, notifyLevel));
+        model.addAttribute("conversationNotifyLevel",
+                notifyLevel == null ? ai.intellistream.chat.domain.NotificationLevel.DEFAULT : notifyLevel);
         model.addAttribute("messages", messages);
         model.addAttribute("lastReadAt", lastReadAt);
         // A conversation with one member — a DM with yourself, where /remind me delivers. Its own
@@ -255,6 +259,7 @@ public class HomeController {
         var convs = conversationService.listForUser(me);
         var ids = convs.stream().map(ai.intellistream.chat.domain.Conversation::getId).toList();
         var unread = conversationService.unreadCounts(me, ids);
+        var levels = conversationService.notifyLevelsFor(me);
         return convs.stream()
                 .map(c -> {
                     var other = c.getType() == ConversationType.DIRECT
@@ -263,7 +268,8 @@ public class HomeController {
                                     .filter(u -> !u.getId().equals(me.getId()))
                                     .findFirst().orElse(null)
                             : null;
-                    return ConversationDto.of(c, other, unread.getOrDefault(c.getId(), 0L));
+                    return ConversationDto.of(c, other, unread.getOrDefault(c.getId(), 0L),
+                            levels.get(c.getId()));
                 })
                 .toList();
     }

@@ -252,7 +252,7 @@ public class ConversationRestController {
         // replies would mean two subscriptions per conversation and a whole class of "the reply
         // arrived but the panel was on the other socket" bugs.
         broker.convertAndSend("/topic/conversations/" + dto.conversationId(), dto);
-        alerts.alert(saved.getConversation(), saved);
+        alerts.alert(saved.getConversation(), saved, participants);
         return dto;
     }
 

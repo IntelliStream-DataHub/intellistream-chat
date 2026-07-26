@@ -4550,6 +4550,16 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
   font-size: 0.85em;
   font-weight: 600;
 }
+/* A muted DM row, dimmed exactly as a muted channel row is (see .channel-list[data-muted]) and
+   restored on hover and while active — you have to be able to read what you muted. The unread
+   badge is deliberately not dimmed with it: the count is still true. */
+.dm-list li[data-muted="true"] > a { opacity: 0.55; }
+.dm-list li[data-muted="true"] > a:hover,
+.dm-list li[data-muted="true"] > a.active { opacity: 1; }
+.dm-muted-tag {
+  margin-left: 0.25rem;
+  color: var(--sb-muted);
+}
 .dm-admin-tag,
 .channel-role-tag {
   margin-left: 0.4rem;

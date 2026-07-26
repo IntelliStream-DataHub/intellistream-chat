@@ -58,15 +58,68 @@
                         <span th:text="${activeConversation.title}">DM</span>
                     </h1>
                 </div>
-                <div class="channel-header-actions" th:if="${activeConversation.type.name() == 'GROUP'}">
+                <div class="channel-header-actions">
                     <button type="button" id="group-members-toggle" class="icon-btn"
+                            th:if="${activeConversation.type.name() == 'GROUP'}"
                             aria-haspopup="true" aria-expanded="false"
                             aria-controls="group-members-panel"
                             title="Group members" aria-label="Group members">
                         <svg class="icon"><use href="#icon-users"/></svg>
                         <span id="group-members-count">…</span>
                     </button>
+                    <!--/* Every conversation gets this, not just groups: a 1:1 has a notification
+                           setting too, and until now the only DM control in the header was one
+                           groups happened to need. The bell shows its slashed variant while the
+                           conversation is muted, so the state is legible without opening it. */-->
+                    <button type="button" id="conversation-settings-toggle" class="icon-btn"
+                            aria-haspopup="dialog" aria-expanded="false"
+                            aria-controls="conversation-settings-panel"
+                            title="Conversation settings" aria-label="Conversation settings">
+                        <svg class="icon"><use href="#icon-bell"/></svg>
+                    </button>
                 </div>
+
+                <section id="conversation-settings-panel" class="channel-admin-dropdown"
+                         role="dialog" aria-labelledby="conversation-settings-title" hidden>
+                    <header>
+                        <h3 id="conversation-settings-title">Conversation settings</h3>
+                        <button type="button" id="conversation-settings-close" class="icon-btn"
+                                title="Close" aria-label="Close">
+                            <svg class="icon"><use href="#icon-close"/></svg>
+                        </button>
+                    </header>
+                    <!--/* Three options, not the channel picker's four. A conversation has no
+                           bystanders — you are in it because somebody put you in it — so "mentions
+                           only" would deliver everything anyway, and an option that does not do
+                           what it says is worse than a missing one. The Default row is labelled by
+                           what inheriting actually produces here rather than by the account
+                           default's own name, for exactly the same reason. See
+                           ConversationAlertPublisher for the whole argument. */-->
+                    <div class="channel-notify">
+                        <label for="conversation-notify-level">Notify me about</label>
+                        <select id="conversation-notify-level"
+                                th:with="mutedByDefault=${sidebar.notifyDefault.name() == 'NONE'}"
+                                th:attr="data-conversation-id=${activeConversationId},
+                                         data-current=${conversationNotifyLevel}">
+                            <option value="DEFAULT"
+                                    th:text="'Default (' + ${mutedByDefault ? 'nothing' : 'every message'} + ')'"
+                                    th:selected="${conversationNotifyLevel.name() == 'DEFAULT'}">Default</option>
+                            <!--/* MENTIONS is selectable only through the API; it behaves as ALL
+                                   here, so it shows as ALL rather than leaving the picker on no
+                                   option at all. */-->
+                            <option value="ALL"
+                                    th:selected="${conversationNotifyLevel.name() == 'ALL'
+                                                   or conversationNotifyLevel.name() == 'MENTIONS'}">Every message</option>
+                            <option value="NONE" th:selected="${conversationNotifyLevel.name() == 'NONE'}">Nothing (mute)</option>
+                        </select>
+                        <p class="form-hint">
+                            Everything said here is addressed to the people in it, so a conversation
+                            notifies on every message. Mute it to keep the unread count without the
+                            interruption.
+                        </p>
+                        <p class="channel-notify-status" id="conversation-notify-status" hidden></p>
+                    </div>
+                </section>
 
                 <section id="group-members-panel"
                          class="channel-admin-dropdown"

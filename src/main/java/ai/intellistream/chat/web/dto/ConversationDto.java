@@ -18,6 +18,7 @@ package ai.intellistream.chat.web.dto;
 
 import ai.intellistream.chat.domain.Conversation;
 import ai.intellistream.chat.domain.ConversationType;
+import ai.intellistream.chat.domain.NotificationLevel;
 import ai.intellistream.chat.domain.User;
 
 
@@ -40,7 +41,8 @@ public record ConversationDto(
         String otherDisplayName,
         boolean otherHasAvatar,
         long otherAvatarVersion,
-        long unreadCount
+        long unreadCount,
+        NotificationLevel notifyLevel
 ) {
     /**
      * What a DM with yourself is called. "You", not the user's own display name: in a list of
@@ -57,6 +59,18 @@ public record ConversationDto(
     }
 
     public static ConversationDto of(Conversation conversation, User other, long unreadCount) {
+        return of(conversation, other, unreadCount, NotificationLevel.DEFAULT);
+    }
+
+    /**
+     * @param notifyLevel the viewer's <em>raw</em> level for this conversation — {@code DEFAULT}
+     *        when it follows the account default. Raw, not resolved, because the sidebar row
+     *        resolves it against {@code me-notify-default} in the same expression a channel row
+     *        uses, and resolving it here would put that decision in two places.
+     */
+    public static ConversationDto of(Conversation conversation, User other, long unreadCount,
+                                     NotificationLevel notifyLevel) {
+        var level = notifyLevel == null ? NotificationLevel.DEFAULT : notifyLevel;
         if (conversation.isSelfDirect()) {
             // Callers reach this two ways and neither can supply an "other": the page/sidebar path
             // filters the viewer out of the member list and gets null, while the start-a-DM endpoint
@@ -71,7 +85,8 @@ public record ConversationDto(
                     other == null ? null : other.getDisplayName(),
                     other != null && other.hasAvatar(),
                     other == null ? 0L : other.avatarVersion(),
-                    unreadCount
+                    unreadCount,
+                    level
             );
         }
         if (conversation.getType() == ConversationType.DIRECT && other != null) {
@@ -83,7 +98,8 @@ public record ConversationDto(
                     other.getDisplayName(),
                     other.hasAvatar(),
                     other.avatarVersion(),
-                    unreadCount
+                    unreadCount,
+                    level
             );
         }
         return new ConversationDto(
@@ -91,7 +107,8 @@ public record ConversationDto(
                 conversation.getType(),
                 conversation.getTitle(),
                 null, null, false, 0L,
-                unreadCount
+                unreadCount,
+                level
         );
     }
 }

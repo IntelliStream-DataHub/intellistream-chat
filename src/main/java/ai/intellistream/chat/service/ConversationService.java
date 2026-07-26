@@ -385,6 +385,21 @@ public class ConversationService {
     }
 
     /**
+     * {@code conversationId -> the viewer's raw notification level}, for every conversation they
+     * are in. Raw: {@code DEFAULT} means the row follows the account default and must keep saying
+     * so, or the sidebar would freeze each row at whatever the default happened to be.
+     */
+    @Transactional(readOnly = true)
+    public Map<Long, ai.intellistream.chat.domain.NotificationLevel> notifyLevelsFor(User viewer) {
+        var rows = members.findNotifyLevelsForUser(viewer);
+        var out = new HashMap<Long, ai.intellistream.chat.domain.NotificationLevel>(rows.size());
+        for (var row : rows) {
+            out.put((Long) row[0], (ai.intellistream.chat.domain.NotificationLevel) row[1]);
+        }
+        return out;
+    }
+
+    /**
      * Where {@code viewer}'s read marker stands in this conversation, or {@code null} if they have
      * never read it (or are not a member).
      *
