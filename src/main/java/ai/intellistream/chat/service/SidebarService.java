@@ -18,6 +18,7 @@ package ai.intellistream.chat.service;
 
 import ai.intellistream.chat.domain.Channel;
 import ai.intellistream.chat.domain.ChannelMember;
+import ai.intellistream.chat.domain.NotificationLevel;
 import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.repository.ChannelMemberRepository;
 import ai.intellistream.chat.repository.ChannelRepository;
@@ -68,7 +69,7 @@ public class SidebarService {
         LinkedHashMap<Long, ChannelSidebarDto> byId = new LinkedHashMap<>();
         for (var m : memberships) {
             var c = m.getChannel();
-            byId.put(c.getId(), ChannelSidebarDto.of(c, true, m.getRole() == ADMIN));
+            byId.put(c.getId(), ChannelSidebarDto.of(c, true, m.getRole() == ADMIN, m.getNotifyLevel()));
         }
         for (var c : publicChannels) {
             byId.computeIfAbsent(c.getId(), k -> ChannelSidebarDto.of(c, false, false));
@@ -112,15 +113,18 @@ public class SidebarService {
      */
     @Transactional(readOnly = true)
     public SidebarView curatedFor(User user, Long activeChannelId) {
+        // The account-wide notification default rides along on every sidebar render: each row
+        // carries its raw per-channel level, and DEFAULT only means something next to this.
+        var notifyDefault = accountDefaultOf(user);
         var memberships = memberRepository.findAllByUserFetchingChannel(user);
         if (memberships.isEmpty()) {
-            return new SidebarView(List.of(), List.of(), 0);
+            return new SidebarView(List.of(), List.of(), 0, notifyDefault);
         }
 
         var joined = new LinkedHashMap<Long, ChannelSidebarDto>();
         for (var m : memberships) {
             var c = m.getChannel();
-            joined.put(c.getId(), ChannelSidebarDto.of(c, true, m.getRole() == ADMIN));
+            joined.put(c.getId(), ChannelSidebarDto.of(c, true, m.getRole() == ADMIN, m.getNotifyLevel()));
         }
         var joinedIds = List.copyOf(joined.keySet());
 
@@ -175,7 +179,13 @@ public class SidebarService {
                         (ChannelSidebarDto d) -> recentMessages.getOrDefault(d.id(), 0L)).reversed())
                 .thenComparing(d -> d.name().toLowerCase()));
 
-        return new SidebarView(largest, List.copyOf(active), joined.size() - shown.size());
+        return new SidebarView(largest, List.copyOf(active), joined.size() - shown.size(), notifyDefault);
+    }
+
+    /** The viewer's account-wide notification default, tolerating a row written before V7. */
+    private static NotificationLevel accountDefaultOf(User user) {
+        var stored = user.getNotifyDefault();
+        return stored == null ? NotificationLevel.ACCOUNT_FALLBACK : stored;
     }
 
     /**
@@ -198,10 +208,15 @@ public class SidebarService {
         }
         var membershipByChannelId = memberRepository.findAllByUserFetchingChannel(user).stream()
                 .collect(java.util.stream.Collectors.toMap(
-                        m -> m.getChannel().getId(), m -> m.getRole() == ADMIN, (a, b) -> a));
+                        m -> m.getChannel().getId(), m -> m, (a, b) -> a));
         return matches.stream()
-                .map(c -> ChannelSidebarDto.of(c, membershipByChannelId.containsKey(c.getId()),
-                        Boolean.TRUE.equals(membershipByChannelId.get(c.getId()))))
+                .map(c -> {
+                    var membership = membershipByChannelId.get(c.getId());
+                    return membership == null
+                            ? ChannelSidebarDto.of(c, false, false)
+                            : ChannelSidebarDto.of(c, true, membership.getRole() == ADMIN,
+                                    membership.getNotifyLevel());
+                })
                 .toList();
     }
 

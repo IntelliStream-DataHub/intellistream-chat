@@ -596,7 +596,8 @@ If you co-locate Postgres on the host, keep `PGDATA` under the default `/var/lib
 - **File attachments** uploaded as a raw request body streamed straight to disk — no multipart parsing, no buffering; image attachments open in a lightbox.
 - **Profile pictures** with server-side resize (PNG/JPEG ≤256px), live broadcast on change.
 - **Avatar hovercard** with profile info + "Send direct message" action.
-- **@mention notifications**: in-tab toast plus opportunistic OS notification (Notification API) when permitted.
+- **@mention notifications**: in-tab toast plus opportunistic OS notification (Notification API) when permitted, and a notification sound you can set separately for mentions and direct messages (fifteen to choose from, synthesised in the browser — no audio files to ship or serve).
+- **Per-channel notification levels**, on the Slack/Mattermost model: an account-wide default (*every message* / *mentions* / *nothing*) and a per-channel override whose default value is **inherit**, not a copy — change the account setting and every channel you haven't explicitly overridden moves with it. Muting is the bottom of that same control rather than a separate flag, and a muted channel still counts unread; it just stops interrupting.
 - **Markdown** message bodies — server-side render with CommonMark + GFM tables + autolinks, sanitized with jsoup, fenced-code syntax highlighting via highlight.js, and link previews / embedded YouTube.
 - **Full-text search** powered by an embedded **Apache Lucene** index. Three scopes: per-channel, across all channels you've joined, and (admin-only) everywhere.
 - **Themes** (8 built-in palettes) chosen on the profile page.

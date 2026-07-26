@@ -14,6 +14,9 @@
          channel-scoped me-is-admin meta on the chat pages. -->
     <meta name="me-is-workspace-admin" sec:authorize="hasRole('ADMIN')" content="true"/>
     <meta name="me-username" th:content="${me.username}"/>
+    <!--/* Account-wide notification default: ALL, MENTIONS or NONE — never DEFAULT.
+           A channel row resolves as data-notify-level == DEFAULT ? this : its own. */-->
+    <meta name="me-notify-default" th:content="${sidebar.notifyDefault}"/>
     <meta name="me-display" th:content="${me.displayName}"/>
     <!-- Read by the optimistic-send placeholder so the bubble it draws before the server
          confirms carries the same avatar as the real message that replaces it. -->
@@ -150,6 +153,24 @@
     <svg class="icon"><use href="#icon-close"/></svg>
 </button>
                     </header>
+                    <!--/* Per-channel notifications. "Default" is the top entry and the stored
+                           value, so changing the account setting moves this channel with it —
+                           the picker shows what it inherits rather than hiding the link. */-->
+                    <div class="channel-notify" th:if="${notifyLevel != null}">
+                        <label for="channel-notify-level">Notify me about</label>
+                        <select id="channel-notify-level"
+                                th:data-channel-id="${activeChannel.id}"
+                                th:data-current="${notifyLevel}">
+                            <option value="DEFAULT"
+                                    th:text="'Default (' + ${#strings.toLowerCase(notifyDefault)} + ')'"
+                                    th:selected="${notifyLevel.name() == 'DEFAULT'}">Default</option>
+                            <option value="ALL" th:selected="${notifyLevel.name() == 'ALL'}">Every message</option>
+                            <option value="MENTIONS" th:selected="${notifyLevel.name() == 'MENTIONS'}">Mentions only</option>
+                            <option value="NONE" th:selected="${notifyLevel.name() == 'NONE'}">Nothing (mute)</option>
+                        </select>
+                        <p class="channel-notify-status" id="channel-notify-status" hidden></p>
+                    </div>
+
                     <form id="invite-form" class="invite-form" th:data-channel-id="${activeChannel.id}">
                         <label>Invite user (username)
                             <input name="username" required autocomplete="off"/>

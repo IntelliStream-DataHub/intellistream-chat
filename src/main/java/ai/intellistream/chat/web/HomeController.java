@@ -52,6 +52,7 @@ public class HomeController {
     private final ConversationService conversationService;
     private final ai.intellistream.chat.service.ConversationAttachmentService conversationAttachmentService;
     private final ai.intellistream.chat.service.PollService pollService;
+    private final ai.intellistream.chat.service.NotificationPreferenceService notificationPreferences;
     private final MarkdownRenderer markdown;
     private final CurrentUser currentUser;
 
@@ -65,6 +66,7 @@ public class HomeController {
                           ConversationService conversationService,
                           ai.intellistream.chat.service.ConversationAttachmentService conversationAttachmentService,
                           ai.intellistream.chat.service.PollService pollService,
+                          ai.intellistream.chat.service.NotificationPreferenceService notificationPreferences,
                           MarkdownRenderer markdown,
                           CurrentUser currentUser) {
         this.sidebarService = sidebarService;
@@ -77,6 +79,7 @@ public class HomeController {
         this.conversationService = conversationService;
         this.conversationAttachmentService = conversationAttachmentService;
         this.pollService = pollService;
+        this.notificationPreferences = notificationPreferences;
         this.markdown = markdown;
         this.currentUser = currentUser;
     }
@@ -160,6 +163,13 @@ public class HomeController {
         model.addAttribute("messages", messages);
         model.addAttribute("isMember", member);
         model.addAttribute("isAdmin", admin);
+        // The notification picker's two inputs, so opening a channel costs no extra request:
+        // the RAW level for this channel (DEFAULT when it follows the account default, null when
+        // the viewer isn't a member and so has no setting), and the account default it may be
+        // inheriting. Raw, not resolved — the picker shows "Default" as a selectable option, and a
+        // resolved value would make an inherited MENTIONS indistinguishable from a pinned one.
+        model.addAttribute("notifyLevel", member ? notificationPreferences.levelFor(channel, me) : null);
+        model.addAttribute("notifyDefault", notificationPreferences.accountDefault(me));
         // Tells the template "you're not at the latest" so the JS can render a Jump to latest
         // banner; also drives whether infinite-scroll is enabled in BOTH directions vs. only up.
         model.addAttribute("centeredOnAnchor", centeredOnAnchor);

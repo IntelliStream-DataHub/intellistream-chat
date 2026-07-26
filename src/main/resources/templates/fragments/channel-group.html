@@ -13,7 +13,7 @@
         <li th:each="c : ${channels}"
             th:classappend="${c.joined ? 'joined' : 'public'} + ${c.joined and c.unreadCount > 0 ? ' has-unread' : ''}"
             th:with="active=${activeChannelId != null and activeChannelId == c.id}"
-            th:attr="data-active=${active},data-name=${#strings.toLowerCase(c.name)},data-channel-id=${c.id}">
+            th:attr="data-active=${active},data-name=${#strings.toLowerCase(c.name)},data-channel-id=${c.id},data-notify-level=${c.notifyLevel}">
             <a th:href="@{'/channels/' + ${c.id}}" th:classappend="${active ? 'active' : ''}">
                 <span class="hash">#</span>
                 <span class="channel-name" th:text="${c.name}">name</span>

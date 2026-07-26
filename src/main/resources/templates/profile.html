@@ -111,6 +111,21 @@
                 anyway — so they get their own switch and their own sound, and you can tell them
                 apart without looking.
             </p>
+            <div class="notify-default">
+                <label for="notify-default-level">Notify me about</label>
+                <select id="notify-default-level" th:data-current="${me.notifyDefault}">
+                    <option value="ALL" th:selected="${me.notifyDefault.name() == 'ALL'}">Every message</option>
+                    <option value="MENTIONS" th:selected="${me.notifyDefault.name() == 'MENTIONS'}">Mentions and direct messages</option>
+                    <option value="NONE" th:selected="${me.notifyDefault.name() == 'NONE'}">Nothing</option>
+                </select>
+                <p class="profile-help">
+                    The starting point for every channel. A channel set to anything other than
+                    <em>Default</em> keeps its own setting; the rest follow this one, so changing
+                    it here moves them all. Unlike the sounds below, this is saved to your account
+                    and applies wherever you sign in.
+                </p>
+            </div>
+
             <div class="sound-prefs">
                 <div class="sound-pref" data-kind="direct">
                     <label class="notification-sound-toggle">

@@ -52,9 +52,62 @@ public class ChannelMember {
     @Column(name = "joined_at", nullable = false)
     private Instant joinedAt = Instant.now();
 
+    /**
+     * This channel's notification override for this member, <b>raw</b>:
+     * {@link NotificationLevel#DEFAULT} means "follow the account default", and is what a
+     * membership starts as and stays as until the user picks something for this channel
+     * specifically.
+     *
+     * <p>It stores the inheritance, not a snapshot of what the account default resolved to at join
+     * time — see {@link NotificationLevel}. Read it raw when rendering a picker (so it can show
+     * "Default" selected); resolve it through {@link #effectiveNotifyLevel} when deciding whether
+     * to actually notify.
+     *
+     * <p>No {@code @Setter}, for the same reason {@code role} has one and this doesn't: role is a
+     * plain assignment, whereas this field has two distinct meanings for a caller — pin a level,
+     * or go back to inheriting — and {@code setNotifyLevel(DEFAULT)} reads like neither.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "notify_level", nullable = false, length = 16)
+    private NotificationLevel notifyLevel = NotificationLevel.DEFAULT;
+
     public ChannelMember(Channel channel, User user, ChannelRole role) {
         this.channel = channel;
         this.user = user;
         this.role = role;
+    }
+
+    /** True while this channel takes its level from the account default rather than its own. */
+    public boolean followsAccountDefault() {
+        return notifyLevel.isInherited();
+    }
+
+    /**
+     * Set this channel's own notification level. Passing {@link NotificationLevel#DEFAULT} is the
+     * supported way to clear the override and go back to following the account default — the same
+     * value the picker shows, so the UI needs no special case for "unset".
+     */
+    public void chooseNotifyLevel(NotificationLevel level) {
+        if (level == null) {
+            throw new IllegalArgumentException(
+                    "Notification level is required — pass DEFAULT to follow the account default");
+        }
+        this.notifyLevel = level;
+    }
+
+    /** Shorthand for {@code chooseNotifyLevel(DEFAULT)}, for call sites that mean exactly that. */
+    public void followAccountDefault() {
+        this.notifyLevel = NotificationLevel.DEFAULT;
+    }
+
+    /**
+     * The level actually in force, resolving {@code DEFAULT} against the given account default.
+     *
+     * <p>Takes the account default as an argument rather than reading {@code user.getNotifyDefault()}
+     * itself: {@code user} is a {@code LAZY} association, and resolving it here would fire a select
+     * — or throw {@code LazyInitializationException} — on paths that already hold the {@link User}.
+     */
+    public NotificationLevel effectiveNotifyLevel(NotificationLevel accountDefault) {
+        return notifyLevel.resolvedAgainst(accountDefault);
     }
 }

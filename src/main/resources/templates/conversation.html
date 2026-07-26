@@ -14,6 +14,9 @@
          channel-scoped me-is-admin meta on the chat pages. -->
     <meta name="me-is-workspace-admin" sec:authorize="hasRole('ADMIN')" content="true"/>
     <meta name="me-username" th:content="${me.username}"/>
+    <!--/* Account-wide notification default: ALL, MENTIONS or NONE — never DEFAULT.
+           A channel row resolves as data-notify-level == DEFAULT ? this : its own. */-->
+    <meta name="me-notify-default" th:content="${sidebar.notifyDefault}"/>
     <meta name="me-display" th:content="${me.displayName}"/>
     <meta name="active-conversation-id" th:content="${activeConversationId}"/>
     <meta name="me-is-admin" th:content="${isAdmin == true ? 'true' : 'false'}"/>

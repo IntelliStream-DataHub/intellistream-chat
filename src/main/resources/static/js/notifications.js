@@ -23,7 +23,8 @@
  * include an "Enable desktop alerts" button on the toast. Subsequent toasts skip the prompt.
  *
  * Public surface: window.MentionNotifications = {
- *   show({ author, channel, snippet, url, kind }),  kind: undefined | 'direct' | 'group'
+ *   show({ author, channel, snippet, url, kind }),
+ *       kind: undefined (a mention) | 'channel' | 'direct' | 'group'
  *   playChime, soundEnabled, setSoundEnabled, permissionState
  * }
  *
@@ -206,6 +207,10 @@
   function headline({ author, channel, kind }) {
     if (kind === 'direct') return author + ' sent you a direct message';
     if (kind === 'group') return author + ' posted in ' + channel;
+    // Not a mention — an ordinary message in a channel the user set to notify on everything.
+    // Saying "mentioned you" here would be a lie, and the kind of lie that teaches people to
+    // ignore the notification.
+    if (kind === 'channel') return author + ' posted in #' + channel;
     return author + ' mentioned you in #' + channel;
   }
 

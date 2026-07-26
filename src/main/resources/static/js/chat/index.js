@@ -384,6 +384,73 @@ presenceMenu.init();
     if (isMention) badge.classList.add('mention');
   };
 
+  // The per-channel picker in the settings panel. Writes through to the account so the choice
+  // follows the person between devices — unlike the sound settings, which are per browser.
+  (() => {
+    const picker = document.getElementById('channel-notify-level');
+    if (!picker) return;
+    const status = document.getElementById('channel-notify-status');
+    const say = (text, bad) => {
+      if (!status) return;
+      status.textContent = text;
+      status.hidden = !text;
+      status.classList.toggle('is-error', !!bad);
+    };
+    picker.addEventListener('change', async () => {
+      const previous = picker.dataset.current;
+      picker.disabled = true;
+      say('Saving…', false);
+      try {
+        const res = await fetch('/api/channels/' + picker.dataset.channelId + '/notify', {
+          method: 'PUT', headers: headers(), body: JSON.stringify({ level: picker.value }),
+        });
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || 'Could not save that.');
+        picker.dataset.current = picker.value;
+        // The sidebar row is what the notification rule reads, so it has to move with the
+        // setting or the change only takes effect after a reload.
+        const row = document.querySelector(`[data-channel-id="${picker.dataset.channelId}"]`);
+        if (row) row.dataset.notifyLevel = picker.value;
+        say('Saved.', false);
+        setTimeout(() => say('', false), 2000);
+      } catch (e) {
+        // Put the control back where it was: a picker showing a value the server rejected is
+        // worse than no feedback, because it looks applied.
+        picker.value = previous;
+        say(e.message, true);
+      } finally {
+        picker.disabled = false;
+      }
+    });
+  })();
+
+  // ---------- Notification level ----------
+  // Slack/Mattermost model: an account-wide default, and a per-channel override whose default
+  // value is "inherit" rather than a copy. Resolving here rather than server-side keeps the
+  // account default authoritative — change it once and every un-overridden channel follows,
+  // which is the whole point of storing inherit instead of a snapshot.
+  const accountNotifyDefault = () => meta('me-notify-default') || 'MENTIONS';
+
+  const notifyLevelFor = (channelId) => {
+    const li = sidebarChannels.get(String(channelId))?.li
+        || document.querySelector(`[data-channel-id="${channelId}"]`);
+    const raw = li?.dataset.notifyLevel || 'DEFAULT';
+    return raw === 'DEFAULT' ? accountNotifyDefault() : raw;
+  };
+
+  /**
+   * Should this incoming message interrupt the user?
+   *
+   * <p>NONE is a mute and silences even a mention: the user said "nothing from this channel", and
+   * a mute with exceptions is not a mute. ALL notifies on any message. MENTIONS is the default
+   * and is the behaviour every existing install already has.
+   */
+  const shouldNotify = (channelId, mentioned) => {
+    const level = notifyLevelFor(channelId);
+    if (level === 'NONE') return false;
+    if (level === 'ALL') return true;
+    return mentioned;
+  };
+
   /**
    * Surface an @mention via the shared notifications module.
    *
@@ -392,15 +459,17 @@ presenceMenu.init();
    * you by name, and "someone just called on you" is worth hearing even while the channel is
    * open. Watching a busy channel scroll is exactly the situation where a mention is missed.
    */
-  const maybeNotifyMention = (message, channelId, isActiveChannel) => {
+  const maybeNotifyMention = (message, channelId, isActiveChannel, mentioned = true) => {
     if (!message) return;
-    // Bump the topbar bell AND refresh the dropdown inbox so a new mention shows up live
-    // without the user reloading. notifyMention debounces simultaneous calls so a burst
-    // (multi-channel mention storm) coalesces into one /api/mentions fetch.
-    if (window.MentionInbox) window.MentionInbox.notifyMention();
+    // The bell is a mention inbox, so only an actual mention belongs in it. A channel set to
+    // ALL produces notifications for ordinary messages, and putting those in the bell would
+    // turn "things addressed to me" into "everything", which is the one thing it is for.
+    if (mentioned && window.MentionInbox) window.MentionInbox.notifyMention();
     if (!window.MentionNotifications) return;
     if (isActiveChannel && document.visibilityState === 'visible' && document.hasFocus()) {
-      window.MentionNotifications.playChime('mention');
+      // A mention still makes a sound while you are reading the channel — see below. An ordinary
+      // message in a channel set to ALL does not: you are looking straight at it.
+      if (mentioned) window.MentionNotifications.playChime('mention');
       return;
     }
     const entry = sidebarChannels.get(channelId);
@@ -410,6 +479,7 @@ presenceMenu.init();
     window.MentionNotifications.show({
       author,
       channel: channelName,
+      kind: mentioned ? undefined : 'channel',
       snippet,
       // Match permalinkFor: ?m= makes the server render context around an older message
       // (it may be outside the latest page), #m= is what scrollToPermalinkTarget matches.
@@ -490,8 +560,13 @@ presenceMenu.init();
           if (ev.type !== 'created' || ev.parentId) return;
           if (ev.message?.authorUsername === myUsername) return;
           const mentioned = !!(ev.message?.mentions || []).includes(myUsername);
+          // The badge is not the notification: an unread count still reflects reality in a muted
+          // channel, it just does not interrupt. Muting means "stop telling me", not "pretend
+          // nothing happened".
           bumpSidebarUnread(id, mentioned);
-          if (mentioned) maybeNotifyMention(ev.message, id, /* isActiveChannel */ false);
+          if (shouldNotify(id, mentioned)) {
+            maybeNotifyMention(ev.message, id, /* isActiveChannel */ false, mentioned);
+          }
         });
       });
       stomp.subscribe('/topic/users', (frame) => {
@@ -691,7 +766,9 @@ presenceMenu.init();
                 .catch(() => {});
             }
             const mentioned = !!(event.message?.mentions || []).includes(myUsername);
-            if (mentioned) maybeNotifyMention(event.message, activeChannelId, /* isActiveChannel */ true);
+            if (shouldNotify(activeChannelId, mentioned)) {
+              maybeNotifyMention(event.message, activeChannelId, /* isActiveChannel */ true, mentioned);
+            }
           }
         }
       } else if (event.type === 'updated') {

@@ -63,6 +63,19 @@ public class User {
     private boolean tutorialDismissed = false;
 
     /**
+     * The account-wide notification default: how much a channel interrupts this user when they
+     * have not said otherwise for that specific channel. Ships as {@code MENTIONS}, which is what
+     * the app already did for everyone.
+     *
+     * <p>Deliberately not a {@code @Setter}: the bottom of the inheritance chain has to be a
+     * concrete level, and {@code setNotifyDefault(DEFAULT)} would compile. See
+     * {@link #chooseNotifyDefault}.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "notify_default", nullable = false, length = 16)
+    private NotificationLevel notifyDefault = NotificationLevel.MENTIONS;
+
+    /**
      * Storage key (UUID) for the avatar file under {@code chat.avatars.dir}, or {@code null}
      * when the user is on the auto-generated initial+colour fallback. The {@code updatedAt}
      * timestamp is what we cache-bust avatar URLs with: a fresh value invalidates the
@@ -163,5 +176,23 @@ public class User {
         this.suspendedAt = null;
         this.suspendedBy = null;
         this.suspensionNote = null;
+    }
+
+    /**
+     * Pick the account-wide notification default. Every channel this user has not explicitly
+     * overridden follows it — they store {@link NotificationLevel#DEFAULT}, not a copy — so this
+     * one write moves all of them.
+     *
+     * @throws IllegalArgumentException for {@code null} or {@link NotificationLevel#DEFAULT}. The
+     *         account default is the bottom of the chain: "inherit" here would have nothing to
+     *         inherit from. Mirrored by {@code users_notify_default_chk} in the schema.
+     */
+    public void chooseNotifyDefault(NotificationLevel level) {
+        if (level == null || level.isInherited()) {
+            throw new IllegalArgumentException(
+                    "The account notification default must be ALL, MENTIONS or NONE — "
+                            + "there is nothing above it to inherit from");
+        }
+        this.notifyDefault = level;
     }
 }

@@ -274,7 +274,7 @@ SHOTS = [
      "The admin console: suspend an account and close its live sessions, clear or restore someone's messages, set per-person storage quotas, and an append-only audit trail.",
      "forest"),
     ("profile", shot_profile,
-     "Twenty themes, five of them dark, and per-device notification sounds you can set separately for mentions and direct messages.",
+     "Twenty themes, five of them dark, an account-wide notification default, and per-device sounds set separately for mentions and direct messages.",
      "indigo"),
 ]
 
@@ -413,6 +413,15 @@ async def doc_admin(page, ctx):
     return await page.query_selector("main") or await page.query_selector("body")
 
 
+async def doc_notifications(page, ctx):
+    await page.goto(f"{BASE}/channels/{ctx['channel']}", wait_until="domcontentloaded")
+    await page.wait_for_timeout(1400)
+    await page.click(".channel-cog")
+    await page.wait_for_selector("#channel-notify-level", timeout=5000)
+    await page.wait_for_timeout(400)
+    return await page.query_selector("#channel-admin-dropdown")
+
+
 # (docs.html section id, recipe, caption)
 DOC_SHOTS = [
     ("sidebar", doc_sidebar,
@@ -429,6 +438,8 @@ DOC_SHOTS = [
      "Polls are built in a dialog, or typed as a slash command — both produce the same poll."),
     ("files", doc_files,
      "Your files: everything you have uploaded, searchable by name, with the storage it accounts for."),
+    ("notifications", doc_notifications,
+     "Per-channel notifications. \u201cDefault\u201d inherits the account setting, so changing that moves every channel you have not overridden."),
     ("admin", doc_admin,
      "The admin console: permissions, moderation and an append-only audit trail."),
 ]

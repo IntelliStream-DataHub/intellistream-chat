@@ -16,6 +16,8 @@
 
 package ai.intellistream.chat.web.dto;
 
+import ai.intellistream.chat.domain.NotificationLevel;
+
 import java.util.List;
 
 /**
@@ -33,11 +35,17 @@ import java.util.List;
  *                     otherwise quiet, because an unread badge nobody can see is pointless.
  * @param hiddenCount  how many of the user's joined channels didn't make either list — surfaced so
  *                     the UI can say "and 812 more" rather than silently pretending they're gone.
+ * @param notifyDefault the viewer's account-wide notification default — never {@code DEFAULT}.
+ *                     Here so the channel page can render every row's notification state, and the
+ *                     per-channel picker, without a second request: each row carries its raw
+ *                     level, which is only meaningful next to the default it may be inheriting.
+ *                     Resolve as {@code row.notifyLevel == DEFAULT ? notifyDefault : row.notifyLevel}.
  */
 public record SidebarView(
         List<ChannelSidebarDto> largest,
         List<ChannelSidebarDto> mostActive,
-        int hiddenCount
+        int hiddenCount,
+        NotificationLevel notifyDefault
 ) {
     public boolean isEmpty() {
         return largest.isEmpty() && mostActive.isEmpty();

@@ -285,6 +285,33 @@
     }
   });
 
+  // ---------- Notification default ----------
+  // Account-level, so it is saved to the server rather than localStorage: what interrupts you is
+  // about you and should follow you between devices. Which sound it makes is about the room you
+  // are sitting in and stays local — see below.
+  (() => {
+    const picker = document.getElementById('notify-default-level');
+    if (!picker) return;
+    picker.addEventListener('change', async () => {
+      const previous = picker.dataset.current;
+      picker.disabled = true;
+      try {
+        const res = await fetch('/api/profile/notify-default', {
+          method: 'PUT', headers: csrfHeaders(),   // already sets Content-Type: application/json
+          body: JSON.stringify({ level: picker.value }),
+        });
+        if (!res.ok) throw new Error('rejected');
+        picker.dataset.current = picker.value;
+        setFeedback('Notification default saved.');
+      } catch (e) {
+        picker.value = previous;
+        setFeedback('Could not save that.', 'error');
+      } finally {
+        picker.disabled = false;
+      }
+    });
+  })();
+
   // ---------- Notification sound ----------
   // One row per kind: whether it makes a sound, and which one. State lives in localStorage
   // (notifications.js owns the keys), so the controls are corrected here rather than rendered
