@@ -225,6 +225,10 @@ public class HomeController {
                         .findFirst().orElse(null)
                 : null;
 
+        // Where the reader left off, read BEFORE the stamp below moves it. This is what the client
+        // draws the "new messages" divider from, and after markRead there is nothing left to draw
+        // it from — the marker would say "now", and everything would be read.
+        var lastReadAt = conversationService.lastReadAt(conversation, me);
         // Stamp the read marker so the next sidebar render shows zero unread for this DM.
         conversationService.markRead(conversation, me);
 
@@ -238,6 +242,11 @@ public class HomeController {
         model.addAttribute("activeChannelId", null);
         model.addAttribute("activeConversation", ConversationDto.of(conversation, other));
         model.addAttribute("messages", messages);
+        model.addAttribute("lastReadAt", lastReadAt);
+        // A conversation with one member — a DM with yourself, where /remind me delivers. Its own
+        // messages count as unread to it (there is nobody else to write them), so the divider has
+        // to know, and it cannot work it out from the member list it does not have.
+        model.addAttribute("conversationIsSolo", conversationService.members(conversation).size() == 1);
         model.addAttribute("isAdmin", me.isAdmin());
         return "conversation";
     }

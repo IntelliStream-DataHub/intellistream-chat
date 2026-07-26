@@ -19,6 +19,14 @@
     <meta name="me-notify-default" th:content="${sidebar.notifyDefault}"/>
     <meta name="me-display" th:content="${me.displayName}"/>
     <meta name="active-conversation-id" th:content="${activeConversationId}"/>
+    <!--/* The read marker as it stood when this page was requested — the server moves it a line
+           later, so this is the only chance to carry the reader's own position to them. Empty when
+           they have never opened this conversation, which the client reads as "everything is new". */-->
+    <meta name="conversation-last-read-at" th:content="${lastReadAt}"/>
+    <!--/* True for a DM with yourself. In a one-member conversation your own messages are the only
+           messages, and something other than you writes some of them (/remind me), so they count as
+           unread — matching ConversationMemberRepository.countUnreadPerConversation exactly. */-->
+    <meta name="conversation-solo" th:content="${conversationIsSolo == true ? 'true' : 'false'}"/>
     <meta name="me-is-admin" th:content="${isAdmin == true ? 'true' : 'false'}"/>
 </head>
 <body class="app conversation-page" th:attr="data-theme=${me.theme}">

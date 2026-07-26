@@ -709,6 +709,48 @@
   };
   };
 
+  // ---------- "New messages" divider ----------
+  /**
+   * Draw the line the reader left off at: a rule across the message list, immediately above the
+   * first message they have not seen.
+   *
+   * <p>It is placed once, on first paint, from the read marker as it stood *before* the page load
+   * moved it — and then left alone. A divider that chased the marker would slide down the screen
+   * as you read and never mark anything; the whole value of the line is that it stays where your
+   * attention was when you arrived.
+   *
+   * @param list      the <ol> of messages
+   * @param sinceIso  the read marker, or falsy for "never read" (then everything is new and the
+   *                  line goes above the first message that qualifies)
+   * @param opts.me   the viewer's username — their own messages are not unread to them…
+   * @param opts.countOwn  …except in a conversation they are the only member of, where their own
+   *                  messages are the only ones there are and something else writes them.
+   * @returns the divider element, or null when nothing is unread
+   */
+  const applyUnreadDivider = (list, sinceIso, opts = {}) => {
+    if (!list) return null;
+    list.querySelector(':scope > .unread-divider')?.remove();
+    const since = sinceIso ? Date.parse(sinceIso) : NaN;
+    const rows = list.querySelectorAll(':scope > li.message');
+    let target = null;
+    for (const li of rows) {
+      if (!opts.countOwn && li.dataset.author === opts.me) continue;
+      const at = Date.parse(li.dataset.createdAt || '');
+      if (isNaN(at)) continue;
+      // A never-read conversation has no marker, so every message qualifies and the first one wins.
+      if (isNaN(since) || at > since) { target = li; break; }
+    }
+    if (!target) return null;
+    const divider = document.createElement('li');
+    divider.className = 'unread-divider';
+    divider.setAttribute('role', 'separator');
+    const label = document.createElement('span');
+    label.textContent = 'New messages';
+    divider.appendChild(label);
+    list.insertBefore(divider, target);
+    return divider;
+  };
+
   // ---------- Typing indicator ----------
   /**
    * "X is typing…" — the receiving half. Names are held with an expiry rather than cleared by a
@@ -1094,6 +1136,7 @@
     createThreadPanel,
     createTypingTracker,
     throttledPing,
+    applyUnreadDivider,
     wireImageLightbox,
     buildRemovedAttachmentEl,
     hashCode,

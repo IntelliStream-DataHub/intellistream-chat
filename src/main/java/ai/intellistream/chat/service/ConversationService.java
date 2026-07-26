@@ -384,7 +384,28 @@ public class ConversationService {
                 .ifPresent(m -> m.markRead(Instant.now()));
     }
 
-    /** {@code conversationId -> count of messages from someone else after viewer's last_read_at.} */
+    /**
+     * Where {@code viewer}'s read marker stands in this conversation, or {@code null} if they have
+     * never read it (or are not a member).
+     *
+     * <p>Read <b>before</b> {@link #markRead} on the page-render path, because that call is about to
+     * move it: the "new messages" divider needs the position the reader left off at, and after the
+     * stamp there is nothing left to draw it from.
+     */
+    @Transactional(readOnly = true)
+    public Instant lastReadAt(Conversation conversation, User viewer) {
+        return members.findByConversationAndUser(conversation, viewer)
+                .map(ConversationMember::getLastReadAt)
+                .orElse(null);
+    }
+
+    /**
+     * {@code conversationId -> count of messages from someone else after viewer's last_read_at.}
+     *
+     * <p>Thread replies are conversation messages and are counted, which is the channel side's
+     * semantic since replies started counting toward a channel's unread. A reply is a message in
+     * the room; that it is filed under another one does not make it something you have read.
+     */
     @Transactional(readOnly = true)
     public Map<Long, Long> unreadCounts(User viewer, java.util.Collection<Long> convIds) {
         if (convIds == null || convIds.isEmpty()) return Map.of();

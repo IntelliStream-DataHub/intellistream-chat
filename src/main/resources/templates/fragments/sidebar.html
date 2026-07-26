@@ -140,7 +140,7 @@
                 <li th:each="d : ${conversations}"
                     th:with="active=${activeConversationId != null and activeConversationId == d.id}"
                     th:classappend="${d.unreadCount > 0 ? 'has-unread' : ''}"
-                    th:attr="data-active=${active},data-conv-id=${d.id},data-conv-type=${d.type.name()}">
+                    th:attr="data-active=${active},data-conv-id=${d.id},data-conv-type=${d.type.name()},data-unread=${d.unreadCount}">
                     <a th:href="@{'/conversations/' + ${d.id}}"
                        th:classappend="${active ? 'active' : ''}">
                         <span class="avatar" th:data-author="${d.otherUsername ?: ''}">

@@ -1498,6 +1498,33 @@ button.icon-btn > .icon {
   padding: 0.15rem 0.8rem;
 }
 
+/* "New messages" — the line the reader left off at.
+   An ordinary <li> in the flow, not an absolutely-positioned overlay like .day-divider: this one
+   marks a position between two messages and must move with them when the list reflows, whereas a
+   day divider is a label anchored to one message and is measured onto a separate layer so the
+   mask on .messages doesn't fade it. It is drawn in the accent rather than in --muted because it
+   is the one thing on the page the reader is looking for. */
+.unread-divider {
+  display: flex;
+  align-items: center;
+  margin: 0.5rem 1rem;
+  color: var(--accent);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.unread-divider::before,
+.unread-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--accent);
+  opacity: 0.5;
+}
+.unread-divider span {
+  padding: 0.15rem 0.8rem;
+}
+
 .message {
   display: grid;
   grid-template-columns: 44px 1fr;

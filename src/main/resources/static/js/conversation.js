@@ -33,6 +33,8 @@
   const myUsername = meta('me-username');
   const isAdmin = meta('me-is-admin') === 'true';
   const conversationId = meta('active-conversation-id');
+  const lastReadAt = meta('conversation-last-read-at');
+  const isSoloConversation = meta('conversation-solo') === 'true';
   if (!conversationId) return;
 
   const messagesEl = document.getElementById('messages');
@@ -532,6 +534,40 @@
   // The conversation topic carries ConversationMessageDto (new message) and lightweight
   // ConversationEvent envelopes (member-added, message-updated, message-deleted). Discriminate
   // by the `type` field that only ConversationEvent carries.
+  // ---------- Read state ----------
+  // The marker advances on live traffic, but only while the tab is actually in the foreground. A
+  // conversation left open in a background tab must NOT silently mark incoming messages read: that
+  // would wipe the sidebar badge and the toast for messages nobody looked at. Same rule the channel
+  // page follows, and the reason the refocus catch-up below exists.
+  const markRead = () => {
+    fetch('/api/conversations/' + conversationId + '/read',
+        { method: 'POST', headers: headers() }).catch(() => {});
+  };
+  const isForeground = () => document.visibilityState === 'visible' && document.hasFocus();
+  const catchUpRead = () => { if (isForeground()) markRead(); };
+  document.addEventListener('visibilitychange', catchUpRead);
+  window.addEventListener('focus', catchUpRead);
+
+  /**
+   * Move one sidebar DM row's unread badge. The count lives in `data-unread` rather than being read
+   * back out of the badge's own text — the badge renders "99+" past ninety-nine, and parsing that
+   * back gives 99 and then 100, which is a number that only ever gets more wrong.
+   */
+  const bumpSidebarUnread = (convId) => {
+    const li = document.querySelector('#sidebar-dm-list li[data-conv-id="' + CSS.escape(String(convId)) + '"]');
+    if (!li) return; // a conversation that is not in this sidebar — nothing to paint
+    const next = Number(li.dataset.unread || 0) + 1;
+    li.dataset.unread = String(next);
+    li.classList.add('has-unread');
+    let badge = li.querySelector('.unread-badge');
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'unread-badge';
+      li.querySelector('a')?.appendChild(badge);
+    }
+    badge.textContent = next > 99 ? '99+' : String(next);
+  };
+
   function handleFrame(payload) {
     if (payload && payload.type === 'member-added') {
       if (typeof window.__refreshGroupMembers === 'function') window.__refreshGroupMembers();
@@ -551,6 +587,13 @@
       return;
     }
     appendMessage(payload);
+    // A message the viewer is watching arrive is a message they have read — including a thread
+    // reply, which counts toward this conversation's unread the same way a channel's does. Their
+    // own is skipped: posting is not reading, and in a solo conversation the only thing that
+    // writes without them is a fired reminder, which they should still find marked.
+    if (payload && payload.id && payload.authorUsername !== myUsername && isForeground()) {
+      markRead();
+    }
   }
 
   let stompConnectedBefore = false;
@@ -610,8 +653,13 @@
     stomp.subscribe('/user/queue/conversation-alerts', (frame) => {
       try {
         const a = JSON.parse(frame.body);
-        if (!window.MentionNotifications) return;
         const isCurrent = String(a.conversationId) === String(conversationId);
+        // The sidebar badge for a DM was server-rendered and then never moved, so a message
+        // arriving in another conversation left the row saying whatever it said at page load until
+        // the next navigation. It is bumped here for the same reason the channel page bumps its
+        // own: an unread count that is only true immediately after a reload is not a count.
+        if (!isCurrent) bumpSidebarUnread(a.conversationId);
+        if (!window.MentionNotifications) return;
         if (isCurrent && document.visibilityState === 'visible' && document.hasFocus()) return;
         window.MentionNotifications.show({
           author: a.author,
@@ -810,6 +858,16 @@
     messagesEl.scrollTop = messagesEl.scrollHeight;
   };
   if (messagesEl) {
+    // The "new messages" line goes in before the scroll, so the scroll accounts for its height.
+    // Drawn once, from the marker as it stood when the page was requested, and then never moved:
+    // a divider that chased the marker would slide down the screen as you read and mark nothing.
+    window.ChatKit.applyUnreadDivider(messagesEl, lastReadAt, {
+      me: myUsername,
+      // In a conversation you are the only member of, your own messages are the only messages —
+      // and a fired /remind me is one of them. Excluding them there would mean the line could
+      // never appear, which is the one place it is most useful.
+      countOwn: isSoloConversation,
+    });
     scrollToBottom();
     requestAnimationFrame(scrollToBottom);
     setTimeout(scrollToBottom, 50);

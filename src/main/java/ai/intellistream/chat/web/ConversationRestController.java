@@ -277,6 +277,24 @@ public class ConversationRestController {
     public record ConversationThreadDto(ConversationMessageDto parent,
                                         List<ConversationMessageDto> replies) {}
 
+    /**
+     * Advance the viewer's read marker to now.
+     *
+     * <p>Quietly a no-op for a non-member rather than a 403, matching
+     * {@code ChannelRestController.markRead}: this fires on live traffic and on every refocus, so
+     * the one thing it must not do is turn a race — being removed from a group while the tab was
+     * open — into an error dialog on top of a page that is about to be reloaded anyway.
+     */
+    @PostMapping("/{id}/read")
+    public ResponseEntity<Void> markRead(@PathVariable Long id, Principal principal) {
+        var me = currentUser.resolve(principal);
+        var conv = conversations.requireById(id);
+        if (conversations.isMember(conv, me)) {
+            conversations.markRead(conv, me);
+        }
+        return ResponseEntity.noContent().build();
+    }
+
     @PatchMapping("/messages/{messageId}")
     public ConversationMessageDto editMessage(@PathVariable Long messageId,
                                               @Valid @RequestBody EditMessageRequest body,
