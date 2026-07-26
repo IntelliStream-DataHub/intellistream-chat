@@ -19,14 +19,22 @@ package ai.intellistream.chat.web;
 import ai.intellistream.chat.domain.Conversation;
 import ai.intellistream.chat.domain.ConversationMessage;
 import ai.intellistream.chat.domain.ConversationType;
+import ai.intellistream.chat.domain.NotificationLevel;
 import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.service.ConversationService;
+import ai.intellistream.chat.service.MentionService;
+import ai.intellistream.chat.service.NotificationPreferenceService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
 
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Tells a conversation's members, individually, that a message arrived.
@@ -50,6 +58,35 @@ import java.util.Map;
  * triggered it; the message is already committed and broadcast by the time this runs, and
  * throwing here would surface to the sender as a failed send of a message that was in fact
  * delivered.
+ *
+ * <p><b>This is where a conversation's notification level takes effect</b>, and it is the only
+ * place: the topic broadcast is the message and goes out regardless — a member with the page open
+ * still sees what was said — while this is the interruption, and the interruption is what a level
+ * controls. Muting is not "pretend nothing happened": the unread count still moves, because it is a
+ * fact about the conversation rather than a request for attention.
+ *
+ * <p><b>A conversation has no bystanders, so only {@link NotificationLevel#NONE} silences one.</b>
+ * You are in a channel because you joined it and in a conversation because somebody put you in it,
+ * which is why a channel's traffic is mostly other people's business and a conversation's is
+ * addressed to the people in it — all of them. So ALL and MENTIONS both deliver here, and the
+ * control is really "this conversation, or not". Three reasons that is the right reading rather
+ * than a shortcut:
+ *
+ * <ul>
+ *   <li>MENTIONS is the shipped account default. Treating it as "mentions only" would make this
+ *       control's first act on every existing install be to stop delivering direct messages — a
+ *       regression dressed as a feature.</li>
+ *   <li>A 1:1 has no coherent "mentions only": a message sent to you and nobody else is addressed
+ *       to you whether or not it spells your name.</li>
+ *   <li>Slack ships the same behaviour by a different route — a separate account default for DMs,
+ *       set to "all new messages". Reaching it with one column instead of two costs the mentions-only
+ *       setting on a very large group DM, which is the trade this makes knowingly.</li>
+ * </ul>
+ *
+ * <p>The picker on the conversation page therefore offers <em>Default / Every message / Nothing</em>
+ * and labels the inherited option by what it actually does. What the mention test below still buys
+ * is the {@code mention} flag on the alert, which is how a client can tell "somebody said your name"
+ * from ordinary traffic — and it is why {@code @channel} in a group conversation is not decoration.
  */
 @Component
 public class ConversationAlertPublisher {
@@ -60,25 +97,56 @@ public class ConversationAlertPublisher {
     private static final int PREVIEW_CHARS = 200;
 
     private final ConversationService conversations;
+    private final NotificationPreferenceService preferences;
+    private final MentionService mentions;
     private final SimpMessagingTemplate broker;
 
     public ConversationAlertPublisher(ConversationService conversations,
+                                      NotificationPreferenceService preferences,
+                                      MentionService mentions,
                                       SimpMessagingTemplate broker) {
         this.conversations = conversations;
+        this.preferences = preferences;
+        this.mentions = mentions;
         this.broker = broker;
     }
 
     public void alert(Conversation conversation, ConversationMessage message) {
+        alert(conversation, message, List.of());
+    }
+
+    /**
+     * @param threadParticipants usernames of the people already in this message's thread, for a
+     *        reply. Being in a thread is what makes a reply addressed to you, in the same sense a
+     *        mention is — so it clears the MENTIONS bar, exactly as it does on the channel side.
+     *        Empty for a message in the conversation feed, which is addressed to everybody by
+     *        construction.
+     */
+    public void alert(Conversation conversation, ConversationMessage message,
+                      List<String> threadParticipants) {
         try {
             User author = message.getAuthor();
             String preview = preview(message.getBodyMarkdown());
             String authorName = author.getDisplayName() != null && !author.getDisplayName().isBlank()
                     ? author.getDisplayName()
                     : author.getUsername();
+            var levels = preferences.effectiveLevelsFor(conversation);
+            var handles = lowercased(mentions.extractHandles(message.getBodyMarkdown()));
+            // @channel / @here / @everyone name the room, so they name everyone in it. A
+            // conversation needs no `message_mentions` equivalent to answer "who is everyone here":
+            // that set is the loop this is already standing inside. See the class note above.
+            boolean broadcastHandle = handles.stream().anyMatch(h -> MentionService.broadcastFor(h) != null);
+            var inThread = lowercased(threadParticipants);
 
             for (var member : conversations.members(conversation)) {
                 User recipient = member.getUser();
                 if (recipient.getId().equals(author.getId())) continue;
+
+                boolean named = broadcastHandle
+                        || handles.contains(recipient.getUsername().toLowerCase(Locale.ROOT))
+                        || inThread.contains(recipient.getUsername().toLowerCase(Locale.ROOT));
+                var level = levels.getOrDefault(recipient.getId(), NotificationLevel.ACCOUNT_FALLBACK);
+                if (level == NotificationLevel.NONE) continue;
 
                 // A direct conversation has no title of its own — it is "the conversation with
                 // that person", so from the recipient's side the sender's name is the title.
@@ -94,12 +162,20 @@ public class ConversationAlertPublisher {
                                 "author", authorName,
                                 "authorUsername", author.getUsername(),
                                 "messageId", message.getId(),
+                                "mention", named,
                                 "preview", preview));
             }
         } catch (RuntimeException e) {
             log.warn("Could not publish conversation alerts for conversation {}",
                     conversation.getId(), e);
         }
+    }
+
+    private static Set<String> lowercased(Collection<String> in) {
+        if (in == null || in.isEmpty()) return Set.of();
+        var out = new HashSet<String>(in.size());
+        for (var s : in) if (s != null) out.add(s.toLowerCase(Locale.ROOT));
+        return out;
     }
 
     private static String preview(String body) {

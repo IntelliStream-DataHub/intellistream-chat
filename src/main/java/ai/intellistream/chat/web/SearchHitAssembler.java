@@ -67,10 +67,15 @@ class SearchHitAssembler {
                             SearchHitDto.ofChannel(c.message(), c.joined(),
                                     render(c.message().getBodyMarkdown()),
                                     snippet(query, c.message().getBodyMarkdown()));
+                    // renderInConversation, not render: a hit's body is rendered here exactly as it
+                    // is in the room it came from, and a broadcast mention pill has to name the
+                    // room it is in. A search result claiming "notifies every member of this
+                    // channel" about a group DM would be the same small lie, one page further away
+                    // from where it could be checked.
                     case SearchService.SearchHit.ConversationHit c ->
                             SearchHitDto.ofConversation(c.message(),
                                     labels.get(c.message().getConversation().getId()),
-                                    render(c.message().getBodyMarkdown()),
+                                    markdown.renderInConversation(c.message().getBodyMarkdown()),
                                     snippet(query, c.message().getBodyMarkdown()));
                 })
                 .toList();

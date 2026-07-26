@@ -67,7 +67,30 @@ public class MarkdownRenderer {
                 .addAttributes("pre", "class");
     }
 
+    /**
+     * Which room the rendered message is in. It changes exactly one thing — the hover text on a
+     * broadcast mention pill, which has to name the audience it actually reached — and it is an
+     * argument rather than a second renderer because everything else about rendering is identical
+     * and a second implementation of Markdown-plus-sanitiser is not something this codebase should
+     * have two of.
+     */
+    public enum Room {
+        /** A channel: {@code @channel} reaches its members via {@code message_mentions}. */
+        CHANNEL,
+        /** A direct or group conversation: {@code @channel} reaches everyone in it. */
+        CONVERSATION
+    }
+
     public String render(String markdown) {
+        return render(markdown, Room.CHANNEL);
+    }
+
+    /** As {@link #render(String)}, for a message in a direct or group conversation. */
+    public String renderInConversation(String markdown) {
+        return render(markdown, Room.CONVERSATION);
+    }
+
+    public String render(String markdown, Room room) {
         if (markdown == null || markdown.isBlank()) {
             return "";
         }
@@ -76,7 +99,7 @@ public class MarkdownRenderer {
         var clean = Jsoup.clean(rawHtml, safelist);
         var hardened = hardenAnchors(clean);
         var embedded = embedVideos(hardened);
-        return decorateMentions(embedded, mentionService.resolvedUsernames(markdown));
+        return decorateMentions(embedded, mentionService.resolvedUsernames(markdown), room);
     }
 
     /**
@@ -183,7 +206,7 @@ public class MarkdownRenderer {
      * <p>A handle that is neither a known user nor a broadcast is left as bare text, which is the
      * visible difference between a mention that will notify somebody and one that will not.
      */
-    private String decorateMentions(String html, Set<String> knownUsernames) {
+    private String decorateMentions(String html, Set<String> knownUsernames, Room room) {
         // Every mention starts with '@'. Note the second check is no longer just "are there known
         // usernames": a body whose only mention is @channel has none and still has work to do. It
         // stays a string scan rather than becoming an unconditional walk, because this runs on the
@@ -192,16 +215,16 @@ public class MarkdownRenderer {
         if (html == null || html.indexOf('@') < 0) return html;
         if (knownUsernames.isEmpty() && !BROADCAST_WORD.matcher(html).find()) return html;
         Document doc = Jsoup.parseBodyFragment(html);
-        decorateRecursively(doc.body(), knownUsernames);
+        decorateRecursively(doc.body(), knownUsernames, room);
         return doc.body().html();
     }
 
-    private void decorateRecursively(Element parent, Set<String> known) {
+    private void decorateRecursively(Element parent, Set<String> known, Room room) {
         var children = parent.childNodes();
         for (int i = 0; i < children.size(); i++) {
             var node = children.get(i);
             if (node instanceof TextNode tn) {
-                var replaced = decorateText(tn.getWholeText(), known);
+                var replaced = decorateText(tn.getWholeText(), known, room);
                 if (replaced != null) {
                     var fragment = Jsoup.parseBodyFragment(replaced).body();
                     var newNodes = new java.util.ArrayList<>(fragment.childNodes());
@@ -215,13 +238,13 @@ public class MarkdownRenderer {
             } else if (node instanceof Element el) {
                 var tag = el.tagName().toLowerCase();
                 if (!tag.equals("code") && !tag.equals("pre") && !tag.equals("a") && !tag.equals("span")) {
-                    decorateRecursively(el, known);
+                    decorateRecursively(el, known, room);
                 }
             }
         }
     }
 
-    private String decorateText(String text, Set<String> known) {
+    private String decorateText(String text, Set<String> known, Room room) {
         Matcher m = MentionService.MENTION.matcher(text);
         if (!m.find()) return null;
         m.reset();
@@ -241,7 +264,7 @@ public class MarkdownRenderer {
                 // message is entitled to see rather than a convention they have to know.
                 sb.append("<span class=\"mention mention-broadcast\" data-mention=\"")
                   .append(broadcast.audience().handle()).append("\" title=\"")
-                  .append(escapeAttr(broadcastTitle(broadcast))).append("\">@")
+                  .append(escapeAttr(broadcastTitle(broadcast, room))).append("\">@")
                   .append(escapeText(handle)).append("</span>");
             } else {
                 sb.append("<span class=\"mention\" data-username=\"").append(escapeAttr(handle)).append("\">@")
@@ -264,11 +287,23 @@ public class MarkdownRenderer {
             Pattern.compile("(?i)@(?:channel|here|everyone)\\b");
 
     /**
-     * Hover text for a broadcast pill. It is also the only place a reader learns what a broadcast in
-     * a direct message did, which is nothing: mention rows exist for channel messages only, so in a
-     * conversation this pill is decoration — exactly as {@code @alice} has always been there.
+     * Hover text for a broadcast pill: what this handle, in this room, actually reached.
+     *
+     * <p>It used to say "channel" everywhere, and in a direct message that was two lies at once —
+     * there is no channel, and nothing was notified, because {@code message_mentions} is
+     * channel-only. The second half is no longer true: a conversation needs no fan-out table to
+     * answer "who is everyone here", since {@code ConversationAlertPublisher} is already iterating
+     * exactly that set, so {@code @channel} in a group DM reaches everyone in it. The wording had to
+     * follow, because a pill that names the wrong room is the first thing a reader will disbelieve.
      */
-    private static String broadcastTitle(MentionService.Broadcast broadcast) {
+    private static String broadcastTitle(MentionService.Broadcast broadcast, Room room) {
+        if (room == Room.CONVERSATION) {
+            return switch (broadcast) {
+                case CHANNEL -> "Notifies everyone in this conversation";
+                case HERE -> "Notifies the people here who are online right now";
+                case EVERYONE -> "@everyone works like @channel here: it notifies everyone in this conversation";
+            };
+        }
         return switch (broadcast) {
             case CHANNEL -> "Notifies every member of this channel";
             case HERE -> "Notifies the members who are online right now";

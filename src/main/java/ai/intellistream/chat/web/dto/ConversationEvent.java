@@ -19,24 +19,40 @@ package ai.intellistream.chat.web.dto;
 
 
 /**
- * Lightweight envelope broadcast on {@code /topic/conversations/{id}} for events
- * that aren't a new {@link ConversationMessageDto} — currently just member-added.
- * The conversation client distinguishes by the {@code type} discriminator.
+ * Lightweight envelope broadcast on {@code /topic/conversations/{id}} for events that aren't a new
+ * {@link ConversationMessageDto} — member added or gone, and message updated or deleted. The
+ * conversation client distinguishes by the {@code type} discriminator; a frame with no {@code type}
+ * at all is a message.
+ *
+ * <p>{@code parentId} rides on a delete so the client can decrement the right thread indicator. It
+ * cannot work that out afterwards: by the time the frame arrives the row is gone, and the reply may
+ * never have been on screen.
  */
 public record ConversationEvent(String type,
                                 Long conversationId,
                                 String username,
                                 Long messageId,
+                                Long parentId,
                                 ConversationMessageDto message) {
     public static ConversationEvent memberAdded(Long conversationId, String username) {
-        return new ConversationEvent("member-added", conversationId, username, null, null);
+        return new ConversationEvent("member-added", conversationId, username, null, null, null);
+    }
+
+    /**
+     * Somebody left a group conversation. Broadcast rather than silent because the member list and
+     * its count are on screen for everyone with the panel open, and a list that only refreshes on
+     * reload is wrong for exactly as long as nobody reloads.
+     */
+    public static ConversationEvent memberLeft(Long conversationId, String username) {
+        return new ConversationEvent("member-left", conversationId, username, null, null, null);
     }
 
     public static ConversationEvent messageUpdated(ConversationMessageDto dto) {
-        return new ConversationEvent("message-updated", dto.conversationId(), null, dto.id(), dto);
+        return new ConversationEvent("message-updated", dto.conversationId(), null, dto.id(),
+                dto.parentId(), dto);
     }
 
-    public static ConversationEvent messageDeleted(Long conversationId, Long messageId) {
-        return new ConversationEvent("message-deleted", conversationId, null, messageId, null);
+    public static ConversationEvent messageDeleted(Long conversationId, Long messageId, Long parentId) {
+        return new ConversationEvent("message-deleted", conversationId, null, messageId, parentId, null);
     }
 }

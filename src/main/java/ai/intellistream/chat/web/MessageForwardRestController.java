@@ -120,7 +120,7 @@ public class MessageForwardRestController {
         var target = conversationService.requireById(body.conversationId());
         var saved = forwards.forwardToConversation(id, target, body.comment(),
                 body.acknowledgeDisclosure(), me);
-        var dto = ConversationMessageDto.from(saved, markdown.render(saved.getBodyMarkdown()));
+        var dto = ConversationMessageDto.from(saved, markdown.renderInConversation(saved.getBodyMarkdown()));
         broker.convertAndSend("/topic/conversations/" + target.getId(), dto);
         // The same alert the DM send path fires, so a forwarded message into a quiet DM is not
         // silent for the person on the other end.

@@ -50,6 +50,24 @@ public class ConversationMember {
     @Column(name = "last_read_at")
     private Instant lastReadAt;
 
+    /**
+     * This conversation's notification override for this member, <b>raw</b>: {@link
+     * NotificationLevel#DEFAULT} means "follow the account default", and is what a membership starts
+     * as and stays as until the user picks something for this conversation specifically.
+     *
+     * <p>Exactly {@code ChannelMember.notifyLevel}, on exactly the same terms and against the same
+     * account-wide default. One control, not two: "mute this group DM" and "mute this channel" are
+     * the same request, and a separate mechanism for conversations would give the account default
+     * two meanings and the user two places to look.
+     *
+     * <p>No {@code @Setter}, for the reason the channel one has none: the field has two distinct
+     * meanings for a caller — pin a level, or go back to inheriting — and
+     * {@code setNotifyLevel(DEFAULT)} reads like neither.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "notify_level", nullable = false, length = 16)
+    private NotificationLevel notifyLevel = NotificationLevel.DEFAULT;
+
     public ConversationMember(Conversation conversation, User user) {
         this.conversation = conversation;
         this.user = user;
@@ -57,5 +75,33 @@ public class ConversationMember {
 
     public void markRead(Instant now) {
         this.lastReadAt = now;
+    }
+
+    /** True while this conversation takes its level from the account default rather than its own. */
+    public boolean followsAccountDefault() {
+        return notifyLevel.isInherited();
+    }
+
+    /**
+     * Set this conversation's own notification level. Passing {@link NotificationLevel#DEFAULT}
+     * clears the override and goes back to following the account default — the same value the
+     * picker shows, so the UI needs no special case for "unset".
+     */
+    public void chooseNotifyLevel(NotificationLevel level) {
+        if (level == null) {
+            throw new IllegalArgumentException(
+                    "Notification level is required — pass DEFAULT to follow the account default");
+        }
+        this.notifyLevel = level;
+    }
+
+    /**
+     * The level actually in force, resolving {@code DEFAULT} against the given account default.
+     * Takes it as an argument rather than reading {@code user.getNotifyDefault()} because
+     * {@code user} is LAZY and resolving it here would fire a select — or throw — on paths that
+     * already hold the {@link User}.
+     */
+    public NotificationLevel effectiveNotifyLevel(NotificationLevel accountDefault) {
+        return notifyLevel.resolvedAgainst(accountDefault);
     }
 }

@@ -1507,6 +1507,33 @@ button.icon-btn > .icon {
   padding: 0.15rem 0.8rem;
 }
 
+/* "New messages" — the line the reader left off at.
+   An ordinary <li> in the flow, not an absolutely-positioned overlay like .day-divider: this one
+   marks a position between two messages and must move with them when the list reflows, whereas a
+   day divider is a label anchored to one message and is measured onto a separate layer so the
+   mask on .messages doesn't fade it. It is drawn in the accent rather than in --muted because it
+   is the one thing on the page the reader is looking for. */
+.unread-divider {
+  display: flex;
+  align-items: center;
+  margin: 0.5rem 1rem;
+  color: var(--accent);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.unread-divider::before,
+.unread-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--accent);
+  opacity: 0.5;
+}
+.unread-divider span {
+  padding: 0.15rem 0.8rem;
+}
+
 .message {
   display: grid;
   grid-template-columns: 44px 1fr;
@@ -4566,6 +4593,16 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
   color: var(--sb-muted);
   font-size: 0.85em;
   font-weight: 600;
+}
+/* A muted DM row, dimmed exactly as a muted channel row is (see .channel-list[data-muted]) and
+   restored on hover and while active — you have to be able to read what you muted. The unread
+   badge is deliberately not dimmed with it: the count is still true. */
+.dm-list li[data-muted="true"] > a { opacity: 0.55; }
+.dm-list li[data-muted="true"] > a:hover,
+.dm-list li[data-muted="true"] > a.active { opacity: 1; }
+.dm-muted-tag {
+  margin-left: 0.25rem;
+  color: var(--sb-muted);
 }
 .dm-admin-tag,
 .channel-role-tag {

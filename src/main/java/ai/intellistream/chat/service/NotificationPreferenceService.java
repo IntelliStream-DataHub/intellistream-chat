@@ -18,17 +18,33 @@ package ai.intellistream.chat.service;
 
 import ai.intellistream.chat.domain.Channel;
 import ai.intellistream.chat.domain.ChannelMember;
+import ai.intellistream.chat.domain.Conversation;
+import ai.intellistream.chat.domain.ConversationMember;
 import ai.intellistream.chat.domain.NotificationLevel;
 import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.repository.ChannelMemberRepository;
+import ai.intellistream.chat.repository.ConversationMemberRepository;
 import ai.intellistream.chat.repository.UserRepository;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
+import java.util.Map;
+
 /**
- * Reads and writes the notification control: one account-wide default per user, plus a per-channel
- * override on each membership.
+ * Reads and writes the notification control: one account-wide default per user, plus an override on
+ * each membership — channel <em>and</em> conversation.
+ *
+ * <p>Conversations arrived second and are deliberately not a second mechanism. Muting a noisy group
+ * DM and muting a noisy channel are the same request; giving them separate machinery would give the
+ * account default two meanings, and would mean a user who changes it watches half their rooms move.
+ *
+ * <p>A DM has one thing a channel does not: it always used to notify, with no way to say otherwise.
+ * That is what {@link NotificationLevel#NONE} is for here. Note that a conversation reads the same
+ * three levels slightly differently — a conversation has no bystanders, so ALL and MENTIONS both
+ * deliver and only NONE silences. The reasoning lives on {@code ConversationAlertPublisher}, which
+ * is the one place that acts on it.
  *
  * <p>The service never resolves an override on write. A channel that is following the account
  * default stores {@link NotificationLevel#DEFAULT}, so changing the account default moves every
@@ -46,11 +62,14 @@ import org.springframework.transaction.annotation.Transactional;
 public class NotificationPreferenceService {
 
     private final ChannelMemberRepository memberRepository;
+    private final ConversationMemberRepository conversationMemberRepository;
     private final UserRepository userRepository;
 
     public NotificationPreferenceService(ChannelMemberRepository memberRepository,
+                                         ConversationMemberRepository conversationMemberRepository,
                                          UserRepository userRepository) {
         this.memberRepository = memberRepository;
+        this.conversationMemberRepository = conversationMemberRepository;
         this.userRepository = userRepository;
     }
 
@@ -106,9 +125,71 @@ public class NotificationPreferenceService {
         return membership.getNotifyLevel();
     }
 
+    // ------------------------------------------------------------------ conversations
+
+    /**
+     * This conversation's <b>raw</b> level for the user — {@code DEFAULT} when they are following
+     * the account default. Raw for the reason the channel one is: the picker has a "Default" option
+     * and needs to know whether MENTIONS was inherited or chosen.
+     *
+     * <p>The same account default sits underneath both. That is the point of routing this through
+     * here rather than building a second control: "mute this group DM" and "mute this channel" are
+     * the same request, and a user who changes their account default expects everything they have
+     * not overridden to move — channels and conversations alike.
+     */
+    @Transactional(readOnly = true)
+    public NotificationLevel levelFor(Conversation conversation, User user) {
+        return requireMembership(conversation, user).getNotifyLevel();
+    }
+
+    /** The level actually in force for this conversation, with {@code DEFAULT} resolved. */
+    @Transactional(readOnly = true)
+    public NotificationLevel effectiveLevelFor(Conversation conversation, User user) {
+        return requireMembership(conversation, user).effectiveNotifyLevel(accountDefault(user));
+    }
+
+    /**
+     * The effective level for every member of a conversation, keyed by user id.
+     *
+     * <p>One query rather than one per recipient, because the caller is the alert fan-out and it
+     * runs on every message sent in the conversation. Each member's own account default is what
+     * their {@code DEFAULT} resolves against — the level in force is a fact about a person, and
+     * resolving everyone against the sender's default would be a different feature and a wrong one.
+     */
+    @Transactional(readOnly = true)
+    public Map<Long, NotificationLevel> effectiveLevelsFor(Conversation conversation) {
+        var rows = conversationMemberRepository.findAllByConversationOrderByJoinedAtAsc(conversation);
+        var out = new HashMap<Long, NotificationLevel>(rows.size());
+        for (var m : rows) {
+            out.put(m.getUser().getId(), m.effectiveNotifyLevel(accountDefault(m.getUser())));
+        }
+        return out;
+    }
+
+    /**
+     * Set this conversation's level for the user. {@link NotificationLevel#DEFAULT} clears the
+     * override and puts the conversation back to following the account default.
+     */
+    @Transactional
+    public NotificationLevel setLevelFor(Conversation conversation, User user, NotificationLevel level) {
+        var membership = requireMembership(conversation, user);
+        membership.chooseNotifyLevel(level);
+        return membership.getNotifyLevel();
+    }
+
     private ChannelMember requireMembership(Channel channel, User user) {
         return memberRepository.findByChannelAndUser(channel, user)
                 .orElseThrow(() -> new AccessDeniedException(
                         "Join the channel to see or change its notification setting."));
+    }
+
+    /**
+     * Membership is required, and there is no public tier to relax it to: a conversation is private
+     * to its participants, so a non-member has neither a preference to read nor standing to set one.
+     */
+    private ConversationMember requireMembership(Conversation conversation, User user) {
+        return conversationMemberRepository.findByConversationAndUser(conversation, user)
+                .orElseThrow(() -> new AccessDeniedException(
+                        "Not a participant in this conversation."));
     }
 }

@@ -57,15 +57,25 @@ public class ConversationService {
     private final ConversationMemberRepository members;
     private final ConversationMessageRepository messages;
     private final MessageIndexService messageIndex;
+    /**
+     * Absent in the service-and-repository-only integration context, which has no broker at all —
+     * hence the provider and the {@code ifAvailable}. Same arrangement {@code ChannelService} uses
+     * for its own revoker, and for the same reason.
+     */
+    private final org.springframework.beans.factory.ObjectProvider<ConversationSubscriptionRevoker>
+            subscriptionRevoker;
 
     public ConversationService(ConversationRepository conversations,
                                ConversationMemberRepository members,
                                ConversationMessageRepository messages,
-                               MessageIndexService messageIndex) {
+                               MessageIndexService messageIndex,
+                               org.springframework.beans.factory.ObjectProvider<ConversationSubscriptionRevoker>
+                                       subscriptionRevoker) {
         this.conversations = conversations;
         this.members = members;
         this.messages = messages;
         this.messageIndex = messageIndex;
+        this.subscriptionRevoker = subscriptionRevoker;
     }
 
     /**
@@ -127,15 +137,68 @@ public class ConversationService {
         return members.findByConversationAndUserFetchingUser(conversation, invitee).orElseThrow();
     }
 
-    @Transactional
-    public ConversationMessage post(Conversation conversation, User author, String body) {
-        requireMember(conversation, author);
+    private static void validateBody(String body) {
         if (body == null || body.isBlank()) {
             throw new IllegalArgumentException("Message body cannot be empty");
         }
         if (body.length() > 8000) {
             throw new IllegalArgumentException("Message body too long (max 8000 chars)");
         }
+    }
+
+    /**
+     * Leave a group conversation.
+     *
+     * <p><b>A DIRECT conversation cannot be left, and that is not an omission.</b> Slack draws the
+     * same line: a 1:1 is closed, not left. There is nothing to leave — the conversation *is* the
+     * pair, and a "DM with alice" that alice is not in is not a thing the rest of the code could
+     * describe. Nor would it be reversible in any useful sense: messaging that person again would
+     * resolve the same {@code dm_key} and put you straight back, so "leave" would mean "hide until
+     * the next message", which is a different feature (closing a DM) wearing this one's name. A
+     * self-conversation is refused by the same rule and for the same reason, with the added point
+     * that leaving it would strand every future {@code /remind me} with nowhere to deliver.
+     *
+     * <p><b>The messages stay.</b> You are leaving, not deleting, and the people still in the group
+     * were part of the conversation you are removing yourself from. Their copy of it does not become
+     * less true because you left.
+     *
+     * <p><b>The last member may leave</b>, and the conversation is left holding its messages with
+     * nobody in it — the same outcome {@code ChannelService} settled on for an emptied channel. The
+     * alternative is trapping the last person in a group everybody else has already abandoned,
+     * which is the exact failure this exists to fix. Unlike a channel there is no way back in
+     * (nobody remains to add anyone), so the row is inert; it stays because deleting it would
+     * destroy other people's history the moment the last of them stopped reading it, and because
+     * {@code conversation_messages} is what search and the file manager index against.
+     *
+     * <p>Read markers and the notification level go with the membership row, because they are
+     * facts about a membership. Re-added later, you start fresh — which is right: you were not
+     * there for what happened in between.
+     */
+    @Transactional
+    public void leave(Conversation conversation, User user) {
+        if (conversation.getType() != ConversationType.GROUP) {
+            throw new ai.intellistream.chat.security.PublicBadRequestException(
+                    "A direct message can't be left — close it instead.");
+        }
+        var membership = members.findByConversationAndUser(conversation, user)
+                .orElseThrow(() -> new ai.intellistream.chat.security.ResourceNotFoundException(
+                        "Not a participant in this conversation."));
+        members.delete(membership);
+
+        var conversationId = conversation.getId();
+        var userId = user.getId();
+        // The membership row is gone, which stops the ex-member subscribing again. It does nothing
+        // at all about the subscription they already hold: the broker authorises SUBSCRIBE once and
+        // never re-checks, so without this an open socket keeps receiving a private conversation's
+        // messages until it happens to reconnect. Nothing in a page-reload test can see that,
+        // because reloading is the thing that fixes it.
+        afterCommit(() -> subscriptionRevoker.ifAvailable(r -> r.revoke(conversationId, userId)));
+    }
+
+    @Transactional
+    public ConversationMessage post(Conversation conversation, User author, String body) {
+        requireMember(conversation, author);
+        validateBody(body);
         var saved = messages.save(new ConversationMessage(conversation, author, body.trim()));
         indexAfterCommit(saved.getId(), conversation.getId(), author.getUsername(),
                 saved.getBodyMarkdown());
@@ -148,6 +211,99 @@ public class ConversationService {
                 .orElseThrow(() -> new ai.intellistream.chat.security.ResourceNotFoundException("Message not found: " + id));
     }
 
+    // ------------------------------------------------------------------ threads
+
+    /**
+     * Reply in {@code parentId}'s thread. Mirrors {@code MessageService.replyInThread}, including
+     * the one rule that matters: a reply may not be replied to.
+     *
+     * <p>Threads are one level deep because that is what makes a thread readable — a tree turns
+     * "what did people say about this" into a navigation problem, and both Slack and Mattermost
+     * settled on the same shape. It is also what lets the reply count be one {@code count(*)} and
+     * the panel a flat list.
+     *
+     * <p>Membership is checked against the <em>parent's</em> conversation, never against a
+     * conversation id the caller supplied: the reply endpoint is keyed on the message, so taking the
+     * conversation from anywhere else would let a member of conversation A reply into conversation B
+     * by naming one of B's message ids.
+     */
+    @Transactional
+    public ConversationMessage replyInThread(Long parentId, User author, String body) {
+        var parent = requireMessageById(parentId);
+        if (parent.isThreadReply()) {
+            throw new IllegalArgumentException(
+                    "Cannot reply to a thread reply — reply to its parent instead");
+        }
+        var conversation = parent.getConversation();
+        requireMember(conversation, author);
+        validateBody(body);
+        var saved = messages.save(new ConversationMessage(conversation, author, body.trim(), parent));
+        indexAfterCommit(saved.getId(), conversation.getId(), author.getUsername(),
+                saved.getBodyMarkdown());
+        return saved;
+    }
+
+    /** A thread's replies, oldest first. Read access is the conversation's membership, as ever. */
+    @Transactional(readOnly = true)
+    public List<ConversationMessage> threadReplies(Long parentId, User viewer) {
+        var parent = requireMessageById(parentId);
+        requireMember(parent.getConversation(), viewer);
+        return messages.findByParentOrderByCreatedAtAsc(parent);
+    }
+
+    @Transactional(readOnly = true)
+    public long threadReplyCount(ConversationMessage parent) {
+        return messages.countByParent(parent);
+    }
+
+    /** Reply-count map for a batch of top-level messages — parents with 0 replies are absent. */
+    @Transactional(readOnly = true)
+    public Map<Long, Long> threadReplyCounts(java.util.Collection<ConversationMessage> parents) {
+        if (parents == null || parents.isEmpty()) return Map.of();
+        var ids = parents.stream().map(ConversationMessage::getId).toList();
+        var rows = messages.countRepliesByParentIds(ids);
+        var out = new HashMap<Long, Long>(rows.size());
+        for (var row : rows) {
+            out.put(((Number) row[0]).longValue(), ((Number) row[1]).longValue());
+        }
+        return out;
+    }
+
+    /**
+     * The usernames to tell about a reply in {@code parentId}'s thread: everyone who has written in
+     * it — the parent's author plus every replier — except {@code excluding}, narrowed to people who
+     * are still members of the conversation.
+     *
+     * <p>The narrowing is not theoretical now that a group conversation can be left: a thread can
+     * hold messages from someone who has since gone, and the participant list rides on a broadcast
+     * the client acts on.
+     */
+    @Transactional(readOnly = true)
+    public List<String> threadParticipants(Long parentId, User excluding) {
+        var parent = requireMessageById(parentId);
+        var rows = messages.findThreadParticipants(parentId);
+        if (rows.isEmpty()) return List.of();
+        var byId = new java.util.LinkedHashMap<Long, String>(rows.size());
+        for (var row : rows) {
+            var id = ((Number) row[0]).longValue();
+            if (excluding != null && id == excluding.getId().longValue()) continue;
+            byId.put(id, (String) row[1]);
+        }
+        if (byId.isEmpty()) return List.of();
+        var stillMembers = members.findAllByConversationOrderByJoinedAtAsc(parent.getConversation())
+                .stream().map(m -> m.getUser().getId()).collect(Collectors.toSet());
+        return byId.entrySet().stream()
+                .filter(e -> stillMembers.contains(e.getKey()))
+                .map(Map.Entry::getValue)
+                .toList();
+    }
+
+    /** Ids of a message's thread replies — read before a delete so their files and index docs go too. */
+    @Transactional(readOnly = true)
+    public List<Long> replyIdsOf(Long parentId) {
+        return messages.findReplyIds(parentId);
+    }
+
     /** Edit own message body. Author-only; admins do not edit other users' DMs. */
     @Transactional
     public ConversationMessage editMessage(Long messageId, User actor, String newBody) {
@@ -156,12 +312,7 @@ public class ConversationService {
         if (!message.getAuthor().getId().equals(actor.getId())) {
             throw new AccessDeniedException("You can only edit your own messages.");
         }
-        if (newBody == null || newBody.isBlank()) {
-            throw new IllegalArgumentException("Message body cannot be empty");
-        }
-        if (newBody.length() > 8000) {
-            throw new IllegalArgumentException("Message body too long (max 8000 chars)");
-        }
+        validateBody(newBody);
         message.setBodyMarkdown(newBody.trim());
         indexAfterCommit(message.getId(), message.getConversation().getId(),
                 message.getAuthor().getUsername(), message.getBodyMarkdown());
@@ -177,9 +328,23 @@ public class ConversationService {
         if (!isAuthor && !actor.isAdmin()) {
             throw new AccessDeniedException("You can only delete your own messages.");
         }
+        // Replies go with the parent. The FK cascades the rows; the index does not cascade, so the
+        // ids are collected here — while they still exist — and their documents dropped after the
+        // commit. An index entry that outlives its row is content that stays searchable after
+        // somebody removed it, which is the one failure this ordering exists to prevent.
+        var doomed = new java.util.ArrayList<Long>();
+        doomed.add(message.getId());
+        if (!message.isThreadReply()) {
+            // Removed through the repository rather than left to the FK cascade: a row the database
+            // deletes behind Hibernate's back is a row the session still believes in, and it errors
+            // on the next flush. Same reason MessageService.delete walks its replies first.
+            var replies = messages.findByParentOrderByCreatedAtAsc(message);
+            replies.forEach(r -> doomed.add(r.getId()));
+            messages.deleteAll(replies);
+        }
         messages.delete(message);
-        var doomedId = message.getId();
-        afterCommit(() -> messageIndex.deleteConversationMessage(doomedId));
+        var doomedSnapshot = List.copyOf(doomed);
+        afterCommit(() -> doomedSnapshot.forEach(messageIndex::deleteConversationMessage));
         return message;
     }
 
@@ -278,7 +443,43 @@ public class ConversationService {
                 .ifPresent(m -> m.markRead(Instant.now()));
     }
 
-    /** {@code conversationId -> count of messages from someone else after viewer's last_read_at.} */
+    /**
+     * {@code conversationId -> the viewer's raw notification level}, for every conversation they
+     * are in. Raw: {@code DEFAULT} means the row follows the account default and must keep saying
+     * so, or the sidebar would freeze each row at whatever the default happened to be.
+     */
+    @Transactional(readOnly = true)
+    public Map<Long, ai.intellistream.chat.domain.NotificationLevel> notifyLevelsFor(User viewer) {
+        var rows = members.findNotifyLevelsForUser(viewer);
+        var out = new HashMap<Long, ai.intellistream.chat.domain.NotificationLevel>(rows.size());
+        for (var row : rows) {
+            out.put((Long) row[0], (ai.intellistream.chat.domain.NotificationLevel) row[1]);
+        }
+        return out;
+    }
+
+    /**
+     * Where {@code viewer}'s read marker stands in this conversation, or {@code null} if they have
+     * never read it (or are not a member).
+     *
+     * <p>Read <b>before</b> {@link #markRead} on the page-render path, because that call is about to
+     * move it: the "new messages" divider needs the position the reader left off at, and after the
+     * stamp there is nothing left to draw it from.
+     */
+    @Transactional(readOnly = true)
+    public Instant lastReadAt(Conversation conversation, User viewer) {
+        return members.findByConversationAndUser(conversation, viewer)
+                .map(ConversationMember::getLastReadAt)
+                .orElse(null);
+    }
+
+    /**
+     * {@code conversationId -> count of messages from someone else after viewer's last_read_at.}
+     *
+     * <p>Thread replies are conversation messages and are counted, which is the channel side's
+     * semantic since replies started counting toward a channel's unread. A reply is a message in
+     * the room; that it is filed under another one does not make it something you have read.
+     */
     @Transactional(readOnly = true)
     public Map<Long, Long> unreadCounts(User viewer, java.util.Collection<Long> convIds) {
         if (convIds == null || convIds.isEmpty()) return Map.of();

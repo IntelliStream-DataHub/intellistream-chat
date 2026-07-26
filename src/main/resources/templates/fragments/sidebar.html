@@ -137,10 +137,15 @@
                 </span>
             </h2>
             <ul class="dm-list" id="sidebar-dm-list">
+                <!--/* data-muted resolves the row's RAW level against the account default, in the
+                       same expression a channel row uses (see fragments/channel-group.html). The
+                       badge stays regardless: muting means "stop interrupting me", not "pretend
+                       nothing happened", so an unread count is still true in a muted DM. */-->
                 <li th:each="d : ${conversations}"
-                    th:with="active=${activeConversationId != null and activeConversationId == d.id}"
+                    th:with="active=${activeConversationId != null and activeConversationId == d.id},
+                             level=${d.notifyLevel.name() == 'DEFAULT' ? sidebar.notifyDefault.name() : d.notifyLevel.name()}"
                     th:classappend="${d.unreadCount > 0 ? 'has-unread' : ''}"
-                    th:attr="data-active=${active},data-conv-id=${d.id},data-conv-type=${d.type.name()}">
+                    th:attr="data-active=${active},data-conv-id=${d.id},data-conv-type=${d.type.name()},data-unread=${d.unreadCount},data-notify-level=${d.notifyLevel},data-muted=${level == 'NONE'}">
                     <a th:href="@{'/conversations/' + ${d.id}}"
                        th:classappend="${active ? 'active' : ''}">
                         <span class="avatar" th:data-author="${d.otherUsername ?: ''}">
@@ -152,6 +157,8 @@
                         <span class="dm-name" th:text="${d.title}">name</span>
                         <svg th:if="${d.type.name() == 'GROUP'}" class="icon icon-sm dm-group-tag"
                              title="Group conversation"><use href="#icon-group"/></svg>
+                        <svg th:if="${level == 'NONE'}" class="icon icon-sm dm-muted-tag"
+                             title="Muted — unread still counts, it just doesn't interrupt"><use href="#icon-bell-slash"/></svg>
                         <span class="unread-badge"
                               th:if="${d.unreadCount > 0}"
                               th:text="${d.unreadCount > 99 ? '99+' : d.unreadCount}">3</span>

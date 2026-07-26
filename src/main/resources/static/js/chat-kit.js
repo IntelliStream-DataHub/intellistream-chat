@@ -709,6 +709,294 @@
   };
   };
 
+  // ---------- "New messages" divider ----------
+  /**
+   * Draw the line the reader left off at: a rule across the message list, immediately above the
+   * first message they have not seen.
+   *
+   * <p>It is placed once, on first paint, from the read marker as it stood *before* the page load
+   * moved it — and then left alone. A divider that chased the marker would slide down the screen
+   * as you read and never mark anything; the whole value of the line is that it stays where your
+   * attention was when you arrived.
+   *
+   * @param list      the <ol> of messages
+   * @param sinceIso  the read marker, or falsy for "never read" (then everything is new and the
+   *                  line goes above the first message that qualifies)
+   * @param opts.me   the viewer's username — their own messages are not unread to them…
+   * @param opts.countOwn  …except in a conversation they are the only member of, where their own
+   *                  messages are the only ones there are and something else writes them.
+   * @returns the divider element, or null when nothing is unread
+   */
+  const applyUnreadDivider = (list, sinceIso, opts = {}) => {
+    if (!list) return null;
+    list.querySelector(':scope > .unread-divider')?.remove();
+    const since = sinceIso ? Date.parse(sinceIso) : NaN;
+    const rows = list.querySelectorAll(':scope > li.message');
+    let target = null;
+    for (const li of rows) {
+      if (!opts.countOwn && li.dataset.author === opts.me) continue;
+      const at = Date.parse(li.dataset.createdAt || '');
+      if (isNaN(at)) continue;
+      // A never-read conversation has no marker, so every message qualifies and the first one wins.
+      if (isNaN(since) || at > since) { target = li; break; }
+    }
+    if (!target) return null;
+    const divider = document.createElement('li');
+    divider.className = 'unread-divider';
+    divider.setAttribute('role', 'separator');
+    const label = document.createElement('span');
+    label.textContent = 'New messages';
+    divider.appendChild(label);
+    list.insertBefore(divider, target);
+    return divider;
+  };
+
+  // ---------- Typing indicator ----------
+  /**
+   * "X is typing…" — the receiving half. Names are held with an expiry rather than cleared by a
+   * stop-typing frame, because there isn't one and there shouldn't be: a client that closes its
+   * laptop mid-sentence sends nothing, and an indicator waiting for a frame that will never arrive
+   * would say somebody is typing forever. A ping refreshes the expiry, a sweep retires it, and the
+   * timer stops entirely once nobody is typing so an idle page costs no interval at all.
+   *
+   * Shared because both pages want the identical behaviour off the identical markup — a
+   * `<div class="typing-indicator" hidden>` under the message list.
+   *
+   * @param el       the element to write into
+   * @param graceMs  how long a ping keeps somebody "typing" — twice the 2s publish throttle, so a
+   *                 steady typist never flickers
+   */
+  const createTypingTracker = (el, graceMs = 4000) => {
+    const typists = new Map();
+    let sweep = null;
+
+    const render = () => {
+      if (!el) return;
+      const names = [...typists.values()].map((v) => v.displayName);
+      if (names.length === 0) {
+        el.hidden = true;
+        el.textContent = '';
+        return;
+      }
+      let text;
+      if (names.length === 1) text = names[0] + ' is typing…';
+      else if (names.length === 2) text = names[0] + ' and ' + names[1] + ' are typing…';
+      else text = names.length + ' people are typing…';
+      el.textContent = text;
+      el.hidden = false;
+    };
+
+    const tick = () => {
+      const now = Date.now();
+      let changed = false;
+      for (const [u, v] of typists) {
+        if (v.expiresAt <= now) { typists.delete(u); changed = true; }
+      }
+      if (changed) render();
+      if (typists.size === 0 && sweep) { clearInterval(sweep); sweep = null; }
+    };
+
+    return {
+      note(username, displayName) {
+        if (!username) return;
+        typists.set(username, { displayName: displayName || username, expiresAt: Date.now() + graceMs });
+        render();
+        if (!sweep) sweep = setInterval(tick, 1000);
+      },
+      clear() {
+        typists.clear();
+        render();
+        if (sweep) { clearInterval(sweep); sweep = null; }
+      },
+    };
+  };
+
+  /**
+   * The sending half: call {@code ping()} as often as you like, {@code send} fires at most once per
+   * {@code everyMs}. Trailing edge is deliberately not implemented — the point is to say "still
+   * typing", and a ping that arrives after the user stopped is a lie the tracker's expiry would
+   * then hold on screen for another four seconds.
+   */
+  const throttledPing = (send, everyMs = 2000) => {
+    let last = 0;
+    return () => {
+      const now = Date.now();
+      if (now - last < everyMs) return;
+      last = now;
+      send();
+    };
+  };
+
+  // ---------- Thread indicator ----------
+  // The "N replies" widget that hangs off the bottom of a message that started a thread. Pure DOM
+  // and identical on both pages, so it lives here rather than in each page script: the channel page
+  // has its own copy today and this is the shape both should converge on.
+  const replyLabel = (n) => n + ' ' + (n === 1 ? 'reply' : 'replies');
+
+  const buildThreadIndicator = (count) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'thread-indicator';
+    btn.dataset.count = String(count);
+    btn.title = 'Open thread (' + replyLabel(count) + ')';
+    btn.innerHTML = '<svg class="icon thread-indicator-icon" aria-hidden="true">'
+        + '<use href="#icon-thread"/></svg><span class="thread-indicator-count"></span>';
+    btn.querySelector('.thread-indicator-count').textContent = replyLabel(count);
+    return btn;
+  };
+
+  /**
+   * Move a message's reply count by {@code delta}, creating the indicator on the first reply and
+   * removing it when the last one goes. {@code container} is the element the indicator belongs to —
+   * the message's content column — because that is what differs between the two pages' markup.
+   */
+  const applyThreadIndicator = (container, delta) => {
+    if (!container) return;
+    let btn = container.querySelector(':scope > .thread-indicator');
+    const count = Math.max(0, Number(btn?.dataset.count || 0) + delta);
+    if (count === 0) {
+      btn?.remove();
+      return;
+    }
+    if (!btn) {
+      btn = buildThreadIndicator(count);
+      container.appendChild(btn);
+      return;
+    }
+    btn.dataset.count = String(count);
+    btn.querySelector('.thread-indicator-count').textContent = replyLabel(count);
+    btn.title = 'Open thread (' + replyLabel(count) + ')';
+  };
+
+  // ---------- Thread panel ----------
+  /**
+   * The right-hand thread panel, as a controller over markup the page supplies.
+   *
+   * Everything in here is page-agnostic: opening and closing, the stale-response guard, Escape,
+   * the reply composer with its auto-resize and server-rendered preview. What differs between a
+   * channel thread and a conversation thread is only *where the messages come from* and *how a
+   * message is drawn*, so those are the two callbacks — {@code loadThread} / {@code postReply} and
+   * {@code renderMessage}.
+   *
+   * It lives here rather than in conversation.js because the channel page has the same panel, built
+   * the same way, and a second copy is how the two would drift; the channel page is not switched
+   * over in this change, deliberately, but this is the seam it can move to when it is.
+   *
+   * @param opts.ids            element ids: panel, parent, replies, form, input, emoji, close,
+   *                            preview, previewBody
+   * @param opts.loadThread     async (parentId) -> { parent, replies }
+   * @param opts.postReply      async (parentId, body) -> message | null
+   * @param opts.renderMessage  (message, isParent) -> HTMLLIElement
+   * @param opts.headers        () -> fetch headers, for the preview call
+   * @param opts.onError        (message) -> void; defaults to alert
+   * @returns {{open: function, close: function, appendReply: function, openId: function}}
+   */
+  const createThreadPanel = (opts) => {
+    const ids = opts.ids || {};
+    const el = (id) => (id ? document.getElementById(id) : null);
+    const panel = el(ids.panel || 'thread-panel');
+    const parentEl = el(ids.parent || 'thread-parent');
+    const repliesEl = el(ids.replies || 'thread-replies');
+    const form = el(ids.form || 'thread-composer');
+    const input = el(ids.input || 'thread-input');
+    const emojiBtn = el(ids.emoji || 'thread-emoji');
+    const closeBtn = el(ids.close || 'thread-close');
+    const fail = opts.onError || ((m) => alert(m));
+    if (!panel || !parentEl || !repliesEl) return null;
+
+    let openId = null;
+    let req = 0;
+
+    const close = () => {
+      // Bump the request id so a response still in flight can't reopen a panel the user closed.
+      req++;
+      panel.hidden = true;
+      document.body.classList.remove('thread-open');
+      openId = null;
+      parentEl.innerHTML = '';
+      repliesEl.innerHTML = '';
+      if (input) {
+        input.value = '';
+        input._autoResize?.();
+      }
+    };
+
+    const open = async (parentId) => {
+      const myReq = ++req;
+      let data;
+      try {
+        data = await opts.loadThread(parentId);
+      } catch (e) {
+        fail('Could not load thread');
+        return;
+      }
+      if (myReq !== req || !data) return; // superseded by a newer open, or closed
+      openId = parentId;
+      parentEl.innerHTML = '';
+      repliesEl.innerHTML = '';
+      parentEl.appendChild(opts.renderMessage(data.parent, true));
+      for (const r of data.replies || []) repliesEl.appendChild(opts.renderMessage(r, false));
+      panel.hidden = false;
+      document.body.classList.add('thread-open');
+      input?.focus();
+    };
+
+    /** Add a reply to the open thread. A no-op unless it belongs to the thread on screen. */
+    const appendReply = (msg) => {
+      if (!msg || panel.hidden) return;
+      if (String(msg.parentId) !== String(openId)) return;
+      // De-dupe: the sender renders from the HTTP response and the broadcast follows.
+      if (repliesEl.querySelector('[data-id="' + CSS.escape(String(msg.id)) + '"]')) return;
+      repliesEl.appendChild(opts.renderMessage(msg, false));
+      repliesEl.scrollTop = repliesEl.scrollHeight;
+    };
+
+    closeBtn?.addEventListener('click', close);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !panel.hidden) close();
+    });
+    emojiBtn?.addEventListener('click', () => {
+      openEmojiPicker(emojiBtn, (e) => insertAtCursor(input, e));
+    });
+
+    form?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (openId === null) return;
+      const body = (input.value || '').trim();
+      if (!body) return;
+      let dto;
+      try {
+        dto = await opts.postReply(openId, body);
+      } catch (err) {
+        fail('Reply failed: ' + (err?.message || err));
+        return;
+      }
+      // Render from the HTTP response so the sender sees it immediately, independent of the
+      // WebSocket round trip; appendReply de-dupes so the broadcast that follows is a no-op.
+      if (dto) appendReply(dto);
+      input.value = '';
+      input._autoResize?.();
+    });
+    if (input) {
+      wireAutoResize(input);
+      input.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+        if (e.isComposing || e.keyCode === 229) return;
+        e.preventDefault();
+        form?.requestSubmit();
+      });
+      wireLivePreview({
+        textarea: input,
+        pane: el(ids.preview || 'thread-preview'),
+        body: el(ids.previewBody || 'thread-preview-body'),
+        form,
+        headers: opts.headers,
+      });
+    }
+
+    return { open, close, appendReply, openId: () => openId };
+  };
+
   // ---------- Popover ----------
   // Anchored dialog hung off a button, for occasional actions that would otherwise sit in the
   // sidebar flow pushing the lists down and competing with them for attention.
@@ -843,6 +1131,12 @@
   // ---------- Public surface ----------
   window.ChatKit = {
     wirePopover,
+    buildThreadIndicator,
+    applyThreadIndicator,
+    createThreadPanel,
+    createTypingTracker,
+    throttledPing,
+    applyUnreadDivider,
     wireImageLightbox,
     buildRemovedAttachmentEl,
     hashCode,

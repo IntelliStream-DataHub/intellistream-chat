@@ -202,6 +202,27 @@ public class ConversationRestController {
         return ConversationMemberDto.from(membership);
     }
 
+    /**
+     * Leave a group conversation.
+     *
+     * <p>Mirrors {@code POST /api/channels/{id}/leave}. The {@code member-left} frame is for the
+     * people still in the group — it refreshes the member list they have on screen — and the leaver
+     * will not receive it, because the service has already revoked their subscription by the time
+     * this line runs. That is the right way round: they asked to leave, and the 204 is their answer.
+     *
+     * <p>The service refuses a DIRECT conversation with a 400. It is not an oversight: see
+     * {@code ConversationService.leave}.
+     */
+    @PostMapping("/{id}/leave")
+    public ResponseEntity<Void> leave(@PathVariable Long id, Principal principal) {
+        var me = currentUser.resolve(principal);
+        var conv = conversations.requireById(id);
+        conversations.leave(conv, me);
+        broker.convertAndSend("/topic/conversations/" + id,
+                ConversationEvent.memberLeft(id, me.getUsername()));
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/{id}/messages")
     public List<ConversationMessageDto> messages(@PathVariable Long id,
                                                  @RequestParam(value = "after", required = false) java.time.Instant after,
@@ -212,14 +233,87 @@ public class ConversationRestController {
         // oldest-first. No param → the latest 50 for the initial page load.
         var rows = after != null ? conversations.after(conv, me, after, 50)
                                   : conversations.recent(conv, me, 50);
+        return renderAll(rows, me);
+    }
+
+    /**
+     * One thread: the message that started it plus its replies, oldest first.
+     *
+     * <p>Keyed on the message rather than on {@code /conversations/{id}/messages/{mid}/thread}: the
+     * conversation is a property of the message, and taking it from the path instead would let a
+     * member of one conversation name another's message id and have the membership check pass
+     * against the wrong room.
+     */
+    @GetMapping("/messages/{messageId}/thread")
+    public ConversationThreadDto thread(@PathVariable Long messageId, Principal principal) {
+        var me = currentUser.resolve(principal);
+        var parent = conversations.requireMessageById(messageId);
+        conversations.requireMember(parent.getConversation(), me);
+        var replies = conversations.threadReplies(messageId, me);
+        var parentDto = renderAll(List.of(parent), me).get(0);
+        return new ConversationThreadDto(parentDto, renderAll(replies, me));
+    }
+
+    /**
+     * Reply in a thread. HTTP rather than STOMP, matching the channel side: a reply is rare next to
+     * a feed message and needs the saved row back to render optimistically, which the fire-and-forget
+     * send path cannot give it.
+     */
+    @PostMapping("/messages/{messageId}/replies")
+    public ConversationMessageDto reply(@PathVariable Long messageId,
+                                        @Valid @RequestBody ai.intellistream.chat.web.dto.SendMessageRequest body,
+                                        Principal principal) {
+        var me = currentUser.resolve(principal);
+        requireRate(me, "dm-reply", 30);
+        var saved = conversations.replyInThread(messageId, me, body.body());
+        var participants = conversations.threadParticipants(messageId, me);
+        var dto = ConversationMessageDto.from(saved, markdown.renderInConversation(saved.getBodyMarkdown()),
+                List.of(), List.of(), 0L, participants);
+        // Same destination as a feed message; the client routes on parentId. A second topic for
+        // replies would mean two subscriptions per conversation and a whole class of "the reply
+        // arrived but the panel was on the other socket" bugs.
+        broker.convertAndSend("/topic/conversations/" + dto.conversationId(), dto);
+        alerts.alert(saved.getConversation(), saved, participants);
+        return dto;
+    }
+
+    /** Hydrate a batch of conversation messages: markdown, attachments, reactions, reply counts. */
+    private List<ConversationMessageDto> renderAll(
+            List<ai.intellistream.chat.domain.ConversationMessage> rows, User viewer) {
+        if (rows.isEmpty()) return List.of();
         var attachmentMap = attachments.findForMessages(rows);
-        var reactionMap = reactions.groupingsFor(rows, me);
+        var reactionMap = reactions.groupingsFor(rows, viewer);
+        var replyCounts = conversations.threadReplyCounts(rows);
         return rows.stream()
                 .map(m -> ConversationMessageDto.from(m,
-                        markdown.render(m.getBodyMarkdown()),
+                        markdown.renderInConversation(m.getBodyMarkdown()),
                         attachmentMap.getOrDefault(m.getId(), List.of()),
-                        reactionMap.getOrDefault(m.getId(), List.of())))
+                        reactionMap.getOrDefault(m.getId(), List.of()),
+                        replyCounts.getOrDefault(m.getId(), 0L),
+                        List.of()))
                 .toList();
+    }
+
+    /** A thread as the panel wants it: the parent, then the replies. */
+    public record ConversationThreadDto(ConversationMessageDto parent,
+                                        List<ConversationMessageDto> replies) {}
+
+    /**
+     * Advance the viewer's read marker to now.
+     *
+     * <p>Quietly a no-op for a non-member rather than a 403, matching
+     * {@code ChannelRestController.markRead}: this fires on live traffic and on every refocus, so
+     * the one thing it must not do is turn a race — being removed from a group while the tab was
+     * open — into an error dialog on top of a page that is about to be reloaded anyway.
+     */
+    @PostMapping("/{id}/read")
+    public ResponseEntity<Void> markRead(@PathVariable Long id, Principal principal) {
+        var me = currentUser.resolve(principal);
+        var conv = conversations.requireById(id);
+        if (conversations.isMember(conv, me)) {
+            conversations.markRead(conv, me);
+        }
+        return ResponseEntity.noContent().build();
     }
 
     @PatchMapping("/messages/{messageId}")
@@ -242,15 +336,24 @@ public class ConversationRestController {
         // hard delete, so the bytes really are freed and the credit is owed. Both are applied after
         // deleteMessage's tx commits (it's @Transactional, so it has committed once it returns).
         // deleteMessage does the authz — on failure it throws and neither is touched.
-        var doomed = attachments.forMessage(messageId);
+        //
+        // The thread goes with its parent, so the replies' attachments are gathered here too.
+        // Missing them would leave their files on disk with no row naming them and their bytes
+        // charged to an uploader forever — the rows are the only record of either.
+        var doomed = new java.util.ArrayList<>(attachments.forMessage(messageId));
+        for (var replyId : conversations.replyIdsOf(messageId)) {
+            doomed.addAll(attachments.forMessage(replyId));
+        }
         var keys = doomed.stream().map(ConversationAttachment::getStorageKey).toList();
         // Live rows only: one the uploader already deleted from the file manager was credited then.
         var credits = ConversationAttachmentService.creditsForLive(doomed);
         var deleted = conversations.deleteMessage(messageId, me);
         attachments.deleteFiles(keys);
         quotas.releaseAll(credits);
+        var parent = deleted.getParent();
         broker.convertAndSend("/topic/conversations/" + deleted.getConversation().getId(),
-                ConversationEvent.messageDeleted(deleted.getConversation().getId(), deleted.getId()));
+                ConversationEvent.messageDeleted(deleted.getConversation().getId(), deleted.getId(),
+                        parent == null ? null : parent.getId()));
         return ResponseEntity.noContent().build();
     }
 
@@ -286,8 +389,12 @@ public class ConversationRestController {
     private ConversationMessageDto broadcastUpdate(ai.intellistream.chat.domain.ConversationMessage message, User viewer) {
         var atts = attachments.findForMessage(message);
         var rs = reactions.groupingsFor(message, viewer);
+        // The reply count rides along, because the client repaints the whole message from this DTO
+        // and a "3 replies" indicator that vanished when somebody reacted would look like the
+        // replies had.
         var dto = ConversationMessageDto.from(message,
-                markdown.render(message.getBodyMarkdown()), atts, rs);
+                markdown.renderInConversation(message.getBodyMarkdown()), atts, rs,
+                conversations.threadReplyCount(message), List.of());
         broker.convertAndSend("/topic/conversations/" + dto.conversationId(),
                 ConversationEvent.messageUpdated(dto));
         return dto;
@@ -314,7 +421,7 @@ public class ConversationRestController {
         }
         var conv = conversations.requireById(id);
         var saved = conversations.post(conv, me, body.body());
-        var dto = ConversationMessageDto.from(saved, markdown.render(saved.getBodyMarkdown()));
+        var dto = ConversationMessageDto.from(saved, markdown.renderInConversation(saved.getBodyMarkdown()));
         broker.convertAndSend("/topic/conversations/" + id, dto);
         alerts.alert(conv, saved);
         return dto;
@@ -339,7 +446,7 @@ public class ConversationRestController {
 
         var message = savedAttachment.getMessage();
         var dto = ConversationMessageDto.from(message,
-                markdown.render(message.getBodyMarkdown()),
+                markdown.renderInConversation(message.getBodyMarkdown()),
                 List.of(savedAttachment));
         broker.convertAndSend("/topic/conversations/" + conversationId, dto);
         return dto;
