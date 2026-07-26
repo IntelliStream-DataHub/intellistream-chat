@@ -30,6 +30,17 @@ public interface ChannelRepository extends JpaRepository<Channel, Long> {
     List<Channel> findAllByTypeOrderByNameAsc(ChannelType type);
 
     /**
+     * Ids of every channel of one type. Used by search to widen its scope to all PUBLIC channels
+     * — which the viewer may read whether or not they joined — without materialising the entities.
+     *
+     * <p>Projecting ids rather than rows matters at scale here: the result feeds a Lucene
+     * {@code TermInSetQuery}, so a workspace with thousands of public channels would otherwise
+     * hydrate thousands of {@code Channel} entities per search to read one field off each.
+     */
+    @org.springframework.data.jpa.repository.Query("select c.id from Channel c where c.type = :type")
+    List<Long> findIdsByType(@org.springframework.data.repository.query.Param("type") ChannelType type);
+
+    /**
      * Exact (case-insensitive) lookup by either identifier, for search's {@code in:#channel}
      * modifier — a user types the name they see in the sidebar, which is the display name, while
      * every URL in the app carries the slug.

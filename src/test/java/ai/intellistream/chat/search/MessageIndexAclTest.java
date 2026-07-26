@@ -220,6 +220,45 @@ class MessageIndexAclTest {
                 .isEmpty();
     }
 
+    /**
+     * The same claim on the channel side, which is where the id set got big.
+     *
+     * <p>The channel filter used to hold only the viewer's joined channels — tens, for anyone. It
+     * now holds every public channel in the workspace, so its size is a property of the deployment
+     * rather than of the user, and 1,024 stops being a number nobody reaches. 20,000 is far past
+     * any plausible workspace and is here to show there is no cliff rather than to model one.
+     */
+    @Test
+    void aWorkspaceSizedChannelFilterStaysCorrect() {
+        long targetChannel = 17_777L;
+        index.index(24L, targetChannel, "alice", "workspace-scale marker");
+
+        var manyIds = new ArrayList<Long>(20_000);
+        for (long i = 1; i <= 20_000; i++) {
+            manyIds.add(i);
+        }
+        assertThat(manyIds).contains(targetChannel);
+
+        assertThat(index.searchAccessible(manyIds, List.of(), "workspace-scale", Set.of(), 50))
+                .containsExactly(new Hit(Scope.CHANNEL, 24L));
+
+        // Drop the one id that matters, keep the size: still no leak, still no truncation.
+        var without = new ArrayList<>(manyIds);
+        without.remove(Long.valueOf(targetChannel));
+        without.add(9_999_999L);
+        assertThat(index.searchAccessible(without, List.of(), "workspace-scale", Set.of(), 50))
+                .isEmpty();
+
+        // And mixed with a large conversation set, which is how the real filter is shaped: two
+        // TermInSetQuery clauses OR'd together, neither of them a BooleanQuery clause list.
+        var manyConversations = new ArrayList<Long>(5_000);
+        for (long i = 1; i <= 5_000; i++) {
+            manyConversations.add(i);
+        }
+        assertThat(index.searchAccessible(manyIds, manyConversations, "workspace-scale", Set.of(), 50))
+                .contains(new Hit(Scope.CHANNEL, 24L));
+    }
+
     @Test
     void theAdminWideSearchNeverReachesConversations() {
         index.index(14L, 5L, "alice", "budget-forecast in a channel nobody joined");

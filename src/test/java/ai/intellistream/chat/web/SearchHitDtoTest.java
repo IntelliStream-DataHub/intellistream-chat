@@ -52,7 +52,7 @@ class SearchHitDtoTest {
         when(message.getAuthor()).thenReturn(alice);
         when(message.getBodyMarkdown()).thenReturn("hello **world**");
 
-        var dto = SearchHitDto.ofChannel(message, "<p>hello <strong>world</strong></p>",
+        var dto = SearchHitDto.ofChannel(message, true, "<p>hello <strong>world</strong></p>",
                 "hello <mark>world</mark>");
 
         assertThat(dto.scope()).isEqualTo("channel");
@@ -65,6 +65,27 @@ class SearchHitDtoTest {
         assertThat(dto.authorUsername()).isEqualTo("alice");
         assertThat(dto.authorDisplayName()).isEqualTo("Alice A");
         assertThat(dto.bodySnippet()).isEqualTo("hello <mark>world</mark>");
+        assertThat(dto.channelJoined()).isTrue();
+    }
+
+    @Test
+    void aChannelHitFromARoomTheViewerHasNotJoinedSaysSo() {
+        // Search spans every public channel, so this is a routine row rather than an edge case,
+        // and the flag is the only thing on the wire that lets the UI mark it.
+        var alice = user("alice", "Alice A");
+        var channel = mock(Channel.class);
+        when(channel.getId()).thenReturn(8L);
+        when(channel.getName()).thenReturn("Incidents");
+        var message = mock(Message.class);
+        when(message.getId()).thenReturn(43L);
+        when(message.getChannel()).thenReturn(channel);
+        when(message.getAuthor()).thenReturn(alice);
+        when(message.getBodyMarkdown()).thenReturn("outage postmortem");
+
+        var dto = SearchHitDto.ofChannel(message, false, "<p>outage postmortem</p>", null);
+
+        assertThat(dto.channelJoined()).isFalse();
+        assertThat(dto.url()).isEqualTo("/channels/8?m=43#m=43");
     }
 
     @Test
@@ -88,6 +109,8 @@ class SearchHitDtoTest {
         assertThat(dto.url()).isEqualTo("/conversations/9#m=5");
         assertThat(dto.channelId()).isNull();
         assertThat(dto.channelName()).isNull();
+        // A conversation you can see is one you are in — there is no non-member tier for a DM.
+        assertThat(dto.channelJoined()).isTrue();
     }
 
     @Test

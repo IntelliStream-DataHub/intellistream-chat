@@ -17,6 +17,7 @@
 package ai.intellistream.chat.service;
 
 import ai.intellistream.chat.domain.Channel;
+import ai.intellistream.chat.domain.ChannelType;
 import ai.intellistream.chat.domain.Conversation;
 import ai.intellistream.chat.domain.ConversationMessage;
 import ai.intellistream.chat.domain.ConversationType;
@@ -53,10 +54,12 @@ import java.util.stream.Collectors;
  * <ul>
  *   <li>{@link #searchChannel} — requires read access to the channel (public or member).</li>
  *   <li>{@link #searchConversation} — requires membership of that conversation.</li>
- *   <li>{@link #searchAccessible} — everything the viewer can read: their joined channels plus
- *       the conversations they belong to, ranked as one list.</li>
- *   <li>{@link #searchEverywhere} — every channel and no conversations; admin only (Spring
- *       authority {@code ROLE_ADMIN}).</li>
+ *   <li>{@link #searchAccessible} — everything the viewer can read: every PUBLIC channel, the
+ *       PRIVATE ones they joined, and the conversations they belong to, ranked as one list.</li>
+ *   <li>{@link #searchEverywhere} — every channel <em>including private ones the admin has not
+ *       joined</em>, and no conversations; admin only (Spring authority {@code ROLE_ADMIN}).
+ *       Public channels being in the default scope is what leaves this tier with exactly one
+ *       thing to add, and it is the sensitive one.</li>
  * </ul>
  *
  * <h2>Query syntax</h2>
@@ -121,7 +124,13 @@ public class SearchService {
 
     /** One result, from whichever store it came from. */
     public sealed interface SearchHit {
-        record ChannelHit(Message message) implements SearchHit {}
+        /**
+         * @param joined whether the viewer is a member of the channel this hit came from. False is
+         *   an ordinary outcome now that search spans every public channel, and the UI has to say
+         *   so: a result from a room you have never opened, presented like any other, reads as a
+         *   room you are in — and then the missing composer looks like a bug rather than a state.
+         */
+        record ChannelHit(Message message, boolean joined) implements SearchHit {}
         record ConversationHit(ConversationMessage message) implements SearchHit {}
     }
 
@@ -161,16 +170,33 @@ public class SearchService {
     }
 
     /**
-     * Search everything the viewer has access to — joined channels and the conversations they are
-     * a member of — as a single relevance-ranked list. This is what the global search box calls.
+     * Search everything the viewer can read — every PUBLIC channel, the PRIVATE ones they have
+     * joined, and the conversations they are a member of — as a single relevance-ranked list.
+     * This is what the global search box calls.
      *
-     * <p>Both id sets are read from the database on every call rather than cached anywhere: they
-     * are the ACL, and a search must reflect a membership that changed a second ago.
+     * <h2>Why public channels they never joined are in scope</h2>
+     * {@link ChannelService#requireMember} short-circuits for PUBLIC channels: any signed-in user
+     * may open one, read its history and download its attachments. This method used to build its
+     * filter from joined channels alone, so the one surface that could <em>find</em> that content
+     * was the one that pretended it wasn't there — you could read every word of #incidents and
+     * search would tell you the word "outage" appears nowhere in the workspace. Slack searches
+     * every public channel for the same reason: in a workspace of any size, search is how you
+     * discover a channel exists at all, and that is truer here now that the sidebar lists only
+     * what you have joined.
+     *
+     * <p>PRIVATE channels the viewer has not joined stay out, which is the whole distinction
+     * between the two channel types and the one this widening must not blur.
+     *
+     * <p>Every id set is read from the database on each call rather than cached anywhere: they are
+     * the ACL, and a search must reflect a membership — or a channel — that changed a second ago.
      */
     @Transactional(readOnly = true)
     public List<SearchHit> searchAccessible(User viewer, String query, int limit) {
         var p = parsed(query);
         if (p == null) return List.of();
+        // Joined is read separately from readable, not derived from it: it is what marks a hit as
+        // coming from a room the viewer has never opened, and that has to be true per channel.
+        Set<Long> joinedIds = joinedChannelIds(viewer);
         List<Long> channelIds;
         List<Long> conversationIds;
         if (p.inChannel() != null) {
@@ -180,9 +206,7 @@ public class SearchService {
             channelIds = List.of(resolveInChannel(p.inChannel(), viewer, true));
             conversationIds = List.of();
         } else {
-            channelIds = memberRepository.findChannelsForUser(viewer).stream()
-                    .map(Channel::getId)
-                    .toList();
+            channelIds = readableChannelIds(joinedIds);
             conversationIds = conversationMemberRepository.findConversationIdsForUser(viewer);
         }
         if (channelIds.isEmpty() && conversationIds.isEmpty()) {
@@ -190,12 +214,33 @@ public class SearchService {
         }
         var hits = messageIndex.searchAccessible(
                 channelIds, conversationIds, p.body(), p.authors(), p.mentions(), clamp(limit));
-        return resolveHits(hits);
+        return resolveHits(hits, joinedIds);
+    }
+
+    /** Channel ids the viewer belongs to. */
+    @Transactional(readOnly = true)
+    public Set<Long> joinedChannelIds(User viewer) {
+        return memberRepository.findChannelsForUser(viewer).stream()
+                .map(Channel::getId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    /** Joined ∪ every PUBLIC channel — the read rule of {@link ChannelService#requireMember}, as ids. */
+    private List<Long> readableChannelIds(Set<Long> joinedIds) {
+        var ids = new LinkedHashSet<>(joinedIds);
+        ids.addAll(channelRepository.findIdsByType(ChannelType.PUBLIC));
+        return List.copyOf(ids);
     }
 
     /**
-     * Search every message in every channel — including ones the viewer hasn't joined.
-     * Only available to platform admins (Keycloak realm role {@code ichat-admin} → Spring authority {@code ROLE_ADMIN}).
+     * Search every message in every channel, <b>including private channels the admin is not a
+     * member of</b>. Only available to platform admins (Keycloak realm role {@code ichat-admin} →
+     * Spring authority {@code ROLE_ADMIN}).
+     *
+     * <p>Now that {@link #searchAccessible} covers every public channel, private channels are the
+     * only thing this tier adds — which is an argument for keeping it, not for dropping it, but it
+     * does change what the scope is <em>for</em>. It was "search the whole workspace"; it is now
+     * "read rooms you were not invited to", and anything describing it to a user should say so.
      *
      * <p>Direct and group conversations are <b>not</b> included, at any role. The index-level query
      * excludes them structurally.
@@ -291,7 +336,7 @@ public class SearchService {
      * <p>This is hydration only. It must never be given the job of deciding what the viewer may
      * see — by the time ids get here the filtering has already happened, in the query.
      */
-    private List<SearchHit> resolveHits(List<MessageIndexService.Hit> hits) {
+    private List<SearchHit> resolveHits(List<MessageIndexService.Hit> hits, Set<Long> joinedIds) {
         if (hits.isEmpty()) {
             return List.of();
         }
@@ -313,7 +358,9 @@ public class SearchService {
         for (var hit : hits) {
             if (hit.scope() == MessageIndexService.Scope.CHANNEL) {
                 var row = channelRows.get(hit.id());
-                if (row != null) out.add(new SearchHit.ChannelHit(row));
+                if (row != null) {
+                    out.add(new SearchHit.ChannelHit(row, joinedIds.contains(row.getChannel().getId())));
+                }
             } else {
                 var row = conversationRows.get(hit.id());
                 if (row != null) out.add(new SearchHit.ConversationHit(row));

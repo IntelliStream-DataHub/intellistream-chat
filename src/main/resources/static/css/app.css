@@ -1841,6 +1841,18 @@ button.icon-btn > .icon {
   font-size: var(--fs-md);
 }
 .search-dropdown-channel { color: var(--accent-fg); }
+/* "not joined" on a result from a public channel the viewer has never opened. Same pill as the
+   sidebar's channel-discovery results, because it is the same fact about the same thing. */
+.search-dropdown-tag {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--muted);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 0 0.35rem;
+  white-space: nowrap;
+}
 .search-dropdown-time { margin-left: auto; }
 .search-dropdown-snippet {
   margin-top: 0.15rem;

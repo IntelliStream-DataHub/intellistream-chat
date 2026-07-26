@@ -45,9 +45,10 @@ import java.util.Map;
  * <ul>
  *   <li>{@code ?channelId=} — that one channel (public, or one the viewer is in).</li>
  *   <li>{@code ?conversationId=} — that one DM / group conversation; members only.</li>
- *   <li>{@code ?scope=all} — every channel, no conversations; admins only.</li>
- *   <li>neither — everything the viewer can read: joined channels ∪ their conversations,
- *       ranked as one list. This is the global search box.</li>
+ *   <li>{@code ?scope=all} — every channel including private ones the admin never joined, and no
+ *       conversations; admins only.</li>
+ *   <li>neither — everything the viewer can read: every public channel ∪ the private ones they
+ *       joined ∪ their conversations, ranked as one list. This is the global search box.</li>
  * </ul>
  *
  * Access control lives in {@link SearchService} / the Lucene query, not here.
@@ -95,8 +96,9 @@ public class SearchRestController {
             throw new RateLimitExceededException("search rate exceeded");
         }
         if (channelId != null) {
-            return channelHits(searchService.searchChannel(
-                    channelService.requireById(channelId), me, q, limit), q);
+            var channel = channelService.requireById(channelId);
+            return channelHits(searchService.searchChannel(channel, me, q, limit),
+                    channelService.isMember(channel, me), q);
         }
         if (conversationId != null) {
             var conversation = conversationService.requireById(conversationId);
@@ -105,14 +107,21 @@ public class SearchRestController {
         }
         if ("all".equalsIgnoreCase(scope)) {
             // Admin-only: every channel, including ones the viewer hasn't joined. Never DMs.
-            return channelHits(searchService.searchEverywhere(me, q, limit), q);
+            // Membership is per channel here and this scope spans all of them, so the rows carry
+            // the viewer's joined set rather than one flag for the page.
+            var joined = searchService.joinedChannelIds(me);
+            return searchService.searchEverywhere(me, q, limit).stream()
+                    .map(m -> SearchHitDto.ofChannel(m, joined.contains(m.getChannel().getId()),
+                            render(m.getBodyMarkdown()), snippet(q, m.getBodyMarkdown())))
+                    .toList();
         }
         var hits = searchService.searchAccessible(me, q, limit);
         var labels = searchService.conversationLabels(me, conversationsIn(hits));
         return hits.stream()
                 .map(hit -> switch (hit) {
                     case SearchService.SearchHit.ChannelHit c ->
-                            SearchHitDto.ofChannel(c.message(), render(c.message().getBodyMarkdown()),
+                            SearchHitDto.ofChannel(c.message(), c.joined(),
+                                    render(c.message().getBodyMarkdown()),
                                     snippet(q, c.message().getBodyMarkdown()));
                     case SearchService.SearchHit.ConversationHit c ->
                             SearchHitDto.ofConversation(c.message(),
@@ -123,9 +132,9 @@ public class SearchRestController {
                 .toList();
     }
 
-    private List<SearchHitDto> channelHits(List<Message> rows, String q) {
+    private List<SearchHitDto> channelHits(List<Message> rows, boolean joined, String q) {
         return rows.stream()
-                .map(m -> SearchHitDto.ofChannel(m, render(m.getBodyMarkdown()),
+                .map(m -> SearchHitDto.ofChannel(m, joined, render(m.getBodyMarkdown()),
                         snippet(q, m.getBodyMarkdown())))
                 .toList();
     }

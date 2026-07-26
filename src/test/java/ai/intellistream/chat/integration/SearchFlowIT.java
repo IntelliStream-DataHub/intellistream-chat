@@ -227,6 +227,50 @@ class SearchFlowIT {
     }
 
     @Test
+    void theDefaultScopeReachesAPublicChannelTheViewerNeverJoined() {
+        // requireMember short-circuits for PUBLIC channels, so Bob may open this room, read every
+        // message in it and download its files. Search used to be the one surface that pretended
+        // it wasn't there — you could read #incidents cover to cover and be told the workspace
+        // contains no message with the word "outage" in it.
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var lobby = newPublic("lobby", alice);
+        var joinedRoom = newPublic("joined", alice);
+        channels.join(joinedRoom, bob); // so bob has a non-empty footprint of his own
+        var marker = "neverjoined-" + SEQ.incrementAndGet();
+        messages.post(lobby, alice, marker + " posted where bob is not a member");
+
+        var hits = channelMessages(search.searchAccessible(bob, marker, 10));
+
+        assertThat(hits).singleElement()
+                .satisfies(m -> assertThat(m.getChannel().getId()).isEqualTo(lobby.getId()));
+    }
+
+    @Test
+    void aResultFromAChannelTheViewerHasNotJoinedIsMarkedAsSuch() {
+        // The flag the UI hangs a "not joined" tag on. Without it the result opens a page with no
+        // composer and no explanation, which reads as a broken channel rather than a joinable one.
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var lobby = newPublic("lobby", alice);
+        var joinedRoom = newPublic("joined", alice);
+        channels.join(joinedRoom, bob);
+        var marker = "joinflag-" + SEQ.incrementAndGet();
+        messages.post(lobby, alice, marker + " over here");
+        messages.post(joinedRoom, alice, marker + " and over here");
+
+        var hits = search.searchAccessible(bob, marker, 10).stream()
+                .map(h -> (SearchService.SearchHit.ChannelHit) h)
+                .toList();
+
+        assertThat(hits).hasSize(2);
+        assertThat(hits).filteredOn(h -> h.message().getChannel().getId().equals(lobby.getId()))
+                .singleElement().satisfies(h -> assertThat(h.joined()).isFalse());
+        assertThat(hits).filteredOn(h -> h.message().getChannel().getId().equals(joinedRoom.getId()))
+                .singleElement().satisfies(h -> assertThat(h.joined()).isTrue());
+    }
+
+    @Test
     void allJoinedSearchExcludesPrivateChannelsViewerHasntJoined() {
         var alice = newUser("alice");
         var bob = newUser("bob");
@@ -241,8 +285,27 @@ class SearchFlowIT {
 
         var hits = channelMessages(search.searchAccessible(bob, marker, 10));
 
+        // The line the widening must not cross: public in, private-and-not-joined out.
         assertThat(hits).hasSize(1);
         assertThat(hits.get(0).getChannel().getId()).isEqualTo(publicRoom.getId());
+    }
+
+    @Test
+    void aPrivateChannelStaysInvisibleEvenWithNothingElseToSearch() {
+        // The degenerate case the widening could break: a viewer who belongs to nothing at all now
+        // has a non-empty channel filter (every public channel), so "no accessible container" no
+        // longer short-circuits before the query runs. The private room must be excluded by the
+        // filter itself rather than by there being no query at all.
+        var alice = newUser("alice");
+        var loner = newUser("loner"); // joins nothing, is in no conversation
+        var secret = newPrivate("secret", alice);
+        var marker = "lonertest-" + SEQ.incrementAndGet();
+        messages.post(secret, alice, marker + " behind a closed door");
+
+        assertThat(search.searchAccessible(loner, marker, 10)).isEmpty();
+
+        // Control: the message is indexed and matchable — a member finds it.
+        assertThat(channelMessages(search.searchAccessible(alice, marker, 10))).hasSize(1);
     }
 
     // ---------- Authorisation ----------

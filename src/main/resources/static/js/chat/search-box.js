@@ -142,12 +142,17 @@ export function initSearchBox(inputId, opts = {}) {
             '<div class="search-dropdown-meta">' +
               '<span class="search-dropdown-author"></span>' +
               '<span class="search-dropdown-channel"></span>' +
+              '<span class="search-dropdown-tag" hidden>not joined</span>' +
               '<time class="search-dropdown-time"></time>' +
             '</div>' +
             '<div class="search-dropdown-snippet"></div>';
         row.querySelector('.search-dropdown-author').textContent =
             m.authorDisplayName || m.authorUsername;
         row.querySelector('.search-dropdown-channel').textContent = label;
+        // Search spans every public channel, so a hit can come from a room the user has never
+        // opened. Saying so here is what stops the read-only page it leads to reading as a bug:
+        // no composer, no membership, and until now nothing that explained either.
+        row.querySelector('.search-dropdown-tag').hidden = m.channelJoined !== false;
         row.querySelector('.search-dropdown-time').textContent =
             new Date(m.createdAt).toLocaleString();
         // bodySnippet is the Lucene-highlighted excerpt with <mark>-wrapped match terms
