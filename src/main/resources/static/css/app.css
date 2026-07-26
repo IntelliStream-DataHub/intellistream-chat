@@ -4131,6 +4131,9 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
 }
 .action-sheet-item:hover, .action-sheet-item:active { background: var(--panel-2); }
 .action-sheet-item[data-action="delete"] { color: var(--danger); }
+/* Saved reads as on here too — the sheet is the touch surface's whole action row, so a state the
+   hover row shows has to be visible in it. */
+.action-sheet-item[data-action="unsave"] { color: var(--accent-fg); }
 .action-sheet-icon {
   flex: 0 0 auto;
   display: inline-flex;

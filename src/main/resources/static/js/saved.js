@@ -38,7 +38,9 @@
 
   const PAGE_SIZE = 25;
   let page = 0;
-  let lastCount = 0;
+  // Seeded from the server-rendered figure, so an unsave on a full first page decrements the real
+  // total rather than counting down from zero.
+  let lastCount = Number(countEl?.dataset.count || 0) || 0;
 
   const meta = (name) => document.querySelector('meta[name="' + name + '"]')?.content || '';
   const csrfToken = meta('_csrf');
@@ -108,13 +110,15 @@
     // Remove locally rather than re-fetching: the page the user is looking at stays put, which
     // matters most when they are working down a queue and clearing as they go.
     li.remove();
-    lastCount = Math.max(0, lastCount - 1);
-    renderCount(lastCount);
+    renderCount(Math.max(0, lastCount - 1));
     if (!list.children.length) load(page > 0 ? page - 1 : 0);
   };
 
   const renderCount = (n) => {
-    if (countEl) countEl.textContent = n + (n === 1 ? ' saved message' : ' saved messages');
+    lastCount = n;
+    if (!countEl) return;
+    countEl.dataset.count = String(n);
+    countEl.textContent = n + (n === 1 ? ' saved message' : ' saved messages');
   };
 
   const renderRow = (row) => {
@@ -195,10 +199,9 @@
       } else {
         list.textContent = '';
         for (const row of rows) list.append(renderRow(row));
-        if (page === 0 && rows.length < PAGE_SIZE) {
-          lastCount = rows.length;
-          renderCount(lastCount);
-        }
+        // A short first page is the whole list, so it is also the exact count. A full one only
+        // proves there are at least this many, and the server's figure is still the better answer.
+        if (page === 0 && rows.length < PAGE_SIZE) renderCount(rows.length);
         if (pagerEl) pagerEl.hidden = page === 0 && rows.length < PAGE_SIZE;
       }
       if (pageLabel) pageLabel.textContent = 'Page ' + (page + 1);

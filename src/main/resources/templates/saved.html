@@ -56,7 +56,10 @@
         -->
         <section class="files-section">
             <div class="files-toolbar">
+                <!--/* data-count carries the number itself, so the script can decrement it after
+                       an unsave without parsing its own sentence back out of the DOM. */-->
                 <span class="files-count" id="saved-count" aria-live="polite"
+                      th:data-count="${savedCount}"
                       th:text="${savedCount} + (${savedCount} == 1 ? ' saved message' : ' saved messages')">0 saved messages</span>
             </div>
 
