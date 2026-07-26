@@ -1375,7 +1375,18 @@ button.icon-btn > .icon {
   overflow: hidden;
   transition: border-color 0.15s, background-color 0.15s;
 }
-.poll-option-btn:hover { border-color: var(--accent); }
+/* A poll option is a surface you read, not a primary action, but it is still a <button> — so
+   the global `button:hover { background: var(--accent-2) }` was painting it solid dark blue
+   while it kept `color: var(--text)`. Measured 1.65:1, against 13.36:1 at rest: the label was
+   near-black on dark blue and effectively unreadable for the moment the pointer was over it.
+   The accent belongs on the border, where it signals "clickable" without fighting the vote bar
+   sitting behind the label. */
+.poll-option-btn:hover {
+  border-color: var(--accent);
+  background: var(--panel-2);
+}
+/* .voted already carries an accent tint; hovering it must not drop back to the plain surface. */
+.poll-option-btn.voted:hover { background: var(--accent-soft); }
 .poll-option-btn.voted {
   border-color: var(--accent);
   background: var(--accent-soft);
