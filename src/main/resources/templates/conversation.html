@@ -119,6 +119,34 @@
                         </p>
                         <p class="channel-notify-status" id="conversation-notify-status" hidden></p>
                     </div>
+
+                    <!--/* Groups only. A one-to-one has nothing to leave — see
+                           ConversationService.leave — and offering a button the server refuses
+                           would be worse than not offering one.
+
+                           Two-step, like the channel leave it mirrors: the trigger reveals a
+                           confirmation spelling out the consequence, and only the second button
+                           acts. No native confirm() — unstyleable, and it reads as a browser
+                           error. */-->
+                    <div class="channel-leave" th:if="${activeConversation.type.name() == 'GROUP'}">
+                        <button type="button" id="conversation-leave-btn" class="channel-leave-trigger"
+                                th:attr="data-conversation-id=${activeConversationId}">
+                            <svg class="icon" aria-hidden="true"><use href="#icon-logout"/></svg>
+                            Leave group
+                        </button>
+                        <div class="channel-leave-confirm" id="conversation-leave-confirm" hidden>
+                            <p>
+                                You'll stop receiving messages from this group and it will leave your
+                                sidebar. What you wrote stays — the people still here were part of
+                                the conversation too. Someone in the group has to add you back.
+                            </p>
+                            <div class="channel-leave-actions">
+                                <button type="button" id="conversation-leave-cancel">Cancel</button>
+                                <button type="button" id="conversation-leave-go"
+                                        class="channel-leave-danger">Leave group</button>
+                            </div>
+                        </div>
+                    </div>
                 </section>
 
                 <section id="group-members-panel"

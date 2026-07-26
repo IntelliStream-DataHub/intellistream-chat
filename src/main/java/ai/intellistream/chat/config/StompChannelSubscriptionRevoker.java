@@ -23,10 +23,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.messaging.MessageChannel;
-import org.springframework.messaging.simp.stomp.StompCommand;
-import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
 import org.springframework.messaging.simp.user.SimpUserRegistry;
-import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Component;
 
 /**
@@ -113,44 +110,14 @@ public class StompChannelSubscriptionRevoker implements ChannelSubscriptionRevok
         }
     }
 
-    /** Feed an UNSUBSCRIBE for every subscription to this channel's topics held by a matching session. */
+    /**
+     * Feed an UNSUBSCRIBE for every subscription to this channel's topics held by a matching
+     * session. The walk itself is {@link StompSubscriptionSweeper}, shared with the conversation
+     * revoker — the loop is identical and the two live far enough apart that a second copy would
+     * have drifted unnoticed.
+     */
     private int sweep(long channelId, java.util.function.Predicate<String> sessionMatches) {
-        var topic = "/topic/channels/" + channelId;
-        int revoked = 0;
-        for (var user : userRegistry.getUsers()) {
-            for (var session : user.getSessions()) {
-                if (!sessionMatches.test(session.getId())) {
-                    continue;
-                }
-                for (var subscription : session.getSubscriptions()) {
-                    var destination = subscription.getDestination();
-                    // The channel topic and everything under it — /typing is a separate
-                    // subscription to the same channel and has to go with it. Equality-or-slash
-                    // rather than a bare startsWith, so channel 42 does not take channel 420 with it.
-                    if (destination == null
-                            || !(destination.equals(topic) || destination.startsWith(topic + "/"))) {
-                        continue;
-                    }
-                    unsubscribe(session.getId(), subscription.getId());
-                    revoked++;
-                }
-            }
-        }
-        return revoked;
-    }
-
-    private void unsubscribe(String sessionId, String subscriptionId) {
-        var accessor = StompHeaderAccessor.create(StompCommand.UNSUBSCRIBE);
-        accessor.setSessionId(sessionId);
-        accessor.setSubscriptionId(subscriptionId);
-        accessor.setLeaveMutable(true);
-        try {
-            clientInboundChannel.send(
-                    MessageBuilder.createMessage(new byte[0], accessor.getMessageHeaders()));
-        } catch (RuntimeException e) {
-            // Best effort. A failure here leaves one stale subscription until the client reconnects;
-            // the membership row is already gone, so nothing can be re-established after it.
-            log.warn("Could not revoke subscription {} on session {}", subscriptionId, sessionId, e);
-        }
+        return StompSubscriptionSweeper.sweep(userRegistry, clientInboundChannel,
+                "/topic/channels/" + channelId, sessionMatches);
     }
 }

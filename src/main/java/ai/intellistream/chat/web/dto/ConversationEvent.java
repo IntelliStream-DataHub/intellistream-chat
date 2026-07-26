@@ -38,6 +38,15 @@ public record ConversationEvent(String type,
         return new ConversationEvent("member-added", conversationId, username, null, null, null);
     }
 
+    /**
+     * Somebody left a group conversation. Broadcast rather than silent because the member list and
+     * its count are on screen for everyone with the panel open, and a list that only refreshes on
+     * reload is wrong for exactly as long as nobody reloads.
+     */
+    public static ConversationEvent memberLeft(Long conversationId, String username) {
+        return new ConversationEvent("member-left", conversationId, username, null, null, null);
+    }
+
     public static ConversationEvent messageUpdated(ConversationMessageDto dto) {
         return new ConversationEvent("message-updated", dto.conversationId(), null, dto.id(),
                 dto.parentId(), dto);

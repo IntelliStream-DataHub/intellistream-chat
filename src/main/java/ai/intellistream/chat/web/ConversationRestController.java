@@ -202,6 +202,27 @@ public class ConversationRestController {
         return ConversationMemberDto.from(membership);
     }
 
+    /**
+     * Leave a group conversation.
+     *
+     * <p>Mirrors {@code POST /api/channels/{id}/leave}. The {@code member-left} frame is for the
+     * people still in the group — it refreshes the member list they have on screen — and the leaver
+     * will not receive it, because the service has already revoked their subscription by the time
+     * this line runs. That is the right way round: they asked to leave, and the 204 is their answer.
+     *
+     * <p>The service refuses a DIRECT conversation with a 400. It is not an oversight: see
+     * {@code ConversationService.leave}.
+     */
+    @PostMapping("/{id}/leave")
+    public ResponseEntity<Void> leave(@PathVariable Long id, Principal principal) {
+        var me = currentUser.resolve(principal);
+        var conv = conversations.requireById(id);
+        conversations.leave(conv, me);
+        broker.convertAndSend("/topic/conversations/" + id,
+                ConversationEvent.memberLeft(id, me.getUsername()));
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/{id}/messages")
     public List<ConversationMessageDto> messages(@PathVariable Long id,
                                                  @RequestParam(value = "after", required = false) java.time.Instant after,

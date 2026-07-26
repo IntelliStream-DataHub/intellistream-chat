@@ -57,15 +57,25 @@ public class ConversationService {
     private final ConversationMemberRepository members;
     private final ConversationMessageRepository messages;
     private final MessageIndexService messageIndex;
+    /**
+     * Absent in the service-and-repository-only integration context, which has no broker at all —
+     * hence the provider and the {@code ifAvailable}. Same arrangement {@code ChannelService} uses
+     * for its own revoker, and for the same reason.
+     */
+    private final org.springframework.beans.factory.ObjectProvider<ConversationSubscriptionRevoker>
+            subscriptionRevoker;
 
     public ConversationService(ConversationRepository conversations,
                                ConversationMemberRepository members,
                                ConversationMessageRepository messages,
-                               MessageIndexService messageIndex) {
+                               MessageIndexService messageIndex,
+                               org.springframework.beans.factory.ObjectProvider<ConversationSubscriptionRevoker>
+                                       subscriptionRevoker) {
         this.conversations = conversations;
         this.members = members;
         this.messages = messages;
         this.messageIndex = messageIndex;
+        this.subscriptionRevoker = subscriptionRevoker;
     }
 
     /**
@@ -134,6 +144,55 @@ public class ConversationService {
         if (body.length() > 8000) {
             throw new IllegalArgumentException("Message body too long (max 8000 chars)");
         }
+    }
+
+    /**
+     * Leave a group conversation.
+     *
+     * <p><b>A DIRECT conversation cannot be left, and that is not an omission.</b> Slack draws the
+     * same line: a 1:1 is closed, not left. There is nothing to leave — the conversation *is* the
+     * pair, and a "DM with alice" that alice is not in is not a thing the rest of the code could
+     * describe. Nor would it be reversible in any useful sense: messaging that person again would
+     * resolve the same {@code dm_key} and put you straight back, so "leave" would mean "hide until
+     * the next message", which is a different feature (closing a DM) wearing this one's name. A
+     * self-conversation is refused by the same rule and for the same reason, with the added point
+     * that leaving it would strand every future {@code /remind me} with nowhere to deliver.
+     *
+     * <p><b>The messages stay.</b> You are leaving, not deleting, and the people still in the group
+     * were part of the conversation you are removing yourself from. Their copy of it does not become
+     * less true because you left.
+     *
+     * <p><b>The last member may leave</b>, and the conversation is left holding its messages with
+     * nobody in it — the same outcome {@code ChannelService} settled on for an emptied channel. The
+     * alternative is trapping the last person in a group everybody else has already abandoned,
+     * which is the exact failure this exists to fix. Unlike a channel there is no way back in
+     * (nobody remains to add anyone), so the row is inert; it stays because deleting it would
+     * destroy other people's history the moment the last of them stopped reading it, and because
+     * {@code conversation_messages} is what search and the file manager index against.
+     *
+     * <p>Read markers and the notification level go with the membership row, because they are
+     * facts about a membership. Re-added later, you start fresh — which is right: you were not
+     * there for what happened in between.
+     */
+    @Transactional
+    public void leave(Conversation conversation, User user) {
+        if (conversation.getType() != ConversationType.GROUP) {
+            throw new ai.intellistream.chat.security.PublicBadRequestException(
+                    "A direct message can't be left — close it instead.");
+        }
+        var membership = members.findByConversationAndUser(conversation, user)
+                .orElseThrow(() -> new ai.intellistream.chat.security.ResourceNotFoundException(
+                        "Not a participant in this conversation."));
+        members.delete(membership);
+
+        var conversationId = conversation.getId();
+        var userId = user.getId();
+        // The membership row is gone, which stops the ex-member subscribing again. It does nothing
+        // at all about the subscription they already hold: the broker authorises SUBSCRIBE once and
+        // never re-checks, so without this an open socket keeps receiving a private conversation's
+        // messages until it happens to reconnect. Nothing in a page-reload test can see that,
+        // because reloading is the thing that fixes it.
+        afterCommit(() -> subscriptionRevoker.ifAvailable(r -> r.revoke(conversationId, userId)));
     }
 
     @Transactional

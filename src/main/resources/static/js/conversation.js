@@ -570,7 +570,7 @@
   };
 
   function handleFrame(payload) {
-    if (payload && payload.type === 'member-added') {
+    if (payload && (payload.type === 'member-added' || payload.type === 'member-left')) {
       if (typeof window.__refreshGroupMembers === 'function') window.__refreshGroupMembers();
       return;
     }
@@ -892,6 +892,49 @@
           resolved === 'NONE' ? '#icon-bell-slash' : '#icon-bell');
     };
     applyMuteCue(select?.dataset.current || 'DEFAULT');
+  })();
+
+  // ---------- Leave the group ----------
+  // Two-step, mirroring the channel leave. The server revokes the socket subscription too — it has
+  // to, since the broker authorises SUBSCRIBE once and never re-checks — but this page must not be
+  // relying on that to stop showing a conversation it just left.
+  (() => {
+    const trigger = document.getElementById('conversation-leave-btn');
+    const panel = document.getElementById('conversation-leave-confirm');
+    const cancel = document.getElementById('conversation-leave-cancel');
+    const go = document.getElementById('conversation-leave-go');
+    if (!trigger || !panel || !go) return;
+
+    trigger.addEventListener('click', () => {
+      panel.hidden = false;
+      trigger.hidden = true;
+      go.focus();
+    });
+    cancel?.addEventListener('click', () => {
+      panel.hidden = true;
+      trigger.hidden = false;
+      trigger.focus();
+    });
+
+    go.addEventListener('click', async () => {
+      go.disabled = true;
+      go.textContent = 'Leaving…';
+      try {
+        const res = await fetch('/api/conversations/' + conversationId + '/leave', {
+          method: 'POST', headers: headers(),
+        });
+        if (!res.ok && res.status !== 204) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.message || err.error || res.statusText);
+        }
+        // This page is no longer ours to be on — it would render as a 403 on the next load.
+        window.location.href = '/channels';
+      } catch (e) {
+        go.disabled = false;
+        go.textContent = 'Leave group';
+        alert('Could not leave: ' + (e?.message || e));
+      }
+    });
   })();
 
   // Sidebar mobile toggle (mirrors chat/index.js). The CSS slide-in keys off
