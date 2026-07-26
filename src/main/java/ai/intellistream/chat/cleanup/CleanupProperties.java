@@ -23,8 +23,7 @@ import java.time.Duration;
 
 /**
  * Config for the scheduled cleanup sweeps (orphan files + Lucene↔DB reconcile). Backstops for the
- * write-path crash windows (BUG-9/10/21). See the {@code CLEAN-*} items in tasks.md and the
- * datahub-cleanup comparison.
+ * write-path crash windows (BUG-9/10/21). See the {@code CLEAN-*} items in AUDIT.md.
  *
  * <p><b>Defaults are deliberately safe:</b> {@code dry-run=true}, so out of the box the sweeps run
  * and LOG what they would delete/reindex but change nothing. An operator watches the logged

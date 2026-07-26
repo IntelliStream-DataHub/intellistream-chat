@@ -1,7 +1,7 @@
 # IntelliStream Chat — Security Plan
 
-> **Note:** this is the historical hardening audit and checklist. For the current, actively
-> tracked security/bug backlog and its status, see [`tasks.md`](tasks.md).
+> **Note:** this is the historical hardening audit and checklist. For the pre-release audit —
+> every finding, what it was and what was done about it — see [`AUDIT.md`](AUDIT.md).
 
 > **Companion test files:**
 > - `src/test/java/ai/intellistream/chat/integration/SecurityBoundaryIT.java` — locks in the

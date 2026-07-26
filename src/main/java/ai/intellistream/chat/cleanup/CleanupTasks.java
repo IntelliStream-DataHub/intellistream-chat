@@ -43,8 +43,8 @@ import java.util.function.Supplier;
  * Scheduled backstop sweeps that reconcile the filesystem and the Lucene index against the
  * database — catching what slips through the write-path crash windows (BUG-9/10/21). All gated by
  * {@link CleanupProperties}: disabled per-node with {@code enabled=false}, and {@code dry-run=true}
- * by default (log what WOULD change, touch nothing) until an operator arms them. See tasks.md
- * CLEAN-1/2/3 and the datahub-cleanup comparison. Single-instance only (CLEAN-5).
+ * by default (log what WOULD change, touch nothing) until an operator arms them. See
+ * CLEAN-1/2/3 in AUDIT.md. Single-instance only (CLEAN-5).
  */
 @Component
 public class CleanupTasks {
