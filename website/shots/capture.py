@@ -245,24 +245,37 @@ async def shot_profile(page, ctx):
 
 
 SHOTS = [
+    # (name, recipe, caption, theme). The theme is applied before the shot, so the strip shows
+    # what the app looks like in more than one skin — twenty ship, and a carousel entirely in the
+    # default one undersells that. At least two light and two dark, deliberately spread rather
+    # than clustered, so a visitor scrolling sees the range without being told about it.
     ("channel", shot_channel,
-     "A channel, with the sidebar showing the channels you actually use rather than every channel that exists."),
+     "A channel, with the sidebar showing the channels you actually use rather than every channel that exists.",
+     "default"),
     ("thread", shot_thread,
-     "Threads open beside the conversation instead of burying replies inside it."),
+     "Threads open beside the conversation instead of burying replies inside it. Shown in Midnight — one of twenty themes.",
+     "midnight"),
     ("search", shot_search,
-     "One search box across every channel and every direct message you can read, served by an embedded Lucene index."),
+     "One search box across every channel and every direct message you can read, served by an embedded Lucene index.",
+     "default"),
     ("poll", shot_poll,
-     "Polls are built in a dialog — or typed as a slash command, if that is faster for you."),
+     "Polls are built in a dialog — or typed as a slash command, if that is faster for you. Shown in Dusk.",
+     "dusk"),
     ("new-conversation", shot_new_conversation,
-     "Start a direct message or a group from the same place: one name is a DM, more than one is a group."),
+     "Start a direct message or a group from the same place: one name is a DM, more than one is a group.",
+     "teal"),
     ("files", shot_files,
-     "Every file you have uploaded, in one place, searchable — and deleting one leaves the message that posted it standing."),
+     "Every file you have uploaded, in one place, searchable — and deleting one leaves the message that posted it standing.",
+     "carbon"),
     ("about", shot_about,
-     "The About dialog: version, build time, runtime and the exact component versions you are running."),
+     "The About dialog: version, build time, runtime and the exact component versions you are running.",
+     "default"),
     ("admin", shot_admin,
-     "The admin console: suspend an account and close its live sessions, clear or restore someone's messages, set per-person storage quotas, and an append-only audit trail."),
+     "The admin console: suspend an account and close its live sessions, clear or restore someone's messages, set per-person storage quotas, and an append-only audit trail.",
+     "forest"),
     ("profile", shot_profile,
-     "Per-device notification settings: mentions and direct messages can make a sound, and you decide per browser."),
+     "Twenty themes, five of them dark, and per-device notification sounds you can set separately for mentions and direct messages.",
+     "indigo"),
 ]
 
 
@@ -293,7 +306,6 @@ def rewrite_index(entries):
             f'      </figure>'
         )
     INDEX.write_text(html[:start] + "\n".join(figures).lstrip() + html[end:])
-
 
 
 # ------------------------------------------------------------------- doc figures ----
@@ -481,9 +493,13 @@ async def main():
             await page.click("input[type=submit], button[type=submit]")
             await page.wait_for_load_state("domcontentloaded")
 
-        for name, recipe, caption in SHOTS:
+        for name, recipe, caption, theme in SHOTS:
             try:
                 clip = await recipe(page, ctx)
+                # After the recipe, so a recipe that navigates cannot undo it. data-theme on
+                # <body> is what the app itself toggles, so this is the real thing, not a mock.
+                await page.evaluate("(t) => document.body.setAttribute('data-theme', t)", theme)
+                await page.wait_for_timeout(350)
                 png = await page.screenshot(clip=clip) if clip else await page.screenshot()
                 captured.append((name, caption, to_webp_base64(png)))
                 print(f"  captured {name:17} {len(png) // 1024:>5} KB png")

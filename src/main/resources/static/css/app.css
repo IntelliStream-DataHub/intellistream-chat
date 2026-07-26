@@ -50,6 +50,16 @@
   --muted: #72767d;
   --accent: #1c58d9;
   --accent-2: #1448b1;
+  /* The accent used as TEXT, which is a different job from the accent used as a surface. A theme
+     whose accent is dark enough to carry white button text is, by construction, too dark to read
+     as text on its own dark panel — the two requirements pull opposite ways, so they get two
+     tokens.
+     EVERY theme that sets --accent must also set --accent-fg. It cannot be derived here: a custom
+     property declared as var(--accent) is substituted where it is DECLARED, so this would compute
+     against :root's accent once and then inherit that fixed colour into every theme, ignoring
+     their own. That is not a hypothetical — it is what this did on the first attempt, and it
+     looked right because the themes that set it explicitly worked. */
+  --accent-fg: #1c58d9;
   --accent-on: #ffffff;   /* text placed on an --accent background */
   --border: #e0e1e5;
   --border-strong: #c8cbd1;
@@ -155,7 +165,7 @@ html, body {
   -webkit-tap-highlight-color: transparent;
 }
 
-a { color: var(--accent); text-decoration: none; }
+a { color: var(--accent-fg); text-decoration: none; }
 /* No hover underlines anywhere in the app — hover feedback is a color step instead.
    Component links with their own palettes (sidebar, DM list, topbar) define their own
    hover colors, which out-specify this. */
@@ -196,7 +206,7 @@ input, textarea, select {
 }
 input:focus, textarea:focus, select:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: var(--accent-fg);
   box-shadow: var(--focus-ring);
 }
 
@@ -512,7 +522,7 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
 .topbar-bell-action {
   background: none;
   border: none;
-  color: var(--accent);
+  color: var(--accent-fg);
   cursor: pointer;
   font-size: var(--fs-sm);
   padding: 0.2rem 0.3rem;
@@ -757,7 +767,7 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
 }
 .empty-state h2 { color: var(--text); }
 .empty-state .create-channel { padding: 1rem 0 0; }
-.empty-state .create-channel summary { color: var(--accent); }
+.empty-state .create-channel summary { color: var(--accent-fg); }
 .empty-state .create-channel-form {
   background: var(--panel-2);
   color: var(--text);
@@ -805,7 +815,7 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   font-weight: 400;
 }
 .channel-cog:hover { background: var(--hover); color: var(--text); }
-.channel-cog[aria-expanded="true"] { background: var(--hover); color: var(--accent); }
+.channel-cog[aria-expanded="true"] { background: var(--hover); color: var(--accent-fg); }
 
 .channel-admin-dropdown {
   position: absolute;
@@ -1008,7 +1018,7 @@ button.icon-btn > .icon {
 }
 .jump-to-latest-banner a {
   margin-left: auto;
-  color: var(--accent);
+  color: var(--accent-fg);
   font-weight: 600;
   text-decoration: none;
 }
@@ -1382,18 +1392,18 @@ button.icon-btn > .icon {
    The accent belongs on the border, where it signals "clickable" without fighting the vote bar
    sitting behind the label. */
 .poll-option-btn:hover {
-  border-color: var(--accent);
+  border-color: var(--accent-fg);
   background: var(--panel-2);
 }
 /* .voted already carries an accent tint; hovering it must not drop back to the plain surface. */
 .poll-option-btn.voted:hover { background: var(--accent-soft); }
 .poll-option-btn.voted {
-  border-color: var(--accent);
+  border-color: var(--accent-fg);
   background: var(--accent-soft);
 }
 .poll-option-btn.voted::before {
   content: '✓';
-  color: var(--accent);
+  color: var(--accent-fg);
   font-weight: 700;
   margin-right: 0.1rem;
 }
@@ -1431,7 +1441,7 @@ button.icon-btn > .icon {
 .poll-remove-vote {
   background: none;
   border: none;
-  color: var(--accent);
+  color: var(--accent-fg);
   font-size: var(--fs-sm);
   cursor: pointer;
   padding: 0.2rem 0.3rem;
@@ -1482,7 +1492,7 @@ button.icon-btn > .icon {
   color: var(--muted);
 }
 .message-body img { max-width: 100%; border-radius: var(--radius-sm); }
-.message-body a { color: var(--accent); }
+.message-body a { color: var(--accent-fg); }
 .message-body a:hover { color: var(--accent-2); }
 
 /* Responsive wrapper for YouTube / Vimeo embeds inserted by MarkdownRenderer.
@@ -1557,7 +1567,7 @@ button.icon-btn > .icon {
   box-shadow: var(--shadow-1);
 }
 .composer:focus-within {
-  border-color: var(--accent);
+  border-color: var(--accent-fg);
   box-shadow: var(--focus-ring);
 }
 .composer textarea {
@@ -1804,7 +1814,7 @@ button.icon-btn > .icon {
   color: var(--text);
   font-size: var(--fs-md);
 }
-.search-dropdown-channel { color: var(--accent); }
+.search-dropdown-channel { color: var(--accent-fg); }
 .search-dropdown-time { margin-left: auto; }
 .search-dropdown-snippet {
   margin-top: 0.15rem;
@@ -1857,6 +1867,7 @@ button.icon-btn > .icon {
   --panel-3: #3a3b42;
   --text: #e8e8ec;
   --muted: #9a9ba2;
+  --accent-fg: #8ab0ff;
   --accent: #5d8eff;
   --accent-2: #4072e4;
   --border: #3a3b42;
@@ -1894,6 +1905,7 @@ button.icon-btn > .icon {
   --text: #e6ebf5;
   --muted: #94a0b8;
   --accent: #2f6feb;
+  --accent-fg: #7ea6ff;
   --accent-2: #2559c4;
   --border: #2e3950;
   --border-strong: #3d4a63;
@@ -1918,6 +1930,7 @@ button.icon-btn > .icon {
   --text: #ededf0;
   --muted: #9b9ba3;
   --accent: #c2410c;
+  --accent-fg: #f0883e;
   --accent-2: #9a3412;
   --border: #33333a;
   --border-strong: #45454e;
@@ -1942,6 +1955,7 @@ button.icon-btn > .icon {
   --text: #e4efe8;
   --muted: #93a89b;
   --accent: #15803d;
+  --accent-fg: #4ade80;
   --accent-2: #116632;
   --border: #2b3830;
   --border-strong: #3a4a41;
@@ -1966,15 +1980,21 @@ button.icon-btn > .icon {
   --text: #ece7f5;
   --muted: #a094b8;
   --accent: #7c3aed;
+  --accent-fg: #c4a6ff;
   --accent-2: #6425ca;
   --border: #392f52;
   --border-strong: #4a3d69;
 }
 [data-theme="dusk"] .message-body code { color: #d8b4fe; background: #2b2440; }
 
-/* Accent colours carry white text (--accent-on: #fff) on buttons, so each one has to
-   clear 4.5:1 against white. Orange, green and cyan were between 4.06 and 4.38 and were
-   nudged darker by the smallest amount that crosses it — measured, not eyeballed. */
+/* Two different thresholds, which is why some themes carry an --accent-fg that differs from
+   their --accent.
+     --accent    is a SURFACE: it must clear 4.5:1 against the white text sitting on it.
+     --accent-fg is TEXT: it must clear 4.5:1 against the surface it sits on, which for the
+                 thread indicator and reaction pills is --panel-2 (#f4f5f7), not white.
+   An accent tuned to exactly clear white therefore lands just under on panel-2 — orange, green,
+   cyan and pink measured 4.17 to 4.44 — so those four take a slightly darker foreground. Every
+   other theme's accent clears both and simply follows --accent. */
 /* Orange */
 [data-theme="orange"] {
   --sb-bg: #b8470b;
@@ -1982,6 +2002,7 @@ button.icon-btn > .icon {
   --sb-bg-3: #8e3608;
   --sb-active: #f4a623;
   --sb-active-text: #2a1505;
+  --accent-fg: #ba4c10;
   --accent: #c35011;
   --accent-2: #b8470b;
 }
@@ -1993,6 +2014,7 @@ button.icon-btn > .icon {
   --sb-bg-3: #87224f;
   --sb-active: #ff7eb6;
   --sb-active-text: #3b0a23;
+  --accent-fg: #c23874;
   --accent: #c83a78;
   --accent-2: #b1316a;
 }
@@ -2004,6 +2026,7 @@ button.icon-btn > .icon {
   --sb-bg-3: #0f4d28;
   --sb-active: #5fdd8f;
   --sb-active-text: #062012;
+  --accent-fg: #1c7f45;
   --accent: #1e8749;
   --accent-2: #176b3a;
 }
@@ -2015,6 +2038,7 @@ button.icon-btn > .icon {
   --sb-bg-3: #3a2068;
   --sb-active: #a78bef;
   --sb-active-text: #1c1233;
+  --accent-fg: var(--accent);
   --accent: #6238ad;
   --accent-2: #4f2c8a;
 }
@@ -2026,6 +2050,7 @@ button.icon-btn > .icon {
   --sb-bg-3: #781414;
   --sb-active: #ff7676;
   --sb-active-text: #260606;
+  --accent-fg: var(--accent);
   --accent: #c12222;
   --accent-2: #a31b1b;
 }
@@ -2037,6 +2062,7 @@ button.icon-btn > .icon {
   --sb-bg-3: #094c54;
   --sb-active: #5fdde6;
   --sb-active-text: #052126;
+  --accent-fg: #107a86;
   --accent: #11808c;
   --accent-2: #0d6f7a;
 }
@@ -2047,6 +2073,7 @@ button.icon-btn > .icon {
   --sb-bg-3: #292481;
   --sb-active: #a5b4fc;
   --sb-active-text: #1e1b4b;
+  --accent-fg: var(--accent);
   --accent: #4338ca;
   --accent-2: #3730a3;
 }
@@ -2058,6 +2085,7 @@ button.icon-btn > .icon {
   --sb-bg-3: #0b5c56;
   --sb-active: #5eead4;
   --sb-active-text: #042f2c;
+  --accent-fg: var(--accent);
   --accent: #0f766e;
   --accent-2: #0b5c56;
 }
@@ -2069,6 +2097,7 @@ button.icon-btn > .icon {
   --sb-bg-3: #744d0a;
   --sb-active: #fbbf24;
   --sb-active-text: #2c1d02;
+  --accent-fg: var(--accent);
   --accent: #a16207;
   --accent-2: #854d0e;
 }
@@ -2080,6 +2109,7 @@ button.icon-btn > .icon {
   --sb-bg-3: #253141;
   --sb-active: #94a3b8;
   --sb-active-text: #0f172a;
+  --accent-fg: var(--accent);
   --accent: #475569;
   --accent-2: #334155;
 }
@@ -2091,6 +2121,7 @@ button.icon-btn > .icon {
   --sb-bg-3: #55351b;
   --sb-active: #d9a066;
   --sb-active-text: #2b1a0c;
+  --accent-fg: var(--accent);
   --accent: #7f5129;
   --accent-2: #6b4423;
 }
@@ -2102,6 +2133,7 @@ button.icon-btn > .icon {
   --sb-bg-3: #093a56;
   --sb-active: #7dd3fc;
   --sb-active-text: #082f49;
+  --accent-fg: var(--accent);
   --accent: #0369a1;
   --accent-2: #075985;
 }
@@ -2113,6 +2145,7 @@ button.icon-btn > .icon {
   --sb-bg-3: #551a43;
   --sb-active: #f0abfc;
   --sb-active-text: #2e0a24;
+  --accent-fg: var(--accent);
   --accent: #86198f;
   --accent-2: #701a75;
 }
@@ -2124,6 +2157,7 @@ button.icon-btn > .icon {
   --sb-bg-3: #33500f;
   --sb-active: #bef264;
   --sb-active-text: #1a2e05;
+  --accent-fg: var(--accent);
   --accent: #4d7c0f;
   --accent-2: #3f6212;
 }
@@ -2315,7 +2349,7 @@ button.icon-btn > .icon {
   margin-bottom: 1rem;
   font-size: var(--fs-md);
 }
-.admin-flash { background: var(--accent-soft); color: var(--accent); }
+.admin-flash { background: var(--accent-soft); color: var(--accent-fg); }
 .admin-error { background: var(--danger-soft); color: var(--danger); }
 /* Tables keep their natural width and scroll sideways inside this wrapper on
    narrow screens instead of blowing the page width out. */
@@ -2360,7 +2394,7 @@ button.icon-btn > .icon {
   position: relative;
 }
 .theme-option:hover { border-color: var(--border-strong); }
-.theme-option.selected { border-color: var(--accent); }
+.theme-option.selected { border-color: var(--accent-fg); }
 .theme-option input[type="radio"] {
   position: absolute;
   opacity: 0;
@@ -2525,7 +2559,7 @@ button.icon-btn > .icon {
   color: var(--muted);
   flex-shrink: 0;
 }
-.attachment:hover .attachment-download { color: var(--accent); }
+.attachment:hover .attachment-download { color: var(--accent-fg); }
 
 .attachment-image {
   display: inline-block;
@@ -2992,7 +3026,7 @@ main.content.searching > :not(.channel-search-results) { display: none; }
   width: fit-content;
   padding: 0.3rem 0.6rem;
   background: var(--panel-2);
-  color: var(--accent);
+  color: var(--accent-fg);
   border: 1px solid var(--border);
   border-radius: var(--radius-full);
   font-size: var(--fs-sm);
@@ -3002,7 +3036,7 @@ main.content.searching > :not(.channel-search-results) { display: none; }
 }
 .thread-indicator:hover {
   background: var(--hover);
-  border-color: var(--accent);
+  border-color: var(--accent-fg);
 }
 .thread-indicator-icon { width: 0.95rem; height: 0.95rem; }
 .thread-indicator-count { line-height: 1; }
@@ -3023,8 +3057,8 @@ main.content.searching > :not(.channel-search-results) { display: none; }
 .reaction:hover { border-color: var(--border-strong); background: var(--panel-3); }
 .reaction.mine {
   background: var(--accent-soft);
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--accent-fg);
+  color: var(--accent-fg);
 }
 .reaction-emoji { font-size: var(--fs-base); line-height: 1; }
 .reaction-count { font-variant-numeric: tabular-nums; }
@@ -3238,7 +3272,7 @@ main.content.searching > :not(.channel-search-results) { display: none; }
 
 /* Edited-tag pulse: briefly tint the "(edited)" marker so it's clear what changed. */
 @keyframes edited-tag-pulse {
-  0%   { color: var(--accent); transform: scale(1.06); }
+  0%   { color: var(--accent-fg); transform: scale(1.06); }
   100% { color: var(--muted); transform: scale(1); }
 }
 .edited-tag.just-changed {
@@ -3498,7 +3532,7 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
 .action-sheet-reaction:hover { background: var(--panel-3); }
 .action-sheet-reaction.mine {
   background: var(--accent-soft);
-  border-color: var(--accent);
+  border-color: var(--accent-fg);
 }
 .action-sheet-items { display: flex; flex-direction: column; }
 .action-sheet-item {
@@ -3926,7 +3960,7 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
   /* Channel-scoped role looks distinct from the workspace-admin pill so users can
      tell at a glance "is this person admin of THIS channel" vs "of the whole app". */
   background: transparent;
-  color: var(--accent);
+  color: var(--accent-fg);
   border: 1px solid var(--accent);
 }
 .channel-role-toggle {
@@ -4021,7 +4055,7 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
 .notification-toast-cta {
   margin-top: 0.5rem;
   background: transparent;
-  color: var(--accent);
+  color: var(--accent-fg);
   border: 1px solid var(--accent);
   border-radius: var(--radius-sm);
   padding: 0.25rem 0.55rem;
@@ -4085,7 +4119,7 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
   background: transparent;
   border: 1px dashed var(--border);
   border-radius: var(--radius-sm);
-  color: var(--accent);
+  color: var(--accent-fg);
   font-size: var(--fs-sm);
   cursor: pointer;
 }
@@ -4166,7 +4200,7 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
 .about-built { margin: 0.2rem 0 0; color: var(--muted); font-size: var(--fs-sm); }
 .about-loading { color: var(--muted); margin: 0; }
 .about-licence { margin: 0; font-size: var(--fs-sm); color: var(--muted); line-height: 1.5; }
-.about-licence a { color: var(--accent); }
+.about-licence a { color: var(--accent-fg); }
 /* Two columns on desktop, stacked on narrow screens. Values wrap; long version strings
    (JVM build ids) must not push the dialog wider than the viewport. */
 .about-dl {
