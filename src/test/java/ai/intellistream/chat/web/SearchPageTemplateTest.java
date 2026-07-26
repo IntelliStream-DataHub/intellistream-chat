@@ -91,6 +91,11 @@ class SearchPageTemplateTest {
     }
 
     private static SearchHitDto channelHit(long id, String channelName, boolean joined) {
+        return channelHit(id, channelName, joined, List.of());
+    }
+
+    private static SearchHitDto channelHit(long id, String channelName, boolean joined,
+                                           List<String> matchedFilenames) {
         return new SearchHitDto(id, "channel", 7L, channelName, joined,
                 null, null, null,
                 "/channels/7?m=" + id + "#m=" + id,
@@ -98,6 +103,7 @@ class SearchPageTemplateTest {
                 "the deploy failed again",
                 "<p>the deploy failed again</p>",
                 "the <mark>deploy</mark> failed again",
+                matchedFilenames,
                 Instant.parse("2026-03-04T10:15:30Z"), null);
     }
 
@@ -172,6 +178,35 @@ class SearchPageTemplateTest {
 
         assertThat(html).contains("More than");
         assertThat(html).contains("1,000");
+    }
+
+    @Test
+    void aHitThatMatchedOnAFilenameSaysWhichFile() {
+        // Without this the row is a mystery: a file posted with no caption has an empty body, so
+        // the snippet shows nothing the user typed and the result reads as a bug in search.
+        var page = new SearchService.ResultPage(List.of(), 1L, false, 0, 20);
+        var html = render(Map.of(
+                "query", "quarterly", "searchQuery", "quarterly", "scope", "accessible",
+                "results", page,
+                "hits", List.of(channelHit(42L, "general", true,
+                        List.of("<mark>quarterly</mark>-report.pdf")))));
+
+        assertThat(html).contains("search-result-files");
+        // The highlighter's <mark> arrives as markup, like the snippet's, and the filename is
+        // already HTML-escaped by the time it gets here.
+        assertThat(html).contains("<mark>quarterly</mark>-report.pdf");
+        assertThat(html).doesNotContain("&lt;mark&gt;");
+    }
+
+    @Test
+    void aHitWithNoFilenameMatchDrawsNoFileRow() {
+        var page = new SearchService.ResultPage(List.of(), 1L, false, 0, 20);
+        var html = render(Map.of(
+                "query", "deploy", "searchQuery", "deploy", "scope", "accessible",
+                "results", page,
+                "hits", List.of(channelHit(42L, "general", true))));
+
+        assertThat(html).doesNotContain("search-result-files");
     }
 
     @Test

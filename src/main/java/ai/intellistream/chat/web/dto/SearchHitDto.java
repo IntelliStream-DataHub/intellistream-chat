@@ -65,11 +65,23 @@ public record SearchHitDto(
         String bodyHtml,
         /** Lucene-highlighted excerpt: HTML-escaped, match terms wrapped in {@code <mark>}. May be null. */
         String bodySnippet,
+        /**
+         * Names of files on this message that the query matched, HTML-escaped with the matching
+         * parts wrapped in {@code <mark>} — {@code quarterly-<mark>report</mark>.pdf}. Empty when
+         * the hit matched on body text alone.
+         *
+         * <p>The reason it exists: a message can now be a result because of a file it carries, and
+         * a row whose snippet shows nothing the user typed reads as a broken search rather than as
+         * a match. This is the row saying why it is there.
+         */
+        java.util.List<String> matchedFilenames,
         Instant createdAt,
         Instant editedAt
 ) {
 
-    public static SearchHitDto ofChannel(Message message, boolean joined, String html, String snippet) {
+    /** @param matchedFilenames highlighted names of the files this query matched; never null */
+    public static SearchHitDto ofChannel(Message message, boolean joined, String html,
+                                         String snippet, java.util.List<String> matchedFilenames) {
         var author = message.getAuthor();
         var channel = message.getChannel();
         return new SearchHitDto(
@@ -87,6 +99,7 @@ public record SearchHitDto(
                 message.getBodyMarkdown(),
                 html,
                 snippet,
+                matchedFilenames,
                 message.getCreatedAt(),
                 message.getEditedAt()
         );
@@ -94,7 +107,8 @@ public record SearchHitDto(
 
     /** @param title group title, or the other participant's name for a DM; may be null */
     public static SearchHitDto ofConversation(ConversationMessage message, String title,
-                                              String html, String snippet) {
+                                              String html, String snippet,
+                                              java.util.List<String> matchedFilenames) {
         var author = message.getAuthor();
         var conversation = message.getConversation();
         ConversationType type = conversation.getType();
@@ -114,6 +128,7 @@ public record SearchHitDto(
                 message.getBodyMarkdown(),
                 html,
                 snippet,
+                matchedFilenames,
                 message.getCreatedAt(),
                 message.getEditedAt()
         );

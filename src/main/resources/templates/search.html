@@ -146,6 +146,17 @@
                        bodyHtml, which jsoup has already sanitized. */-->
                 <div class="search-result-snippet"
                      th:utext="${hit.bodySnippet} ?: ${hit.bodyHtml}">snippet</div>
+                <!--/* Why a hit with no visible match is here: filenames are searchable, so a file-only
+                       upload has an empty body and a result that looked like a blank row. Same <mark>
+                       escaping as the snippet — highlightFilename HTML-escapes before wrapping — so
+                       utext is safe. Shown only for the files the query actually matched; a message
+                       with a dozen attachments would otherwise bury the one that is the answer. */-->
+                <ul class="search-result-files" th:if="${!hit.matchedFilenames.isEmpty()}">
+                    <li class="search-result-file" th:each="filename : ${hit.matchedFilenames}">
+                        <svg class="icon icon-sm" aria-hidden="true"><use href="#icon-paperclip"/></svg>
+                        <span th:utext="${filename}">quarterly-report.pdf</span>
+                    </li>
+                </ul>
             </a>
         </li>
     </ol>
@@ -200,6 +211,13 @@
             <div class="search-help-row">
                 <dt><button type="button" class="search-help-example" data-example="release -draft">release -draft</button></dt>
                 <dd>Has "release", does not have "draft".</dd>
+            </div>
+            <!--/* Worth its own row rather than a footnote: nothing else on screen suggests that
+                   the name of a file somebody dropped in a channel is searchable at all, and a
+                   capability nobody can guess is one nobody uses. */-->
+            <div class="search-help-row">
+                <dt><button type="button" class="search-help-example" data-example="quarterly-report.pdf">quarterly-report.pdf</button></dt>
+                <dd>The name of a shared file — or just part of it, like <code>quarterly</code>.</dd>
             </div>
         </dl>
         <p class="search-help-note">

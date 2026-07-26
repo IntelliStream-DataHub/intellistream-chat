@@ -2321,6 +2321,31 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
   border-radius: 2px;
   font-weight: 600;
 }
+/* Matched filenames, same job as .search-result-files on the results page: a row whose snippet is
+   empty (a file posted with no caption) needs to say why it is a match. One line, clipped. */
+.search-dropdown-files {
+  margin-top: 0.15rem;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.search-dropdown-files .icon { flex: none; opacity: 0.7; }
+.search-dropdown-files span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.search-dropdown-files mark {
+  background: rgba(255, 193, 7, 0.35);
+  color: var(--text);
+  padding: 0 1px;
+  border-radius: 2px;
+  font-weight: 600;
+}
 
 /* ---------- Mention typeahead ----------
    Reuses .search-dropdown for the panel itself — same surface, same elevation, same row hover —
@@ -5319,6 +5344,40 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
 .search-result-snippet mark {
   background: rgba(255, 193, 7, 0.35);
   color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
+  font-weight: 600;
+}
+
+/* The files a hit matched on. Drawn as chips rather than as another line of prose because they are
+   evidence, not content: they answer "why is this row here" for a result whose snippet shows
+   nothing the user typed — which is every file-only upload, since those messages have no body. */
+.search-result-files {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.search-result-file {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 100%;
+  padding: 0.1rem 0.5rem 0.1rem 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-2);
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.search-result-file .icon { flex: none; opacity: 0.7; }
+/* Same tint as the snippet's, so "this is your search term" reads as one idea across the row. */
+.search-result-file mark {
+  background: rgba(255, 193, 7, 0.35);
+  color: var(--text);
   padding: 0 1px;
   border-radius: 2px;
   font-weight: 600;
