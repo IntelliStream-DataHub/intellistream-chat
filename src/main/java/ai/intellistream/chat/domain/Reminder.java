@@ -25,8 +25,15 @@ import java.time.Instant;
 
 /**
  * A queued reminder created by the {@code /remind} slash command. The scheduler watches for
- * rows with {@code firedAt == null && fireAt <= now()} and posts a message into the channel
- * on the creator's behalf, optionally @-mentioning {@link #target}.
+ * rows with {@code firedAt == null && fireAt <= now()} and delivers the reminder as a direct
+ * message: to the creator's conversation with themself when there is no {@link #target}, and to
+ * the creator's DM with the target when there is one.
+ *
+ * <p>{@link #channel} is where the reminder was <em>set</em>, not where it is delivered. Nothing
+ * is posted there — a reminder is a personal note, and broadcasting "ask about my salary review"
+ * to the room was the bug that moved delivery into a DM. The channel is kept because naming it
+ * in the reminder body ("set in #general") is the context that makes a reminder legible an hour
+ * later, and because it is what authorises the reminder in the first place.
  */
 @Entity
 @Table(name = "reminders", indexes = {

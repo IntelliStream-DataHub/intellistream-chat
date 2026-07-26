@@ -100,6 +100,13 @@ ichat:
   branding:
     dir: ${ICHAT_BRANDING_DIR:./data/branding}
 
+  # Fallback timezone for users whose zone we don't know: no choice saved on the profile page and
+  # no `zoneinfo` claim from the identity provider. It decides what "/remind me at 09:00" means,
+  # so on a server in a different zone from its users this is worth setting to where the people
+  # are. Empty (the default) means the JVM's own zone, which is the behaviour that predates
+  # per-user zones.
+  default-zone: ${ICHAT_DEFAULT_ZONE:}
+
   # Moderation. An admin removing messages is a SOFT delete: the rows stay, drop out of every
   # read path, and stay recoverable until the retention window passes — the first ban is
   # sometimes the wrong ban. RetentionPurgeScheduler then hard-deletes them for good.
