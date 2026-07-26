@@ -859,6 +859,29 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
 /* Invite form — the field and its submit read as one control, so the button sits at the end of
    the row rather than under it. Was id-scoped to #invite-form, which meant the group panel's
    identical form (#group-add-member-form) matched nothing and stacked its button underneath. */
+/* Notification level picker in the channel settings panel. It had no rule of its own, so the
+   select sat flush against the invite form below it. */
+.channel-notify {
+  margin-bottom: 10px;
+}
+.channel-notify label {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.channel-notify select {
+  width: 100%;
+  font-size: var(--fs-md);
+}
+.channel-notify-status {
+  margin: 0.35rem 0 0;
+  font-size: var(--fs-xs);
+  color: var(--muted);
+}
+.channel-notify-status[hidden] { display: none; }
+.channel-notify-status.is-error { color: var(--danger); }
+
 .channel-admin-dropdown .invite-form {
   display: flex;
   gap: 0.5rem;
