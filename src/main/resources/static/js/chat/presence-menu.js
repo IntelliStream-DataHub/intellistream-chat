@@ -413,11 +413,8 @@ async function openAbout() {
         body.append(h, lic);
     }
 
-    if (!data.server) {
-        // Say why the detail is missing rather than leaving a suspiciously short dialog.
-        const note = document.createElement('p');
-        note.className = 'about-note';
-        note.textContent = 'Server and component details are shown to workspace administrators.';
-        body.appendChild(note);
-    }
+    // A non-admin simply gets the shorter dialog. There was a note here explaining that server
+    // and component details are an administrator's to see; it told most readers about a
+    // restriction they had no reason to think about, and drew attention to the omission it was
+    // meant to excuse. The endpoint still decides what to send — see AboutRestController.
 }

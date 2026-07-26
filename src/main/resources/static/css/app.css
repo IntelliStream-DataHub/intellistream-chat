@@ -3910,13 +3910,6 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
 .about-body h3:first-of-type { margin-top: 1rem; }
 .about-version { margin: 0; font-size: var(--fs-lg); font-weight: 600; }
 .about-built { margin: 0.2rem 0 0; color: var(--muted); font-size: var(--fs-sm); }
-.about-note {
-  margin: 1.2rem 0 0;
-  color: var(--muted);
-  font-size: var(--fs-sm);
-  border-left: 2px solid var(--border);
-  padding-left: 0.7rem;
-}
 .about-loading { color: var(--muted); margin: 0; }
 .about-licence { margin: 0; font-size: var(--fs-sm); color: var(--muted); line-height: 1.5; }
 .about-licence a { color: var(--accent); }
