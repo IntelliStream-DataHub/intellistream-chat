@@ -126,15 +126,16 @@ class ReadStateAndMentionsIT {
         em.flush();
 
         // bxx exists -> a row; ghost doesn't -> nothing.
-        var sidebars = sidebar.sidebarFor(bob);
-        // Auto-join is not a thing — bob isn't a member yet, so mention badge won't show in his sidebar.
-        assertThat(sidebars).noneMatch(d -> d.id().equals(room.getId()) && d.joined());
+        var sidebars = sidebar.joinedFor(bob).channels();
+        // Auto-join is not a thing — bob isn't a member yet, so the channel isn't in his sidebar
+        // at all, and no mention badge can be.
+        assertThat(sidebars).noneMatch(d -> d.id().equals(room.getId()));
 
         // Make bob a member, then re-query.
         channels.join(room, bob);
         em.flush();
 
-        var withBob = sidebar.sidebarFor(bob);
+        var withBob = sidebar.joinedFor(bob).channels();
         var entry = withBob.stream().filter(d -> d.id().equals(room.getId())).findFirst().orElseThrow();
         assertThat(entry.joined()).isTrue();
         assertThat(entry.mentionCount()).isEqualTo(1);
@@ -319,8 +320,15 @@ class ReadStateAndMentionsIT {
         assertThat(reads.unreadCounts(alice, List.of(room.getId()))).doesNotContainKey(room.getId());
     }
 
+    /**
+     * Inverted deliberately. This asserted that replies did NOT count, on the reasoning that they
+     * live in the thread panel rather than the timeline — and the consequence was that a reply
+     * produced no signal anywhere: no badge, no bold name, and with no @mention in it no bell entry
+     * either. A thread could run for a hundred messages while the sidebar said the channel was
+     * quiet. A reply is a message in the channel; the channel is unread.
+     */
     @Test
-    void unreadDoesNotCountThreadReplies() {
+    void unreadCountsThreadReplies() {
         var alice = newUser("alice");
         var bob = newUser("bob");
         var room = channels.create("r-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice);
@@ -331,9 +339,8 @@ class ReadStateAndMentionsIT {
         messages.replyInThread(parent.getId(), alice, "reply 2");
         em.flush();
 
-        // Only the top-level message counts — replies live in the thread panel, not the timeline.
         assertThat(reads.unreadCounts(bob, List.of(room.getId())))
-                .containsEntry(room.getId(), 1L);
+                .containsEntry(room.getId(), 3L);
     }
 
     @Test
@@ -369,7 +376,7 @@ class ReadStateAndMentionsIT {
         messages.post(room, alice, "more chatter");
         em.flush();
 
-        var entry = sidebar.sidebarFor(bob).stream()
+        var entry = sidebar.joinedFor(bob).channels().stream()
                 .filter(d -> d.id().equals(room.getId()))
                 .findFirst().orElseThrow();
         assertThat(entry.unreadCount()).isEqualTo(2);

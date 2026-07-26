@@ -189,9 +189,16 @@ public class MessageRestController {
             throw new RateLimitExceededException("reply rate exceeded");
         }
         var saved = messageService.replyInThread(id, me, body.body());
-        var dto = MessageDto.from(saved, markdown.render(saved.getBodyMarkdown()));
+        // Who is in this thread, so the broadcast can tell them. Derived from the messages (parent
+        // author + everyone who has replied), not from a follow table — see
+        // MessageService.threadParticipants. Without this a reply produced no signal at all for the
+        // people actually having the conversation, which is how threads die quietly.
+        var participants = messageService.threadParticipants(saved.getParent(), me);
+        var dto = MessageDto.from(saved, markdown.render(saved.getBodyMarkdown()))
+                .withThreadParticipants(participants);
         broker.convertAndSend("/topic/channels/" + dto.channelId(), MessageEvent.created(dto));
-        return dto;
+        // The sender's own copy has no use for the list, and it names other people; strip it.
+        return dto.withThreadParticipants(List.of());
     }
 
     public record ThreadDto(MessageDto parent, List<MessageDto> replies) {}

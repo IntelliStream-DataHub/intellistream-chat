@@ -2,32 +2,69 @@
 <html xmlns:th="http://www.thymeleaf.org">
 <body>
 <!--/*
-  One group of sidebar channels ("Largest", "Most active"). Both groups render through this
-  fragment so their markup — unread badges, private/admin icons, the active highlight — can't
-  drift apart as one of them gets tweaked.
+  One list of sidebar channels. A fragment rather than inline markup because the sidebar renders
+  more than one of these (and index.js re-renders rows live), so the row markup — unread cue,
+  private marker, active highlight — has exactly one definition and cannot drift between them.
 
-  Usage: <ul th:replace="~{fragments/channel-group :: group(${sidebar.largest}, ${activeChannelId}, 'sidebar-channel-list')}"></ul>
+  Usage:
+    <ul th:replace="~{fragments/channel-group :: group(${sidebar.channels}, ${activeChannelId},
+                                                       ${sidebar.notifyDefault}, 'sidebar-channel-list')}"></ul>
+
+  notifyDefault is not decoration: a row carries its RAW notification level (DEFAULT when it is
+  inheriting), and whether the channel is muted is only answerable next to the account default it
+  may be inheriting from.
+
+  data-unread / data-mentions are the numbers the cue is computed from, and they are on the row so
+  index.js can increment them and re-derive the same cue for a live message. Reading the count out
+  of the badge's text was fine when every unread channel had a badge; it is not fine now that
+  ordinary unread renders as bold with no number to read.
 */-->
-<th:block th:fragment="group(channels, activeChannelId, listId)">
+<th:block th:fragment="group(channels, activeChannelId, notifyDefault, listId)">
     <ul class="channel-list" th:id="${listId}">
         <li th:each="c : ${channels}"
-            th:classappend="${c.joined ? 'joined' : 'public'} + ${c.joined and c.unreadCount > 0 ? ' has-unread' : ''}"
-            th:with="active=${activeChannelId != null and activeChannelId == c.id}"
-            th:attr="data-active=${active},data-name=${#strings.toLowerCase(c.name)},data-channel-id=${c.id},data-notify-level=${c.notifyLevel}">
+            th:with="active=${activeChannelId != null and activeChannelId == c.id},
+                     cue=${c.unreadCue(notifyDefault).name()},
+                     muted=${c.muted(notifyDefault)}"
+            th:classappend="${c.joined ? 'joined' : 'public'} + ${c.unreadCount > 0 ? ' has-unread' : ''}"
+            th:attr="data-active=${active},data-name=${#strings.toLowerCase(c.name)},data-channel-id=${c.id},data-notify-level=${c.notifyLevel},data-unread=${c.unreadCount},data-mentions=${c.mentionCount},data-unread-cue=${#strings.toLowerCase(cue)},data-muted=${muted}">
             <a th:href="@{'/channels/' + ${c.id}}" th:classappend="${active ? 'active' : ''}">
                 <span class="hash">#</span>
                 <span class="channel-name" th:text="${c.name}">name</span>
                 <svg th:if="${c.type.name() == 'PRIVATE'}" class="icon icon-sm" title="Private">
                     <use href="#icon-lock"/>
                 </svg>
-                <svg th:if="${c.admin}" class="icon icon-sm" title="Channel admin">
-                    <use href="#icon-star"/>
-                </svg>
+                <!--/* A number only for mentions. See ChannelSidebarDto.UnreadCue: a count on
+                       every busy channel trains people to ignore all of them, so ordinary unread
+                       is carried by the name's weight instead. The `muted` variant keeps a
+                       mention findable in a muted channel without shouting about it. */-->
                 <span class="unread-badge"
-                      th:if="${c.joined and c.unreadCount > 0}"
-                      th:classappend="${c.mentionCount > 0 ? 'mention' : ''}"
-                      th:text="${c.unreadCount > 99 ? '99+' : c.unreadCount}">3</span>
+                      th:if="${cue == 'COUNT'}"
+                      th:classappend="${muted ? 'mention muted' : 'mention'}"
+                      th:text="${c.mentionCount > 99 ? '99+' : c.mentionCount}">3</span>
+                <!--/* Muted channels say so, quietly. Without a marker a dimmed row with no badge
+                       reads as "nothing here" rather than "you asked me not to mention it". */-->
+                <svg th:if="${muted}" class="icon icon-sm channel-muted-marker"
+                     title="Muted — unread still counts, it just doesn't interrupt">
+                    <use href="#icon-bell-slash"/>
+                </svg>
             </a>
+            <!--/* The star is a SIBLING of the <a>, not inside it: nested inside, every click on it
+                   would also navigate to the channel. Hidden until hover (or focus, or already
+                   starred) so fifty rows don't each carry a visible control; the mobile breakpoint
+                   makes it permanently visible, since there is no hover on a touch screen.
+
+                   Wired by index.js — the CSP forbids inline handlers. */-->
+            <button th:if="${c.joined}" type="button" class="channel-star"
+                    th:classappend="${c.favourite ? 'is-favourite' : ''}"
+                    th:attr="aria-pressed=${c.favourite},
+                             title=${c.favourite ? 'Remove from favourites' : 'Add to favourites'},
+                             aria-label=${c.favourite ? 'Remove #' + c.name + ' from favourites'
+                                                      : 'Add #' + c.name + ' to favourites'}">
+                <svg class="icon icon-sm" aria-hidden="true">
+                    <use th:attr="href=${c.favourite ? '#icon-star' : '#icon-star-outline'}"
+                         href="#icon-star-outline"/>
+                </svg>
+            </button>
         </li>
     </ul>
 </th:block>

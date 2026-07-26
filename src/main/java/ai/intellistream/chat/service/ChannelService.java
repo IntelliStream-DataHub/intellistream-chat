@@ -53,6 +53,14 @@ public class ChannelService {
     private final AppSettingsService appSettings;
     private final RateLimiter rateLimiter;
     private final ai.intellistream.chat.moderation.StorageQuotaService quotas;
+    /**
+     * Optional because the realtime layer is optional: the integration-test context scans service
+     * and repository only, so there is no broker there to revoke a subscription on. An
+     * {@code ObjectProvider} also keeps this out of the messaging beans' construction order, which
+     * runs back through {@code StompAuthorizationConfig} into this class.
+     */
+    private final org.springframework.beans.factory.ObjectProvider<ChannelSubscriptionRevoker>
+            subscriptionRevoker;
 
     public ChannelService(ChannelRepository channelRepository,
                           ChannelMemberRepository memberRepository,
@@ -64,7 +72,10 @@ public class ChannelService {
                           ChannelAccessCache accessCache,
                           AppSettingsService appSettings,
                           RateLimiter rateLimiter,
-                          ai.intellistream.chat.moderation.StorageQuotaService quotas) {
+                          ai.intellistream.chat.moderation.StorageQuotaService quotas,
+                          org.springframework.beans.factory.ObjectProvider<ChannelSubscriptionRevoker>
+                                  subscriptionRevoker) {
+        this.subscriptionRevoker = subscriptionRevoker;
         this.quotas = quotas;
         this.accessCache = accessCache;
         this.channelRepository = channelRepository;
@@ -158,6 +169,29 @@ public class ChannelService {
         }
     }
 
+    /**
+     * {@link #requireMember} with the membership query served from cache after the first verified
+     * success — the STOMP SUBSCRIBE authorization path.
+     *
+     * <p>Worth having because subscription count is now membership count: the client subscribes to
+     * every channel the user is in, so a user in 200 private channels used to mean 200 uncached
+     * {@code exists} queries on the threads that are accepting connections, and a mass reconnect
+     * multiplies that by every client at once. PUBLIC channels never cost anything here —
+     * {@link #requireMember} short-circuits before any query — so this only changes the private
+     * case, where membership and write access are the same question and therefore the same cache
+     * entry.
+     *
+     * <p>Only positives are cached, so a user who has just been invited is never wrongly refused.
+     * A user whose membership is <em>removed</em> is a different matter: that is what
+     * {@code ChannelAccessCache.evictMember} is for, and every leave/kick path must call it.
+     */
+    public void requireMemberCached(Channel channel, User user) {
+        if (channel.getType() == ChannelType.PUBLIC) {
+            return;
+        }
+        requireWriteAccessCached(channel, user);
+    }
+
     @Transactional(readOnly = true)
     public Channel requireBySlug(String slug) {
         return channelRepository.findBySlug(slug)
@@ -189,7 +223,99 @@ public class ChannelService {
         // (the old saveAndFlush + catch-and-reread threw on Postgres because the failed INSERT
         // poisons the transaction).
         memberRepository.insertMemberIgnore(channel.getId(), user.getId());
-        return memberRepository.findByChannelAndUser(channel, user).orElseThrow();
+        var membership = memberRepository.findByChannelAndUser(channel, user).orElseThrow();
+        // A channel can now be emptied — everybody leaves — and an empty channel has no admin and
+        // nothing that could ever promote one, so it would be permanently unmanageable: no
+        // promote, no destroy. The first person back in becomes its admin, exactly as the creator
+        // did. Two simultaneous joiners can both end up admin, since an empty result set locks
+        // nothing; two admins is a harmless outcome and zero is not.
+        if (memberRepository.findByChannelAndRoleForUpdate(channel, ChannelRole.ADMIN).isEmpty()) {
+            membership.setRole(ChannelRole.ADMIN);
+        }
+        return membership;
+    }
+
+    /**
+     * Leave a channel.
+     *
+     * <p>The messages stay. You are leaving, not deleting — and for a PRIVATE channel the leaving is
+     * irreversible from your side, since coming back needs an invitation. The UI warns about that;
+     * the service does not refuse it, because a channel you cannot leave is a worse trap than one
+     * you cannot re-enter.
+     *
+     * <p>The read marker in {@code channel_reads} stays too. It is a fact about what you have seen,
+     * not part of the membership, and deleting it would mean rejoining dumps the entire backlog on
+     * you as unread.
+     */
+    @Transactional
+    public void leave(Channel channel, User user) {
+        removeMembership(channel, user);
+    }
+
+    /**
+     * Remove another member — a channel admin's kick.
+     *
+     * <p>Self-removal is routed to {@link #leave} rather than refused: {@code DELETE
+     * /members/{me}} plainly means "take me out", and requiring admin for it would stop a plain
+     * member using the one endpoint that names them.
+     */
+    @Transactional
+    public void removeMember(Channel channel, User target, User actor) {
+        if (actor.getId().equals(target.getId())) {
+            removeMembership(channel, actor);
+            return;
+        }
+        requireAdmin(channel, actor);
+        removeMembership(channel, target);
+    }
+
+    /**
+     * Delete one membership row, handing over the channel first if that row was the last admin.
+     *
+     * <p><b>The last-admin rule: allow the departure, promote a successor.</b> The three options were
+     * to refuse, to allow and leave the channel adminless, or to hand over. Refusing traps the last
+     * admin in a channel forever, which is the problem this whole change exists to fix, and it
+     * punishes exactly the person who took responsibility for the channel. Leaving it adminless is
+     * worse than it sounds: nobody can invite to a private one, nobody can delete it, and there is no
+     * path back — the channel is bricked, with no error message anywhere to explain why. So the
+     * longest-standing remaining member becomes admin. Longest-standing needs no extra data, is
+     * stable, and is explicable to the person it happens to.
+     *
+     * <p>The {@code FOR UPDATE} lock on the channel's admin rows is what makes it race-free, and it
+     * is the same lock {@link #demote} takes for the same invariant. Two admins leaving at once
+     * serialise on it: the second re-reads after the first commits, sees itself as the only admin
+     * left, and hands over. Without the lock both read "there is another admin", both commit, and the
+     * channel ends up with none.
+     *
+     * <p>The last <em>member</em> leaving is allowed and leaves an empty channel holding its
+     * messages. {@link #join} covers the consequence for a PUBLIC one.
+     */
+    private void removeMembership(Channel channel, User user) {
+        var membership = memberRepository.findByChannelAndUser(channel, user)
+                .orElseThrow(() -> new ai.intellistream.chat.security.ResourceNotFoundException(
+                        "Not a member of this channel."));
+        if (membership.getRole() == ChannelRole.ADMIN) {
+            boolean anotherAdminRemains = memberRepository
+                    .findByChannelAndRoleForUpdate(channel, ChannelRole.ADMIN).stream()
+                    .anyMatch(m -> !m.getUser().getId().equals(user.getId()));
+            if (!anotherAdminRemains) {
+                memberRepository.findOthersOldestFirst(channel, user,
+                                org.springframework.data.domain.PageRequest.of(0, 1))
+                        .forEach(successor -> successor.setRole(ChannelRole.ADMIN));
+            }
+        }
+        memberRepository.delete(membership);
+
+        var channelId = channel.getId();
+        var userId = user.getId();
+        // Membership is no longer add-only, which is one of the two invariants ChannelAccessCache
+        // rests on. Both halves of undoing a cached "yes" have to happen, and they are different
+        // problems: evictMember stops the ex-member subscribing AGAIN, and the revoker takes away
+        // the subscription they already hold — the broker authorises SUBSCRIBE once and never
+        // re-checks, so without the second one an open socket keeps receiving a private channel's
+        // messages until it happens to reconnect.
+        afterCommit(() -> accessCache.evictMember(channelId, userId));
+        afterCommit(() -> subscriptionRevoker.ifAvailable(r -> r.revoke(channelId, userId)));
     }
 
     @Transactional
@@ -202,6 +328,27 @@ public class ChannelService {
         // Insert-or-ignore then read (N1) — race-free without a poisoned-tx catch block.
         memberRepository.insertMemberIgnore(channel.getId(), invitee.getId());
         return memberRepository.findByChannelAndUser(channel, invitee).orElseThrow();
+    }
+
+    /**
+     * Star or unstar a channel for one member — the Slack / Mattermost favourite.
+     *
+     * <p>Membership is required, and not merely because the row is stored on it: a star is a
+     * statement about your own sidebar, and there is no sidebar row to move for a channel you are
+     * not in. Deliberately stricter than {@code requireMember}, which lets any authenticated user
+     * read a PUBLIC channel, and the same posture {@code NotificationPreferenceService} takes for
+     * the same reason.
+     *
+     * <p>Nothing is evicted from {@link ChannelAccessCache}: the cache holds channels and
+     * write-access decisions, and a star is neither.
+     */
+    @Transactional
+    public boolean setFavourite(Channel channel, User user, boolean favourite) {
+        var membership = memberRepository.findByChannelAndUser(channel, user)
+                .orElseThrow(() -> new AccessDeniedException(
+                        "Join the channel before adding it to your favourites."));
+        membership.setFavourite(favourite);
+        return membership.isFavourite();
     }
 
     @Transactional
@@ -301,6 +448,21 @@ public class ChannelService {
     @Transactional(readOnly = true)
     public boolean isMember(Channel channel, User user) {
         return memberRepository.existsByChannelAndUser(channel, user);
+    }
+
+    /**
+     * Which of {@code userIds} are currently members of {@code channel} — one query, not one per id.
+     *
+     * <p>Used to narrow a derived audience (thread participants) to people who are still here.
+     * Membership at the time somebody posted is not membership now: they may have left, or been
+     * removed, and neither should keep receiving the channel's traffic.
+     */
+    @Transactional(readOnly = true)
+    public java.util.Set<Long> membersAmong(Channel channel, java.util.Collection<Long> userIds) {
+        if (userIds.isEmpty()) {
+            return java.util.Set.of();
+        }
+        return java.util.Set.copyOf(memberRepository.findMemberUserIds(channel, userIds));
     }
 
     @Transactional(readOnly = true)

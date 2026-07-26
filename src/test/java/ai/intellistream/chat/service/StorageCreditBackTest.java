@@ -195,7 +195,9 @@ class StorageCreditBackTest {
                     mock(MessageRepository.class), attachmentRepository,
                     mock(MessageIndexService.class), attachmentService,
                     new ChannelAccessCache(60, 1024), mock(AppSettingsService.class),
-                    new RateLimiter(), quotas);
+                    new RateLimiter(), quotas,
+                    new org.springframework.beans.factory.support.StaticListableBeanFactory()
+                            .getBeanProvider(ChannelSubscriptionRevoker.class));
         }
     }
 

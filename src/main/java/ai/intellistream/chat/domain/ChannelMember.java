@@ -71,10 +71,30 @@ public class ChannelMember {
     @Column(name = "notify_level", nullable = false, length = 16)
     private NotificationLevel notifyLevel = NotificationLevel.DEFAULT;
 
+    /**
+     * Whether this member has starred the channel — the Slack / Mattermost favourite, which groups
+     * the channel at the top of their sidebar.
+     *
+     * <p>Per membership rather than in its own table: the star has the same subject and the same
+     * lifetime as the notification override sitting beside it, and leaving the channel ends both.
+     * See {@code V9__channel_favourites.sql}.
+     *
+     * <p>The star used to mean something else entirely in the UI — it marked a channel you were an
+     * <em>admin</em> of, which is not what a star means anywhere else in this product category.
+     * Nothing about that meaning was ever stored; it was read off the member's role.
+     */
+    @Column(nullable = false)
+    private boolean favourite = false;
+
     public ChannelMember(Channel channel, User user, ChannelRole role) {
         this.channel = channel;
         this.user = user;
         this.role = role;
+    }
+
+    /** Star or unstar the channel for this member. */
+    public void setFavourite(boolean favourite) {
+        this.favourite = favourite;
     }
 
     /** True while this channel takes its level from the account default rather than its own. */

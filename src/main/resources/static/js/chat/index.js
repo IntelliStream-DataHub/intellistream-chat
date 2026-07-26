@@ -100,8 +100,10 @@ presenceMenu.init();
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && document.body.classList.contains('sidebar-open')) setOpen(false);
     });
-    document.getElementById('sidebar-channel-list')?.addEventListener('click', (e) => {
-      if (e.target.closest('a')) setOpen(false);
+    // Any channel list, not just the main one — there is a Favourites group above it now. The
+    // closest('a') test is what keeps the star button from counting as "picked a channel".
+    document.getElementById('app-sidebar')?.addEventListener('click', (e) => {
+      if (e.target.closest('.channel-list a, .dm-list a')) setOpen(false);
     });
     window.addEventListener('resize', () => {
       if (window.innerWidth > 768 && document.body.classList.contains('sidebar-open')) setOpen(false);
@@ -264,6 +266,48 @@ presenceMenu.init();
             }
           });
           meta.appendChild(toggle);
+
+          // The kick. Admin-only and never on their own row — leaving is the settings panel's
+          // "Leave channel", which knows to warn about a private channel; a Remove button on your
+          // own row would be the same action with none of the warning.
+          const remove = document.createElement('button');
+          remove.type = 'button';
+          remove.className = 'channel-member-remove';
+          remove.textContent = 'Remove';
+          remove.title = 'Remove ' + name + ' from this channel';
+          remove.addEventListener('click', async (ev) => {
+            ev.stopPropagation();
+            // Two-step in place, for the same reason the leave control is: it is destructive, and a
+            // native confirm() looks like a browser error. The button becoming "Remove?" is the
+            // confirmation.
+            if (remove.dataset.armed !== 'true') {
+              remove.dataset.armed = 'true';
+              remove.textContent = 'Remove?';
+              setTimeout(() => {
+                if (!remove.isConnected) return;
+                remove.dataset.armed = 'false';
+                remove.textContent = 'Remove';
+              }, 4000);
+              return;
+            }
+            remove.disabled = true;
+            try {
+              const res = await fetch('/api/channels/' + activeChannelId
+                  + '/members/' + encodeURIComponent(m.username), {
+                method: 'DELETE',
+                headers: headers(),
+              });
+              if (!res.ok && res.status !== 204) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.message || err.error || res.statusText);
+              }
+              await loadMembers();
+            } catch (e) {
+              alert('Could not remove that member: ' + e.message);
+              remove.disabled = false;
+            }
+          });
+          meta.appendChild(remove);
         }
         membersList.appendChild(li);
       }
@@ -304,6 +348,59 @@ presenceMenu.init();
     // Eagerly populate the count badge so the button shows "👥 N" before opening.
     loadMembers();
   }
+
+  // ---------- Leave channel ----------
+  // Two-step: the trigger reveals a confirmation with the consequence spelled out, and only the
+  // second button leaves. Destructive, and for a private channel irreversible from this side.
+  //
+  // No native confirm() — it is unstyleable, it reads as a browser error, and it is used elsewhere
+  // in this file only because nothing better was wired up. This is inline in the panel that
+  // launched it, which needs no modal machinery at all.
+  (() => {
+    const trigger = document.getElementById('channel-leave-btn');
+    const panel = document.getElementById('channel-leave-confirm');
+    const cancel = document.getElementById('channel-leave-cancel');
+    const go = document.getElementById('channel-leave-go');
+    if (!trigger || !panel || !go) return;
+
+    trigger.addEventListener('click', () => {
+      panel.hidden = false;
+      trigger.hidden = true;
+      go.focus();
+    });
+    cancel?.addEventListener('click', () => {
+      panel.hidden = true;
+      trigger.hidden = false;
+      trigger.focus();
+    });
+
+    go.addEventListener('click', async () => {
+      const channelId = trigger.dataset.channelId;
+      go.disabled = true;
+      go.textContent = 'Leaving…';
+      try {
+        const res = await fetch('/api/channels/' + channelId + '/leave', {
+          method: 'POST', headers: headers(),
+        });
+        if (!res.ok && res.status !== 204) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.message || err.error || res.statusText);
+        }
+        // Stop listening before navigating. The server revokes the subscription too — it has to,
+        // because a client that never asked could otherwise keep receiving a private channel — but
+        // the client must not be relying on that to stop bumping a badge for a channel it left.
+        dropChannelSubscription(channelId);
+        sidebarChannels.get(String(channelId))?.li.remove();
+        // The channel page is no longer ours to be on: a public one would render as a join screen,
+        // a private one as "ask an admin". Go somewhere that still makes sense.
+        window.location.href = '/channels';
+      } catch (e) {
+        go.disabled = false;
+        go.textContent = 'Leave channel';
+        chrome.flashToast('Could not leave: ' + e.message);
+      }
+    });
+  })();
 
   // ---------- Invite (admin) ----------
   const inviteForm = document.getElementById('invite-form');
@@ -358,30 +455,116 @@ presenceMenu.init();
   // come from window.ChatKit (chat-kit.js). Pull them into local scope for terseness.
   const { wireAutoResize, insertAtCursor, openEmojiPicker } = ChatKit;
 
+  // ---------- Joined channels: the subscription set ----------
+  // Every channel the user is a member of, straight from the server (meta me-channel-ids, built
+  // from SidebarView.channelIds()). This — not the rendered sidebar — is what drives the STOMP
+  // subscriptions below.
+  //
+  // KEEP IT THAT WAY. This used to be derived from `#sidebar-channel-list li.joined`, so
+  // notification coverage was a side effect of what the sidebar happened to render: a mention in a
+  // channel outside the rendered set produced no toast, no chime, no badge and no bell update until
+  // the next page load. The sidebar now renders every joined channel, which fixes that by accident;
+  // reading the set from the server means a future rendering change cannot un-fix it. If you find
+  // yourself scraping channel ids out of the DOM again, this is the bug you are reintroducing.
+  const joinedChannelIds = (meta('me-channel-ids') || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+  // channelId -> StompJS subscription for the non-active joined channels, populated on connect.
+  // Module-scope rather than inside the STOMP block so the leave path can reach it: a client whose
+  // membership just ended must stop listening immediately, not at the next reload. The server
+  // revokes its side too (see ChannelSubscriptionRevoker) — that is what covers a client that never
+  // asked — but the two are independent and each has to do its own half.
+  const channelSubscriptions = new Map();
+
+  const dropChannelSubscription = (channelId) => {
+    const id = String(channelId);
+    const sub = channelSubscriptions.get(id);
+    if (!sub) return;
+    channelSubscriptions.delete(id);
+    try {
+      sub.unsubscribe();
+    } catch (_) {
+      // Socket already gone; the subscription went with it.
+    }
+  };
+
   // ---------- Sidebar unread tracking ----------
-  // Index every joined-channel <li> by id so STOMP listeners can bump the badge live.
+  // Index the rendered channel rows by id so STOMP listeners can bump a badge live. This IS
+  // DOM-derived, and that is correct: it is about painting a row, so a row that isn't on the page
+  // has nothing to paint and bumpSidebarUnread no-ops. Subscriptions are a different question and
+  // must not be answered from here.
   const sidebarChannels = new Map(); // channelId -> { li, a }
-  document.querySelectorAll('#sidebar-channel-list li.joined').forEach((li) => {
+  document.querySelectorAll('.sidebar .channel-list li[data-channel-id]').forEach((li) => {
     const a = li.querySelector('a');
-    if (!a) return;
-    const id = (a.getAttribute('href') || '').split('/').pop();
-    if (id) sidebarChannels.set(id, { li, a });
+    if (a && li.dataset.channelId) sidebarChannels.set(li.dataset.channelId, { li, a });
   });
-  const bumpSidebarUnread = (channelId, isMention) => {
-    const entry = sidebarChannels.get(channelId);
-    if (!entry) return;
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+  const MUTED_TITLE = "Muted — unread still counts, it just doesn't interrupt";
+
+  /**
+   * Paint one sidebar row's unread state from the two counts on the row.
+   *
+   * <p>This must produce exactly what `fragments/channel-group.html` produces from
+   * `ChannelSidebarDto.unreadCue` for the same numbers. Two renderers of the same decision is a
+   * standing hazard — if they disagree, reloading the page changes what the user is looking at, and
+   * whichever one is wrong is wrong only intermittently. The decision itself is documented on that
+   * enum: ordinary unread is a bold name, a number is reserved for mentions, and a muted channel
+   * keeps counting but stops shouting.
+   *
+   * <p>The counts live in data-unread / data-mentions rather than being read back out of the
+   * badge's text. That worked while every unread channel had a badge; with ordinary unread rendered
+   * as weight there is no number in the DOM to read.
+   */
+  const paintUnreadCue = (entry) => {
+    const li = entry.li;
+    const unread = Number(li.dataset.unread || 0);
+    const mentions = Number(li.dataset.mentions || 0);
+    const muted = notifyLevelFor(li.dataset.channelId) === 'NONE';
+    const cue = mentions > 0 ? 'count' : (unread > 0 && !muted ? 'bold' : 'none');
+    li.dataset.unreadCue = cue;
+    li.dataset.muted = String(muted);
+    // has-unread stays truthful — "there is unread here" — independently of how loud the row is.
+    li.classList.toggle('has-unread', unread > 0);
+
+    let marker = entry.a.querySelector('.channel-muted-marker');
+    if (muted && !marker) {
+      marker = document.createElementNS(SVG_NS, 'svg');
+      marker.setAttribute('class', 'icon icon-sm channel-muted-marker');
+      marker.setAttribute('title', MUTED_TITLE);
+      const use = document.createElementNS(SVG_NS, 'use');
+      use.setAttribute('href', '#icon-bell-slash');
+      marker.appendChild(use);
+      entry.a.appendChild(marker);
+    } else if (!muted && marker) {
+      marker.remove();
+      marker = null;
+    }
+
     let badge = entry.a.querySelector('.unread-badge');
+    if (cue !== 'count') {
+      badge?.remove();
+      return;
+    }
     if (!badge) {
       badge = document.createElement('span');
-      badge.className = 'unread-badge';
-      badge.textContent = '0';
-      entry.a.appendChild(badge);
+      // Before the muted marker, so the row reads the same as a server-rendered one.
+      if (marker) entry.a.insertBefore(badge, marker);
+      else entry.a.appendChild(badge);
     }
-    const cur = parseInt(badge.textContent.replace('+', ''), 10) || 0;
-    const next = cur + 1;
-    badge.textContent = next > 99 ? '99+' : String(next);
-    entry.li.classList.add('has-unread');
-    if (isMention) badge.classList.add('mention');
+    badge.className = 'unread-badge mention' + (muted ? ' muted' : '');
+    badge.textContent = mentions > 99 ? '99+' : String(mentions);
+  };
+
+  const bumpSidebarUnread = (channelId, isMention) => {
+    const entry = sidebarChannels.get(String(channelId));
+    if (!entry) return;
+    entry.li.dataset.unread = String(Number(entry.li.dataset.unread || 0) + 1);
+    if (isMention) {
+      entry.li.dataset.mentions = String(Number(entry.li.dataset.mentions || 0) + 1);
+    }
+    paintUnreadCue(entry);
   };
 
   // The per-channel picker in the settings panel. Writes through to the account so the choice
@@ -407,9 +590,13 @@ presenceMenu.init();
         if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || 'Could not save that.');
         picker.dataset.current = picker.value;
         // The sidebar row is what the notification rule reads, so it has to move with the
-        // setting or the change only takes effect after a reload.
+        // setting or the change only takes effect after a reload. Repaint it too: muting is
+        // visible on the row (dimmed, unbolded, marked), and a mute that only shows up after a
+        // reload looks like it didn't save.
         const row = document.querySelector(`[data-channel-id="${picker.dataset.channelId}"]`);
         if (row) row.dataset.notifyLevel = picker.value;
+        const entry = sidebarChannels.get(String(picker.dataset.channelId));
+        if (entry) paintUnreadCue(entry);
         say('Saved.', false);
         setTimeout(() => say('', false), 2000);
       } catch (e) {
@@ -451,40 +638,68 @@ presenceMenu.init();
     return mentioned;
   };
 
+  /** Am I one of the people in this thread, per the participant list on the broadcast? */
+  const inThread = (message) =>
+      !!(message?.threadParticipants || []).includes(myUsernameMeta);
+
   /**
-   * Surface an @mention via the shared notifications module.
+   * Should a reply in a thread I am in interrupt me?
    *
-   * <p>Reading the channel you are mentioned in suppresses the toast, not the sound. The toast
-   * is redundant — it would point at a message already on screen — but a mention is addressed to
-   * you by name, and "someone just called on you" is worth hearing even while the channel is
-   * open. Watching a busy channel scroll is exactly the situation where a mention is missed.
+   * <p>Mute wins, exactly as it does for an ordinary message: NONE means nothing from this channel,
+   * and a thread is part of the channel. Above that, a reply in a thread I have written in notifies
+   * at MENTIONS as well as at ALL — because being a participant is what makes it addressed to me,
+   * in the same sense a mention is. Treating it as ordinary traffic instead would mean the default
+   * level produces no signal for a threaded conversation, which is the exact failure being fixed
+   * here: the reply would count toward unread and nothing would ever tell the people in the thread
+   * to look. It stays out of the mention bell regardless — see maybeNotify.
    */
-  const maybeNotifyMention = (message, channelId, isActiveChannel, mentioned = true) => {
+  const shouldNotifyThreadReply = (channelId) => notifyLevelFor(channelId) !== 'NONE';
+
+  /**
+   * Surface an incoming message via the shared notifications module.
+   *
+   * <p>{@code kind} is one of 'mention' (addressed to you by name), 'thread' (a reply in a thread
+   * you are in) or 'channel' (ordinary traffic in a channel set to ALL). It decides the headline and
+   * whether the mention bell hears about it, so it is passed in rather than guessed.
+   *
+   * <p>Reading the channel suppresses the toast, not the sound, for the two kinds that are about
+   * you. The toast would point at a message already on screen — but "someone just called on you", or
+   * "the thread you are in moved", is worth hearing even while the channel is open, and watching a
+   * busy channel scroll is exactly the situation where either gets missed.
+   */
+  const maybeNotify = (message, channelId, isActiveChannel, kind = 'mention') => {
     if (!message) return;
+    const mentioned = kind === 'mention';
     // The bell is a mention inbox, so only an actual mention belongs in it. A channel set to
-    // ALL produces notifications for ordinary messages, and putting those in the bell would
-    // turn "things addressed to me" into "everything", which is the one thing it is for.
+    // ALL produces notifications for ordinary messages, and a thread reply produces one for its
+    // participants; putting either in the bell would turn "things addressed to me" into
+    // "everything", which is the one thing it is for.
     if (mentioned && window.MentionInbox) window.MentionInbox.notifyMention();
     if (!window.MentionNotifications) return;
     if (isActiveChannel && document.visibilityState === 'visible' && document.hasFocus()) {
-      // A mention still makes a sound while you are reading the channel — see below. An ordinary
-      // message in a channel set to ALL does not: you are looking straight at it.
-      if (mentioned) window.MentionNotifications.playChime('mention');
+      // An ordinary message in a channel set to ALL makes no sound: you are looking straight at it.
+      if (kind !== 'channel') window.MentionNotifications.playChime('mention');
       return;
     }
-    const entry = sidebarChannels.get(channelId);
+    const entry = sidebarChannels.get(String(channelId));
     const channelName = entry?.a.querySelector('.channel-name')?.textContent || 'channel';
     const author = message.authorDisplayName || message.authorUsername || 'someone';
     const snippet = (message.bodyMarkdown || '').replace(/\s+/g, ' ').slice(0, 200);
+    const anchorId = message.parentId || message.id;
     window.MentionNotifications.show({
       author,
       channel: channelName,
-      kind: mentioned ? undefined : 'channel',
+      kind: mentioned ? undefined : kind,
       snippet,
       // Match permalinkFor: ?m= makes the server render context around an older message
       // (it may be outside the latest page), #m= is what scrollToPermalinkTarget matches.
       // The old '#m-<id>' matched neither, landing the user at the tail with no highlight.
-      url: '/channels/' + channelId + '?m=' + encodeURIComponent(message.id) + '#m=' + message.id,
+      //
+      // A thread reply anchors on its PARENT. The server's context-around refuses a thread-reply
+      // anchor (messageService.around throws for one, and HomeController falls back to the latest
+      // 50), so linking to the reply's own id would drop the user at the tail of the channel with
+      // nothing highlighted — the parent puts them at the thread, with its "N replies" indicator.
+      url: '/channels/' + channelId + '?m=' + encodeURIComponent(anchorId) + '#m=' + anchorId,
     });
   };
 
@@ -552,22 +767,43 @@ presenceMenu.init();
           noteTyping(t.username, t.displayName || t.username);
         }
       });
-      // Bump sidebar badges when messages arrive in joined-but-not-active channels.
-      sidebarChannels.forEach((_, id) => {
-        if (id === activeChannelId) return;
-        stomp.subscribe('/topic/channels/' + id, (frame) => {
+      // One subscription per joined channel, so a message anywhere the user is a member reaches
+      // them — badge, chime, toast, bell — without a page load. Driven by joinedChannelIds (the
+      // server's membership list), never by what the sidebar rendered.
+      //
+      // Cost, since this is N frames on connect: every SUBSCRIBE is authorised by
+      // StompAuthorizationConfig, which resolves the channel through ChannelAccessCache (a map hit
+      // after the first user of that channel) and then calls requireMember — free for a PUBLIC
+      // channel, one cached membership check for a PRIVATE one. The per-session SUBSCRIBE rate cap
+      // was raised to match, because at 200 channels the old 200/min silently dropped the tail.
+      // A reconnect re-runs this block; the previous handles died with the socket.
+      channelSubscriptions.clear();
+      joinedChannelIds.forEach((id) => {
+        if (id === activeChannelId) return; // already subscribed above, with the full handler
+        channelSubscriptions.set(id, stomp.subscribe('/topic/channels/' + id, (frame) => {
           const ev = JSON.parse(frame.body);
-          if (ev.type !== 'created' || ev.parentId) return;
+          if (ev.type !== 'created') return;
           if (ev.message?.authorUsername === myUsername) return;
           const mentioned = !!(ev.message?.mentions || []).includes(myUsername);
+          // Thread replies used to be dropped here (`|| ev.parentId` on the guard above), so a
+          // reply in another channel produced nothing at all. They count as ordinary unread — a
+          // reply is a message in the channel — and the server's unread query now agrees.
+          //
           // The badge is not the notification: an unread count still reflects reality in a muted
           // channel, it just does not interrupt. Muting means "stop telling me", not "pretend
           // nothing happened".
           bumpSidebarUnread(id, mentioned);
-          if (shouldNotify(id, mentioned)) {
-            maybeNotifyMention(ev.message, id, /* isActiveChannel */ false, mentioned);
+          if (mentioned) {
+            if (shouldNotify(id, true)) maybeNotify(ev.message, id, false, 'mention');
+          } else if (ev.parentId) {
+            // Only the people in the thread; everyone else gets the unread cue and nothing more.
+            if (inThread(ev.message) && shouldNotifyThreadReply(id)) {
+              maybeNotify(ev.message, id, false, 'thread');
+            }
+          } else if (shouldNotify(id, false)) {
+            maybeNotify(ev.message, id, false, 'channel');
           }
-        });
+        }));
       });
       stomp.subscribe('/topic/users', (frame) => {
         const ev = JSON.parse(frame.body);
@@ -581,6 +817,21 @@ presenceMenu.init();
         try {
           const n = JSON.parse(frame.body);
           showSlashNotice(n.text || '', n.level || 'info');
+          // An unknown slash command is answered privately rather than posted to the channel, so
+          // the text the user typed is not on screen anywhere — the composer was cleared on submit.
+          // The server sends it back on the notice as `body`; put it back where they typed it, with
+          // the caret at the end, so fixing a typo is an edit rather than retyping the line.
+          // Only when the composer is empty: they may have started something new in the meantime,
+          // and overwriting that would be a worse loss than the one this repairs.
+          if (n.body) {
+            const input = document.getElementById('composer-input');
+            if (input && !input.value) {
+              input.value = n.body;
+              input._autoResize?.();
+              input.focus();
+              input.setSelectionRange(input.value.length, input.value.length);
+            }
+          }
         } catch (e) { /* ignore malformed */ }
       });
       // Direct messages and group messages. On this page the user is never looking at the
@@ -744,6 +995,30 @@ presenceMenu.init();
         if (event.parentId) {
           appendThreadReply(event.message);
           bumpThreadIndicator(event.parentId, +1);
+          // A reply counts toward the channel's unread now, so the read marker has to move for the
+          // channel the viewer is looking at — otherwise navigating away leaves a phantom badge for
+          // messages they watched arrive. Same foreground-only rule as a top-level message: a tab
+          // left open in the background must not silently mark traffic read.
+          if (event.message?.authorUsername !== myUsername) {
+            if (document.visibilityState === 'visible' && document.hasFocus()) {
+              fetch('/api/channels/' + activeChannelId + '/read', {
+                method: 'POST', headers: headers(),
+              })
+                .then(() => { if (window.MentionInbox) window.MentionInbox.refresh(); })
+                .catch(() => {});
+            }
+            const mentioned = !!(event.message?.mentions || []).includes(myUsername);
+            if (mentioned) {
+              if (shouldNotify(activeChannelId, true)) {
+                maybeNotify(event.message, activeChannelId, true, 'mention');
+              }
+            } else if (inThread(event.message) && shouldNotifyThreadReply(activeChannelId)) {
+              // The chime fires even with the channel open (maybeNotify suppresses only the toast),
+              // which is right: the thread panel may be closed, or open on a different thread, and
+              // the reply is not on screen either way.
+              maybeNotify(event.message, activeChannelId, true, 'thread');
+            }
+          }
         } else {
           // If the viewer is reading context-around an old anchor and hasn't paged forward
           // to the live tail, skipping the live-append keeps the loaded batch chronologically
@@ -767,7 +1042,8 @@ presenceMenu.init();
             }
             const mentioned = !!(event.message?.mentions || []).includes(myUsername);
             if (shouldNotify(activeChannelId, mentioned)) {
-              maybeNotifyMention(event.message, activeChannelId, /* isActiveChannel */ true, mentioned);
+              maybeNotify(event.message, activeChannelId, /* isActiveChannel */ true,
+                  mentioned ? 'mention' : 'channel');
             }
           }
         }
@@ -2056,20 +2332,11 @@ presenceMenu.init();
     const id = encodeURIComponent(messageId);
     return window.location.origin + '/channels/' + activeChannelId + '?m=' + id + '#m=' + id;
   };
-  const flashToast = (text) => {
-    const el = document.createElement('div');
-    el.className = 'toast';
-    el.textContent = text;
-    document.body.appendChild(el);
-    setTimeout(() => { el.classList.add('show'); });
-    setTimeout(() => { el.classList.remove('show'); }, 2200);
-    setTimeout(() => { el.remove(); }, 2700);
-  };
   async function copyPermalink(li) {
     const url = permalinkFor(li.dataset.id);
     try {
       await navigator.clipboard.writeText(url);
-      flashToast('Link copied');
+      chrome.flashToast('Link copied');
     } catch (_) {
       // Clipboard API may be unavailable on insecure origins — fall back to a prompt.
       window.prompt('Copy this link', url);

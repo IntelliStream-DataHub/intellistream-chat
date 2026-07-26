@@ -626,6 +626,14 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   color: var(--sb-muted);
   letter-spacing: 0.06em;
   font-weight: 700;
+  /* Sticky because the list under it is now every channel you are in, not a five-row shortlist.
+     Scroll 60 channels and an unsticky heading is gone by row eight, which is precisely when you
+     need to know whether you are looking at Favourites, Channels or Direct messages. The
+     background is the panel's own so rows pass behind it rather than showing through. */
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--sb-bg-3);
 }
 .sidebar-section h2 .add-btn {
   background: transparent;
@@ -644,6 +652,12 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   display: grid;
   gap: 1px;
 }
+/* The row is a flex line holding the link and the star, because the star cannot live inside the
+   link — nested there, clicking it would also navigate. */
+.channel-list > li {
+  display: flex;
+  align-items: center;
+}
 .channel-list a {
   display: flex;
   align-items: center;
@@ -653,6 +667,43 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   border-radius: var(--radius-sm);
   font-size: var(--fs-md);
   font-weight: 500;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* ---------- Favourite (star) ----------
+   Invisible until you go looking for it. Fifty rows each showing a control is fifty pieces of
+   furniture competing with the channel names, and starring is something you do to a channel once.
+   It appears on hover, on keyboard focus, and permanently once the channel is starred — at which
+   point it is not a control any more, it is the reason the row is in this group. */
+.channel-star {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  margin-right: 0.15rem;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--sb-muted);
+  cursor: pointer;
+  opacity: 0;
+}
+.channel-list > li:hover .channel-star,
+.channel-star:focus-visible,
+.channel-star.is-favourite { opacity: 1; }
+.channel-star:hover { color: var(--sb-text); background: var(--sb-bg-2); }
+/* Starred stars are simply at full strength. No accent colour: the sidebar is a dark panel and the
+   theme accents are tuned for the light content sheet, and the filled-versus-outline shape is
+   already the difference — which is why the sprite carries both. */
+.channel-star.is-favourite { color: var(--sb-text); }
+@media (max-width: 768px) {
+  /* No hover on a touch screen, so the control has to be there. Dimmed rather than full strength:
+     it is still secondary to the channel name. */
+  .channel-star { opacity: 0.55; }
 }
 .channel-list a:hover {
   background: var(--sb-bg-2);
@@ -683,11 +734,26 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   font-size: var(--fs-xs);
   opacity: 0.8;
 }
-.channel-list li.has-unread > a {
+/* ---------- Unread cue ----------
+   Ordinary unread is a weight change; a number is reserved for mentions. A count on every busy
+   channel is permanent, so it stops meaning "look at this" and starts meaning "this channel
+   exists" — and someone who has learned to ignore all of them ignores the one that mattered.
+   Both surfaces (Thymeleaf here, index.js live) set data-unread-cue from the same rule in
+   ChannelSidebarDto.unreadCue, so a reload never changes what you were looking at. */
+.channel-list li[data-unread-cue="bold"] > a {
   color: var(--sb-text);
   font-weight: 600;
 }
-.channel-list li.has-unread > a .channel-name { font-weight: 700; }
+.channel-list li[data-unread-cue="bold"] > a .channel-name { font-weight: 700; }
+
+/* Muted: dimmed, never bold, and marked. The unread is still counted behind this — muting means
+   "stop telling me", not "pretend nothing happened" — it just does not interrupt. Hover restores
+   full strength so the row is still readable when you go looking for it. */
+.channel-list li[data-muted="true"] > a { opacity: 0.55; }
+.channel-list li[data-muted="true"] > a:hover,
+.channel-list li[data-muted="true"] > a.active { opacity: 1; }
+.channel-muted-marker { flex-shrink: 0; opacity: 0.8; }
+
 .unread-badge {
   flex-shrink: 0;
   display: inline-flex;
@@ -707,6 +773,12 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
 .unread-badge.mention {
   background: var(--danger);
   color: #fff;
+}
+/* A mention in a muted channel: kept, so it is findable, but not shouted. The red is what makes a
+   mention badge an interruption; without it the badge is a note to self. */
+.unread-badge.mention.muted {
+  background: var(--sb-bg-2);
+  color: var(--sb-text);
 }
 .channel-list a.active .unread-badge {
   background: rgba(255, 255, 255, 0.25);
@@ -881,6 +953,60 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
 }
 .channel-notify-status[hidden] { display: none; }
 .channel-notify-status.is-error { color: var(--danger); }
+
+/* ---------- Leave channel ----------
+   Bottom of the channel settings panel, below a rule: it is the destructive action in a panel of
+   ordinary ones, and putting it inside the same visual group as "invite a member" is how people
+   click it by accident. Quiet until hovered — red-by-default in a panel you open to change a
+   notification setting reads as an alarm about nothing. */
+.channel-leave {
+  margin-top: 0.9rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+.channel-leave-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: var(--fs-md);
+}
+.channel-leave-trigger:hover {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.channel-leave-confirm[hidden] { display: none; }
+.channel-leave-confirm p {
+  margin: 0.6rem 0;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--muted);
+}
+.channel-leave-confirm strong { color: var(--text); }
+.channel-leave-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+.channel-leave-danger { background: var(--danger); }
+.channel-leave-danger:hover { background: var(--danger); filter: brightness(0.9); }
+/* The kick, in the members panel. Same treatment as the role toggle beside it, in red. */
+.channel-member-remove {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  padding: 0.1rem 0.4rem;
+}
+.channel-member-remove:hover {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger);
+}
 
 .channel-admin-dropdown .invite-form {
   display: flex;
@@ -2939,23 +3065,22 @@ main.content.searching > :not(.channel-search-results) { display: none; }
 }
 .sidebar-popover .create-channel-form button[type="submit"]:hover { background: var(--accent-2); }
 
-/* ---------- Curated sidebar + channel search ---------- */
-.sidebar-more {
-  margin: 0 0 0.6rem;
-  font-size: 0.82rem;
+/* ---------- Sidebar channel filter + channel search ---------- */
+/* The one box does two things (narrow the list you're in, find channels you're not), so it says
+   so. Small and dim: it's a legend for a control, not a message. */
+.sidebar-search-hint {
+  margin: 0.35rem 0.1rem 0;
+  font-size: var(--fs-xs);
+  line-height: 1.3;
+  color: var(--sb-muted);
+  opacity: 0.75;
+}
+.sidebar-empty {
+  margin: 0.2rem 0.7rem;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
   color: var(--sb-muted);
 }
-.linklike {
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  color: inherit;
-  text-decoration: underline;
-  cursor: pointer;
-}
-.linklike:hover { color: var(--sb-text); }
-
 /* Channel search results live in the main content area, not the sidebar — there is room here to
    say what a channel is and whether you're in it, which a 200px column cannot. */
 .channel-search-results { padding: 1.5rem 2rem; }
@@ -2971,6 +3096,8 @@ main.content.searching > :not(.channel-search-results) { display: none; }
 }
 .channel-search-list li:hover { background: var(--hover-bg, rgba(127, 127, 127, 0.1)); }
 .channel-search-name { font-weight: 600; text-decoration: none; color: inherit; }
+/* Ordinary unread, same convention as the sidebar: weight, not a number. */
+.channel-search-list li.has-unread .channel-search-name { font-weight: 800; }
 .channel-search-name:hover { text-decoration: underline; }
 .channel-search-tag {
   font-size: 0.72rem;

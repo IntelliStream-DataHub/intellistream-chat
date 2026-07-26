@@ -306,12 +306,11 @@ class NotificationLevelIT {
         em.clear();
 
         var reread = users.findById(alice.getId()).orElseThrow();
-        var view = sidebar.curatedFor(reread, muted.getId());
+        var view = sidebar.joinedFor(reread);
 
         assertThat(view.notifyDefault()).isEqualTo(ALL);
 
-        var rows = new java.util.ArrayList<>(view.largest());
-        rows.addAll(view.mostActive());
+        var rows = view.channels();
         assertThat(rows)
                 .filteredOn(r -> r.id().equals(muted.getId()))
                 .singleElement()
@@ -323,11 +322,7 @@ class NotificationLevelIT {
                         .as("raw, not resolved — the picker needs to show \"Default\"")
                         .isEqualTo(DEFAULT));
 
-        // The flat sidebar and the channel search results carry the same raw level.
-        assertThat(sidebar.sidebarFor(reread))
-                .filteredOn(r -> r.id().equals(muted.getId()))
-                .singleElement()
-                .satisfies(r -> assertThat(r.notifyLevel()).isEqualTo(NONE));
+        // The channel search results carry the same raw level.
         assertThat(sidebar.search(reread, muted.getName(), 10))
                 .filteredOn(r -> r.id().equals(muted.getId()))
                 .singleElement()

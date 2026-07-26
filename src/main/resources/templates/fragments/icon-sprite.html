@@ -21,6 +21,14 @@
                   d="M12 22a2.5 2.5 0 0 0 2.45-2H9.55A2.5 2.5 0 0 0 12 22Zm7-6V11a7 7 0 0 0-5.5-6.83V3.5a1.5 1.5 0 1 0-3 0v.67A7 7 0 0 0 5 11v5l-2 2v1h18v-1Z"/>
         </symbol>
 
+        <!-- Bell with a slash (muted channel). Outline rather than the filled #icon-bell: it sits
+             at 14px beside a dimmed channel name and a solid glyph at that size reads as louder
+             than the row it is qualifying. -->
+        <symbol id="icon-bell-slash" viewBox="0 0 24 24">
+            <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+                  d="M9.143 17.082a24.248 24.248 0 0 0 3.844.148m-3.844-.148a23.856 23.856 0 0 1-5.455-1.31 8.964 8.964 0 0 0 2.3-5.542m3.155 6.852a3 3 0 0 0 5.667 1.97m1.965-2.277L21 21m-4.225-4.225a23.81 23.81 0 0 0 3.536-1.003A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6.53 6.53m10.245 10.245L6.53 6.53M3 3l3.53 3.53"/>
+        </symbol>
+
         <!-- Cog (settings / admin console) -->
         <symbol id="icon-cog" viewBox="0 0 24 24">
             <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
@@ -77,10 +85,24 @@
                   d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"/>
         </symbol>
 
-        <!-- Star (channel admin marker) -->
+        <!-- Star, outline (a channel you have NOT starred). Paired with the filled #icon-star:
+             the outline/filled pair is what makes the control read as a toggle at 14px, where a
+             colour change alone is too small a difference to notice. -->
+        <symbol id="icon-star-outline" viewBox="0 0 24 24">
+            <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+                  d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z"/>
+        </symbol>
+
+        <!-- Star, filled (a favourite channel) -->
         <symbol id="icon-star" viewBox="0 0 24 24">
             <path fill="currentColor"
                   d="M11.48 3.499a.562.562 0 0 1 1.04 0l2.125 5.111a.563.563 0 0 0 .475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 0 0-.182.557l1.285 5.385a.562.562 0 0 1-.84.61l-4.725-2.885a.562.562 0 0 0-.586 0L6.982 20.54a.562.562 0 0 1-.84-.61l1.285-5.386a.562.562 0 0 0-.182-.557l-4.204-3.602a.562.562 0 0 1 .321-.988l5.518-.442a.563.563 0 0 0 .475-.345L11.48 3.5Z"/>
+        </symbol>
+
+        <!-- Arrow leaving a doorway (leave channel) -->
+        <symbol id="icon-logout" viewBox="0 0 24 24">
+            <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"
+                  d="M15.75 9V5.25A2.25 2.25 0 0 0 13.5 3h-6a2.25 2.25 0 0 0-2.25 2.25v13.5A2.25 2.25 0 0 0 7.5 21h6a2.25 2.25 0 0 0 2.25-2.25V15m3 0 3-3m0 0-3-3m3 3H9"/>
         </symbol>
 
         <!-- Hash / pound (group conversation marker — visually distinct from #channel) -->

@@ -17,13 +17,13 @@
 <html xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <body>
 <!--/*
-  The left sidebar: channel search, the curated channel shortlist, the direct-message list, and
-  the two creation popovers.
+  The left sidebar: channel filter, every channel you are in, the direct-message list, and the two
+  creation popovers.
 
   ONE COPY, ON PURPOSE. Both pages carried their own version and they had already drifted: the
-  conversation page was missing the channel search, the create-channel popover and the "N more
-  channels" line, and it used different ids for the same two lists, so any script that looked one
-  of them up worked on one page and silently did nothing on the other.
+  conversation page was missing the channel search and the create-channel popover, and it used
+  different ids for the same two lists, so any script that looked one of them up worked on one page
+  and silently did nothing on the other.
 
   No parameters. `sidebar`, `conversations`, `activeChannelId` and `activeConversationId` are all
   on the model for every page that renders this — HomeController sets the inactive ones to null
@@ -34,22 +34,38 @@
       <div class="sidebar-inner">
         <div class="sidebar-search">
             <span class="search-field">
-                <input type="search" id="sidebar-filter" placeholder="Search channels…"
-                       autocomplete="off" aria-label="Search channels"/>
+                <input type="search" id="sidebar-filter" placeholder="Filter or find channels…"
+                       autocomplete="off" aria-label="Filter your channels, or find new ones"/>
                 <button type="button" class="search-clear" tabindex="-1" hidden
                         title="Clear search" aria-label="Clear search">
                     <svg class="icon icon-sm" aria-hidden="true"><use href="#icon-close"/></svg>
                 </button>
             </span>
+            <!--/* Two jobs, one box, and the user has to be able to tell them apart. Typing
+                   narrows the list below (channels you are in, already on the page); it also asks
+                   the server for channels you are NOT in, which appear in the main content area.
+                   Without saying so, the second half looks like the first half misbehaving. */-->
+            <p class="sidebar-search-hint" id="sidebar-search-hint">
+                Filters your channels · finds new ones on the right
+            </p>
         </div>
 
-        <!--/* The sidebar is a shortlist, not a directory: the channels with the most people and
-               the ones with the most going on. Everything else is found through the search box
-               above, which renders its results in the main content area where there is room to
-               show them. Each group is rendered by the same fragment so the two can't drift. */-->
+        <!--/* Starred channels, at the top, as both Slack and Mattermost do. Hidden entirely when
+               nothing is starred rather than shown empty: a heading with nothing under it teaches
+               nobody what the star does, it just costs a row of vertical space. Users meet the
+               feature through the star on a channel row, which is where they can act on it. */-->
+        <div class="sidebar-section channel-group" th:if="${!sidebar.favourites.isEmpty()}">
+            <h2>Favourites</h2>
+            <ul class="channel-list"
+                th:replace="~{fragments/channel-group :: group(${sidebar.favourites}, ${activeChannelId}, ${sidebar.notifyDefault}, 'sidebar-favourite-list')}"></ul>
+        </div>
+
+        <!--/* Every channel you are in, alphabetically. Not a ranked shortlist: see SidebarView
+               for why "your five largest" and "your five most active" were worse than useless.
+               The list scrolls — .sidebar-inner is the scroll container. */-->
         <div class="sidebar-section">
             <h2>
-                Largest
+                Channels
                 <!--/* The create form hangs off this button as a popover rather than sitting in
                        the sidebar flow: it's an occasional action, and inline it pushed the
                        channel list down and competed with it for attention. */-->
@@ -77,20 +93,15 @@
                 </span>
             </h2>
             <ul class="channel-list" id="sidebar-channel-list"
-                th:replace="~{fragments/channel-group :: group(${sidebar.largest}, ${activeChannelId}, 'sidebar-channel-list')}"></ul>
-        </div>
-
-        <div class="sidebar-section" th:if="${!sidebar.mostActive.isEmpty()}">
-            <h2>Most active</h2>
-            <ul class="channel-list"
-                th:replace="~{fragments/channel-group :: group(${sidebar.mostActive}, ${activeChannelId}, 'sidebar-active-list')}"></ul>
-        </div>
-
-        <div class="sidebar-section">
-            <p class="sidebar-more" th:if="${sidebar.hiddenCount > 0}">
-                <span th:text="${sidebar.hiddenCount}">0</span>
-                more channel<span th:if="${sidebar.hiddenCount != 1}">s</span> —
-                <button type="button" class="linklike" id="sidebar-browse-all">search to find them</button>
+                th:replace="~{fragments/channel-group :: group(${sidebar.unstarred}, ${activeChannelId}, ${sidebar.notifyDefault}, 'sidebar-channel-list')}"></ul>
+            <p class="sidebar-empty" th:if="${sidebar.channels.isEmpty()}">
+                You're not in any channels yet — use + to create one, or search above to find one.
+            </p>
+            <!--/* Shown by chrome.js when the filter matches none of your channels. Without it the
+                   list just empties and the server results on the right look like the whole
+                   answer, which hides the fact that you are in nothing matching. */-->
+            <p class="sidebar-empty" id="sidebar-no-match" hidden>
+                None of your channels match — see the results on the right.
             </p>
         </div>
 

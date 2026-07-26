@@ -24,7 +24,7 @@
  *
  * Public surface: window.MentionNotifications = {
  *   show({ author, channel, snippet, url, kind }),
- *       kind: undefined (a mention) | 'channel' | 'direct' | 'group'
+ *       kind: undefined (a mention) | 'thread' | 'channel' | 'direct' | 'group'
  *   playChime, soundEnabled, setSoundEnabled, permissionState
  * }
  *
@@ -201,12 +201,18 @@
    * What the alert is about. A mention and a direct message are different events and reading
    * "mentioned you in #a direct message" is how you can tell one template was doing both jobs.
    *   (default) a mention in a channel
+   *   'thread'  a reply in a thread the reader is in — neither a mention nor ordinary traffic
+   *   'channel' an ordinary message in a channel the reader set to notify on everything
    *   'direct'  a one-to-one conversation — the room has no name, the sender is the name
    *   'group'   a named group conversation
    */
   function headline({ author, channel, kind }) {
     if (kind === 'direct') return author + ' sent you a direct message';
     if (kind === 'group') return author + ' posted in ' + channel;
+    // A reply in a thread the reader has written in. Distinct from both of its neighbours on
+    // purpose: it is not a mention, and "posted in #channel" would send them hunting through the
+    // main feed for a message that is inside a thread.
+    if (kind === 'thread') return author + ' replied to a thread in #' + channel;
     // Not a mention — an ordinary message in a channel the user set to notify on everything.
     // Saying "mentioned you" here would be a lie, and the kind of lie that teaches people to
     // ignore the notification.

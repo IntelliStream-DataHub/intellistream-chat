@@ -159,6 +159,48 @@ public class ChannelRestController {
     }
 
     /**
+     * Leave a channel. The mirror of {@code POST /{id}/join}, and named the same way for the same
+     * reason: it is the one-click action, not a general membership edit.
+     *
+     * <p>Your messages stay — you are leaving, not deleting. Leaving a PRIVATE channel is
+     * irreversible from your side (coming back needs an invitation), which the UI warns about; the
+     * service allows it, because a channel you cannot leave is a worse trap than one you cannot
+     * re-enter.
+     */
+    @PostMapping("/{id}/leave")
+    public ResponseEntity<Void> leave(@PathVariable Long id, Principal principal) {
+        var me = currentUser.resolve(principal);
+        channelService.leave(channelService.requireById(id), me);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * Remove a member — an admin's kick, or your own departure if {@code username} is you.
+     *
+     * <p>The self case is checked against the caller's own username <em>before</em> the admin check
+     * and before any user lookup. That ordering is deliberate: a plain member must be able to remove
+     * themselves through the endpoint that names them, and a non-admin naming somebody else must get
+     * 403 without the lookup, so the endpoint can't be used to test whether an account exists (N8).
+     */
+    @DeleteMapping("/{id}/members/{username}")
+    public ResponseEntity<Void> removeMember(@PathVariable Long id,
+                                             @PathVariable String username,
+                                             Principal principal) {
+        var me = currentUser.resolve(principal);
+        var channel = channelService.requireById(id);
+        if (username.equals(me.getUsername())) {
+            channelService.leave(channel, me);
+            return ResponseEntity.noContent().build();
+        }
+        channelService.requireAdmin(channel, me);
+        if (!rateLimiter.tryAcquire(me.getUsername(), "user-lookup", 20, Duration.ofMinutes(1))) {
+            throw new RateLimitExceededException("lookup rate exceeded");
+        }
+        channelService.removeMember(channel, userService.requireByUsername(username), me);
+        return ResponseEntity.noContent().build();
+    }
+
+    /**
      * Promote / demote a member's role. Admin-only — the service double-checks. Role
      * change won't strip the last admin (service throws). The members panel polls
      * this endpoint when an admin clicks the role-toggle button next to a name.
@@ -291,6 +333,23 @@ public class ChannelRestController {
         // via HTTP was invisible until reload.
         broker.convertAndSend("/topic/channels/" + id, MessageEvent.created(dto));
         return dto;
+    }
+
+    /**
+     * Star / unstar a channel for the caller. Starred channels group at the top of their sidebar.
+     *
+     * <p>Returns the stored state rather than 204 so a client that raced itself repaints from the
+     * server's answer instead of from what it assumed.
+     */
+    @PutMapping("/{id}/favourite")
+    public java.util.Map<String, Boolean> setFavourite(
+            @PathVariable Long id,
+            @RequestBody @Valid ai.intellistream.chat.web.dto.SetFavouriteRequest body,
+            Principal principal) {
+        var me = currentUser.resolve(principal);
+        var channel = channelService.requireById(id);
+        return java.util.Map.of("favourite",
+                channelService.setFavourite(channel, me, body.favourite()));
     }
 
     @PostMapping("/{id}/read")

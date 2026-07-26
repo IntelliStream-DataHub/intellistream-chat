@@ -21,6 +21,7 @@ import ai.intellistream.chat.domain.ChannelMember;
 import ai.intellistream.chat.domain.ChannelRole;
 import ai.intellistream.chat.domain.User;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -50,6 +51,23 @@ public interface ChannelMemberRepository extends JpaRepository<ChannelMember, Lo
 
     List<ChannelMember> findAllByUser(User user);
 
+    /**
+     * The channel's other members, longest-standing first — page it to 1 to get the successor when
+     * the last admin leaves.
+     *
+     * <p>Longest-standing rather than, say, most active: it needs no extra data, it is stable, and
+     * it is explicable to the person it happens to ("you were here first"). The {@code id} tiebreak
+     * matters because {@code joined_at} defaults to {@code now()} and everyone bulk-invited in one
+     * statement shares a timestamp.
+     */
+    @Query("""
+            select m from ChannelMember m
+            join fetch m.user
+            where m.channel = :channel and m.user <> :excluding
+            order by m.joinedAt asc, m.id asc
+            """)
+    List<ChannelMember> findOthersOldestFirst(Channel channel, User excluding, Pageable pageable);
+
     /** Memberships with their channels eager-fetched — the sidebar render reads m.getChannel()
      *  per row, so the plain findAllByUser lazy-loaded one channel per membership (N28). */
     @Query("select m from ChannelMember m join fetch m.channel where m.user = :user")
@@ -70,20 +88,6 @@ public interface ChannelMemberRepository extends JpaRepository<ChannelMember, Lo
     List<Long> findMemberUserIds(Channel channel, java.util.Collection<Long> userIds);
 
     long countByChannel(Channel channel);
-
-    /**
-     * {@code (channelId, memberCount)} for every channel {@code user} belongs to, in one query.
-     * Feeds the sidebar's "largest channels" group — counting members per channel individually
-     * would be a query per row of a list that is rendered on every page load.
-     */
-    @Query("""
-           select m.channel.id, count(other.id)
-             from ChannelMember m
-             join ChannelMember other on other.channel = m.channel
-            where m.user = :user
-            group by m.channel.id
-           """)
-    List<Object[]> memberCountsForChannelsOf(@Param("user") User user);
 
     /** Insert a MEMBER row if absent, ignore if the (channel,user) row already exists (N1). */
     @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)

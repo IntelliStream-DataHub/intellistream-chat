@@ -132,6 +132,28 @@ public class SuspendedSessionEvictor implements WebSocketMessageBrokerConfigurer
         return closed;
     }
 
+    /**
+     * The STOMP session ids currently open for {@code userId} on this node.
+     *
+     * <p>Read-only, and here rather than in a second map of its own because this class already holds
+     * exactly this association and a duplicate would be a second source of truth for "which sockets
+     * belong to whom". Its other consumer is channel-membership revocation
+     * ({@code ChannelSubscriptionRevoker}), which needs to find a departing member's subscriptions
+     * and has no other way to get from a domain user id to a session id — the principal name and the
+     * domain username are not interchangeable (see the N19 note in {@code ChatWebSocketController}).
+     *
+     * <p>Same scan-rather-than-index tradeoff as {@link #closeAllFor}, for the same reason: a
+     * sub-millisecond walk on a rare event buys one structure that cannot disagree with itself.
+     */
+    public java.util.Set<String> sessionIdsFor(Long userId) {
+        if (userId == null) return java.util.Set.of();
+        var out = new java.util.HashSet<String>();
+        sessions.forEach((sessionId, live) -> {
+            if (userId.equals(live.userId())) out.add(sessionId);
+        });
+        return out;
+    }
+
     /** How many sockets this process currently holds open. Diagnostics and tests. */
     public int liveSessionCount() {
         return sessions.size();

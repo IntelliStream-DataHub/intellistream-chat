@@ -63,6 +63,7 @@ class ChannelFlowIT {
         TestLuceneDirs.register(registry);
     }
 
+    @jakarta.persistence.PersistenceContext jakarta.persistence.EntityManager em;
     @Autowired UserRepository users;
     @Autowired ChannelService channels;
     @Autowired MessageService messages;
@@ -109,9 +110,92 @@ class ChannelFlowIT {
                 .isInstanceOfSatisfying(ai.intellistream.chat.service.SearchService.SearchHit.ChannelHit.class,
                         hit -> assertThat(hit.message().getBodyMarkdown()).contains("test message"));
 
-        var alicesSidebar = sidebar.sidebarFor(alice);
-        assertThat(alicesSidebar).extracting("name", "joined", "admin")
-                .contains(org.assertj.core.groups.Tuple.tuple("General Discussion", true, true));
+        var alicesSidebar = sidebar.joinedFor(alice).channels();
+        assertThat(alicesSidebar).extracting("name", "joined", "favourite")
+                .contains(org.assertj.core.groups.Tuple.tuple("General Discussion", true, false));
+    }
+
+    /** Starring is per member, persists, and groups the channel at the top of the sidebar. */
+    @Test
+    void favouritesArePerMemberAndPersist() {
+        var alice = users.save(new User("kc-fav", "favalice", "fav@example.com", "Alice"));
+        var bob = users.save(new User("kc-fav2", "favbob", "fav2@example.com", "Bob"));
+        var starred = channels.create("fav-starred", null, ChannelType.PUBLIC, alice);
+        var plain = channels.create("fav-plain", null, ChannelType.PUBLIC, alice);
+        channels.join(starred, bob);
+
+        channels.setFavourite(starred, alice, true);
+        em.flush();
+        em.clear();
+
+        var reread = users.findById(alice.getId()).orElseThrow();
+        var view = sidebar.joinedFor(reread);
+        assertThat(view.favourites()).extracting("name").containsExactly("fav-starred");
+        assertThat(view.unstarred()).extracting("name").containsExactly("fav-plain");
+        // channelIds is the notification subscription set and must span both groups, or starring a
+        // channel would stop it notifying.
+        assertThat(view.channelIds().split(","))
+                .containsExactlyInAnyOrder(String.valueOf(starred.getId()), String.valueOf(plain.getId()));
+
+        // Alice's star says nothing about Bob's sidebar.
+        var bobsView = sidebar.joinedFor(users.findById(bob.getId()).orElseThrow());
+        assertThat(bobsView.favourites()).isEmpty();
+        assertThat(bobsView.unstarred()).extracting("name").containsExactly("fav-starred");
+
+        // And it comes back off.
+        channels.setFavourite(starred, alice, false);
+        em.flush();
+        em.clear();
+        assertThat(sidebar.joinedFor(users.findById(alice.getId()).orElseThrow()).favourites()).isEmpty();
+    }
+
+    @Test
+    void aNonMemberCannotFavouriteAChannel() {
+        var alice = users.save(new User("kc-fav3", "favcarol", "fav3@example.com", "Carol"));
+        var outsider = users.save(new User("kc-fav4", "favdave", "fav4@example.com", "Dave"));
+        var room = channels.create("fav-public", null, ChannelType.PUBLIC, alice);
+
+        // Stricter than read access on purpose: a star is a statement about your own sidebar, and a
+        // channel you have not joined has no row in it to move.
+        assertThatThrownBy(() -> channels.setFavourite(room, outsider, true))
+                .isInstanceOf(AccessDeniedException.class);
+    }
+
+    /**
+     * The sidebar is the full joined list, alphabetically — not a ranked shortlist. Written with
+     * more channels than the old cap of five per group so a regression back to a capped, ranked
+     * list fails here rather than being noticed by a user with a sixth channel.
+     */
+    @Test
+    void theSidebarListsEveryJoinedChannelAlphabetically() {
+        var alice = users.save(new User("kc-sb", "sbalice", "sb@example.com", "Alice"));
+        var bob = users.save(new User("kc-sb2", "sbbob", "sb2@example.com", "Bob"));
+
+        // Deliberately created out of alphabetical order. Split across two creators only because
+        // channel creation is rate-limited to 10/hour per account; alice ends up in all twelve.
+        for (var name : java.util.List.of("zulu", "alfa", "mike", "kilo", "echo", "papa")) {
+            channels.create("sb-" + name, null, ChannelType.PUBLIC, alice);
+        }
+        for (var name : java.util.List.of("bravo", "delta", "golf", "hotel", "india", "juliet")) {
+            channels.join(channels.create("sb-" + name, null, ChannelType.PUBLIC, bob), alice);
+        }
+        channels.create("sb-not-alices", null, ChannelType.PUBLIC, bob);
+
+        var view = sidebar.joinedFor(alice);
+
+        assertThat(view.channels())
+                .describedAs("every joined channel, nothing collapsed into an 'and N more' line")
+                .hasSize(12);
+        assertThat(view.channels()).extracting("name")
+                .containsExactly("sb-alfa", "sb-bravo", "sb-delta", "sb-echo", "sb-golf",
+                        "sb-hotel", "sb-india", "sb-juliet", "sb-kilo", "sb-mike", "sb-papa",
+                        "sb-zulu");
+        assertThat(view.channels()).extracting("name")
+                .describedAs("only channels the viewer is a member of")
+                .doesNotContain("sb-not-alices");
+        // The subscription set the client drives its STOMP subscriptions from must cover all of
+        // them — that is the whole point of deriving it here rather than off the rendered DOM.
+        assertThat(view.channelIds().split(",")).hasSize(12);
     }
 
     @Test
