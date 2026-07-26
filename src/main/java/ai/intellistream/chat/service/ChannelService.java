@@ -159,6 +159,12 @@ public class ChannelService {
      * refused; see {@link ChannelAccessCache}.
      */
     public void requireWriteAccessCached(Channel channel, User user) {
+        // BEFORE the cache short-circuit, and that ordering is the whole correctness of it. The
+        // cache remembers "this member may write here", which stays true across an archive — what
+        // changes is that nobody may. A cached positive would otherwise sail straight past the check
+        // in requireWriteAccess and let the busiest members keep posting into an archived channel
+        // for the rest of the TTL, which is exactly the population whose entries are warm.
+        requireNotArchived(channel);
         if (channel.getId() != null && user.getId() != null
                 && accessCache.hasWriteAccess(channel.getId(), user.getId())) {
             return;
@@ -198,9 +204,10 @@ public class ChannelService {
                 .orElseThrow(() -> new ai.intellistream.chat.security.ResourceNotFoundException("Channel not found: " + slug));
     }
 
+    /** Public channels anyone may join. Archived ones are not among them — nobody may join those. */
     @Transactional(readOnly = true)
     public List<Channel> listPublic() {
-        return channelRepository.findAllByTypeOrderByNameAsc(ChannelType.PUBLIC);
+        return channelRepository.findAllByTypeAndArchivedAtIsNullOrderByNameAsc(ChannelType.PUBLIC);
     }
 
     @Transactional(readOnly = true)
@@ -218,6 +225,11 @@ public class ChannelService {
         if (channel.getType() != ChannelType.PUBLIC) {
             throw new AccessDeniedException("Channel is private; ask an admin to invite you.");
         }
+        // Joining is the one write that cannot go through requireWriteAccess, since the whole point
+        // is that you are not a member yet — so the archived check is spelled out here. Without it
+        // an archived channel would still be joinable, which would put it back in the joiner's
+        // sidebar and hand them a membership in something they can do nothing with.
+        requireNotArchived(channel);
         // Insert-or-ignore then read (N1): ON CONFLICT blocks on a concurrent inserter then does
         // nothing, so a row always exists afterwards and the re-read never runs in an aborted tx
         // (the old saveAndFlush + catch-and-reread threw on Postgres because the failed INSERT
@@ -348,6 +360,9 @@ public class ChannelService {
     @Transactional
     public Channel rename(Channel channel, String name, String description, User actor) {
         requireAdmin(channel, actor);
+        // An archived channel is a record, and rewriting the label on a record is not something an
+        // archive should permit. Unarchive first if the name is genuinely wrong.
+        requireNotArchived(channel);
         var trimmedName = name == null ? "" : name.trim();
         var slug = slugify(trimmedName);
         if (channelRepository.existsBySlugAndIdNot(slug, channel.getId())) {
@@ -425,6 +440,81 @@ public class ChannelService {
                     "Cannot demote the last admin — promote someone else first");
         }
         membership.setRole(ChannelRole.MEMBER);
+    }
+
+    /**
+     * Archive a channel: freeze it as a read-only record and take it out of the way.
+     *
+     * <p>Channel admins, the same people who can rename it — plus workspace admins, for the reason
+     * given on {@link #requireChannelOrWorkspaceAdmin}. Deliberately <em>not</em> the same bar as
+     * {@link #destroy}, which is workspace-admin only: that asymmetry is the point of having both.
+     * Archiving is the reversible action a team takes about its own finished project, and putting it
+     * behind a workspace admin alone would mean nobody archives anything and the channel list keeps
+     * growing, which is the problem.
+     *
+     * <p>Idempotent. Archiving an already-archived channel returns it unchanged rather than throwing
+     * or overwriting the timestamp, so two admins clicking at once do not produce an error for the
+     * slower one, and the recorded "archived by" stays the person who actually did it.
+     *
+     * <p><b>The eviction is not optional.</b> {@code requireWriteAccess} reads
+     * {@link Channel#isArchived()} off whatever instance it is handed, and on the message send path
+     * that instance comes from {@link ChannelAccessCache}. Without {@code evictChannel} the cached
+     * copy keeps saying "live" for up to the TTL and the channel keeps accepting messages after
+     * being archived — the identical failure the cache's documentation describes for a PUBLIC→PRIVATE
+     * flip, which is why the entity has no setters and every mutation here is a bulk UPDATE.
+     *
+     * <p><b>Live subscriptions are deliberately left alone</b>, unlike {@link #removeMembership},
+     * where revoking them is the whole point. Archiving removes no read access — {@code
+     * requireMember} is untouched and an archived channel stays readable — so an open subscription
+     * leaks nothing, and nothing can be broadcast on that topic anyway once every write path refuses.
+     * Revoking would in fact be actively wrong: the {@code channel-archived} frame that tells open
+     * clients to grey themselves out travels on that very subscription, and a client whose
+     * subscription had just been torn away would never receive it and would sit there showing a live
+     * composer for a channel that is not.
+     */
+    @Transactional
+    public Channel archive(Channel channel, User actor) {
+        requireChannelOrWorkspaceAdmin(channel, actor);
+        if (channel.isArchived()) {
+            return channel;
+        }
+        channelRepository.setArchivedById(channel.getId(), java.time.Instant.now(), actor,
+                actor.getUsername());
+        var channelId = channel.getId();
+        afterCommit(() -> accessCache.evictChannel(channelId));
+        return requireById(channelId);
+    }
+
+    /**
+     * Unarchive: put the channel back in the sidebar and let people write to it again.
+     *
+     * <p>This exists because archiving without it is a one-way door, and a one-way door would make
+     * archiving the more frightening of the two destructive-looking buttons — which would push people
+     * towards {@link #destroy}, the one that actually cannot be undone. Both Slack and Mattermost make
+     * it reversible for the same reason.
+     *
+     * <p>Nothing has to be restored. Memberships, favourites, notification levels and read markers
+     * were never deleted, only hidden by the sidebar's query, so a channel comes back exactly as it
+     * went in. Idempotent, and it evicts for the same reason {@link #archive} does — in this
+     * direction a stale cached copy refuses writes to a channel that is live again, which is the more
+     * visible failure of the two and the one people would report as "unarchive didn't work".
+     */
+    @Transactional
+    public Channel unarchive(Channel channel, User actor) {
+        requireChannelOrWorkspaceAdmin(channel, actor);
+        if (!channel.isArchived()) {
+            return channel;
+        }
+        channelRepository.setArchivedById(channel.getId(), null, null, null);
+        var channelId = channel.getId();
+        afterCommit(() -> accessCache.evictChannel(channelId));
+        return requireById(channelId);
+    }
+
+    /** Every archived channel, most recently archived first — the admin console's list. */
+    @Transactional(readOnly = true)
+    public List<Channel> listArchived() {
+        return channelRepository.findAllByArchivedAtIsNotNullOrderByArchivedAtDesc();
     }
 
     @Transactional
@@ -538,8 +628,43 @@ public class ChannelService {
      * is presented to non-members.
      */
     public void requireWriteAccess(Channel channel, User user) {
+        requireNotArchived(channel);
         if (!isMember(channel, user)) {
             throw new AccessDeniedException("Join the channel before posting.");
+        }
+    }
+
+    /**
+     * An archived channel accepts no writes. <b>This is the only place that says so.</b>
+     *
+     * <p>Put here, at the bottom of {@link #requireWriteAccess} and {@link #requireWriteAccessCached},
+     * rather than at each call site, because the call sites are the problem. Posting, the HTTP and
+     * WebSocket send paths, thread replies, edits, reactions, attachments, typing pings, invites,
+     * poll votes and {@code /remind} are nine or ten separate entry points across five classes, and
+     * a rule enforced in ten places is a rule enforced in nine as soon as an eleventh is written.
+     * AGENT.md already tells new write endpoints to call {@code requireWriteAccess}; hanging this off
+     * that instruction means a new one inherits the rule without its author having heard of
+     * archiving. The two paths that genuinely cannot use it — {@link #join}, where you are not a
+     * member yet, and {@link #rename} — call this directly, and they are the exceptions precisely
+     * because they say so out loud.
+     *
+     * <p><b>Two things deliberately still work.</b> Reading: {@link #requireMember} is untouched, so
+     * an archived channel's history stays readable and searchable, which is the difference between
+     * archiving and deleting. And deleting a message: that goes through an author-or-admin check
+     * rather than this one, and it stays that way on purpose — archiving freezes the channel as a
+     * record, so <em>changing</em> what the record says is refused, while <em>removing</em> something
+     * from it (a leak, a mistake, a moderator takedown) must not require unarchiving the channel,
+     * making it writable again for the duration, and re-archiving it afterwards.
+     *
+     * <p>{@link AccessDeniedException} rather than a new exception type: 403 is the honest answer to
+     * "may I write here", the UI already hides the composer and every other control behind the same
+     * flag, so reaching this is a backstop rather than a normal user experience, and the alternative
+     * meant teaching {@code ApiExceptionHandler} a new envelope for a message nobody should see.
+     */
+    private static void requireNotArchived(Channel channel) {
+        if (channel.isArchived()) {
+            throw new AccessDeniedException(
+                    "This channel is archived and read-only. Unarchive it to post again.");
         }
     }
 
@@ -547,6 +672,40 @@ public class ChannelService {
         if (!isAdmin(channel, user)) {
             throw new AccessDeniedException("Channel admin role required.");
         }
+    }
+
+    /**
+     * Channel admin <em>or</em> workspace admin — the bar for archiving and unarchiving.
+     *
+     * <p>Wider than {@link #requireAdmin} for one specific reason, and it is not administrative
+     * convenience: without it, archiving is a trap. Every channel admin can leave a channel (the
+     * last one hands over, but the successor need not be interested), and an archived channel cannot
+     * be joined, so a channel whose remaining members are all plain members would be archived
+     * forever with nobody on earth able to bring it back. The task the workspace admin performs here
+     * is unsticking that, which is exactly what a workspace admin is for.
+     *
+     * <p>The check reads Spring's {@code ROLE_ADMIN} authority off the live request, not
+     * {@code User.isAdmin()} — that column is a login-time cache whose own javadoc says never to make
+     * an access decision from it alone. {@code SearchService.isPlatformAdmin} asks the same question
+     * the same way for {@code searchEverywhere}. In a context with no {@code SecurityContext} at all
+     * (the service-layer integration tests) it answers false, so those tests exercise the
+     * channel-admin path and nothing is accidentally permitted by the absence of a principal.
+     */
+    private void requireChannelOrWorkspaceAdmin(Channel channel, User user) {
+        if (isAdmin(channel, user) || isWorkspaceAdmin()) {
+            return;
+        }
+        throw new AccessDeniedException("Channel admin or workspace admin role required.");
+    }
+
+    private static boolean isWorkspaceAdmin() {
+        var auth = org.springframework.security.core.context.SecurityContextHolder.getContext()
+                .getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            return false;
+        }
+        return auth.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_ADMIN".equals(a.getAuthority()));
     }
 
     private static String slugify(String input) {

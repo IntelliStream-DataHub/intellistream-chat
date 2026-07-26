@@ -610,9 +610,10 @@ presenceMenu.init();
     });
   })();
 
-  // ======================= Channel administration (rename) =======================
+  // ============== Channel administration (rename · archive · unarchive) ==============
   // Everything between this banner and the matching END marker is the channel-settings block:
-  // rename / re-describe, and the live repaint that any of it triggers in another tab.
+  // rename / re-describe, archive / unarchive, and the live repaint that any of it triggers in
+  // another tab.
   //
   // applyChannelEvent is module scope because two STOMP subscriptions feed it — the active
   // channel's full handler and the one-per-joined-channel badge handler — and a second copy of
@@ -659,6 +660,19 @@ presenceMenu.init();
       const descField = document.getElementById('channel-rename-description');
       if (nameField && document.activeElement !== nameField) nameField.value = ev.name || '';
       if (descField && document.activeElement !== descField) descField.value = ev.description || '';
+      return;
+    }
+    if (ev.type === 'channel-archived' || ev.type === 'channel-unarchived') {
+      // The sidebar row is removed on archive and NOT re-added on unarchive. Re-adding it means
+      // reproducing the whole row — unread cue, muted marker, star, private lock — from a frame that
+      // carries none of those, and a row that comes back subtly different from the server's is worse
+      // than a row that comes back on the next load. Removal is safe because it needs no state.
+      if (ev.archived) sidebarChannels.get(id)?.li.remove();
+      if (id !== String(activeChannelId)) return;
+      // The controls that exist only in one of the two states are server-rendered, so the page has
+      // to reload to get the other set. Reloading is also what re-renders the composer, and the
+      // person seeing this frame did not necessarily cause it.
+      window.location.reload();
     }
   };
 
@@ -707,6 +721,64 @@ presenceMenu.init();
         save.disabled = false;
       }
     });
+  })();
+
+  // ---------- Archive / unarchive ----------
+  // Archiving reveals a confirmation first, exactly as leaving does and for a stronger reason: this
+  // one takes the channel away from everyone. Unarchiving is a single click — it is the undo, and a
+  // confirmation in front of an undo is how a reversible action starts feeling irreversible.
+  (() => {
+    // Two separate hosts on purpose: the archive trigger is in the settings panel, the unarchive
+    // button is on the banner beside the message list (see the template's note on why the undo
+    // cannot live behind the cog). Either may be absent.
+    const box = document.querySelector('.channel-archive');
+    const unarchive = document.getElementById('channel-unarchive-btn');
+    if (!box && !unarchive) return;
+    const channelId = (box || unarchive).dataset.channelId;
+
+    const call = async (path, button, busyLabel) => {
+      const original = button.textContent;
+      button.disabled = true;
+      button.textContent = busyLabel;
+      try {
+        const res = await fetch('/api/channels/' + channelId + '/' + path, {
+          method: 'POST', headers: headers(),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.message || err.error || res.statusText);
+        }
+        // Reload rather than repaint. Which controls exist, whether there is a composer and whether
+        // the banner is showing are all server-rendered decisions, and reproducing that split here
+        // would be a second renderer of the same state — the standing hazard this file already
+        // warns about for the sidebar's unread cue.
+        window.location.reload();
+      } catch (e) {
+        button.disabled = false;
+        button.textContent = original;
+        chrome.flashToast('Could not ' + path + ': ' + e.message);
+      }
+    };
+
+    const trigger = document.getElementById('channel-archive-btn');
+    const panel = document.getElementById('channel-archive-confirm');
+    const cancel = document.getElementById('channel-archive-cancel');
+    const go = document.getElementById('channel-archive-go');
+    if (trigger && panel && go) {
+      trigger.addEventListener('click', () => {
+        panel.hidden = false;
+        trigger.hidden = true;
+        go.focus();
+      });
+      cancel?.addEventListener('click', () => {
+        panel.hidden = true;
+        trigger.hidden = false;
+        trigger.focus();
+      });
+      go.addEventListener('click', () => call('archive', go, 'Archiving…'));
+    }
+
+    unarchive?.addEventListener('click', () => call('unarchive', unarchive, 'Unarchiving…'));
   })();
   // ===================== END channel administration =====================
 

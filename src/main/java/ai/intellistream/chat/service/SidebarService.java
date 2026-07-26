@@ -71,7 +71,11 @@ public class SidebarService {
         // The account-wide notification default rides along on every sidebar render: each row
         // carries its raw per-channel level, and DEFAULT only means something next to this.
         var notifyDefault = accountDefaultOf(user);
-        var memberships = memberRepository.findAllByUserFetchingChannel(user); // avoid channel N+1 (N28)
+        // Live channels only — archived ones keep their membership row (unarchiving restores the
+        // sidebar entry with its star, notification level and read marker intact) but are out of the
+        // list, which is most of what archiving is for. Filtered in the query rather than here so the
+        // unread and mention counts below are not computed for rows nothing renders.
+        var memberships = memberRepository.findLiveByUserFetchingChannel(user); // avoid channel N+1 (N28)
         if (memberships.isEmpty()) {
             return new SidebarView(List.of(), notifyDefault);
         }

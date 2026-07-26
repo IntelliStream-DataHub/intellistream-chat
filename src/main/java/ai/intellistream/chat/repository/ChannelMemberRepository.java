@@ -73,6 +73,28 @@ public interface ChannelMemberRepository extends JpaRepository<ChannelMember, Lo
     @Query("select m from ChannelMember m join fetch m.channel where m.user = :user")
     List<ChannelMember> findAllByUserFetchingChannel(User user);
 
+    /**
+     * The same, minus archived channels — what the sidebar renders.
+     *
+     * <p>A separate query rather than a filter over {@link #findAllByUserFetchingChannel}, because
+     * the two callers want different sets and the difference is not cosmetic. The sidebar is "the
+     * channels you are working in", and an archived one is by definition not one of those; the
+     * membership is deliberately kept (unarchiving restores the row to the sidebar with its
+     * favourite and notification settings intact, and its read marker where it was), it is only
+     * hidden. The other caller annotates search results with whether the viewer has joined, and
+     * there "you are a member" is true whatever the channel's state.
+     *
+     * <p>Filtered in the query, not after it: the sidebar's follow-up unread and mention counts are
+     * driven off this list, and counting unread in channels the user cannot see or post to is work
+     * done to produce a number nothing renders.
+     */
+    @Query("""
+            select m from ChannelMember m
+            join fetch m.channel c
+            where m.user = :user and c.archivedAt is null
+            """)
+    List<ChannelMember> findLiveByUserFetchingChannel(User user);
+
     @Query("""
             select m.channel from ChannelMember m
             where m.user = :user

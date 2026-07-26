@@ -36,7 +36,17 @@ public interface ChannelRepository extends JpaRepository<Channel, Long> {
      */
     boolean existsBySlugAndIdNot(String slug, Long id);
 
-    List<Channel> findAllByTypeOrderByNameAsc(ChannelType type);
+    /**
+     * Live public channels, alphabetically — the public listing.
+     *
+     * <p>Archived channels are excluded here rather than filtered by callers, because "the channels
+     * you can join" is what this question means and an archived one cannot be joined. A caller that
+     * genuinely wants the archived ones asks for them by name.
+     */
+    List<Channel> findAllByTypeAndArchivedAtIsNullOrderByNameAsc(ChannelType type);
+
+    /** Archived channels, most recently archived first — the admin console's unarchive/delete list. */
+    List<Channel> findAllByArchivedAtIsNotNullOrderByArchivedAtDesc();
 
     /**
      * Channels matching {@code q} by name or slug that {@code user} is allowed to see: every
@@ -45,11 +55,17 @@ public interface ChannelRepository extends JpaRepository<Channel, Long> {
      * database — this endpoint would otherwise be a directory of every private channel's name.
      *
      * <p>Paged, because this replaced a sidebar that rendered every channel there was.
+     *
+     * <p>Archived channels never appear. Being out of the way is most of what archiving is for, and
+     * a finished project turning up in type-ahead is the clutter the feature exists to remove.
+     * Getting back to one is not through here: it is the message search (its content stays indexed),
+     * the {@code /channels/{id}} route, or the admin console's archived list.
      */
     @org.springframework.data.jpa.repository.Query("""
             select c from Channel c
              where (lower(c.name) like lower(concat('%', :q, '%'))
                     or lower(c.slug) like lower(concat('%', :q, '%')))
+               and c.archivedAt is null
                and (c.type = :publicType
                     or exists (select 1 from ChannelMember m where m.channel = c and m.user = :user))
              order by c.name asc
@@ -86,4 +102,23 @@ public interface ChannelRepository extends JpaRepository<Channel, Long> {
                    @org.springframework.data.repository.query.Param("slug") String slug,
                    @org.springframework.data.repository.query.Param("name") String name,
                    @org.springframework.data.repository.query.Param("description") String description);
+
+    /**
+     * Archive or unarchive, as one UPDATE. Same shape and the same reason as {@link #renameById}:
+     * {@code Channel} has no setters and must not gain any, so the row is written directly.
+     *
+     * <p>Unarchiving passes nulls for all three, which clears the tombstone completely rather than
+     * leaving a stale {@code archived_by} behind a null {@code archived_at} — a half-cleared record
+     * is what makes a later "who archived this?" answer confidently wrong.
+     */
+    @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
+    @org.springframework.data.jpa.repository.Query("""
+            update Channel c
+               set c.archivedAt = :at, c.archivedBy = :by, c.archivedByUsername = :byUsername
+             where c.id = :id
+            """)
+    int setArchivedById(@org.springframework.data.repository.query.Param("id") Long id,
+                        @org.springframework.data.repository.query.Param("at") java.time.Instant at,
+                        @org.springframework.data.repository.query.Param("by") ai.intellistream.chat.domain.User by,
+                        @org.springframework.data.repository.query.Param("byUsername") String byUsername);
 }

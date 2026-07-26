@@ -115,6 +115,13 @@
                     <span id="channel-purpose" class="channel-purpose"
                           th:classappend="${activeChannel.description} ? '' : 'is-empty'"
                           th:text="${activeChannel.description}">description</span>
+                    <!--/* Archived marker beside the name, so the state is legible from the one
+                           glance people give a header. The banner below says the rest. */-->
+                    <span id="channel-archived-chip" class="channel-archived-chip"
+                          th:classappend="${activeChannel.archived} ? '' : 'is-hidden'">
+                        <svg class="icon icon-sm" aria-hidden="true"><use href="#icon-archive"/></svg>
+                        Archived
+                    </span>
                 </div>
                 <div class="channel-header-actions">
                     <form class="channel-search" id="channel-search-form">
@@ -135,7 +142,10 @@
                         <svg class="icon"><use href="#icon-users"/></svg>
                         <span id="channel-members-count">…</span>
                     </button>
-                    <button th:if="${activeChannel.type.name() == 'PUBLIC' and !isMember}"
+                    <!--/* No Join on an archived channel: the server refuses it, and offering a
+                           button that cannot work is worse than offering none. Reading it is still
+                           allowed, which is the whole difference between archiving and deleting. */-->
+                    <button th:if="${activeChannel.type.name() == 'PUBLIC' and !isMember and !activeChannel.archived}"
                             id="join-channel-btn" type="button"
                             th:data-channel-id="${activeChannel.id}">Join channel</button>
                 </div>
@@ -175,7 +185,8 @@
                            description would have to invent one.
 
                            Wired from index.js: the CSP forbids inline handlers. */-->
-                    <form th:if="${isAdmin}" id="channel-rename-form" class="channel-rename"
+                    <form th:if="${isAdmin and !activeChannel.archived}" id="channel-rename-form"
+                          class="channel-rename"
                           th:data-channel-id="${activeChannel.id}">
                         <label for="channel-rename-name">Name</label>
                         <input id="channel-rename-name" name="name" required maxlength="120"
@@ -243,6 +254,47 @@
                            two-button question.
 
                            Wired from index.js: the CSP forbids inline handlers. */-->
+                    <!--/* Archive. Above the leave block, because archiving is a decision about the
+                           channel and leaving is a decision about yourself, and the two want to be
+                           told apart. Two-step for the same reason leaving is, and a stronger one:
+                           this takes the channel away from everyone, not just from whoever clicked.
+
+                           UNARCHIVING IS NOT HERE — it lives on the archived banner beside the
+                           message list. This panel is behind isMember and behind the cog, and an
+                           archived channel cannot be joined, so putting the undo here would hide it
+                           from exactly the person most likely to need it: a workspace admin cleaning
+                           up a channel they were never in. The banner is rendered to anyone who can
+                           read the channel, which is the right audience for it.
+
+                           isAdmin is the channel role; me.admin is the workspace one, read here for
+                           rendering only — the server takes the authoritative decision from Spring's
+                           ROLE_ADMIN authority.
+
+                           Wired from index.js: the CSP forbids inline handlers. */-->
+                    <div class="channel-archive" th:if="${isAdmin or me.admin}"
+                         th:data-channel-id="${activeChannel.id}">
+                        <button th:if="${!activeChannel.archived}" type="button"
+                                id="channel-archive-btn" class="channel-archive-trigger">
+                            <svg class="icon" aria-hidden="true"><use href="#icon-archive"/></svg>
+                            <span>Archive <span class="channel-name-echo"
+                                  th:text="'#' + ${activeChannel.name}">#channel</span></span>
+                        </button>
+                        <div th:if="${!activeChannel.archived}"
+                             class="channel-archive-confirm" id="channel-archive-confirm" hidden>
+                            <p>
+                                The channel becomes read-only for everyone and drops out of the
+                                sidebar and the channel search. Nothing is deleted — the messages
+                                and files stay, and stay searchable.
+                                <strong>You can unarchive it again at any time.</strong>
+                            </p>
+                            <div class="channel-archive-actions">
+                                <button type="button" id="channel-archive-cancel">Cancel</button>
+                                <button type="button" id="channel-archive-go"
+                                        class="channel-archive-danger">Archive channel</button>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="channel-leave">
                         <button type="button" id="channel-leave-btn" class="channel-leave-trigger"
                                 th:data-channel-id="${activeChannel.id}"
@@ -394,7 +446,39 @@
 
             <div id="typing-indicator" class="typing-indicator" hidden></div>
 
-            <div th:if="${isMember}" class="composer-wrap"
+            <!--/* Where the composer would be. An archived channel needs something in that space
+                   saying why it is empty — a page that simply stops offering a text box reads as
+                   broken, and "you are not allowed" is the wrong story: everyone is allowed, and
+                   nobody is, because the channel is finished. Rendered for members and non-members
+                   alike, since a public archived channel is readable by anyone. */-->
+            <div id="channel-archived-notice" class="channel-archived-notice"
+                 th:classappend="${activeChannel.archived} ? '' : 'is-hidden'">
+                <svg class="icon" aria-hidden="true"><use href="#icon-archive"/></svg>
+                <p>
+                    <strong>This channel is archived.</strong>
+                    <span th:if="${activeChannel.archivedByUsername != null}"
+                          th:text="|Archived by ${activeChannel.archivedByUsername}| +
+                                   ${activeChannel.archivedAt != null
+                                     ? ' on ' + #temporals.format(activeChannel.archivedAt, 'd MMM yyyy')
+                                     : ''} + '.'">Archived by someone.</span>
+                    It is read-only: the history stays here and stays searchable, but nobody can post
+                    to it.
+                </p>
+                <!--/* The undo, and it lives here rather than in the settings panel because the
+                       settings panel is behind isMember and behind the cog. An archived channel
+                       cannot be joined, so a workspace admin who was never in it would otherwise have
+                       no way to bring it back. One click, no confirmation: unarchiving destroys
+                       nothing, and a confirmation in front of an undo is how a reversible action
+                       starts feeling irreversible. */-->
+                <button th:if="${activeChannel.archived and (isAdmin or me.admin)}" type="button"
+                        id="channel-unarchive-btn"
+                        th:data-channel-id="${activeChannel.id}">
+                    <svg class="icon" aria-hidden="true"><use href="#icon-archive-restore"/></svg>
+                    <span>Unarchive</span>
+                </button>
+            </div>
+
+            <div th:if="${isMember and !activeChannel.archived}" class="composer-wrap"
                  th:data-channel-id="${activeChannel.id}">
                 <form id="composer" class="composer">
                     <div id="composer-attachments" class="composer-attachments" hidden></div>

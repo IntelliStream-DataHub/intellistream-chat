@@ -88,10 +88,11 @@
             <div class="admin-table-wrap">
             <table class="admin-table">
                 <thead>
-                <tr><th>Name</th><th>Type</th><th>Members</th><th>Messages</th><th>Created</th></tr>
+                <tr><th>Name</th><th>Type</th><th>Members</th><th>Messages</th><th>Created</th>
+                    <th>Status</th></tr>
                 </thead>
                 <tbody>
-                <tr th:each="c : ${channelRows}">
+                <tr th:each="c : ${channelRows}" th:classappend="${c.archived} ? 'is-archived' : ''">
                     <td>
                         <a th:href="@{'/channels/' + ${c.id}}" th:text="'#' + ${c.name}">#general</a>
                     </td>
@@ -99,9 +100,26 @@
                     <td th:text="${c.memberCount}">0</td>
                     <td th:text="${c.messageCount}">0</td>
                     <td th:text="${#temporals.format(c.createdAt, 'yyyy-MM-dd')}">2026-01-01</td>
+                    <!--/* This table is the only place in the product that lists every channel there
+                           is: archived ones are out of the sidebar and out of channel search. So it
+                           is where a workspace admin sees what has been archived, and — for a PRIVATE
+                           archived channel whose admins have all left, which cannot be joined and
+                           whose page shows the "ask for an invitation" screen — the only way back. */-->
+                    <td>
+                        <span th:if="${!c.archived}" class="admin-muted">Active</span>
+                        <th:block th:if="${c.archived}">
+                            <span class="admin-archived-mark"
+                                  th:title="|Archived${c.archivedBy != null ? ' by ' + c.archivedBy : ''}${c.archivedAt != null ? ' on ' + #temporals.format(c.archivedAt, 'yyyy-MM-dd') : ''}|">
+                                Archived</span>
+                            <form th:action="@{'/admin/channels/' + ${c.id} + '/unarchive'}"
+                                  method="post" class="admin-inline-form">
+                                <button type="submit">Unarchive</button>
+                            </form>
+                        </th:block>
+                    </td>
                 </tr>
                 <tr th:if="${#lists.isEmpty(channelRows)}">
-                    <td colspan="5" class="admin-empty">No channels yet.</td>
+                    <td colspan="6" class="admin-empty">No channels yet.</td>
                 </tr>
                 </tbody>
             </table>

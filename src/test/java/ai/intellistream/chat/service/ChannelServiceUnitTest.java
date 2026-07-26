@@ -150,6 +150,77 @@ class ChannelServiceUnitTest {
     }
 
     // ---------------------------------------------------------------------------------------
+    // Archiving. Two rules that are pure decisions and belong here rather than behind a database:
+    // who may archive, and — the one that would go wrong quietly — that the archived check is
+    // consulted BEFORE the write-access cache is.
+    // ---------------------------------------------------------------------------------------
+
+    @Test
+    void aCachedWriteDecisionDoesNotSurviveArchiving() {
+        var cache = new ChannelAccessCache(60, 1024);
+        var memberRepo = mock(ChannelMemberRepository.class);
+        var service = channelService(mock(ChannelRepository.class), memberRepo, cache);
+        var alice = withId(new User("sub", "alice", "a@e", "Alice"), User.class, 1L);
+        var archived = withId(new Channel("done", "Done", null, ChannelType.PUBLIC, alice),
+                Channel.class, 7L);
+        setField(archived, "archivedAt", java.time.Instant.now());
+        // Alice is a warm cache entry — she is the population that posts most, which is exactly the
+        // population whose entries are warm and would keep posting into an archived channel if the
+        // check sat after the short-circuit instead of before it.
+        cache.rememberWriteAccess(7L, 1L);
+
+        assertThatThrownBy(() -> service.requireWriteAccessCached(archived, alice))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+        // And the check never got as far as asking the database, which is how you can tell it fired
+        // ahead of the short-circuit rather than because the cache happened to miss.
+        verifyNoInteractions(memberRepo);
+    }
+
+    @Test
+    void aWorkspaceAdminMayArchiveAChannelTheyDoNotAdminister() {
+        var channelRepo = mock(ChannelRepository.class);
+        var memberRepo = mock(ChannelMemberRepository.class);
+        var service = channelService(channelRepo, memberRepo, new ChannelAccessCache(60, 1024));
+        var alice = withId(new User("sub", "alice", "a@e", "Alice"), User.class, 1L);
+        var root = withId(new User("sub2", "root", "r@e", "Root"), User.class, 2L);
+        var channel = withId(new Channel("orphan", "Orphan", null, ChannelType.PRIVATE, alice),
+                Channel.class, 7L);
+        when(memberRepo.findByChannelAndUser(channel, root)).thenReturn(Optional.empty());
+        when(channelRepo.findById(7L)).thenReturn(Optional.of(channel));
+
+        // Without a SecurityContext this is a plain non-member and must be refused. That default
+        // matters: it is what the service-layer integration tests run under, so nothing there is
+        // accidentally permitted by the absence of a principal.
+        assertThatThrownBy(() -> service.archive(channel, root))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+
+        // With ROLE_ADMIN on the live request it is allowed — the escape hatch for a channel whose
+        // own admins have all left, which cannot be joined and so cannot acquire a new one.
+        withWorkspaceAdmin(() -> service.archive(channel, root));
+        verify(channelRepo).setArchivedById(org.mockito.ArgumentMatchers.eq(7L),
+                any(java.time.Instant.class), org.mockito.ArgumentMatchers.eq(root),
+                org.mockito.ArgumentMatchers.eq("root"));
+    }
+
+    @Test
+    void theWorkspaceAdminCheckReadsSpringsAuthorityNotTheCachedColumn() {
+        var channelRepo = mock(ChannelRepository.class);
+        var memberRepo = mock(ChannelMemberRepository.class);
+        var service = channelService(channelRepo, memberRepo, new ChannelAccessCache(60, 1024));
+        var alice = withId(new User("sub", "alice", "a@e", "Alice"), User.class, 1L);
+        var pretender = withId(new User("sub3", "pretender", "p@e", "P"), User.class, 3L);
+        // User.admin is a login-time cache and its own javadoc says never to make an access decision
+        // from it alone. Setting it here must change nothing.
+        pretender.setAdmin(true);
+        var channel = withId(new Channel("room", "Room", null, ChannelType.PUBLIC, alice),
+                Channel.class, 7L);
+        when(memberRepo.findByChannelAndUser(channel, pretender)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> service.archive(channel, pretender))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+    }
+
+    // ---------------------------------------------------------------------------------------
     // SUBSCRIBE authorization. One frame per channel the user is a member of, so the cost of this
     // check is now multiplied by membership count on every connect.
     // ---------------------------------------------------------------------------------------
@@ -246,14 +317,43 @@ class ChannelServiceUnitTest {
 
     /** Ids are assigned by the database; a unit test has to plant them. */
     private static <T> T withId(T entity, Class<?> type, long id) {
+        setField(entity, "id", id);
+        return entity;
+    }
+
+    /**
+     * Plant a field the entity has no setter for — which, on {@link Channel}, is all of them. That
+     * is the point of {@code ChannelImmutabilityTest}, and it means a test that needs an archived
+     * channel has to reach past the type exactly as Hibernate does.
+     */
+    private static void setField(Object entity, String name, Object value) {
         try {
-            var field = type.getDeclaredField("id");
+            var field = entity.getClass().getDeclaredField(name);
             field.setAccessible(true);
-            field.set(entity, id);
+            field.set(entity, value);
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException(e);
         }
-        return entity;
+    }
+
+    /**
+     * Run {@code body} with a {@code ROLE_ADMIN} authentication in the security context, and take it
+     * away again afterwards. The workspace-admin check reads Spring's live authority rather than
+     * {@code User.isAdmin()}, so this is the only way to exercise that branch — and clearing the
+     * context in a finally block is what stops it leaking into the next test in the class.
+     */
+    private static void withWorkspaceAdmin(Runnable body) {
+        var auth = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                "root", "n/a",
+                java.util.List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority(
+                        "ROLE_ADMIN")));
+        org.springframework.security.core.context.SecurityContextHolder.getContext()
+                .setAuthentication(auth);
+        try {
+            body.run();
+        } finally {
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+        }
     }
 
     /**

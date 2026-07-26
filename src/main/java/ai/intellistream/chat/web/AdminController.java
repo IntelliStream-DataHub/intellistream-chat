@@ -82,6 +82,7 @@ public class AdminController {
     private final MessageModerationService messageModeration;
     private final StorageQuotaService storageQuotas;
     private final AuditService auditService;
+    private final ai.intellistream.chat.service.ChannelService channelService;
 
     public AdminController(AppSettingsService settings,
                            ChannelRepository channels,
@@ -93,7 +94,8 @@ public class AdminController {
                            BanService banService,
                            MessageModerationService messageModeration,
                            StorageQuotaService storageQuotas,
-                           AuditService auditService) {
+                           AuditService auditService,
+                           ai.intellistream.chat.service.ChannelService channelService) {
         this.settings = settings;
         this.channels = channels;
         this.users = users;
@@ -105,6 +107,7 @@ public class AdminController {
         this.messageModeration = messageModeration;
         this.storageQuotas = storageQuotas;
         this.auditService = auditService;
+        this.channelService = channelService;
     }
 
     @GetMapping("/admin")
@@ -123,6 +126,15 @@ public class AdminController {
                     row.put("memberCount", members.countByChannel(c));
                     row.put("messageCount", messages.countByChannelAndParentIsNull(c));
                     row.put("createdAt", c.getCreatedAt());
+                    // Archived channels are hidden from the sidebar and from channel search, so this
+                    // table is the one place in the product that lists every channel there is. Which
+                    // makes it the only place a workspace admin can see what has been archived — and
+                    // the only route back for a PRIVATE archived channel whose admins have all left,
+                    // since it cannot be joined and its page renders the "ask for an invitation"
+                    // screen for a non-member.
+                    row.put("archived", c.isArchived());
+                    row.put("archivedAt", c.getArchivedAt());
+                    row.put("archivedBy", c.getArchivedByUsername());
                     return row;
                 })
                 .toList();
@@ -264,6 +276,30 @@ public class AdminController {
         ra.addFlashAttribute("flash", applied == ChannelCreationPolicy.ADMINS_ONLY
                 ? "Only administrators can create channels now."
                 : "Everyone can create channels now.");
+        return "redirect:/admin";
+    }
+
+    /**
+     * Unarchive a channel from the console.
+     *
+     * <p>This exists as the escape hatch, not as a convenience. The in-app control is on the channel
+     * page's archived banner, which covers every case except one: a PRIVATE archived channel whose
+     * channel admins have all left. It cannot be joined, its page renders the "ask an admin for an
+     * invitation" screen for a non-member, and there is no other route to it — so without this,
+     * archiving would be a one-way door in exactly the situation where somebody needs the door.
+     *
+     * <p>Authorised by the route. {@code SecurityConfig} gates {@code /admin/**} on
+     * {@code hasRole("ADMIN")} — the live Spring authority, not {@code User.isAdmin()} — and
+     * {@code ChannelService.unarchive} sees that same authority through
+     * {@code requireChannelOrWorkspaceAdmin}, so the check is not skipped here, only already passed.
+     */
+    @PostMapping("/admin/channels/{id}/unarchive")
+    public String unarchiveChannel(@PathVariable Long id, Principal principal, RedirectAttributes ra) {
+        var me = currentUser.resolve(principal);
+        var channel = channels.findById(id).orElseThrow(
+                () -> new ResourceNotFoundException("No such channel: " + id));
+        channelService.unarchive(channel, me);
+        ra.addFlashAttribute("flash", "#" + channel.getName() + " is no longer archived.");
         return "redirect:/admin";
     }
 

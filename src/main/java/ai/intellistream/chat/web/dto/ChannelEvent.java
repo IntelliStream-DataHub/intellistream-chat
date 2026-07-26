@@ -40,18 +40,34 @@ import ai.intellistream.chat.domain.Channel;
  * @param type one of {@code channel-updated}, {@code channel-archived},
  *             {@code channel-unarchived}, {@code channel-deleted}.
  * @param id   the channel.
- * @param slug the current slug. Carried because a rename moves it, and a client holding the old one
- *             would build a wrong link if it ever built one from a slug.
+ * @param slug     the current slug. Carried because a rename moves it, and a client holding the old
+ *                 one would build a wrong link if it ever built one from a slug.
+ * @param archived the resulting state, carried on <em>every</em> type rather than being implied by
+ *                 the archive/unarchive ones. A client that missed a frame is then corrected by the
+ *                 next one it does see, instead of accumulating drift from a stream of deltas.
  */
 public record ChannelEvent(
         String type,
         Long id,
         String slug,
         String name,
-        String description
+        String description,
+        boolean archived
 ) {
     public static ChannelEvent updated(Channel c) {
-        return new ChannelEvent("channel-updated", c.getId(), c.getSlug(), c.getName(),
-                c.getDescription());
+        return of("channel-updated", c);
+    }
+
+    public static ChannelEvent archived(Channel c) {
+        return of("channel-archived", c);
+    }
+
+    public static ChannelEvent unarchived(Channel c) {
+        return of("channel-unarchived", c);
+    }
+
+    private static ChannelEvent of(String type, Channel c) {
+        return new ChannelEvent(type, c.getId(), c.getSlug(), c.getName(), c.getDescription(),
+                c.isArchived());
     }
 }

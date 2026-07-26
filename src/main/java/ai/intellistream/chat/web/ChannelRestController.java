@@ -167,6 +167,45 @@ public class ChannelRestController {
         return ChannelDto.from(updated);
     }
 
+    /**
+     * Archive a channel — freeze it read-only and take it out of the sidebar and out of channel
+     * discovery. Channel admins, the same bar as renaming it.
+     *
+     * <p>Separate endpoints for archive and unarchive rather than one taking a boolean. Both are
+     * reached from a confirmation the user has already read, and {@code POST /archive} says what it
+     * does in a server log and a proxy access log, where {@code PUT {"archived":false}} does not.
+     *
+     * <p>Broadcast on the channel topic, and the subscriptions are deliberately left in place so the
+     * frame arrives: every open client greys itself out and drops the channel from its sidebar. See
+     * {@code ChannelService.archive} for why revoking them — which is what a leave does — would be
+     * the wrong move here.
+     */
+    @PostMapping("/{id}/archive")
+    public ChannelDto archive(@PathVariable Long id, Principal principal) {
+        var me = currentUser.resolve(principal);
+        var archived = channelService.archive(channelService.requireById(id), me);
+        broker.convertAndSend("/topic/channels/" + id,
+                ai.intellistream.chat.web.dto.ChannelEvent.archived(archived));
+        return ChannelDto.from(archived);
+    }
+
+    /**
+     * Put an archived channel back. Channel admins.
+     *
+     * <p>Nothing is restored because nothing was removed: memberships, favourites, notification
+     * levels and read markers all survived the archive and were merely hidden by the sidebar's
+     * query. This is what keeps archiving from being a one-way door — and a one-way door here would
+     * push people towards deleting, which genuinely is one.
+     */
+    @PostMapping("/{id}/unarchive")
+    public ChannelDto unarchive(@PathVariable Long id, Principal principal) {
+        var me = currentUser.resolve(principal);
+        var live = channelService.unarchive(channelService.requireById(id), me);
+        broker.convertAndSend("/topic/channels/" + id,
+                ai.intellistream.chat.web.dto.ChannelEvent.unarchived(live));
+        return ChannelDto.from(live);
+    }
+
     @PostMapping("/{id}/join")
     public ResponseEntity<Void> join(@PathVariable Long id, Principal principal) {
         var me = currentUser.resolve(principal);

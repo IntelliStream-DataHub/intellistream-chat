@@ -64,6 +64,12 @@
   --border: #e0e1e5;
   --border-strong: #c8cbd1;
   --danger: #d24b4e;
+  /* Serious but undoable, as distinct from --danger's irreversible. Archiving a channel and
+     deleting one sit next to each other in the same panel, and if both buttons are red the one that
+     cannot be taken back stops standing out. Theme-independent for the same reason --danger is: a
+     warning that changed hue with the accent would eventually land somewhere that reads as
+     decoration. */
+  --warning: #b7791f;
 
   /* Avatar palette — static fallback only; the theme-derived palette declared on body
      below overrides these for everything inside the page. */
@@ -1040,6 +1046,100 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
 }
 .channel-leave-danger { background: var(--danger); }
 .channel-leave-danger:hover { background: var(--danger); filter: brightness(0.9); }
+/* ---------- Archive / unarchive ----------
+   Above the leave block and below a rule of its own: archiving is a decision about the channel,
+   leaving is a decision about yourself, and stacking them in one group makes the second look like a
+   milder version of the first. Quiet until hovered, like the leave trigger — a panel opened to
+   change a notification setting should not be shouting. */
+.channel-archive {
+  margin-top: 0.9rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+.channel-archive-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: var(--fs-md);
+}
+.channel-archive-trigger:hover {
+  background: var(--hover);
+  border-color: var(--border-strong);
+  color: var(--text);
+}
+.channel-archive-confirm[hidden] { display: none; }
+.channel-archive-confirm p {
+  margin: 0.6rem 0;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--muted);
+}
+.channel-archive-confirm strong { color: var(--text); }
+.channel-archive-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+/* Amber rather than red. Archiving is reversible and deleting is not, and if both buttons are the
+   same colour the one that matters stops standing out. */
+.channel-archive-danger {
+  background: var(--warning);
+  color: #fff;
+}
+.channel-archive-danger:hover { filter: brightness(0.92); }
+
+/* The chip beside the channel name, and the notice where the composer would be. */
+.channel-archived-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  flex: none;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  color: var(--muted);
+}
+.channel-archived-chip.is-hidden,
+.channel-archived-notice.is-hidden { display: none; }
+.channel-archived-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin: 0 var(--gutter) 1rem;
+  padding: 0.75rem 0.9rem;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+  color: var(--muted);
+}
+.channel-archived-notice .icon { flex: none; color: var(--muted); }
+.channel-archived-notice p {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  flex: 1;
+  min-width: 0;
+}
+.channel-archived-notice strong { color: var(--text); }
+/* The Unarchive button sits at the end of the notice and never shrinks — the sentence beside it
+   wraps instead, since the sentence is readable at any width and a squashed button is not. */
+.channel-archived-notice button {
+  flex: none;
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: var(--fs-md);
+}
+
 /* The kick, in the members panel. Same treatment as the role toggle beside it, in red. */
 .channel-member-remove {
   background: transparent;
@@ -2672,6 +2772,19 @@ button.icon-btn > .icon {
 .admin-table th { color: var(--muted); font-weight: 600; }
 .admin-table tbody tr:hover { background: var(--hover); }
 .admin-empty { color: var(--muted); text-align: center; }
+/* An archived channel's row reads as retired without becoming unreadable — this table is where a
+   workspace admin goes to find it, so it must not be dimmed into the background. */
+.admin-table tbody tr.is-archived td { opacity: 0.72; }
+.admin-muted { color: var(--muted); }
+.admin-archived-mark {
+  display: inline-block;
+  margin-right: 0.4rem;
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  color: var(--warning);
+}
 
 .theme-grid {
   display: grid;

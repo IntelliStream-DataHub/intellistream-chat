@@ -107,7 +107,10 @@ class AdminEmailVisibilityIT {
                 mock(ai.intellistream.chat.moderation.BanService.class),
                 mock(ai.intellistream.chat.moderation.MessageModerationService.class),
                 storageQuotas,
-                auditMock());
+                auditMock(),
+                // Same reasoning: this IT never unarchives anything, and the console's unarchive
+                // escape hatch is covered by ChannelLifecycleIT at the service level.
+                mock(ai.intellistream.chat.service.ChannelService.class));
         // Capture the existing value so the suite is reentrant — every test restores it on teardown.
         originalSetting = settings.current().isExposeUserEmails();
     }

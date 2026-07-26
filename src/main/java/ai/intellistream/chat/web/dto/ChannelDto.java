@@ -22,15 +22,30 @@ import ai.intellistream.chat.domain.ChannelType;
 import java.time.Instant;
 
 
+/**
+ * A channel as an API client sees it.
+ *
+ * @param archived   read-only, out of the sidebar and out of channel discovery. Present on every
+ *                   channel rather than only on archived ones, so a client can render the state
+ *                   without inferring it from {@code archivedAt}'s absence.
+ * @param archivedAt when that happened; {@code null} while the channel is live.
+ * @param archivedBy the archiver's username as it was at the time — a copy, not a live lookup, which
+ *                   is what lets the header render it without touching a LAZY association under
+ *                   {@code open-in-view=false}.
+ */
 public record ChannelDto(
         Long id,
         String slug,
         String name,
         String description,
         ChannelType type,
-        Instant createdAt
+        Instant createdAt,
+        boolean archived,
+        Instant archivedAt,
+        String archivedBy
 ) {
     public static ChannelDto from(Channel c) {
-        return new ChannelDto(c.getId(), c.getSlug(), c.getName(), c.getDescription(), c.getType(), c.getCreatedAt());
+        return new ChannelDto(c.getId(), c.getSlug(), c.getName(), c.getDescription(), c.getType(),
+                c.getCreatedAt(), c.isArchived(), c.getArchivedAt(), c.getArchivedByUsername());
     }
 }
