@@ -52,33 +52,29 @@ import java.util.Map;
  * and answers {@link ResourceNotFoundException} rather than "forbidden" when they differ, because
  * "that file exists but is not yours" is itself a disclosure about a stranger's account.
  *
- * <h2>Why Postgres owns the search and Lucene does not</h2>
- * Message bodies are searched through the embedded Lucene index ({@code MessageIndexService});
- * filenames are not, and putting them there would be a bad trade:
+ * <h2>Why this listing's filter is Postgres and not Lucene</h2>
+ * Attachment filenames <em>are</em> in the Lucene index — they are a field on the message document,
+ * so searching the workspace for {@code quarterly-report.pdf} finds the message that shared it (see
+ * {@code MessageIndexService}). This box is a different question, and it stays in SQL:
  * <ul>
- *   <li><b>The benefit is small.</b> The search runs against one account's uploads, already narrowed
+ *   <li><b>Different corpus, different match.</b> Lucene answers "where in the workspace was this
+ *       mentioned or shared", ranked, tokenised, across everything the viewer may read. This box
+ *       answers "which of <em>my</em> files is this", over one account's uploads already narrowed
  *       by an indexed {@code author_id} predicate ({@code ix_messages_author},
- *       {@code ix_conv_messages_author}). A substring test over the few hundred rows that survive
- *       is a filter, not a scan. Lucene's value is ranking and tokenised matching over a whole
- *       workspace's prose; a filename is a short opaque token where users want substring
- *       ("invoice" finding {@code 2026-invoice-final.pdf"}) — precisely what an analyser tokenising
- *       on punctuation is worst at.</li>
- *   <li><b>The cost is a whole new consistency surface.</b> The index today holds exactly one
- *       document type keyed by message id. Filenames would need a second type or new fields, a
- *       write on every upload, a delete on every attachment delete, an extension of
- *       {@code LuceneBootstrap}'s rebuild-if-empty, and — the expensive one — an extension of
- *       {@code CleanupTasks.reconcileSearchIndex}, which today reconciles indexed ids against the
- *       {@code messages} table and would happily delete any document whose id it did not recognise.
- *       Every one of those is a place the index can drift from the database, and a drifted file
- *       manager either hides a file the user is being charged for or offers one that is gone.</li>
+ *       {@code ix_conv_messages_author}) — and it wants raw substring, so typing {@code voice}
+ *       finds {@code invoice-2026.pdf}. A token-based index deliberately does not do that.</li>
  *   <li><b>The database is already the authority here.</b> The listing has to read the rows anyway
- *       for size, type, location and the delete policy. Filtering in the same query costs one extra
- *       predicate; filtering in Lucene means a search, then a second query for the ids it returned,
- *       and a decision about what to do when the two disagree.</li>
+ *       for size, type, location and the delete policy — including tombstoned and moderator-removed
+ *       ones, which are exactly the rows the search index must <em>not</em> return. Filtering in the
+ *       same query costs one extra predicate; filtering in Lucene would mean a search, a second
+ *       query for the ids it returned, and a decision about what to do when the two disagree.</li>
  * </ul>
  * So: {@code lower(filename) like '%term%'}. This is not the "switch search to ILIKE" the project
- * guide forbids — that rule is about message-body search, which stays in Lucene. This is a filter on
- * an already-selective, single-account result set.
+ * guide forbids — that rule is about message search, which stays in Lucene. This is a filter on an
+ * already-selective, single-account result set.
+ *
+ * <p>The delete path below does have to touch the index, though: tombstoning a file takes its name
+ * out of the message's document, or search would keep offering a hit whose bytes are gone.
  */
 @Service
 public class UserFileService {
@@ -310,6 +306,10 @@ public class UserFileService {
         attachment.softDelete(owner);
         // In this transaction, next to the tombstone — see the class note on afterCommit.
         quotas.releaseAll(AttachmentService.creditsFor(List.of(attachment)));
+        // A tombstoned file must stop matching in search too: the bytes are gone, so a hit on its
+        // name would be a result the viewer cannot open. The message keeps its document — the
+        // caption is still there and still searchable — this only drops the filename from it.
+        messageService.reindexAfterAttachmentChange(message);
         afterCommit(() -> channelAttachments.deleteFiles(List.of(storageKey)));
 
         return new DeletedFile(Scope.CHANNEL, attachmentId, filename, bytes,
@@ -330,6 +330,8 @@ public class UserFileService {
 
         attachment.softDelete(owner);
         quotas.releaseAll(ConversationAttachmentService.creditsFor(List.of(attachment)));
+        // Same as the channel half: the name comes out of the index with the bytes.
+        conversationService.reindexAfterAttachmentChange(message);
         afterCommit(() -> conversationAttachments.deleteFiles(List.of(storageKey)));
 
         return new DeletedFile(Scope.CONVERSATION, attachmentId, filename, bytes,

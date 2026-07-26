@@ -113,6 +113,7 @@ class UserFileManagerIT {
     @Autowired MessageModerationService moderation;
     @Autowired UserFileService files;
     @Autowired ChannelFileService channelFiles;
+    @Autowired ai.intellistream.chat.service.SearchService search;
     @PersistenceContext EntityManager em;
 
     private static final AtomicInteger SEQ = new AtomicInteger();
@@ -378,6 +379,43 @@ class UserFileManagerIT {
     }
 
     // ------------------------------------------------------------------ delete: authorization
+
+    @Test
+    void aTombstonedChannelFileStopsMatchingInSearchWhileItsCaptionDoesNot() throws IOException {
+        // Search matches on filenames now, so a tombstone has to reach the index as well as the
+        // disk: the bytes are gone, and a result offering a download that 404s is worse than no
+        // result. The message itself survives the tombstone, so its caption must keep matching —
+        // this is a field being dropped from a document, not a document being deleted.
+        var alice = newUser("alice");
+        var room = newChannel(alice);
+        var seq = SEQ.incrementAndGet();
+        var attachment = attachments.upload(room, alice, "ledger-" + seq + ".csv",
+                "application/octet-stream", 16, AttachmentBytes.DEFAULT_MAX_BYTES,
+                "the caption survives " + seq, new ByteArrayInputStream(new byte[16]));
+        Tx.commit();
+        assertThat(search.searchChannel(room, alice, "ledger", 10)).hasSize(1);
+
+        files.delete(alice, UserFileService.Scope.CHANNEL, attachment.getId());
+        Tx.commit();
+
+        assertThat(search.searchChannel(room, alice, "ledger", 10)).isEmpty();
+        assertThat(search.searchChannel(room, alice, "caption survives", 10)).hasSize(1);
+    }
+
+    @Test
+    void aTombstonedConversationFileStopsMatchingInSearch() throws IOException {
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var dm = conversations.directBetween(alice, bob);
+        var attachment = dmUpload(dm, alice, "dmledger-" + SEQ.incrementAndGet() + ".csv", 16);
+        Tx.commit();
+        assertThat(search.searchConversation(dm, bob, "dmledger", 10)).hasSize(1);
+
+        files.delete(alice, UserFileService.Scope.CONVERSATION, attachment.getId());
+        Tx.commit();
+
+        assertThat(search.searchConversation(dm, bob, "dmledger", 10)).isEmpty();
+    }
 
     @Test
     void userBCannotDeleteUserAsChannelFile() throws IOException {

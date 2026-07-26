@@ -70,7 +70,10 @@ import java.util.stream.Collectors;
  *       opposite of what this token used to mean here.</li>
  *   <li>{@code in:#general} — one channel, resolved to an id the viewer may read; an unknown or
  *       unreadable name is a {@link PublicBadRequestException}, never a silently dropped filter.</li>
- *   <li>Anything else, including an unrecognised {@code word:} prefix, is body text.</li>
+ *   <li>Anything else, including an unrecognised {@code word:} prefix, is free text — matched
+ *       against the message body <em>and</em> against the names of the files it shared, so
+ *       {@code quarterly-report.pdf} finds the message that posted it even when nobody typed the
+ *       name. See {@code MessageIndexService} for the field and its analysis.</li>
  * </ul>
  * {@code before:} / {@code after:} / {@code has:} are not implemented and are therefore searched
  * for as literal text like any other unknown prefix.
@@ -415,6 +418,51 @@ public class SearchService {
             }
         }
         return labels;
+    }
+
+    /**
+     * The live attachment filenames of a result page's messages, so the page can say which file a
+     * hit matched on.
+     *
+     * <p>Read from Postgres rather than stored in the index. The index needs the filenames to
+     * <em>match</em>, not to display, and a stored copy would be a second answer to "what is this
+     * file called" that a rename or a tombstone could leave disagreeing with the rows — the sort of
+     * disagreement that shows up as a search result offering a file that is not there.
+     *
+     * <p>Two lookups, keyed separately, because the two tables' id sequences are independent:
+     * message 42 of a channel and message 42 of a DM are different messages.
+     */
+    @Transactional(readOnly = true)
+    public HitFilenames attachmentFilenames(List<SearchHit> hits) {
+        if (hits.isEmpty()) return HitFilenames.EMPTY;
+        var channelIds = new java.util.ArrayList<Long>();
+        var conversationIds = new java.util.ArrayList<Long>();
+        for (var hit : hits) {
+            if (hit instanceof SearchHit.ChannelHit c) channelIds.add(c.message().getId());
+            else if (hit instanceof SearchHit.ConversationHit c) conversationIds.add(c.message().getId());
+        }
+        return new HitFilenames(
+                channelIds.isEmpty() ? Map.of()
+                        : MessageIndexService.groupFilenames(
+                                messageRepository.findIndexFilenamesByIds(channelIds)),
+                conversationIds.isEmpty() ? Map.of()
+                        : MessageIndexService.groupFilenames(
+                                conversationMessageRepository.findIndexFilenamesByIds(conversationIds)));
+    }
+
+    /** Per-store filename lookups for one result page. @see #attachmentFilenames */
+    public record HitFilenames(Map<Long, List<String>> channel, Map<Long, List<String>> conversation) {
+
+        public static final HitFilenames EMPTY = new HitFilenames(Map.of(), Map.of());
+
+        /** The filenames on this hit's message, in upload order; empty when it carries none. */
+        public List<String> of(SearchHit hit) {
+            return switch (hit) {
+                case SearchHit.ChannelHit c -> channel.getOrDefault(c.message().getId(), List.of());
+                case SearchHit.ConversationHit c ->
+                        conversation.getOrDefault(c.message().getId(), List.of());
+            };
+        }
     }
 
     /**

@@ -61,12 +61,14 @@ class SearchHitAssembler {
         // scoped it.
         var query = SearchService.highlightableBody(rawQuery);
         var labels = searchService.conversationLabels(viewer, conversationsIn(hits));
+        var filenames = searchService.attachmentFilenames(hits);
         return hits.stream()
                 .map(hit -> switch (hit) {
                     case SearchService.SearchHit.ChannelHit c ->
                             SearchHitDto.ofChannel(c.message(), c.joined(),
                                     render(c.message().getBodyMarkdown()),
-                                    snippet(query, c.message().getBodyMarkdown()));
+                                    snippet(query, c.message().getBodyMarkdown()),
+                                    matchedFilenames(query, filenames.of(hit)));
                     // renderInConversation, not render: a hit's body is rendered here exactly as it
                     // is in the room it came from, and a broadcast mention pill has to name the
                     // room it is in. A search result claiming "notifies every member of this
@@ -76,7 +78,8 @@ class SearchHitAssembler {
                             SearchHitDto.ofConversation(c.message(),
                                     labels.get(c.message().getConversation().getId()),
                                     markdown.renderInConversation(c.message().getBodyMarkdown()),
-                                    snippet(query, c.message().getBodyMarkdown()));
+                                    snippet(query, c.message().getBodyMarkdown()),
+                                    matchedFilenames(query, filenames.of(hit)));
                 })
                 .toList();
     }
@@ -100,5 +103,26 @@ class SearchHitAssembler {
      *  highlighter agrees with the search query's tokens. */
     private String snippet(String query, String bodyMarkdown) {
         return messageIndex.highlight(query, bodyMarkdown, SNIPPET_LENGTH);
+    }
+
+    /**
+     * Which of this message's files the query actually matched, each with the matching part marked.
+     *
+     * <p>Decided by running the highlighter over each name rather than by asking Lucene to explain
+     * the hit: the highlighter already answers "did this text match, and where" with the same
+     * parsed query the search used, and an {@code explain()} per result is a second scoring pass
+     * over every row on the page to learn something one string comparison can tell us.
+     *
+     * <p>Names that did not match are dropped. A message can carry a dozen files and listing all of
+     * them under every hit would bury the one that is the reason the row is there.
+     */
+    private List<String> matchedFilenames(String query, List<String> filenames) {
+        if (filenames.isEmpty() || query.isBlank()) return List.of();
+        var matched = new java.util.ArrayList<String>(filenames.size());
+        for (var filename : filenames) {
+            var highlighted = messageIndex.highlightFilename(query, filename);
+            if (highlighted != null) matched.add(highlighted);
+        }
+        return List.copyOf(matched);
     }
 }

@@ -194,6 +194,10 @@ public class ConversationAttachmentService {
                 : conversations.post(conversation, uploader, captionText);
         var saved = repo.save(new ConversationAttachment(
                 savedMessage, safeName, resolvedType, bytesWritten, storageKey));
+        // [attachment-filename search] The message's index document was written before this row
+        // existed (or, for a caption-less upload, not written at all), so the filename only becomes
+        // searchable if the document is rewritten now. See ConversationService for the method.
+        conversations.reindexAfterAttachmentChange(savedMessage);
         // Charged with the bytes actually written, inside this transaction so a rollback takes the
         // usage with it.
         quotas.recordUpload(uploader, bytesWritten);

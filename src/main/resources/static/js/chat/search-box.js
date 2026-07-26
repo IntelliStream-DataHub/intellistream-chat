@@ -156,7 +156,8 @@ export function initSearchBox(inputId) {
               '<span class="search-dropdown-tag" hidden>not joined</span>' +
               '<time class="search-dropdown-time"></time>' +
             '</div>' +
-            '<div class="search-dropdown-snippet"></div>';
+            '<div class="search-dropdown-snippet"></div>' +
+            '<div class="search-dropdown-files" hidden></div>';
         row.querySelector('.search-dropdown-author').textContent =
             m.authorDisplayName || m.authorUsername;
         row.querySelector('.search-dropdown-channel').textContent = label;
@@ -170,6 +171,18 @@ export function initSearchBox(inputId) {
         // (HTML-escaped before highlighting, so innerHTML is safe). Falls back to bodyHtml —
         // the server-rendered, jsoup-sanitized body — when there is no snippet.
         row.querySelector('.search-dropdown-snippet').innerHTML = m.bodySnippet || m.bodyHtml || '';
+        // Filenames are searchable, so a row can be here because of a file rather than because of
+        // anything in its text — and a file posted without a caption has no text at all, which used
+        // to draw as an empty row. matchedFilenames are HTML-escaped and <mark>-wrapped by the same
+        // highlighter as the snippet, so innerHTML is safe on the same terms.
+        const matchedFiles = m.matchedFilenames || [];
+        if (matchedFiles.length) {
+          const files = row.querySelector('.search-dropdown-files');
+          files.innerHTML =
+              '<svg class="icon icon-sm" aria-hidden="true"><use href="#icon-paperclip"/></svg>' +
+              '<span>' + matchedFiles.join(', ') + '</span>';
+          files.hidden = false;
+        }
         // mousedown so the input doesn't blur (and close us) before the click fires.
         row.addEventListener('mousedown', (ev) => {
           ev.preventDefault();

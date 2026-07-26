@@ -411,8 +411,11 @@ public class MessageWriteBehind {
     private void indexBatch(List<PendingMessage> batch) {
         try {
             messageIndex.indexNew(batch.stream()
+                    // No filenames, and no query to find any: this is the WebSocket send path, and
+                    // nothing can have been attached to a message whose row was inserted a
+                    // millisecond ago. An upload takes the durable path and re-indexes for itself.
                     .map(row -> new MessageIndexService.IndexedMessage(
-                            row.id(), row.channelId(), row.authorUsername(), row.body()))
+                            row.id(), row.channelId(), row.authorUsername(), row.body(), List.of()))
                     .toList());
         } catch (RuntimeException e) {
             // The index is derived state; Postgres is the source of truth and the reconcile sweep

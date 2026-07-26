@@ -116,6 +116,7 @@ class StorageAccountingIT {
     @Autowired MessageModerationService moderation;
     @Autowired RetentionPurgeScheduler purge;
     @Autowired UserFileService userFiles;
+    @Autowired ai.intellistream.chat.service.SearchService search;
     @PersistenceContext EntityManager em;
 
     private static final AtomicInteger SEQ = new AtomicInteger();
@@ -266,6 +267,28 @@ class StorageAccountingIT {
 
         assertThat(usedBy(bob)).isZero();
         assertThat(attachments.resolve(replyFile)).doesNotExist();
+    }
+
+    @Test
+    void aPurgedMessageTakesItsFilenameOutOfSearchForGood() throws IOException {
+        // The last of the three deletion paths (the other two are the author's own delete and the
+        // channel destroy, covered elsewhere). A filename is content like any other, so a purge
+        // that hard-deleted the row and left the document behind would leave a file findable by
+        // name for as long as the index lives — after the workspace decided to erase it.
+        var alice = newUser("alice");
+        var admin = newUser("root");
+        var room = newChannel(alice);
+        var name = "purged-ledger-" + SEQ.incrementAndGet() + ".csv";
+        upload(room, alice, name, 128);
+        Tx.commit();
+        assertThat(search.searchChannel(room, alice, "ledger", 10)).hasSize(1);
+
+        moderation.deleteAllByAuthor(admin, alice);
+        Tx.commit();
+        assertThat(purge.purgeDeletedBefore(Instant.now().plusSeconds(60))).isPositive();
+        Tx.commit();
+
+        assertThat(search.searchChannel(room, alice, "ledger", 10)).isEmpty();
     }
 
     @Test

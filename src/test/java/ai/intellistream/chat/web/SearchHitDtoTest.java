@@ -25,6 +25,8 @@ import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.web.dto.SearchHitDto;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -53,7 +55,7 @@ class SearchHitDtoTest {
         when(message.getBodyMarkdown()).thenReturn("hello **world**");
 
         var dto = SearchHitDto.ofChannel(message, true, "<p>hello <strong>world</strong></p>",
-                "hello <mark>world</mark>");
+                "hello <mark>world</mark>", List.of());
 
         assertThat(dto.scope()).isEqualTo("channel");
         assertThat(dto.channelId()).isEqualTo(7L);
@@ -82,7 +84,7 @@ class SearchHitDtoTest {
         when(message.getAuthor()).thenReturn(alice);
         when(message.getBodyMarkdown()).thenReturn("outage postmortem");
 
-        var dto = SearchHitDto.ofChannel(message, false, "<p>outage postmortem</p>", null);
+        var dto = SearchHitDto.ofChannel(message, false, "<p>outage postmortem</p>", null, List.of());
 
         assertThat(dto.channelJoined()).isFalse();
         assertThat(dto.url()).isEqualTo("/channels/8?m=43#m=43");
@@ -100,7 +102,7 @@ class SearchHitDtoTest {
         when(message.getAuthor()).thenReturn(bob);
         when(message.getBodyMarkdown()).thenReturn("lunch?");
 
-        var dto = SearchHitDto.ofConversation(message, "Bob B", "<p>lunch?</p>", null);
+        var dto = SearchHitDto.ofConversation(message, "Bob B", "<p>lunch?</p>", null, List.of());
 
         assertThat(dto.scope()).isEqualTo("conversation");
         assertThat(dto.conversationId()).isEqualTo(9L);
@@ -125,7 +127,7 @@ class SearchHitDtoTest {
         when(message.getAuthor()).thenReturn(bob);
         when(message.getBodyMarkdown()).thenReturn("standup in five");
 
-        var dto = SearchHitDto.ofConversation(message, "Platform team", "<p>standup in five</p>", null);
+        var dto = SearchHitDto.ofConversation(message, "Platform team", "<p>standup in five</p>", null, List.of());
 
         assertThat(dto.conversationType()).isEqualTo("GROUP");
         assertThat(dto.conversationTitle()).isEqualTo("Platform team");

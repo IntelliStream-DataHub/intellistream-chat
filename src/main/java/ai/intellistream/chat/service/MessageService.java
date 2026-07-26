@@ -169,7 +169,11 @@ public class MessageService {
         channelService.requireWriteAccessCached(channel, author);
         var saved = messageRepository.save(new Message(channel, author, body));
         var mentioned = mentionService.syncMentions(saved, true);
-        indexNow(saved.getId(), channel.getId(), author.getUsername(), saved.getBodyMarkdown());
+        // No filenames: the row was created a line ago, so nothing can be attached to it yet. An
+        // upload attaches its file after this returns and re-indexes the document then
+        // (AttachmentService.upload → reindexAfterAttachmentChange).
+        indexNow(saved.getId(), channel.getId(), author.getUsername(), saved.getBodyMarkdown(),
+                List.of());
         return new Posted(saved, mentioned.stream().map(User::getUsername).toList(),
                 Durability.alreadyCommitted());
     }
@@ -350,7 +354,8 @@ public class MessageService {
         }
         var saved = messageRepository.save(new Message(channel, author, body.trim(), parent));
         mentionService.syncMentions(saved, true);
-        indexNow(saved.getId(), channel.getId(), author.getUsername(), saved.getBodyMarkdown());
+        indexNow(saved.getId(), channel.getId(), author.getUsername(), saved.getBodyMarkdown(),
+                List.of()); // brand-new row; nothing attached yet
         return saved;
     }
 
@@ -446,11 +451,43 @@ public class MessageService {
         var channelId = message.getChannel().getId();
         var newBodyTrimmed = message.getBodyMarkdown();
         var authorUsername = message.getAuthor().getUsername();
+        // Re-read the attachment filenames rather than passing an empty list. The index document is
+        // rewritten whole, so an edit that forgot them would silently un-find every file this
+        // message carries — a regression nobody sees until someone searches for an old attachment
+        // and gets nothing.
+        var filenames = messageRepository.findIndexFilenames(messageId);
         // Push the index write to afterCommit. A within-tx index update would leak the
         // new body to concurrent searchers before the row is committed; a rollback
         // compensator can fail silently and leaves the index inconsistent with the DB.
-        afterCommit(() -> messageIndex.index(messageId, channelId, authorUsername, newBodyTrimmed));
+        afterCommit(() -> messageIndex.index(messageId, channelId, authorUsername, newBodyTrimmed,
+                filenames));
         return message;
+    }
+
+    /**
+     * Rewrite a message's index document because its <b>attachment set</b> changed — a file was
+     * just uploaded onto it, or one of its files was tombstoned in the file manager.
+     *
+     * <p>Exists because the filename is part of the message's document but is not known when that
+     * document is first written: {@code AttachmentService.upload} is handed an already-persisted
+     * message and creates the attachment row afterwards. The index write therefore has to happen a
+     * second time, and it has to happen from whichever service owns the change.
+     *
+     * <p>Reads the filenames now, inside the caller's transaction (a JPQL query flushes the pending
+     * insert or tombstone first, so it sees them), and writes the document after the commit — the
+     * same ordering as every other index write here, for the same reason.
+     *
+     * <p>This is also what first indexes a caption-less upload at all: those messages are saved
+     * straight through the repository with an empty body and never went near {@link #post}, so
+     * before this they had no document until a reconcile sweep noticed one was missing.
+     */
+    public void reindexAfterAttachmentChange(Message message) {
+        var messageId = message.getId();
+        var channelId = message.getChannel().getId();
+        var author = message.getAuthor().getUsername();
+        var body = message.getBodyMarkdown();
+        var filenames = messageRepository.findIndexFilenames(messageId);
+        afterCommit(() -> messageIndex.index(messageId, channelId, author, body, filenames));
     }
 
     /**
@@ -568,8 +605,9 @@ public class MessageService {
      * call {@link Tx#commit()} between the action and the assertion to flush the inner
      * tx so its hooks fire.
      */
-    private void indexNow(Long messageId, Long channelId, String author, String body) {
-        afterCommit(() -> messageIndex.index(messageId, channelId, author, body));
+    private void indexNow(Long messageId, Long channelId, String author, String body,
+                          List<String> filenames) {
+        afterCommit(() -> messageIndex.index(messageId, channelId, author, body, filenames));
     }
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(MessageService.class);

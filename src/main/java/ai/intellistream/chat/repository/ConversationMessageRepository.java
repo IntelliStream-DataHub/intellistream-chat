@@ -152,4 +152,20 @@ public interface ConversationMessageRepository extends JpaRepository<Conversatio
     @Query("select m.id, m.conversation.id, m.author.username, m.bodyMarkdown from ConversationMessage m "
            + "where m.author.id = :authorId")
     List<Object[]> findIndexRowsByAuthor(Long authorId);
+
+    /**
+     * Flat {@code (messageId, filename)} rows for the live attachments on these messages — the
+     * filename half of the index document. See {@code MessageRepository.findIndexFilenamesByIds}
+     * for why it is a second query rather than a join, and why it lives here.
+     */
+    @Query("select a.message.id, a.filename from ConversationAttachment a "
+           + "where a.message.id in :ids and a.deletedAt is null "
+           + "order by a.createdAt asc, a.id asc")
+    List<Object[]> findIndexFilenamesByIds(@Param("ids") Collection<Long> ids);
+
+    /** {@link #findIndexFilenamesByIds} for a single message — the write path's edit/attach hooks. */
+    @Query("select a.filename from ConversationAttachment a "
+           + "where a.message.id = :messageId and a.deletedAt is null "
+           + "order by a.createdAt asc, a.id asc")
+    List<String> findIndexFilenames(@Param("messageId") Long messageId);
 }

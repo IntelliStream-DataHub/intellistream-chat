@@ -177,10 +177,16 @@ public class CleanupTasks {
         }
         for (int i = 0; i < missing.size(); i += REINDEX_BATCH) {
             var batch = missing.subList(i, Math.min(i + REINDEX_BATCH, missing.size()));
+            // The attachment filenames belong to the document as much as the body does. A sweep
+            // that rebuilt these without them would be the worst version of this bug: correct on
+            // the day it ships, and quietly stripping files out of search an hour later.
+            var filenames = MessageIndexService.groupFilenames(
+                    messageRepo.findIndexFilenamesByIds(batch));
             var docs = new ArrayList<MessageIndexService.IndexedMessage>(batch.size());
             for (var m : messageRepo.findAllByIdWithAuthor(batch)) {
                 docs.add(new MessageIndexService.IndexedMessage(m.getId(), m.getChannel().getId(),
-                        m.getAuthor().getUsername(), m.getBodyMarkdown()));
+                        m.getAuthor().getUsername(), m.getBodyMarkdown(),
+                        filenames.getOrDefault(m.getId(), List.of())));
             }
             messageIndex.reindex(docs); // one commit per batch, not per document (N26)
         }
@@ -228,7 +234,9 @@ public class CleanupTasks {
         for (int i = 0; i < missing.size(); i += REINDEX_BATCH) {
             var batch = missing.subList(i, Math.min(i + REINDEX_BATCH, missing.size()));
             messageIndex.reindexConversations(MessageIndexService.IndexedConversationMessage
-                    .fromRows(conversationMessageRepo.findIndexRowsByIds(batch)));
+                    .fromRows(conversationMessageRepo.findIndexRowsByIds(batch),
+                            MessageIndexService.groupFilenames(
+                                    conversationMessageRepo.findIndexFilenamesByIds(batch))));
         }
         log.info("[cleanup:lucene-dm] reconciled: indexed {} missing, removed {} stale",
                 missing.size(), stale.size());

@@ -70,6 +70,7 @@ class SearchFlowIT {
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         registry.add("spring.flyway.enabled", () -> "true");
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "validate");
+        registry.add("ichat.attachments.dir", () -> "build/test-attachments-search-flow");
         TestLuceneDirs.register(registry);
     }
 
@@ -78,6 +79,10 @@ class SearchFlowIT {
     @Autowired MessageService messages;
     @Autowired SearchService search;
     @Autowired ai.intellistream.chat.service.UserService userService;
+    @Autowired ai.intellistream.chat.service.AttachmentService attachments;
+    @Autowired ai.intellistream.chat.service.ConversationService conversations;
+    @Autowired ai.intellistream.chat.service.ConversationAttachmentService conversationAttachments;
+    @Autowired ai.intellistream.chat.repository.AttachmentRepository attachmentRepo;
 
     /** Each test gets a fresh user/channel name to avoid colliding with other tests sharing the container. */
     private static final AtomicInteger SEQ = new AtomicInteger();
@@ -853,6 +858,137 @@ class SearchFlowIT {
         assertThat(bodies).hasSize(12);
         assertThat(bodies).allMatch(b -> b.contains("public number"));
         assertThat(bodies).noneMatch(b -> b.contains("private number"));
+    }
+
+    // ---------- Attachment filenames ----------
+    //
+    // These go through the real upload path rather than the index, because the interesting part is
+    // the ordering: AttachmentService.upload is handed an ALREADY-INDEXED message and creates the
+    // attachment row afterwards, so the filename can only reach the index by a second write. Every
+    // test below would still pass against an index-level fake and tell you nothing.
+
+    @Test
+    void aSharedFilesNameFindsTheMessageThatCarriesIt() throws java.io.IOException {
+        var alice = newUser("alice");
+        var room = newPublic("files", alice);
+        var name = "quarterly-report-" + SEQ.incrementAndGet() + ".pdf";
+        upload(room, alice, name, "");
+
+        // The whole name, and a word out of the middle of it — someone looking for a file rarely
+        // remembers the exact spelling of all three parts.
+        assertThat(search.searchChannel(room, alice, name, 10)).hasSize(1);
+        assertThat(search.searchChannel(room, alice, "quarterly", 10)).hasSize(1);
+    }
+
+    @Test
+    void aFileWithNoCaptionIsStillFindableByItsName() throws java.io.IOException {
+        // The common case, and the one that had no index document at all before: a caption-less
+        // upload is saved straight through the repository and never goes near MessageService.post,
+        // so nothing indexed it until a reconcile sweep noticed the id was missing.
+        var alice = newUser("alice");
+        var room = newPublic("files", alice);
+        upload(room, alice, "silent-upload-" + SEQ.incrementAndGet() + ".bin", "");
+
+        assertThat(search.searchChannel(room, alice, "silent", 10)).hasSize(1);
+    }
+
+    @Test
+    void editingTheCaptionDoesNotStopTheFileBeingFound() throws java.io.IOException {
+        // The regression this feature invites. An index document is rewritten whole, so an edit
+        // that only carries the new body erases the filenames — silently, and only noticeable to
+        // someone searching for a file they shared months ago.
+        var alice = newUser("alice");
+        var room = newPublic("files", alice);
+        var name = "budget-" + SEQ.incrementAndGet() + ".xlsx";
+        var attachment = upload(room, alice, name, "first wording of the caption");
+        assertThat(search.searchChannel(room, alice, "budget", 10)).hasSize(1);
+
+        messages.edit(attachment.getMessage().getId(), alice, "second wording of the caption");
+
+        assertThat(search.searchChannel(room, alice, "second wording", 10)).hasSize(1);
+        assertThat(search.searchChannel(room, alice, "budget", 10)).hasSize(1);
+    }
+
+    @Test
+    void aMessageCarryingTwoFilesIsOneResultFoundByEitherName() throws java.io.IOException {
+        var alice = newUser("alice");
+        var room = newPublic("files", alice);
+        var seq = SEQ.incrementAndGet();
+        var first = upload(room, alice, "runbook-" + seq + ".md", "the release pack");
+        // A second attachment onto the SAME message — the shape the message-per-upload path does
+        // not produce on its own, and the one where a document-per-attachment design would return
+        // this message twice.
+        attachOnto(first.getMessage(), alice, "screenshots-" + seq + ".zip");
+
+        assertThat(search.searchChannel(room, alice, "runbook", 10)).hasSize(1);
+        assertThat(search.searchChannel(room, alice, "screenshots", 10)).hasSize(1);
+    }
+
+    @Test
+    void deletingTheMessageTakesItsFilenameOutOfSearch() throws java.io.IOException {
+        var alice = newUser("alice");
+        var room = newPublic("files", alice);
+        var name = "doomed-" + SEQ.incrementAndGet() + ".pdf";
+        var attachment = upload(room, alice, name, "");
+        assertThat(search.searchChannel(room, alice, "doomed", 10)).hasSize(1);
+
+        messages.delete(attachment.getMessage().getId(), alice);
+
+        assertThat(search.searchChannel(room, alice, "doomed", 10)).isEmpty();
+    }
+
+    @Test
+    void aFileSharedInADirectMessageIsFoundByName() throws java.io.IOException {
+        // The conversation half runs down its own write path (ConversationAttachmentService →
+        // ConversationService), so the channel tests above prove nothing about it.
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var dm = conversations.directBetween(alice, bob);
+        var name = "holiday-photos-" + SEQ.incrementAndGet() + ".zip";
+        conversationAttachments.upload(dm, alice, name, "application/octet-stream", 4,
+                ai.intellistream.chat.attachments.AttachmentBytes.DEFAULT_MAX_BYTES, "",
+                new java.io.ByteArrayInputStream(new byte[4]));
+
+        assertThat(search.searchConversation(dm, bob, "holiday", 10)).hasSize(1);
+    }
+
+    @Test
+    void editingADirectMessageCaptionDoesNotStopItsFileBeingFound() throws java.io.IOException {
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var dm = conversations.directBetween(alice, bob);
+        var name = "dmbudget-" + SEQ.incrementAndGet() + ".xlsx";
+        var attachment = conversationAttachments.upload(dm, alice, name,
+                "application/octet-stream", 4,
+                ai.intellistream.chat.attachments.AttachmentBytes.DEFAULT_MAX_BYTES,
+                "first dm wording", new java.io.ByteArrayInputStream(new byte[4]));
+
+        conversations.editMessage(attachment.getMessage().getId(), alice, "second dm wording");
+
+        assertThat(search.searchConversation(dm, bob, "second dm wording", 10)).hasSize(1);
+        assertThat(search.searchConversation(dm, bob, "dmbudget", 10)).hasSize(1);
+    }
+
+    private ai.intellistream.chat.domain.Attachment upload(Channel room, User uploader,
+                                                           String filename, String caption)
+            throws java.io.IOException {
+        return attachments.upload(room, uploader, filename, "application/octet-stream", 4,
+                ai.intellistream.chat.attachments.AttachmentBytes.DEFAULT_MAX_BYTES, caption,
+                new java.io.ByteArrayInputStream(new byte[4]));
+    }
+
+    /**
+     * A second file onto an existing message. {@code AttachmentService.upload} always creates its
+     * own message, so the row is written directly here and the index told the same way the upload
+     * path tells it — which is exactly what a future multi-file upload would do.
+     */
+    private void attachOnto(ai.intellistream.chat.domain.Message message, User uploader,
+                            String filename) throws java.io.IOException {
+        var key = java.util.UUID.randomUUID().toString();
+        java.nio.file.Files.write(attachments.storageRoot().resolve(key), new byte[4]);
+        attachmentRepo.save(new ai.intellistream.chat.domain.Attachment(
+                message, filename, "application/octet-stream", 4, key));
+        messages.reindexAfterAttachmentChange(message);
     }
 
     // ---------- Snippet highlighting ----------

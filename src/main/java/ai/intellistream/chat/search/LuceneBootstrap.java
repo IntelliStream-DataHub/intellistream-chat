@@ -126,10 +126,15 @@ public class LuceneBootstrap {
         }
         for (int i = 0; i < missing.size(); i += PAGE_SIZE) {
             var batch = missing.subList(i, Math.min(i + PAGE_SIZE, missing.size()));
+            // Filenames in the same batch as the bodies: this rewrites whole documents, so healing
+            // a crash tail without them would re-index the messages and lose their attachments.
+            var filenames = MessageIndexService.groupFilenames(
+                    messageRepository.findIndexFilenamesByIds(batch));
             var docs = new ArrayList<MessageIndexService.IndexedMessage>(batch.size());
             for (var m : messageRepository.findAllByIdWithAuthor(batch)) {
                 docs.add(new MessageIndexService.IndexedMessage(m.getId(), m.getChannel().getId(),
-                        m.getAuthor().getUsername(), m.getBodyMarkdown()));
+                        m.getAuthor().getUsername(), m.getBodyMarkdown(),
+                        filenames.getOrDefault(m.getId(), List.of())));
             }
             messageIndex.reindex(docs);
         }
@@ -167,7 +172,9 @@ public class LuceneBootstrap {
         for (int i = 0; i < missing.size(); i += PAGE_SIZE) {
             var batch = missing.subList(i, Math.min(i + PAGE_SIZE, missing.size()));
             messageIndex.reindexConversations(MessageIndexService.IndexedConversationMessage
-                    .fromRows(conversationMessageRepository.findIndexRowsByIds(batch)));
+                    .fromRows(conversationMessageRepository.findIndexRowsByIds(batch),
+                            MessageIndexService.groupFilenames(
+                                    conversationMessageRepository.findIndexFilenamesByIds(batch))));
         }
     }
 
@@ -181,13 +188,16 @@ public class LuceneBootstrap {
                 if (page.hasNext() || exhausted) return;
                 var rows = messageRepository.findIndexRowsAfter(lastId, PageRequest.of(0, PAGE_SIZE));
                 if (rows.isEmpty()) { exhausted = true; return; }
-                var mapped = new ArrayList<MessageIndexService.IndexedMessage>(rows.size());
+                var ids = new ArrayList<Long>(rows.size());
                 for (var r : rows) {
-                    long id = ((Number) r[0]).longValue();
-                    mapped.add(new MessageIndexService.IndexedMessage(
-                            id, ((Number) r[1]).longValue(), (String) r[2], (String) r[3]));
-                    lastId = id;
+                    ids.add(((Number) r[0]).longValue());
                 }
+                // One extra query per page, not a join onto the projection above: a message with
+                // three files would otherwise arrive as three rows and be indexed three times.
+                var mapped = MessageIndexService.IndexedMessage.fromRows(rows,
+                        MessageIndexService.groupFilenames(
+                                messageRepository.findIndexFilenamesByIds(ids)));
+                lastId = ids.get(ids.size() - 1);
                 page = mapped.iterator();
             }
 
