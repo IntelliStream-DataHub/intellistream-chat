@@ -77,7 +77,7 @@ public class SidebarService {
         // unread and mention counts below are not computed for rows nothing renders.
         var memberships = memberRepository.findLiveByUserFetchingChannel(user); // avoid channel N+1 (N28)
         if (memberships.isEmpty()) {
-            return new SidebarView(List.of(), notifyDefault);
+            return new SidebarView(List.of(), notifyDefault, notifyDmDefault(user));
         }
 
         var rows = new ArrayList<ChannelSidebarDto>(memberships.size());
@@ -93,7 +93,13 @@ public class SidebarService {
         rows.replaceAll(d -> d.withCounts(
                 unread.getOrDefault(d.id(), 0L), mentions.getOrDefault(d.id(), 0L)));
         rows.sort(ChannelSidebarDto.BY_NAME);
-        return new SidebarView(List.copyOf(rows), notifyDefault);
+        return new SidebarView(List.copyOf(rows), notifyDefault, notifyDmDefault(user));
+    }
+
+    /** The viewer's account-wide conversation default, tolerating a row written before V13. */
+    private static NotificationLevel notifyDmDefault(User user) {
+        var stored = user.getNotifyDmDefault();
+        return stored == null ? NotificationLevel.ALL : stored;
     }
 
     /** The viewer's account-wide notification default, tolerating a row written before V7. */

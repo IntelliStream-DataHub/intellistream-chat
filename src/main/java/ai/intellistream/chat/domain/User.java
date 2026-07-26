@@ -93,6 +93,16 @@ public class User {
     private NotificationLevel notifyDefault = NotificationLevel.MENTIONS;
 
     /**
+     * The account-wide default for direct and group conversations, kept separate from
+     * {@link #notifyDefault} because the two want different answers. MENTIONS is right for a
+     * channel and wrong for a DM: a message sent to you and nobody else is addressed to you whether
+     * or not it spells your name. Seeded ALL, which is both Slack's behaviour and today's.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "notify_dm_default", nullable = false, length = 16)
+    private NotificationLevel notifyDmDefault = NotificationLevel.ALL;
+
+    /**
      * Storage key (UUID) for the avatar file under {@code chat.avatars.dir}, or {@code null}
      * when the user is on the auto-generated initial+colour fallback. The {@code updatedAt}
      * timestamp is what we cache-bust avatar URLs with: a fresh value invalidates the
@@ -292,5 +302,18 @@ public class User {
                             + "there is nothing above it to inherit from");
         }
         this.notifyDefault = level;
+    }
+
+    /**
+     * Pick the account-wide default for conversations. Same rule as {@link #chooseNotifyDefault}:
+     * a real level, never {@code DEFAULT}. Mirrored by {@code users_notify_dm_default_chk}.
+     */
+    public void chooseNotifyDmDefault(NotificationLevel level) {
+        if (level == null || level.isInherited()) {
+            throw new IllegalArgumentException(
+                    "The account conversation-notification default must be ALL, MENTIONS or NONE — "
+                            + "there is nothing above it to inherit from");
+        }
+        this.notifyDmDefault = level;
     }
 }

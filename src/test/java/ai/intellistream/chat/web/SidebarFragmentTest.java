@@ -88,7 +88,7 @@ class SidebarFragmentTest {
         var context = new WebContext(exchange);
         context.setVariable(ThymeleafEvaluationContext.THYMELEAF_EVALUATION_CONTEXT_CONTEXT_VARIABLE_NAME,
                 new ThymeleafEvaluationContext(appContext, null));
-        context.setVariable("sidebar", new SidebarView(channels, NotificationLevel.MENTIONS));
+        context.setVariable("sidebar", new SidebarView(channels, NotificationLevel.MENTIONS, NotificationLevel.ALL));
         // HomeController sets both ids on every page that renders this, the inactive one to null.
         context.setVariable("activeChannelId", null);
         context.setVariable("activeConversationId", null);

@@ -65,26 +65,24 @@ import java.util.Set;
  * controls. Muting is not "pretend nothing happened": the unread count still moves, because it is a
  * fact about the conversation rather than a request for attention.
  *
- * <p><b>A conversation has no bystanders, so only {@link NotificationLevel#NONE} silences one.</b>
- * You are in a channel because you joined it and in a conversation because somebody put you in it,
- * which is why a channel's traffic is mostly other people's business and a conversation's is
- * addressed to the people in it — all of them. So ALL and MENTIONS both deliver here, and the
- * control is really "this conversation, or not". Three reasons that is the right reading rather
- * than a shortcut:
+ * <p><b>A conversation's level means what it says, including MENTIONS.</b> That took two account
+ * defaults to arrange. There is one for channels (shipped MENTIONS) and one for conversations
+ * (shipped ALL), because the same word wants different answers in the two places: most traffic in a
+ * room you joined is other people's business, while a message sent to you and nobody else is
+ * addressed to you whether or not it spells your name.
  *
- * <ul>
- *   <li>MENTIONS is the shipped account default. Treating it as "mentions only" would make this
- *       control's first act on every existing install be to stop delivering direct messages — a
- *       regression dressed as a feature.</li>
- *   <li>A 1:1 has no coherent "mentions only": a message sent to you and nobody else is addressed
- *       to you whether or not it spells your name.</li>
- *   <li>Slack ships the same behaviour by a different route — a separate account default for DMs,
- *       set to "all new messages". Reaching it with one column instead of two costs the mentions-only
- *       setting on a very large group DM, which is the trade this makes knowingly.</li>
- * </ul>
+ * <p>With a single default this could not be honoured. Conversations inherited the channel default,
+ * so reading MENTIONS strictly would have stopped delivering direct messages to every existing
+ * account the moment it shipped — a regression dressed as a feature — and the code therefore
+ * ignored MENTIONS and let only NONE silence a conversation. What that cost was the setting a
+ * twenty-person group DM actually wants: "tell me when someone says my name". Now that
+ * conversations inherit their own default, seeded ALL, a member who picks MENTIONS has picked it
+ * deliberately, a 1:1 keeps notifying, and nobody's messages went quiet because a migration ran.
+ * This is the shape Slack uses, reached the same way.
  *
- * <p>The picker on the conversation page therefore offers <em>Default / Every message / Nothing</em>
- * and labels the inherited option by what it actually does. What the mention test below still buys
+ * <p>The picker on the conversation page therefore offers all four —
+ * <em>Default / Every message / Mentions only / Nothing</em> — labelling the inherited option by
+ * what it currently resolves to. What the mention test below still buys
  * is the {@code mention} flag on the alert, which is how a client can tell "somebody said your name"
  * from ordinary traffic — and it is why {@code @channel} in a group conversation is not decoration.
  */
@@ -145,8 +143,15 @@ public class ConversationAlertPublisher {
                 boolean named = broadcastHandle
                         || handles.contains(recipient.getUsername().toLowerCase(Locale.ROOT))
                         || inThread.contains(recipient.getUsername().toLowerCase(Locale.ROOT));
-                var level = levels.getOrDefault(recipient.getId(), NotificationLevel.ACCOUNT_FALLBACK);
+                var level = levels.getOrDefault(recipient.getId(), NotificationLevel.ALL);
                 if (level == NotificationLevel.NONE) continue;
+                // MENTIONS means what it says here now. It could not before: conversations
+                // inherited the *channel* account default, which ships as MENTIONS, so honouring it
+                // would have stopped delivering direct messages to every existing account at once.
+                // Conversations now inherit their own account default, seeded ALL, so a member who
+                // chose MENTIONS on a twenty-person group DM chose it deliberately and gets it —
+                // and a 1:1 still notifies, because that default is ALL.
+                if (level == NotificationLevel.MENTIONS && !named) continue;
 
                 // A direct conversation has no title of its own — it is "the conversation with
                 // that person", so from the recipient's side the sender's name is the title.

@@ -39,6 +39,7 @@ import java.security.Principal;
  *   <li>{@code PUT  /api/channels/{id}/notify} — same body, same response</li>
  *   <li>{@code GET  /api/profile/notify-default} → {@code {"level":"ALL|MENTIONS|NONE"}}</li>
  *   <li>{@code PUT  /api/profile/notify-default} — same body, same response</li>
+ *   <li>{@code GET/PUT /api/profile/notify-dm-default} — the same pair for conversations</li>
  * </ul>
  *
  * <p>The channel value is raw: {@code DEFAULT} means "follows the account default" and is returned
@@ -128,5 +129,24 @@ public class NotificationPreferenceRestController {
                                             Principal principal) {
         var me = currentUser.resolve(principal);
         return NotifyLevelDto.of(preferences.setAccountDefault(me, body.level()));
+    }
+
+    @GetMapping("/api/profile/notify-dm-default")
+    public NotifyLevelDto accountDmDefault(Principal principal) {
+        var me = currentUser.resolve(principal);
+        return NotifyLevelDto.of(preferences.accountDmDefault(me));
+    }
+
+    /**
+     * Change the account-wide default for direct and group conversations. Separate from the channel
+     * default because the two want different answers — see {@code ConversationAlertPublisher} — and
+     * separate here rather than as a mode on one endpoint so a client cannot set one while meaning
+     * the other.
+     */
+    @PutMapping("/api/profile/notify-dm-default")
+    public NotifyLevelDto setAccountDmDefault(@RequestBody @Valid SetNotifyLevelRequest body,
+                                              Principal principal) {
+        var me = currentUser.resolve(principal);
+        return NotifyLevelDto.of(preferences.setAccountDmDefault(me, body.level()));
     }
 }

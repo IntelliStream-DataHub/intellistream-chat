@@ -45,6 +45,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 
 /**
@@ -133,12 +134,36 @@ class ConversationNotificationLevelIT {
         // to. That difference is the whole design: with a copy, changing the account default moves
         // nothing, because every row is carrying a frozen value indistinguishable from a choice.
         assertThat(preferences.levelFor(conv, bob)).isEqualTo(NotificationLevel.DEFAULT);
-        assertThat(preferences.effectiveLevelFor(conv, bob)).isEqualTo(NotificationLevel.MENTIONS);
+        assertThat(preferences.effectiveLevelFor(conv, bob)).isEqualTo(NotificationLevel.ALL);
 
-        preferences.setAccountDefault(bob, NotificationLevel.ALL);
+        // And it is the *conversation* account default it inherits, not the channel one. Moving
+        // that is what a row storing DEFAULT is for.
+        preferences.setAccountDmDefault(bob, NotificationLevel.MENTIONS);
         var reloaded = users.findById(bob.getId()).orElseThrow();
         assertThat(preferences.levelFor(conv, reloaded)).isEqualTo(NotificationLevel.DEFAULT);
-        assertThat(preferences.effectiveLevelFor(conv, reloaded)).isEqualTo(NotificationLevel.ALL);
+        assertThat(preferences.effectiveLevelFor(conv, reloaded)).isEqualTo(NotificationLevel.MENTIONS);
+    }
+
+    /**
+     * The two defaults are genuinely separate. Changing how you follow channels must not quietly
+     * change how you receive direct messages — that coupling is the bug the split removes.
+     */
+    @Test
+    void theChannelDefaultAndTheConversationDefaultDoNotMoveEachOther() {
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var conv = conversations.directBetween(alice, bob);
+
+        preferences.setAccountDefault(bob, NotificationLevel.NONE);
+        var afterChannelChange = users.findById(bob.getId()).orElseThrow();
+        assertThat(preferences.effectiveLevelFor(conv, afterChannelChange))
+                .as("muting channels must not mute direct messages")
+                .isEqualTo(NotificationLevel.ALL);
+
+        preferences.setAccountDmDefault(bob, NotificationLevel.NONE);
+        var afterDmChange = users.findById(bob.getId()).orElseThrow();
+        assertThat(preferences.accountDefault(afterDmChange)).isEqualTo(NotificationLevel.NONE);
+        assertThat(preferences.effectiveLevelFor(conv, afterDmChange)).isEqualTo(NotificationLevel.NONE);
     }
 
     @Test
@@ -179,7 +204,7 @@ class ConversationNotificationLevelIT {
         preferences.setLevelFor(conv, bob, NotificationLevel.NONE);
 
         assertThat(preferences.effectiveLevelFor(conv, bob)).isEqualTo(NotificationLevel.NONE);
-        assertThat(preferences.effectiveLevelFor(conv, carol)).isEqualTo(NotificationLevel.MENTIONS);
+        assertThat(preferences.effectiveLevelFor(conv, carol)).isEqualTo(NotificationLevel.ALL);
     }
 
     @Test
@@ -216,19 +241,60 @@ class ConversationNotificationLevelIT {
                 .isEqualTo(1L);
     }
 
+    /**
+     * MENTIONS means mentions here now. It could not while conversations inherited the *channel*
+     * account default, which ships as MENTIONS: honouring it would have stopped delivering direct
+     * messages to every existing account at once, so the code ignored it and only NONE silenced a
+     * conversation. That cost the setting a large group DM actually wants. Conversations now have
+     * their own account default (ALL), so choosing MENTIONS on one is a deliberate choice and gets
+     * what it says.
+     */
     @Test
-    void mentionsOnlyStillDeliversEverythingInAConversation() {
-        // A conversation has no bystanders — you are in it because somebody put you in it — so
-        // "only what is addressed to me" is everything that is said here. MENTIONS is also the
-        // shipped account default, and reading it as "mentions only" would make this control's
-        // first act on every existing install be to stop delivering direct messages.
+    void mentionsOnlyDeliversOnlyWhatNamesYouInAGroup() {
         var alice = newUser("alice");
         var bob = newUser("bob");
         var conv = conversations.createGroup("Chatter", alice, List.of(bob));
         preferences.setLevelFor(conv, bob, NotificationLevel.MENTIONS);
 
         alerts.alert(conv, conversations.post(conv, alice, "just thinking out loud"));
+        verifyNotAlerted(bob);
 
+        reset(broker);
+        alerts.alert(conv, conversations.post(conv, alice, "@" + bob.getUsername() + " thoughts?"));
+        verifyAlerted(bob);
+    }
+
+    /**
+     * The regression the split exists to prevent: an account that has never touched either setting
+     * still gets its direct messages. The channel default is MENTIONS and the conversation default
+     * is ALL, and it is the second one a conversation follows.
+     */
+    @Test
+    void anUntouchedAccountStillGetsItsDirectMessages() {
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        assertThat(preferences.accountDefault(bob)).isEqualTo(NotificationLevel.MENTIONS);
+        assertThat(preferences.accountDmDefault(bob)).isEqualTo(NotificationLevel.ALL);
+
+        var conv = conversations.createGroup("Chatter", alice, List.of(bob));
+        alerts.alert(conv, conversations.post(conv, alice, "nobody is named in this one"));
+
+        verifyAlerted(bob);
+    }
+
+    /** And the account-wide conversation default is itself honoured when set to mentions-only. */
+    @Test
+    void theConversationAccountDefaultCanBeMentionsOnly() {
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        preferences.setAccountDmDefault(bob, NotificationLevel.MENTIONS);
+        var conv = conversations.createGroup("Chatter", alice, List.of(bob));
+
+        alerts.alert(conv, conversations.post(conv, alice, "unaddressed chatter"));
+        verifyNotAlerted(bob);
+
+        reset(broker);
+        alerts.alert(conv, conversations.post(conv, alice, "@" + bob.getUsername() + " ping"));
         verifyAlerted(bob);
     }
 
@@ -237,7 +303,7 @@ class ConversationNotificationLevelIT {
         var alice = newUser("alice");
         var bob = newUser("bob");
         var conv = conversations.directBetween(alice, bob);
-        assertThat(preferences.effectiveLevelFor(conv, bob)).isEqualTo(NotificationLevel.MENTIONS);
+        assertThat(preferences.effectiveLevelFor(conv, bob)).isEqualTo(NotificationLevel.ALL);
 
         alerts.alert(conv, conversations.post(conv, alice, "no names in this one"));
 

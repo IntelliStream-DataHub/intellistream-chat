@@ -47,10 +47,16 @@ import java.util.List;
  *                      per-channel picker, without a second request: each row carries its raw
  *                      level, which is only meaningful next to the default it may be inheriting.
  *                      Resolve as {@code row.notifyLevel == DEFAULT ? notifyDefault : row.notifyLevel}.
+ * @param notifyDmDefault the same, for direct and group conversations, which have their own account
+ *                      default because "mentions only" means something useful about a channel and
+ *                      something broken about a message sent to you alone. Carried here so the
+ *                      conversation page's picker can label what <em>Default</em> resolves to
+ *                      without a second request — the sidebar fragment is shared by both pages.
  */
 public record SidebarView(
         List<ChannelSidebarDto> channels,
-        NotificationLevel notifyDefault
+        NotificationLevel notifyDefault,
+        NotificationLevel notifyDmDefault
 ) {
     public boolean isEmpty() {
         return channels.isEmpty();

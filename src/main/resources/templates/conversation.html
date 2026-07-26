@@ -98,24 +98,27 @@
                     <div class="channel-notify">
                         <label for="conversation-notify-level">Notify me about</label>
                         <select id="conversation-notify-level"
-                                th:with="mutedByDefault=${sidebar.notifyDefault.name() == 'NONE'}"
+                                th:with="dmDefault=${sidebar.notifyDmDefault}"
                                 th:attr="data-conversation-id=${activeConversationId},
                                          data-current=${conversationNotifyLevel}">
+                            <!--/* The Default row names what inheriting actually produces, not the
+                                   account default's own label — a picker that says "Default" and
+                                   nothing else makes you go and look it up. */-->
                             <option value="DEFAULT"
-                                    th:text="'Default (' + ${mutedByDefault ? 'nothing' : 'every message'} + ')'"
+                                    th:text="'Default (' + ${#strings.toLowerCase(dmDefault.name() == 'ALL' ? 'every message' : (dmDefault.name() == 'MENTIONS' ? 'mentions only' : 'nothing'))} + ')'"
                                     th:selected="${conversationNotifyLevel.name() == 'DEFAULT'}">Default</option>
-                            <!--/* MENTIONS is selectable only through the API; it behaves as ALL
-                                   here, so it shows as ALL rather than leaving the picker on no
-                                   option at all. */-->
                             <option value="ALL"
-                                    th:selected="${conversationNotifyLevel.name() == 'ALL'
-                                                   or conversationNotifyLevel.name() == 'MENTIONS'}">Every message</option>
+                                    th:selected="${conversationNotifyLevel.name() == 'ALL'}">Every message</option>
+                            <option value="MENTIONS"
+                                    th:selected="${conversationNotifyLevel.name() == 'MENTIONS'}">Mentions only</option>
                             <option value="NONE" th:selected="${conversationNotifyLevel.name() == 'NONE'}">Nothing (mute)</option>
                         </select>
                         <p class="form-hint">
                             Everything said here is addressed to the people in it, so a conversation
-                            notifies on every message. Mute it to keep the unread count without the
-                            interruption.
+                            notifies on every message by default. <em>Mentions only</em> is for a
+                            large group that has become a busy room; in a one-to-one it means the
+                            other person has to type your name to reach you, which is rarely what
+                            anyone wants. Muting keeps the unread count without the interruption.
                         </p>
                         <p class="channel-notify-status" id="conversation-notify-status" hidden></p>
                     </div>

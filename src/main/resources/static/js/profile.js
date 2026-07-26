@@ -333,24 +333,28 @@
     }
   });
 
-  // ---------- Notification default ----------
-  // Account-level, so it is saved to the server rather than localStorage: what interrupts you is
+  // ---------- Notification defaults ----------
+  // Account-level, so they are saved to the server rather than localStorage: what interrupts you is
   // about you and should follow you between devices. Which sound it makes is about the room you
   // are sitting in and stays local — see below.
-  (() => {
-    const picker = document.getElementById('notify-default-level');
+  //
+  // Two of them, one for channels and one for conversations, because "mentions only" is a sensible
+  // way to follow a channel and a broken way to receive a message sent to you alone. Same wiring
+  // for both; only the element and the endpoint differ.
+  const wireNotifyDefault = (elementId, path, label) => {
+    const picker = document.getElementById(elementId);
     if (!picker) return;
     picker.addEventListener('change', async () => {
       const previous = picker.dataset.current;
       picker.disabled = true;
       try {
-        const res = await fetch('/api/profile/notify-default', {
+        const res = await fetch(path, {
           method: 'PUT', headers: csrfHeaders(),   // already sets Content-Type: application/json
           body: JSON.stringify({ level: picker.value }),
         });
         if (!res.ok) throw new Error('rejected');
         picker.dataset.current = picker.value;
-        setFeedback('Notification default saved.');
+        setFeedback(label + ' saved.');
       } catch (e) {
         picker.value = previous;
         setFeedback('Could not save that.', 'error');
@@ -358,7 +362,11 @@
         picker.disabled = false;
       }
     });
-  })();
+  };
+  wireNotifyDefault('notify-default-level', '/api/profile/notify-default',
+                    'Notification default');
+  wireNotifyDefault('notify-dm-default-level', '/api/profile/notify-dm-default',
+                    'Direct-message notification default');
 
   // ---------- Notification sound ----------
   // One row per kind: whether it makes a sound, and which one. State lives in localStorage

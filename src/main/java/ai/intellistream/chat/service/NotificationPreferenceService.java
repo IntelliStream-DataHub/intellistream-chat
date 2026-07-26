@@ -83,6 +83,25 @@ public class NotificationPreferenceService {
     }
 
     /**
+     * The user's account-wide default for conversations — never {@code DEFAULT}. Separate from
+     * {@link #accountDefault} because a channel and a direct message want different answers; see
+     * {@code V13__dm_notification_default.sql} for why one column could not serve both.
+     */
+    public NotificationLevel accountDmDefault(User user) {
+        var stored = user.getNotifyDmDefault();
+        return stored == null ? NotificationLevel.ALL : stored;
+    }
+
+    /** Set the account-wide conversation default. Same re-read as {@link #setAccountDefault}. */
+    @Transactional
+    public NotificationLevel setAccountDmDefault(User user, NotificationLevel level) {
+        var managed = userRepository.findById(user.getId())
+                .orElseThrow(() -> new IllegalStateException("User missing: " + user.getId()));
+        managed.chooseNotifyDmDefault(level);
+        return managed.getNotifyDmDefault();
+    }
+
+    /**
      * Set the account-wide default. Re-reads the managed row first (same shape as
      * {@code UserService.updateTheme}) so the write lands whether the caller handed us a managed
      * or a detached {@link User}.
@@ -145,7 +164,7 @@ public class NotificationPreferenceService {
     /** The level actually in force for this conversation, with {@code DEFAULT} resolved. */
     @Transactional(readOnly = true)
     public NotificationLevel effectiveLevelFor(Conversation conversation, User user) {
-        return requireMembership(conversation, user).effectiveNotifyLevel(accountDefault(user));
+        return requireMembership(conversation, user).effectiveNotifyLevel(accountDmDefault(user));
     }
 
     /**
@@ -161,7 +180,9 @@ public class NotificationPreferenceService {
         var rows = conversationMemberRepository.findAllByConversationOrderByJoinedAtAsc(conversation);
         var out = new HashMap<Long, NotificationLevel>(rows.size());
         for (var m : rows) {
-            out.put(m.getUser().getId(), m.effectiveNotifyLevel(accountDefault(m.getUser())));
+            // accountDmDefault, not accountDefault: a conversation inherits the conversation
+            // default. Inheriting the channel one is what forced MENTIONS to be ignored here.
+            out.put(m.getUser().getId(), m.effectiveNotifyLevel(accountDmDefault(m.getUser())));
         }
         return out;
     }

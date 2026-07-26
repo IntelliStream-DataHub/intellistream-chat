@@ -115,7 +115,7 @@
                 <label for="notify-default-level">Notify me about</label>
                 <select id="notify-default-level" th:data-current="${me.notifyDefault}">
                     <option value="ALL" th:selected="${me.notifyDefault.name() == 'ALL'}">Every message</option>
-                    <option value="MENTIONS" th:selected="${me.notifyDefault.name() == 'MENTIONS'}">Mentions and direct messages</option>
+                    <option value="MENTIONS" th:selected="${me.notifyDefault.name() == 'MENTIONS'}">Mentions only</option>
                     <option value="NONE" th:selected="${me.notifyDefault.name() == 'NONE'}">Nothing</option>
                 </select>
                 <p class="profile-help">
@@ -123,6 +123,29 @@
                     <em>Default</em> keeps its own setting; the rest follow this one, so changing
                     it here moves them all. Unlike the sounds below, this is saved to your account
                     and applies wherever you sign in.
+                </p>
+            </div>
+
+            <!--/* Direct messages get their own default, because the same words mean different
+                   things in the two places. "Mentions only" is a sensible way to follow a channel
+                   you joined and a broken way to receive a message somebody sent to you alone —
+                   nobody types your name in a 1:1, they just talk to you. Keeping one control for
+                   both is what forced the conversation path to ignore "mentions only" entirely,
+                   which in turn made it impossible to say "only when someone names me" about a
+                   twenty-person group DM. Two defaults, both honest. */-->
+            <div class="notify-default">
+                <label for="notify-dm-default-level">Notify me about direct messages</label>
+                <select id="notify-dm-default-level" th:data-current="${me.notifyDmDefault}">
+                    <option value="ALL" th:selected="${me.notifyDmDefault.name() == 'ALL'}">Every message</option>
+                    <option value="MENTIONS" th:selected="${me.notifyDmDefault.name() == 'MENTIONS'}">Mentions only</option>
+                    <option value="NONE" th:selected="${me.notifyDmDefault.name() == 'NONE'}">Nothing</option>
+                </select>
+                <p class="profile-help">
+                    The starting point for every direct message and group conversation. <em>Every
+                    message</em> is the default and almost certainly what you want: a direct message
+                    is addressed to you whether or not it spells your name. <em>Mentions only</em>
+                    is for people in large group conversations who want them to behave like a busy
+                    channel.
                 </p>
             </div>
 
