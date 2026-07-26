@@ -106,9 +106,13 @@
   function uploaderCell(file) {
     const cell = document.createElement('td');
     cell.className = 'files-uploader';
+    // Avatar and name go in a wrapper, not straight into the <td>. The cell has to stay a
+    // table-cell for the column to line up with its header; the flex row is a thing inside it.
+    const line = document.createElement('span');
+    line.className = 'files-uploader-line';
     const name = file.uploaderDisplayName || file.uploaderUsername || '';
     if (buildAvatarEl) {
-      cell.appendChild(buildAvatarEl({
+      line.appendChild(buildAvatarEl({
         username: file.uploaderUsername,
         hasAvatar: file.uploaderHasAvatar,
         avatarVersion: file.uploaderAvatarVersion,
@@ -118,7 +122,8 @@
     const label = document.createElement('span');
     label.textContent = name;
     label.title = file.uploaderUsername || '';
-    cell.appendChild(label);
+    line.appendChild(label);
+    cell.appendChild(line);
     return cell;
   }
 

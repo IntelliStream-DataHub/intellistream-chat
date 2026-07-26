@@ -647,8 +647,23 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
      background is the panel's own so rows pass behind it rather than showing through. */
   position: sticky;
   top: 0;
-  z-index: 2;
+  /* Above the presence dots, and deliberately not `2`.
+     A sticky element with a z-index creates a stacking context, so this number is not just about
+     the heading — it is the ceiling for everything inside it, including the create-channel and
+     new-message popovers that hang off the + button. At `2` those popovers competed with
+     `.avatar::after` (also `2`) as equals, and the dots, being later in the document, painted on
+     top of an open popover. The popovers' own `z-index: 40` could not help: it only ranks them
+     inside this context, and this context was what was losing. */
+  z-index: 20;
   background: var(--sb-bg-3);
+}
+/* ...and above the *other* headings while one of its popovers is open. Raising every heading to
+   20 fixed the dots and introduced the same bug one level up: the popover is sealed inside its own
+   heading's stacking context, so with all headings equal the one further down the sidebar painted
+   over an open popover from the one above it. Lifting only the heading that currently holds an
+   open popover keeps the ordering of the rest exactly as it was. */
+.sidebar-section h2:has(> .popover-anchor > .sidebar-popover:not([hidden])) {
+  z-index: 41;
 }
 .sidebar-section h2 .add-btn {
   background: transparent;
@@ -915,6 +930,23 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   z-index: 50;
   min-width: 320px;
   max-width: 400px;
+  /* Scrollable, for the same reason the pins panel below is: this one started as a member list
+     with an invite box and now carries rename, description, the notification level, invite,
+     members, archive, delete and leave. On a laptop that already runs past the bottom of the
+     window, and the controls it hides down there are the destructive ones — a Leave button you
+     cannot reach is worse than no Leave button, because it looks like the feature is missing.
+     70vh rather than 100%: the panel hangs below a header, so the space it actually has is the
+     viewport minus that offset, and leaving a gap makes it obvious there is more to scroll. */
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* Scrolls, without a scrollbar. A panel this narrow spends 10-15px of its width on a track that
+     is only ever a few hundred pixels long, and the gutter is visible even when there is nothing
+     to scroll. Scrolling itself is untouched — wheel, trackpad, touch, and keyboard all still work,
+     and tabbing through the controls inside pulls them into view, which is what a keyboard user
+     relies on rather than the bar. */
+  scrollbar-width: none;          /* Firefox */
+  -ms-overflow-style: none;       /* legacy Edge */
   background: var(--panel);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
@@ -922,6 +954,8 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   padding: 0.9rem 1rem 1rem;
   color: var(--text);
 }
+.channel-admin-dropdown::-webkit-scrollbar { width: 0; height: 0; }
+
 .channel-admin-dropdown.anchor-left {
   left: 1rem;
   right: auto;
@@ -4379,6 +4413,21 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
     right: 0.5rem;
     width: auto;
     max-width: none;
+    /* min-width has to go with max-width. 320px is wider than a 320px phone once the two 0.5rem
+       insets are taken off, so the panel pushed the page sideways on the narrowest devices still
+       in use. */
+    min-width: 0;
+    /* Anchored to the bottom of the viewport rather than hanging off the control that opened it.
+       A max-height alone cannot do this: the panel's top is wherever the header pushes it, so any
+       fixed subtraction is a guess, and on a 320x568 phone the guess left the panel ending 43px
+       below the fold with Leave — the control most worth reaching — off screen. Bounding it by
+       the viewport removes the arithmetic: whatever the top turns out to be, the bottom is here.
+       Safe against `position: fixed`'s containing-block trap because nothing above this element
+       is transformed; the sliding sidebar is a sibling, not an ancestor. */
+    position: fixed;
+    top: auto;
+    bottom: calc(0.5rem + env(safe-area-inset-bottom));
+    max-height: min(75vh, calc(100vh - 5rem));
   }
 
   /* Emoji picker: span more of the viewport, position handled by JS. */
@@ -5195,11 +5244,19 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
    Reuses the file manager's chrome and table wholesale, because it is the same table answering a
    different question. Only two columns are new: who shared it, which the personal page cannot need
    (everything there is yours), and a link to the message, which replaces the delete button. */
+/* The cell stays a cell. `display: flex` here was the bug: it overrides the `table-cell` the
+   browser needs this <td> to be, so the cell drops out of the table's column sizing, gets wrapped
+   in an anonymous cell, and every column from this one rightwards stops lining up with its header.
+   Flex belongs on a wrapper inside the cell, which is what actually wants to be a row of two
+   things. */
 .files-uploader {
+  white-space: nowrap;
+  vertical-align: middle;
+}
+.files-uploader-line {
   display: flex;
   align-items: center;
   gap: 7px;
-  white-space: nowrap;
 }
 .files-uploader .avatar {
   width: 22px;
