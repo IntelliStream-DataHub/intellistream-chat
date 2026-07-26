@@ -68,20 +68,28 @@ public interface ConversationMemberRepository extends JpaRepository<Conversation
      * last_read_at marker (treated as "all unread" when null) and authored by someone else.
      * Returns rows of {@code [conversationId, count]}; conversations with zero unread are
      * absent from the result.
+     *
+     * <p>"Authored by someone else" has one exception: a conversation the viewer is the only member
+     * of. In a DM with yourself every message is your own, so the ordinary rule counts nothing and
+     * the badge can never light — which is fine for notes you typed and wrong for the one thing that
+     * writes there without you: a fired {@code /remind me}. A reminder that arrives while you are
+     * looking elsewhere has to leave a mark, so in a one-member conversation your own messages do
+     * count. Multi-member behaviour is untouched: your own messages are still not unread to you.
      */
     @Query(value = """
-            select cm.message_conv_id, count(*)
-              from (
-                select msg.conversation_id as message_conv_id, msg.author_id, msg.created_at,
-                       cmem.last_read_at
-                  from conversation_messages msg
-                  join conversation_members cmem
-                       on cmem.conversation_id = msg.conversation_id and cmem.user_id = :userId
-                 where msg.conversation_id in (:convIds)
-              ) cm
-             where cm.author_id <> :userId
-               and (cm.last_read_at is null or cm.created_at > cm.last_read_at)
-             group by cm.message_conv_id
+            select msg.conversation_id, count(*)
+              from conversation_messages msg
+              join conversation_members cmem
+                   on cmem.conversation_id = msg.conversation_id and cmem.user_id = :userId
+              join (select conversation_id, count(*) as member_count
+                      from conversation_members
+                     where conversation_id in (:convIds)
+                     group by conversation_id) mc
+                   on mc.conversation_id = msg.conversation_id
+             where msg.conversation_id in (:convIds)
+               and (msg.author_id <> :userId or mc.member_count = 1)
+               and (cmem.last_read_at is null or msg.created_at > cmem.last_read_at)
+             group by msg.conversation_id
             """, nativeQuery = true)
     List<Object[]> countUnreadPerConversation(@Param("userId") Long userId,
                                               @Param("convIds") Collection<Long> convIds);

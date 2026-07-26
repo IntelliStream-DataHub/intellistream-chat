@@ -26,6 +26,11 @@ import ai.intellistream.chat.domain.User;
  * Sidebar/page entry for a {@link Conversation}. For DIRECT conversations we surface
  * the *other* participant's identity (the viewer doesn't want to see their own name
  * in the DM list); for GROUP conversations we use the conversation title.
+ *
+ * <p>A DM with yourself has no other participant, so it is titled here — see
+ * {@link #SELF_TITLE}. Doing it in the DTO rather than storing a title on the row keeps
+ * {@code Conversation.title} meaning "a group's name" and nothing else, and every caller already
+ * routes through here on its way to a template.
  */
 public record ConversationDto(
         Long id,
@@ -38,6 +43,12 @@ public record ConversationDto(
         long unreadCount
 ) {
     /**
+     * What a DM with yourself is called. "You", not the user's own display name: in a list of
+     * people you are talking to, your own name reads as somebody else.
+     */
+    public static final String SELF_TITLE = "You";
+
+    /**
      * Build a sidebar/page entry. {@code other} is the participant the viewer is talking to
      * for DIRECT conversations, or {@code null} for GROUP (where the title carries identity).
      */
@@ -46,6 +57,23 @@ public record ConversationDto(
     }
 
     public static ConversationDto of(Conversation conversation, User other, long unreadCount) {
+        if (conversation.isSelfDirect()) {
+            // Callers reach this two ways and neither can supply an "other": the page/sidebar path
+            // filters the viewer out of the member list and gets null, while the start-a-DM endpoint
+            // passes the person asked for, who here is the viewer. Both must render the same, so the
+            // title comes from the conversation's shape rather than from the argument. The avatar
+            // fields stay populated when we were handed the user, so the row keeps a picture.
+            return new ConversationDto(
+                    conversation.getId(),
+                    conversation.getType(),
+                    SELF_TITLE,
+                    other == null ? null : other.getUsername(),
+                    other == null ? null : other.getDisplayName(),
+                    other != null && other.hasAvatar(),
+                    other == null ? 0L : other.avatarVersion(),
+                    unreadCount
+            );
+        }
         if (conversation.getType() == ConversationType.DIRECT && other != null) {
             return new ConversationDto(
                     conversation.getId(),

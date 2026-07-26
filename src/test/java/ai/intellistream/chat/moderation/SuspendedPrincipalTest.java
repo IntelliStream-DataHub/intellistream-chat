@@ -43,7 +43,10 @@ import static org.mockito.Mockito.when;
 class SuspendedPrincipalTest {
 
     private final UserService userService = mock(UserService.class);
-    private final CurrentUser currentUser = new CurrentUser(userService);
+    /** Only reached when a login carries a new zoneinfo claim; nothing here does. */
+    private final ai.intellistream.chat.repository.UserRepository users =
+            mock(ai.intellistream.chat.repository.UserRepository.class);
+    private final CurrentUser currentUser = new CurrentUser(userService, users);
 
     private static Jwt token(String subject) {
         return Jwt.withTokenValue("token")

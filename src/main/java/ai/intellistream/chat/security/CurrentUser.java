@@ -19,6 +19,7 @@ package ai.intellistream.chat.security;
 import ai.intellistream.chat.attachments.AttachmentBytes;
 import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.moderation.AccountSuspendedException;
+import ai.intellistream.chat.repository.UserRepository;
 import ai.intellistream.chat.service.UserService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,10 +40,18 @@ public class CurrentUser {
 
     private static final Logger log = LoggerFactory.getLogger(CurrentUser.class);
 
-    private final UserService userService;
+    /**
+     * The standard OIDC claim carrying an IANA zone name ("Europe/Oslo"). Optional in the spec and
+     * absent unless Keycloak has a mapper for it, which is why every path here tolerates null.
+     */
+    private static final String ZONEINFO_CLAIM = "zoneinfo";
 
-    public CurrentUser(UserService userService) {
+    private final UserService userService;
+    private final UserRepository users;
+
+    public CurrentUser(UserService userService, UserRepository users) {
         this.userService = userService;
+        this.users = users;
     }
 
     public User require() {
@@ -86,7 +95,49 @@ public class CurrentUser {
         }
         // Per-request last-active stamp; throttled internally so this is cheap.
         userService.touchActiveThrottled(user);
+        syncZoneFromClaims(auth, user);
         return user;
+    }
+
+    /**
+     * Keep the user's IdP-reported timezone current from the {@code zoneinfo} claim.
+     *
+     * <p>Here rather than in the profile page or a login listener because this is the one place
+     * every entry point already passes through — page loads, API calls and the STOMP CONNECT frame
+     * — and because reading claims anywhere else is the rule this class exists to enforce.
+     *
+     * <p>The write only happens when the value actually changed, which for a given user is once
+     * ever (or once per move). {@code noteOidcZone} returning false is the common case and costs
+     * nothing, so this does not add a query to any request. It never touches
+     * {@link User#chooseZone}'s column: an explicit choice outranks the IdP forever, including
+     * when the IdP later disagrees.
+     *
+     * <p>Failures are swallowed. A timezone hint is not worth failing a request over, and a save
+     * can lose a race with a concurrent update of the same row.
+     */
+    private void syncZoneFromClaims(Authentication auth, User user) {
+        try {
+            var claim = readStringClaim(auth, ZONEINFO_CLAIM);
+            if (claim != null && user.noteOidcZone(claim)) {
+                users.save(user);
+            }
+        } catch (RuntimeException e) {
+            log.debug("Could not record the zoneinfo claim for {}", user.getUsername(), e);
+        }
+    }
+
+    /** A string claim from whichever token shape this principal carries, or null. */
+    private static String readStringClaim(Authentication auth, String name) {
+        Object raw = null;
+        if (auth.getPrincipal() instanceof OidcUser oidc) {
+            raw = oidc.getClaim(name);
+        } else if (auth instanceof JwtAuthenticationToken jat) {
+            raw = jat.getToken().getClaim(name);
+        } else if (auth.getPrincipal() instanceof Jwt jwt) {
+            raw = jwt.getClaim(name);
+        }
+        if (!(raw instanceof String s) || s.isBlank()) return null;
+        return s;
     }
 
     /**

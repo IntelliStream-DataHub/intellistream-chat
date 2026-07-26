@@ -16,11 +16,12 @@
 
 package ai.intellistream.chat.slash;
 
+import ai.intellistream.chat.domain.Reminder;
+import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.repository.ReminderRepository;
-import ai.intellistream.chat.service.MessageService;
-import ai.intellistream.chat.web.dto.MessageDto;
-import ai.intellistream.chat.web.dto.MessageEvent;
+import ai.intellistream.chat.service.ConversationService;
 import ai.intellistream.chat.service.MarkdownRenderer;
+import ai.intellistream.chat.web.dto.ConversationMessageDto;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,19 +33,35 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.List;
+import java.util.Map;
 
 /**
- * Polls {@code reminders} every 30 seconds; for each row whose {@code fireAt} has passed and
- * which hasn't been delivered yet, posts a message into the originating channel and marks
- * the row {@code firedAt = now()}. Posting goes through {@link MessageService#post} so
- * mention rows and the search index get the same treatment as a normal message — and so the
- * @-mention notification path lights up for the target user.
+ * Polls {@code reminders} every 30 seconds; for each row whose {@code fireAt} has passed and which
+ * hasn't been delivered yet, delivers it as a <b>direct message</b> and marks the row
+ * {@code firedAt = now()}.
+ *
+ * <p>A DM, not a channel message. Firing into the originating channel meant
+ * {@code /remind me in 2h to ask about my salary review} was read out to the whole room two hours
+ * later, which is the kind of feature people learn to stop using. A conversation is the delivery
+ * mechanism rather than a notification of our own because it already carries everything a reminder
+ * needs and none of it is worth reimplementing: it survives the recipient being offline, it badges
+ * unread, it is searchable, and it has a permalink.
+ *
+ * <p>Two shapes:
+ * <ul>
+ *   <li>{@code /remind me} → the requester's conversation with themself. One member; see
+ *       {@link ConversationService#directBetween}.</li>
+ *   <li>{@code /remind @bob} → the existing two-person DM between requester and target, with the
+ *       body attributing it, because a reminder arriving out of nowhere is a puzzle.</li>
+ * </ul>
+ *
+ * <p>The channel the reminder was set in is still recorded on the row and still named in the
+ * delivered body ("set in #general") — useful context, just not an audience.
  *
  * <p>30-second cadence balances "feels prompt" against "doesn't hammer Postgres on idle
- * deployments". For sub-minute precision we'd swap this for a Quartz-style trigger or
- * compute the delay until the next pending row; until reminders feel sluggish in practice,
- * fixed-rate polling stays cheaper to reason about.
+ * deployments". For sub-minute precision we'd swap this for a Quartz-style trigger or compute the
+ * delay until the next pending row; until reminders feel sluggish in practice, fixed-rate polling
+ * stays cheaper to reason about.
  */
 @Component
 public class ReminderScheduler {
@@ -52,7 +69,7 @@ public class ReminderScheduler {
     private static final Logger log = LoggerFactory.getLogger(ReminderScheduler.class);
 
     private final ReminderRepository repo;
-    private final MessageService messageService;
+    private final ConversationService conversations;
     private final MarkdownRenderer markdown;
     private final SimpMessagingTemplate broker;
 
@@ -66,12 +83,12 @@ public class ReminderScheduler {
     private final ReminderScheduler self;
 
     public ReminderScheduler(ReminderRepository repo,
-                             MessageService messageService,
+                             ConversationService conversations,
                              MarkdownRenderer markdown,
                              SimpMessagingTemplate broker,
                              @Lazy @Autowired ReminderScheduler self) {
         this.repo = repo;
-        this.messageService = messageService;
+        this.conversations = conversations;
         this.markdown = markdown;
         this.broker = broker;
         this.self = self;
@@ -98,14 +115,9 @@ public class ReminderScheduler {
         for (var r : due) {
             Long id = r.getId();
             try {
-                var posted = self.fireOne(id, now);
-                if (posted != null) {
-                    // Broadcast AFTER fireOne's REQUIRES_NEW tx has committed (it returns only on a
-                    // clean commit). Broadcasting inside the tx (as before) would show clients a
-                    // message that a subsequent commit failure then discarded, and the row would be
-                    // force-marked fired so it's lost (N30).
-                    broker.convertAndSend("/topic/channels/" + posted.channelId(),
-                            MessageEvent.created(posted.dto()));
+                var delivered = self.fireOne(id, now);
+                if (delivered != null) {
+                    publish(delivered);
                     fired++;
                 }
             } catch (RuntimeException e) {
@@ -125,28 +137,98 @@ public class ReminderScheduler {
     }
 
     /**
-     * Fire a single reminder in a fresh transaction. Returns {@code true} when the message was
-     * posted. On failure it THROWS (its own {@code REQUIRES_NEW} tx rolls back cleanly) — the
-     * caller in {@link #runOnce} catches it per-row. It must not swallow-then-return: the inner
-     * {@code messageService.post} marks this tx rollback-only on failure, so returning normally
-     * would make the commit throw {@code UnexpectedRollbackException} and abort the batch.
+     * The delivered DM, ready to announce once {@link #fireOne}'s transaction has committed (N30).
+     *
+     * @param recipientUsername who the reminder is for — the target, or the creator for "me". The
+     *        alert goes to exactly this one person: a reminder has an addressee, unlike an ordinary
+     *        message where everyone but the author is notified.
+     * @param title what the conversation is called from the recipient's side.
      */
-    /** Posted-message payload the caller broadcasts after this tx commits (N30). */
-    public record FiredMessage(Long channelId, MessageDto dto) {}
+    public record FiredReminder(Long conversationId, ConversationMessageDto dto,
+                                String recipientUsername, String title) {}
 
+    /**
+     * Fire a single reminder in a fresh transaction. Returns the payload to announce, or null when
+     * the row went away or was already delivered. On failure it THROWS (its own
+     * {@code REQUIRES_NEW} tx rolls back cleanly) — the caller in {@link #runOnce} catches it
+     * per-row. It must not swallow-then-return: the inner writes mark this tx rollback-only on
+     * failure, so returning normally would make the commit throw
+     * {@code UnexpectedRollbackException} and abort the batch.
+     */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public FiredMessage fireOne(Long reminderId, Instant now) {
+    public FiredReminder fireOne(Long reminderId, Instant now) {
         var r = repo.findById(reminderId).orElse(null);
         if (r == null || r.getFiredAt() != null) return null;
-        var saved = messageService.post(r.getChannel(), r.getCreator(), r.getBody());
+        var creator = r.getCreator();
+        var recipient = r.getTarget() == null ? creator : r.getTarget();
+        // For "me" this is the one-member self conversation; for "@bob" it is the pair's existing
+        // DM, reused rather than created, so the reminder lands in the thread they already have.
+        var conversation = conversations.directBetween(creator, recipient);
+        var saved = conversations.post(conversation, creator, bodyFor(r, creator, recipient));
         r.markFired(now);
         repo.save(r);
-        // Build the broadcast payload here (inside the tx, where the associations are loaded), but
-        // let runOnce send it after this tx commits. Mentions list is left empty — the body's
-        // @-mention (if any) is parsed by the renderer; the WS-side refresh path bumps the badge.
-        var dto = MessageDto.from(saved, markdown.render(saved.getBodyMarkdown()),
-                List.of(), List.of(), 0L, List.of());
-        return new FiredMessage(r.getChannel().getId(), dto);
+        // Built inside the tx, where the associations are loaded; sent by runOnce after it commits.
+        var dto = ConversationMessageDto.from(saved, markdown.render(saved.getBodyMarkdown()));
+        var title = recipient.getId().equals(creator.getId())
+                ? ai.intellistream.chat.web.dto.ConversationDto.SELF_TITLE
+                : displayName(creator);
+        return new FiredReminder(conversation.getId(), dto, recipient.getUsername(), title);
+    }
+
+    /**
+     * The delivered text. Attribution first when someone else set it — "a reminder" from nobody in
+     * particular is a puzzle, and the requester's handle is the answer. The channel is context, not
+     * a destination.
+     */
+    static String bodyFor(Reminder r, User creator, User recipient) {
+        var from = recipient.getId().equals(creator.getId())
+                ? "⏰ Reminder"
+                : "⏰ Reminder from @" + creator.getUsername();
+        return from + " (set in #" + r.getChannel().getSlug() + "): " + r.getBody();
+    }
+
+    /**
+     * Announce a delivered reminder, after its transaction committed. Broadcasting inside the tx
+     * would show clients a message that a subsequent commit failure then discarded, while the row
+     * was force-marked fired and so lost (N30).
+     *
+     * <p>Two sends, both on destinations that already exist. The topic reaches the conversation
+     * page if the recipient happens to have it open; the user queue is what reaches them anywhere
+     * else. {@code ConversationAlertPublisher} does the same job for interactive sends but skips the
+     * author, which for a reminder to yourself is the only person there is — so the payload is built
+     * here instead, with the same keys the clients already read.
+     */
+    private void publish(FiredReminder delivered) {
+        broker.convertAndSend("/topic/conversations/" + delivered.conversationId(), delivered.dto());
+        try {
+            broker.convertAndSendToUser(delivered.recipientUsername(), "/queue/conversation-alerts",
+                    Map.of(
+                            "conversationId", delivered.conversationId(),
+                            "type", "DIRECT",
+                            "title", delivered.title(),
+                            "author", delivered.dto().authorDisplayName() == null
+                                    ? delivered.dto().authorUsername()
+                                    : delivered.dto().authorDisplayName(),
+                            "authorUsername", delivered.dto().authorUsername(),
+                            "messageId", delivered.dto().id(),
+                            "preview", preview(delivered.dto().bodyMarkdown())));
+        } catch (RuntimeException e) {
+            // The message is stored and the badge will show on next load; a failed toast is not
+            // worth losing the row's fired mark over.
+            log.warn("Could not alert {} about a fired reminder", delivered.recipientUsername(), e);
+        }
+    }
+
+    private static String displayName(User u) {
+        return u.getDisplayName() == null || u.getDisplayName().isBlank()
+                ? u.getUsername() : u.getDisplayName();
+    }
+
+    /** Toast-sized excerpt, same 200-char shape ConversationAlertPublisher uses for a normal DM. */
+    private static String preview(String body) {
+        if (body == null) return "";
+        var oneLine = body.replaceAll("\\s+", " ").trim();
+        return oneLine.length() <= 200 ? oneLine : oneLine.substring(0, 199) + "…";
     }
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)

@@ -136,7 +136,7 @@ class InternetExposureSecurityIT {
     @Test
     void uploadCap_defaultsTo50MiB_whenNoClaim() {
         // OIDC/JWT not present in the test principal → CurrentUser falls back to default.
-        var bareCurrent = new CurrentUser(userService);
+        var bareCurrent = new CurrentUser(userService, users);
         var dummy = new TestingAuthenticationToken("anon", "n/a", "ROLE_USER");
         dummy.setAuthenticated(true);
 
@@ -148,7 +148,7 @@ class InternetExposureSecurityIT {
 
     @Test
     void uploadCap_admin_isUnlimited() {
-        var bareCurrent = new CurrentUser(userService);
+        var bareCurrent = new CurrentUser(userService, users);
         var admin = new TestingAuthenticationToken("admin", "n/a", "ROLE_ADMIN");
         admin.setAuthenticated(true);
 
@@ -157,7 +157,7 @@ class InternetExposureSecurityIT {
 
     @Test
     void uploadCap_jwtClaim_overridesDefault() {
-        var bareCurrent = new CurrentUser(userService);
+        var bareCurrent = new CurrentUser(userService, users);
         var jwt = Jwt.withTokenValue("token")
                 .header("alg", "none")
                 .issuedAt(Instant.now()).expiresAt(Instant.now().plusSeconds(60))
@@ -173,7 +173,7 @@ class InternetExposureSecurityIT {
     @Test
     void uploadCap_jwtClaimAsString_alsoParses() {
         // Keycloak serialises long claims as strings under some mapper configs — both must work.
-        var bareCurrent = new CurrentUser(userService);
+        var bareCurrent = new CurrentUser(userService, users);
         var jwt = Jwt.withTokenValue("token")
                 .header("alg", "none")
                 .issuedAt(Instant.now()).expiresAt(Instant.now().plusSeconds(60))

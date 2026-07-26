@@ -153,6 +153,42 @@
             </dl>
         </section>
 
+        <!--/* The zone is what wall-clock times you type are resolved in — "/remind me at 14:00"
+               above all. It used to be the server's, so anyone elsewhere got their reminder at the
+               wrong hour with a confirmation that agreed with itself. The current effective zone is
+               shown whether or not it was chosen here, because a guess you cannot see is a guess
+               you cannot correct. */-->
+        <section class="profile-section" id="timezone-section">
+            <h2>Time zone</h2>
+            <p class="profile-help">
+                Times you type are read in this zone — <code>/remind me at 14:00</code> means 14:00
+                here. It does not change how timestamps are displayed; those already follow the
+                device you are reading on.
+            </p>
+            <form th:action="@{/profile/timezone}" method="post" id="timezone-form">
+                <label class="timezone-picker" for="timezone-select">
+                    Time zone
+                    <select id="timezone-select" name="zone">
+                        <option value="" th:selected="${!zoneIsChosen}"
+                                th:text="${accountZone != null
+                                            ? 'Automatic — from your account (' + accountZone + ')'
+                                            : 'Automatic — the server default (' + effectiveZone + ')'}">
+                            Automatic
+                        </option>
+                        <option th:each="z : ${zones}" th:value="${z}" th:text="${z}"
+                                th:selected="${zoneIsChosen and z == me.zoneId}">Europe/Oslo</option>
+                    </select>
+                </label>
+                <p class="profile-help">
+                    Currently using <strong th:text="${effectiveZone}">UTC</strong><span
+                        th:text="${zoneIsChosen ? ' — your choice.'
+                                   : (accountZone != null ? ' — reported by your account.'
+                                                          : ' — this server’s default.')}">.</span>
+                </p>
+                <p id="timezone-feedback" class="profile-help" hidden></p>
+            </form>
+        </section>
+
         <section class="profile-section">
             <h2>Theme</h2>
             <p class="profile-help">

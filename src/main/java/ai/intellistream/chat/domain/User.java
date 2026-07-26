@@ -22,7 +22,9 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
 
+import java.time.DateTimeException;
 import java.time.Instant;
+import java.time.ZoneId;
 
 @Entity
 @Table(name = "users", uniqueConstraints = {
@@ -61,6 +63,21 @@ public class User {
     @Setter
     @Column(name = "tutorial_dismissed", nullable = false)
     private boolean tutorialDismissed = false;
+
+    /**
+     * IANA zone the user picked on their profile page, or null for "whatever my account says".
+     * Deliberately not a {@code @Setter} — see {@link #chooseZone}, which validates.
+     */
+    @Column(name = "zone_id", length = 64)
+    private String zoneId;
+
+    /**
+     * IANA zone from the identity provider's {@code zoneinfo} claim, refreshed on sign-in, or
+     * null when the IdP supplies none (common — it is an optional OIDC claim). Kept apart from
+     * {@link #zoneId} so a login can update the guess without undoing a deliberate choice.
+     */
+    @Column(name = "oidc_zone_id", length = 64)
+    private String oidcZoneId;
 
     /**
      * The account-wide notification default: how much a channel interrupts this user when they
@@ -176,6 +193,87 @@ public class User {
         this.suspendedAt = null;
         this.suspendedBy = null;
         this.suspensionNote = null;
+    }
+
+    /**
+     * The zone to interpret this user's wall-clock times in: their own choice, else what their
+     * identity provider reported, else {@code fallback} (the {@code ichat.default-zone} property,
+     * which itself defaults to the server zone — so an install that configures nothing behaves
+     * exactly as it did before zones existed).
+     *
+     * <p>A stored id that tzdb no longer knows is skipped rather than thrown: zone names are
+     * retired between tzdb releases, and a reminder firing an hour off is a better outcome than a
+     * profile page that 500s because the JVM was upgraded.
+     */
+    public ZoneId effectiveZone(ZoneId fallback) {
+        var chosen = parseZone(zoneId);
+        if (chosen != null) return chosen;
+        var reported = parseZone(oidcZoneId);
+        if (reported != null) return reported;
+        return fallback;
+    }
+
+    /**
+     * Record the user's explicit choice. {@code null} or blank clears it, putting them back on
+     * whatever their account reports — which is a real setting, not an absence, so the profile
+     * page offers it.
+     *
+     * @throws IllegalArgumentException for a name tzdb does not know. The profile page's options
+     *         come from {@code ZoneId.getAvailableZoneIds()}, so anything else is a hand-crafted
+     *         request; fixed offsets ({@code +02:00}) are rejected with them, because a user in a
+     *         fixed offset stops observing their own daylight saving.
+     */
+    public void chooseZone(String ianaName) {
+        if (ianaName == null || ianaName.isBlank()) {
+            this.zoneId = null;
+            return;
+        }
+        var trimmed = ianaName.trim();
+        if (!ZoneId.getAvailableZoneIds().contains(trimmed)) {
+            throw new IllegalArgumentException("Unknown time zone: " + trimmed);
+        }
+        this.zoneId = trimmed;
+    }
+
+    /**
+     * Take the identity provider's {@code zoneinfo} claim. Garbage and unknown names are ignored
+     * rather than rejected — this runs on every sign-in and an IdP with a mis-typed attribute must
+     * not lock its users out.
+     *
+     * @return true when the stored value changed, so the caller can skip the write (which is
+     *         almost always: a user's zone changes when they move house)
+     */
+    public boolean noteOidcZone(String ianaName) {
+        var trimmed = ianaName == null ? null : ianaName.trim();
+        if (trimmed != null && (trimmed.isEmpty() || !ZoneId.getAvailableZoneIds().contains(trimmed))) {
+            return false;
+        }
+        if (java.util.Objects.equals(this.oidcZoneId, trimmed)) return false;
+        this.oidcZoneId = trimmed;
+        return true;
+    }
+
+    /**
+     * Read an {@code ichat.default-zone} property value into the fallback zone: the configured one,
+     * or the server's when it is blank or unparseable.
+     *
+     * <p>Static here rather than duplicated at each injection point so that "unset means the server
+     * zone" — the promise that installs which configure nothing keep today's behaviour — has one
+     * definition. An unparseable value falls back rather than failing startup: a typo in a property
+     * that only shifts what "at 14:00" means should not take the application down.
+     */
+    public static ZoneId zoneOrSystemDefault(String configured) {
+        var parsed = parseZone(configured);
+        return parsed == null ? ZoneId.systemDefault() : parsed;
+    }
+
+    private static ZoneId parseZone(String name) {
+        if (name == null || name.isBlank()) return null;
+        try {
+            return ZoneId.of(name.trim());
+        } catch (DateTimeException unknownZone) {
+            return null;
+        }
     }
 
     /**

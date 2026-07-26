@@ -175,13 +175,22 @@ class HovercardAndDmFlowIT {
     }
 
     @Test
-    void startDirectWithSelfThrows() {
+    void startDirectWithSelfGivesTheConversationWithYourself() {
+        // This used to throw. It is now a real conversation with one member — Slack has the same
+        // thing, and a fired "/remind me" needs somewhere durable to land. Titled "You" rather than
+        // the viewer's own display name, which in a list of people would read as somebody else.
         var alice = newUser("alice", "Alice");
         when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
 
-        assertThatThrownBy(() -> conversationController.startDirect(
-                new StartDirectRequest(alice.getUsername()), mock(Principal.class)))
-                .isInstanceOf(IllegalArgumentException.class);
+        var mine = conversationController.startDirect(
+                new StartDirectRequest(alice.getUsername()), mock(Principal.class));
+
+        assertThat(mine.type()).isEqualTo(ConversationType.DIRECT);
+        assertThat(mine.title()).isEqualTo("You");
+        var again = conversationController.startDirect(
+                new StartDirectRequest(alice.getUsername()), mock(Principal.class));
+        assertThat(again.id()).isEqualTo(mine.id());
+        assertThat(conversations.members(conversations.requireById(mine.id()))).hasSize(1);
     }
 
     @Test

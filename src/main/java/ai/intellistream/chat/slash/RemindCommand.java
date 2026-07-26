@@ -20,16 +20,16 @@ import ai.intellistream.chat.domain.Channel;
 import ai.intellistream.chat.domain.Reminder;
 import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.repository.ReminderRepository;
-import ai.intellistream.chat.service.MessageService;
+import ai.intellistream.chat.service.ChannelService;
 import ai.intellistream.chat.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -39,13 +39,19 @@ import java.util.regex.Pattern;
 /**
  * {@code /remind me|@username in 5m|at 14:00 to <text>}
  *
- * <p>The reminder is persisted with its scheduled instant; {@link ReminderScheduler} picks
- * it up when due and posts a message into the same channel, optionally prefixed with the
- * target's @-mention so they get the standard mention notification.
+ * <p>The reminder is persisted with its scheduled instant; {@link ReminderScheduler} picks it up
+ * when due and delivers it as a direct message.
  *
- * <p>Posting a confirmation message back to the channel ("Reminder set for …") would feel
- * chatty in a busy room — instead we return a private confirmation as the executing user's
- * own message so they can see it in the timeline.
+ * <p>Nothing about a reminder goes to the channel. It used to: the confirmation was posted as an
+ * ordinary channel message, so {@code /remind me in 2h to ask about my salary review} announced
+ * itself to the room, and the reminder announced it again two hours later. Slack keeps both sides
+ * private and so do we — the confirmation is a notice on {@code /user/queue/notices} (the user is
+ * online by definition, nothing to persist), and the reminder itself is a DM, which is what buys
+ * it survival across a restart, an unread badge, a permalink and search.
+ *
+ * <p>Times are resolved in the <em>user's</em> zone ({@link User#effectiveZone}), not the JVM's.
+ * "at 14:00" meaning 14:00 on the server was wrong for everyone who does not sit next to it, and
+ * wrong invisibly — which is why the confirmation now names the zone it used.
  */
 @Component
 public class RemindCommand implements SlashCommand {
@@ -63,27 +69,38 @@ public class RemindCommand implements SlashCommand {
     private static final Pattern TARGET = Pattern.compile(
             "^(me|@[A-Za-z0-9_.-]{1,100})\\b");
 
-    private final MessageService messageService;
+    private final ChannelService channelService;
     private final UserService userService;
     private final ReminderRepository reminderRepo;
     private final Clock clock;
 
-    @Autowired
-    public RemindCommand(MessageService messageService,
-                         UserService userService,
-                         ReminderRepository reminderRepo) {
-        this(messageService, userService, reminderRepo, Clock.systemDefaultZone());
-    }
+    /** {@code ichat.default-zone}: the last resort when neither the user nor their IdP says. */
+    private final ZoneId defaultZone;
 
-    /** Test-visible constructor: lets specs freeze the clock to assert {@code fireAt} exactly. */
-    public RemindCommand(MessageService messageService,
+    @Autowired
+    public RemindCommand(ChannelService channelService,
                          UserService userService,
                          ReminderRepository reminderRepo,
-                         Clock clock) {
-        this.messageService = messageService;
+                         @Value("${ichat.default-zone:}") String defaultZone) {
+        this(channelService, userService, reminderRepo, Clock.systemUTC(),
+                User.zoneOrSystemDefault(defaultZone));
+    }
+
+    /**
+     * Test-visible constructor: lets specs freeze the clock to assert {@code fireAt} exactly, and
+     * pin the fallback zone so "at HH:MM" can be asserted somewhere other than wherever the build
+     * happens to be running.
+     */
+    public RemindCommand(ChannelService channelService,
+                         UserService userService,
+                         ReminderRepository reminderRepo,
+                         Clock clock,
+                         ZoneId defaultZone) {
+        this.channelService = channelService;
         this.userService = userService;
         this.reminderRepo = reminderRepo;
         this.clock = clock;
+        this.defaultZone = defaultZone;
     }
 
     @Override public String name() { return "remind"; }
@@ -94,21 +111,27 @@ public class RemindCommand implements SlashCommand {
     @Override
     @Transactional
     public SlashCommandResult execute(Channel channel, User author, String args) {
+        // Queueing a reminder against a channel is a write, and it is the only one here now that
+        // nothing is posted: the old code got this check for free from messageService.post, whose
+        // AccessDenied rolled back the just-saved row. Explicit, and before the insert.
+        channelService.requireWriteAccess(channel, author);
         var parsed = parse(args, author);
-        // Reuse the parent's @-mention infrastructure: when there's a target user, the message
-        // body the scheduler posts later will start with "@username — …" so the standard mention
-        // pipeline notifies them.
         var reminder = new Reminder(channel, author, parsed.target, parsed.fireAt, parsed.body);
         reminderRepo.save(reminder);
-        // Confirm back into the channel as the requester so they see the queue actually took it.
-        // The post() call enforces requireWriteAccess — under @Transactional, an AccessDenied
-        // throw rolls back the just-saved Reminder so non-members can't queue work via /remind.
-        // No live "@username" in the confirmation — that would fire a mention notification NOW,
-        // and the reminder fires a second one when it's actually due (N30). Name the target plainly.
-        var confirmation = "⏰ Reminder set for " + describeWhen(parsed.fireAt, clock.getZone())
-                + (parsed.target == null ? "" : " (will tag " + parsed.target.getUsername() + ")")
-                + ": _" + parsed.body + "_";
-        return SlashCommandResult.handled(messageService.post(channel, author, confirmation));
+        // Private. Naming the zone is the point of naming it: a wrong guess is otherwise only
+        // discoverable by the reminder arriving at the wrong hour, hours later.
+        var zone = zoneFor(author);
+        var when = describeWhen(parsed.fireAt, zone, clock.instant());
+        var delivery = parsed.target == null
+                ? "I'll send it to you as a direct message"
+                : "@" + parsed.target.getUsername() + " gets it as a direct message from you";
+        return SlashCommandResult.privately("⏰ Reminder set for " + when + " (" + zone.getId()
+                + "). " + delivery + ": “" + parsed.body + "”");
+    }
+
+    /** The zone this user's wall-clock times mean: their choice, their IdP's, then the default. */
+    private ZoneId zoneFor(User user) {
+        return user == null ? defaultZone : user.effectiveZone(defaultZone);
     }
 
     /** Visible for tests. */
@@ -117,8 +140,8 @@ public class RemindCommand implements SlashCommand {
             throw new IllegalArgumentException("Usage: " + help());
         }
         var input = args.trim();
-        // Target — optional. Default is "me" (no @-mention prefix when fired).
-        User target = caller; // default to self
+        // Target — optional, defaulting to the caller, which is by far the common case.
+        User target = caller;
         boolean targetSelf = true;
         var m = TARGET.matcher(input);
         if (m.find()) {
@@ -160,7 +183,9 @@ public class RemindCommand implements SlashCommand {
             fireAt = clock.instant().plus(d);
             input = input.substring(dm.end()).stripLeading();
         } else if (am.find()) {
-            fireAt = parseAt(am, clock.instant().atZone(clock.getZone()));
+            // The caller's zone, not the JVM's: "at 14:00" is a wall-clock time, and whose wall
+            // it is on is the whole question.
+            fireAt = parseAt(am, clock.instant().atZone(zoneFor(caller)));
             input = input.substring(am.end()).stripLeading();
         } else {
             throw new IllegalArgumentException(
@@ -170,11 +195,13 @@ public class RemindCommand implements SlashCommand {
         if (input.regionMatches(true, 0, "to ", 0, 3)) input = input.substring(3).stripLeading();
         else if (input.regionMatches(true, 0, "that ", 0, 5)) input = input.substring(5).stripLeading();
         if (input.isEmpty()) throw new IllegalArgumentException("Reminder text is required. " + help());
-        // For non-self targets we want the produced message to mention them so they get notified.
-        var body = targetSelf ? input : "@" + target.getUsername() + " — " + input;
-        // Treat the persisted target as null when it's "me" — saves a join later and avoids a
-        // self-mention on fire.
-        return new Parsed(targetSelf ? null : target, fireAt, body);
+        // The row stores what the user actually wrote, nothing more. It used to be stored with an
+        // "@username — " prefix so that posting it into the channel would trip the mention pipeline;
+        // delivery is a DM now, which notifies on its own, and attribution ("Reminder from @alice")
+        // is presentation that ReminderScheduler adds at fire time.
+        //
+        // Target null means "me" — saves a join later, and says plainly that there is no third party.
+        return new Parsed(targetSelf ? null : target, fireAt, input);
     }
 
     private static Duration toDuration(long amount, String unit) {
@@ -209,9 +236,16 @@ public class RemindCommand implements SlashCommand {
         return target.toInstant();
     }
 
-    private static String describeWhen(Instant when, ZoneId zone) {
+    /**
+     * "today at 14:00" / "tomorrow at 09:00" / "2026-08-01 at 09:00", in {@code zone}.
+     *
+     * <p>{@code now} is passed in rather than read from the system clock so that "today" is the
+     * same day the rest of the parse used. Reading {@code LocalDate.now(zone)} here meant a frozen
+     * test clock and this method disagreeing, and — for one second a day — production too.
+     */
+    static String describeWhen(Instant when, ZoneId zone, Instant now) {
         var z = when.atZone(zone);
-        var today = LocalDate.now(zone);
+        var today = now.atZone(zone).toLocalDate();
         var on = z.toLocalDate().equals(today) ? "today"
                 : z.toLocalDate().equals(today.plusDays(1)) ? "tomorrow"
                 : z.toLocalDate().toString();

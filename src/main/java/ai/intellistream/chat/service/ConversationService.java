@@ -68,11 +68,20 @@ public class ConversationService {
         this.messageIndex = messageIndex;
     }
 
+    /**
+     * The DIRECT conversation between two users, created on first use.
+     *
+     * <p>{@code a == b} is allowed and gives a conversation with one member: a DM with yourself.
+     * This used to throw, and the throw was the right guard for the UI it was written for (you do
+     * not want a "message yourself" row appearing because someone clicked their own avatar) and the
+     * wrong one for anything that needs to deliver something to a single person durably —
+     * {@code /remind me} above all. Slack has exactly this conversation, for exactly that reason.
+     *
+     * <p>Callers that mean "start a chat with someone else" should still reject self themselves;
+     * this method deliberately no longer decides that for them.
+     */
     @Transactional
     public Conversation directBetween(User a, User b) {
-        if (a.getId().equals(b.getId())) {
-            throw new IllegalArgumentException("Cannot start a direct conversation with yourself");
-        }
         var key = directKey(a, b);
         // Insert-or-ignore the conversation, then ensure both memberships (N1). ON CONFLICT keeps
         // the tx usable when both peers open the DM at once — the loser reads the winner's row
@@ -80,6 +89,8 @@ public class ConversationService {
         conversations.insertDirectIgnore(key, a.getId());
         var conv = conversations.findByDmKey(key).orElseThrow();
         members.insertMemberIgnore(conv.getId(), a.getId());
+        // Idempotent for the self case: the same (conversation, user) pair hits the unique
+        // constraint and is ignored, so one member is what we end up with.
         members.insertMemberIgnore(conv.getId(), b.getId());
         return conv;
     }
@@ -279,6 +290,15 @@ public class ConversationService {
         return out;
     }
 
+    /**
+     * Sorted user ids, so {@code (a,b)} and {@code (b,a)} collide on purpose and one row serves
+     * both directions.
+     *
+     * <p>A self-conversation lands on {@code "7:7"}, which is stable and cannot collide with any
+     * two-person key: those always hold two <em>distinct</em> ids. {@code Conversation.isSelfDirect}
+     * reads the same shape back, which is how the DTO layer knows to label it "You" without being
+     * told who is looking.
+     */
     private static String directKey(User a, User b) {
         return java.util.stream.Stream.of(a.getId(), b.getId())
                 .sorted()

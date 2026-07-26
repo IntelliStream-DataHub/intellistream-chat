@@ -104,6 +104,8 @@ class SlashCommandIT {
     @Autowired PollCommand pollCommand;
     @Autowired ai.intellistream.chat.service.PollService pollService;
     @Autowired ai.intellistream.chat.service.UserService userService;
+    @Autowired ai.intellistream.chat.service.ConversationService conversations;
+    @Autowired ai.intellistream.chat.repository.ConversationMessageRepository convMessages;
     /**
      * The bean-level broker that the scheduler is wired with. Different from the local
      * {@link #broker} mock the controller uses — the scheduler doesn't see the controller's
@@ -229,7 +231,7 @@ class SlashCommandIT {
     }
 
     @Test
-    void remindOtherUserPrefixesBodyWithTheirHandle() {
+    void remindOtherUserStoresTheTargetAndTheBareText() {
         var alice = newUser("alice");
         var bob = newUser("bob");
         var room = channels.create("Remind-" + SEQ.incrementAndGet(),
@@ -244,27 +246,58 @@ class SlashCommandIT {
                 .filter(r -> r.getChannel().getId().equals(room.getId()))
                 .findFirst().orElseThrow();
         assertThat(saved.getTarget().getId()).isEqualTo(bob.getId());
-        // Body prefixes the @-mention so the mention pipeline lights up when fired.
-        assertThat(saved.getBody()).startsWith("@" + bob.getUsername()).contains("about the demo");
+        // The row holds what alice typed. It used to hold "@bob — about the demo" so that posting
+        // it into the channel tripped the mention pipeline; the DM notifies on its own now, and
+        // attribution is added at delivery time.
+        assertThat(saved.getBody()).isEqualTo("about the demo");
     }
 
     @Test
-    void remindEmitsConfirmationMessageBackToCaller() {
+    void remindConfirmsPrivatelyAndPostsNothingToTheChannel() {
+        // "/remind me in 2h to ask about my salary review" used to announce itself to the room.
         var alice = newUser("alice");
         var room = channels.create("Remind-" + SEQ.incrementAndGet(),
                 null, ChannelType.PUBLIC, alice);
         when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
 
+        var principal = mock(Principal.class);
+        when(principal.getName()).thenReturn(alice.getUsername());
         controller.send(room.getId(),
                 new SendMessageRequest("/remind me in 30s to check the build"),
-                mock(Principal.class));
+                principal);
 
-        var captor = ArgumentCaptor.forClass(MessageEvent.class);
-        verify(broker).convertAndSend(eq("/topic/channels/" + room.getId()), captor.capture());
-        var dto = captor.getValue().message();
-        assertThat(dto.authorUsername()).isEqualTo(alice.getUsername());
-        assertThat(dto.bodyMarkdown()).startsWith("⏰ Reminder set")
-                .contains("check the build");
+        verify(broker, never()).convertAndSend(eq("/topic/channels/" + room.getId()),
+                any(Object.class));
+        var captor = ArgumentCaptor.forClass(Object.class);
+        verify(broker).convertAndSendToUser(eq(alice.getUsername()), eq("/queue/notices"),
+                captor.capture());
+        var text = captor.getValue().toString();
+        assertThat(text).contains("Reminder set").contains("check the build")
+                // The zone it resolved in, so a wrong guess is visible now rather than at fire time.
+                .contains(ZoneId.systemDefault().getId())
+                // "(will tag bob)" is gone with the channel post it described.
+                .doesNotContain("will tag");
+    }
+
+    @Test
+    void remindConfirmationNamesTheDirectMessageForAnotherUser() {
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var room = channels.create("Remind-" + SEQ.incrementAndGet(),
+                null, ChannelType.PUBLIC, alice);
+        when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
+
+        var principal = mock(Principal.class);
+        when(principal.getName()).thenReturn(alice.getUsername());
+        controller.send(room.getId(),
+                new SendMessageRequest("/remind @" + bob.getUsername() + " in 1h about the demo"),
+                principal);
+
+        var captor = ArgumentCaptor.forClass(Object.class);
+        verify(broker).convertAndSendToUser(eq(alice.getUsername()), eq("/queue/notices"),
+                captor.capture());
+        assertThat(captor.getValue().toString())
+                .contains(bob.getUsername()).contains("direct message");
     }
 
     @Test
@@ -297,7 +330,7 @@ class SlashCommandIT {
         var fixed = ZoneId.systemDefault();
         var noonToday = Instant.now().truncatedTo(ChronoUnit.HOURS); // close enough; not used here
         var clock = Clock.fixed(noonToday.atZone(fixed).withHour(12).toInstant(), fixed);
-        var cmd = new RemindCommand(messages, userService, reminderRepo, clock);
+        var cmd = new RemindCommand(channels, userService, reminderRepo, clock, fixed);
         var parsed = cmd.parse("at 8am to early standup", alice);
         var fireZdt = parsed.fireAt().atZone(fixed);
         assertThat(fireZdt.getHour()).isEqualTo(8);
@@ -307,7 +340,8 @@ class SlashCommandIT {
     @Test
     void remindClampsHugeDurationsToAboutAYear() {
         var alice = newUser("alice");
-        var cmd = new RemindCommand(messages, userService, reminderRepo, Clock.systemUTC());
+        var cmd = new RemindCommand(channels, userService, reminderRepo, Clock.systemUTC(),
+                ZoneId.of("UTC"));
         // N31: the clamp must bound the actual duration, not the raw amount — "in 3000000000d"
         // used to slip past the seconds-scaled ceiling and queue a reminder ~8.6M years out.
         org.assertj.core.api.Assertions.assertThatThrownBy(
@@ -317,7 +351,7 @@ class SlashCommandIT {
     }
 
     @Test
-    void schedulerFiresDueReminderAndPostsToChannel() {
+    void firedRemindMeLandsInASelfConversationAndNotInTheChannel() {
         var alice = newUser("alice");
         var room = channels.create("Sched-" + SEQ.incrementAndGet(),
                 null, ChannelType.PUBLIC, alice);
@@ -332,15 +366,104 @@ class SlashCommandIT {
         var fired = reminderScheduler.runOnce(Instant.now().plus(6, ChronoUnit.MINUTES));
         assertThat(fired).isEqualTo(1);
 
-        // The controller's (local) broker saw the confirmation; the bean broker (used by the
-        // scheduler) sees the reminder body.
-        verify(broker).convertAndSend(eq("/topic/channels/" + room.getId()), any(Object.class));
-        verify(beanBroker).convertAndSend(eq("/topic/channels/" + room.getId()), any(Object.class));
+        // Nothing at all reached the room, at either end of the reminder's life.
+        verify(broker, never()).convertAndSend(eq("/topic/channels/" + room.getId()),
+                any(Object.class));
+        verify(beanBroker, never()).convertAndSend(eq("/topic/channels/" + room.getId()),
+                any(Object.class));
+
+        var conv = conversations.listForUser(alice).stream()
+                .filter(ai.intellistream.chat.domain.Conversation::isSelfDirect)
+                .findFirst().orElseThrow();
+        assertThat(convMessages.findByConversationOrderByCreatedAtDesc(conv,
+                        org.springframework.data.domain.PageRequest.of(0, 10)))
+                .singleElement()
+                .satisfies(m -> {
+                    assertThat(m.getBodyMarkdown()).contains("drink water")
+                            // The channel it was set in survives as context, not as an audience.
+                            .contains("#" + room.getSlug())
+                            // No attribution: alice does not need telling that alice set it.
+                            .doesNotContain("from @");
+                    assertThat(m.getAuthor().getId()).isEqualTo(alice.getId());
+                });
+
+        // Delivered live on the conversation topic, and alerted on the recipient's own queue —
+        // ConversationAlertPublisher skips the author, which in a self conversation is everybody.
+        verify(beanBroker).convertAndSend(eq("/topic/conversations/" + conv.getId()),
+                any(Object.class));
+        verify(beanBroker).convertAndSendToUser(eq(alice.getUsername()),
+                eq("/queue/conversation-alerts"), any(Object.class));
+
+        // The badge has to light for a message you did not write yourself in spirit, even though
+        // your user id is on it: in a one-member conversation own-authored messages count.
+        assertThat(conversations.unreadCounts(alice, List.of(conv.getId())))
+                .containsEntry(conv.getId(), 1L);
+
+        // And it renders as "You" rather than as a nameless row.
+        assertThat(ai.intellistream.chat.web.dto.ConversationDto.of(conv, null).title())
+                .isEqualTo("You");
 
         var saved = reminderRepo.findAll().stream()
                 .filter(r -> r.getChannel().getId().equals(room.getId()))
                 .findFirst().orElseThrow();
         assertThat(saved.getFiredAt()).isNotNull();
+    }
+
+    @Test
+    void firedRemindForSomeoneElseLandsInTheTwoPersonDmWithAttribution() {
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var room = channels.create("Sched-" + SEQ.incrementAndGet(),
+                null, ChannelType.PUBLIC, alice);
+        when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
+
+        // A DM the two already have: the reminder must reuse it, not open a second one.
+        var existing = conversations.directBetween(alice, bob);
+
+        controller.send(room.getId(),
+                new SendMessageRequest("/remind @" + bob.getUsername() + " in 5m to review the PR"),
+                mock(Principal.class));
+        assertThat(reminderScheduler.runOnce(Instant.now().plus(6, ChronoUnit.MINUTES)))
+                .isEqualTo(1);
+
+        var messagesInDm = convMessages.findByConversationOrderByCreatedAtDesc(existing,
+                org.springframework.data.domain.PageRequest.of(0, 10));
+        assertThat(messagesInDm).singleElement().satisfies(m -> {
+            assertThat(m.getBodyMarkdown())
+                    .contains("review the PR")
+                    // Bob has to know who set it, or the reminder is a message from nowhere.
+                    .contains("from @" + alice.getUsername())
+                    .contains("#" + room.getSlug());
+            assertThat(m.getAuthor().getId()).isEqualTo(alice.getId());
+        });
+
+        // Bob is alerted; alice, who set it, is not interrupted by her own reminder to someone else.
+        verify(beanBroker).convertAndSendToUser(eq(bob.getUsername()),
+                eq("/queue/conversation-alerts"), any(Object.class));
+        verify(beanBroker, never()).convertAndSendToUser(eq(alice.getUsername()),
+                eq("/queue/conversation-alerts"), any(Object.class));
+        // Unread for bob, not for alice — the ordinary two-member rule, unchanged.
+        assertThat(conversations.unreadCounts(bob, List.of(existing.getId())))
+                .containsEntry(existing.getId(), 1L);
+        assertThat(conversations.unreadCounts(alice, List.of(existing.getId()))).isEmpty();
+    }
+
+    @Test
+    void aSelfConversationHasOneMemberAndStillEnforcesMembership() {
+        // The DIRECT-means-two-members assumption, checked where it is easiest to get wrong.
+        var alice = newUser("alice");
+        var mallory = newUser("mallory");
+
+        var mine = conversations.directBetween(alice, alice);
+
+        assertThat(mine.isSelfDirect()).isTrue();
+        assertThat(conversations.members(mine)).singleElement()
+                .satisfies(m -> assertThat(m.getUser().getId()).isEqualTo(alice.getId()));
+        // Calling it twice is the same conversation, not a second one.
+        assertThat(conversations.directBetween(alice, alice).getId()).isEqualTo(mine.getId());
+        assertThat(conversations.isMember(mine, mallory)).isFalse();
+        assertThatThrownBy(() -> conversations.post(mine, mallory, "let me in"))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
     }
 
     @Test

@@ -74,6 +74,54 @@
   });
 })();
 
+// ---------- Time zone ----------
+// Same shape as the theme picker: choosing IS the save, and the Thymeleaf-injected _csrf field
+// rides along in the form body. Kept a real <form> with a real action so it still works — with a
+// page reload — if this script never loads.
+(function () {
+  const form = document.getElementById('timezone-form');
+  const select = document.getElementById('timezone-select');
+  const feedback = document.getElementById('timezone-feedback');
+  if (!form || !select) return;
+
+  let feedbackTimer = null;
+  let saved = select.value;
+
+  function show(text, isError) {
+    if (!feedback) return;
+    clearTimeout(feedbackTimer);
+    feedback.textContent = text;
+    feedback.className = 'profile-help' + (isError ? ' error' : '');
+    feedback.hidden = false;
+    if (!isError) feedbackTimer = setTimeout(() => { feedback.hidden = true; }, 2500);
+  }
+
+  form.addEventListener('submit', (e) => e.preventDefault());
+
+  select.addEventListener('change', async () => {
+    select.disabled = true;
+    try {
+      const res = await fetch(form.action, {
+        method: 'POST',
+        body: new URLSearchParams(new FormData(form)),
+      });
+      if (!res.ok && !res.redirected) throw new Error('rejected');
+      saved = select.value;
+      // The "currently using" line beside the picker is server-rendered, so it is one reload
+      // behind until the page is revisited. Say what was saved rather than leave the two
+      // disagreeing silently.
+      show(saved ? 'Time zone saved: ' + saved + '.' : 'Time zone saved: automatic.');
+    } catch (err) {
+      // Put the control back to what the server actually holds — a select showing a value that
+      // was refused is the one state worse than an error message.
+      select.value = saved;
+      show('Could not save the time zone.', true);
+    } finally {
+      select.disabled = false;
+    }
+  });
+})();
+
 // ---------- Profile picture upload ----------
 (function () {
   const fileInput = document.getElementById('avatar-file');
