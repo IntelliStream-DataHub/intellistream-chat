@@ -260,6 +260,28 @@ public class AttachmentService {
         return credits;
     }
 
+    /**
+     * {@link #creditsFor} for a <b>bulk</b> delete — deleting a message, purging one, destroying a
+     * channel — where the set being removed may contain tombstones.
+     *
+     * <p>A tombstoned attachment was credited the moment it was tombstoned: the file manager
+     * marks the row deleted and releases the bytes in the same transaction, and the file is
+     * already off disk. Crediting it again when the message it hung on is later deleted hands the
+     * account bytes it never had. That is not self-correcting — {@code UserStorage} exposes an
+     * atomic delta and no absolute set, so nothing downstream can notice or repair it, and the
+     * account quietly reads as having room it does not. Two paths make the double credit reachable
+     * in ordinary use: delete your own file, then delete the message; or delete your own file, then
+     * have a moderator remove the message and the retention purge sweep it.
+     *
+     * <p>Which is why this is a separate method rather than a filter inside {@code creditsFor}:
+     * the file manager's own delete legitimately credits a row it has just tombstoned, so the
+     * filter belongs to the bulk callers, not to everyone.
+     */
+    public static Map<Long, Long> creditsForLive(Collection<Attachment> attachments) {
+        if (attachments == null || attachments.isEmpty()) return Map.of();
+        return creditsFor(attachments.stream().filter(a -> !a.isDeleted()).toList());
+    }
+
     /** Best-effort filesystem cleanup for the given storage keys. Errors are swallowed — orphans can be GC'd later. */
     public void deleteFiles(Collection<String> storageKeys) {
         for (var key : storageKeys) {

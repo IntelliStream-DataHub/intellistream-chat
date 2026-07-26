@@ -244,7 +244,8 @@ public class ConversationRestController {
         // deleteMessage does the authz — on failure it throws and neither is touched.
         var doomed = attachments.forMessage(messageId);
         var keys = doomed.stream().map(ConversationAttachment::getStorageKey).toList();
-        var credits = ConversationAttachmentService.creditsFor(doomed);
+        // Live rows only: one the uploader already deleted from the file manager was credited then.
+        var credits = ConversationAttachmentService.creditsForLive(doomed);
         var deleted = conversations.deleteMessage(messageId, me);
         attachments.deleteFiles(keys);
         quotas.releaseAll(credits);

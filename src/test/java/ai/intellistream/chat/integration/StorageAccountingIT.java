@@ -30,6 +30,7 @@ import ai.intellistream.chat.security.ResourceNotFoundException;
 import ai.intellistream.chat.service.AttachmentService;
 import ai.intellistream.chat.service.ChannelService;
 import ai.intellistream.chat.service.MessageService;
+import ai.intellistream.chat.service.UserFileService;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.junit.jupiter.api.Test;
@@ -114,6 +115,7 @@ class StorageAccountingIT {
     @Autowired StorageQuotaService quotas;
     @Autowired MessageModerationService moderation;
     @Autowired RetentionPurgeScheduler purge;
+    @Autowired UserFileService userFiles;
     @PersistenceContext EntityManager em;
 
     private static final AtomicInteger SEQ = new AtomicInteger();
@@ -133,6 +135,37 @@ class StorageAccountingIT {
         // decrement that never happens is invisible until the account cannot upload any more.
         assertThat(usedBy(alice)).isZero();
         assertThat(attachments.resolve(attachment)).doesNotExist();
+    }
+
+    /**
+     * The double-credit case. Deleting your own file from the file manager tombstones the row and
+     * credits the bytes; deleting the message it hung on then gathers that same row, because the
+     * row still has to go and the file still has to be reaped. Crediting it twice hands the account
+     * storage it never had, and {@code UserStorage} moves only through an atomic delta — nothing
+     * downstream can notice the drift or repair it.
+     *
+     * <p>Two uploads, not one, so the assertion cannot be satisfied by a clamp at zero: the second
+     * file's bytes are what a wrong credit would eat into.
+     */
+    @Test
+    void aFileAlreadyDeletedFromTheFileManagerIsNotCreditedAgainWithItsMessage() throws IOException {
+        var alice = newUser("alice");
+        var room = newChannel(alice);
+        var doomed = upload(room, alice, "draft.bin", 512);
+        upload(room, alice, "keep.bin", 1000);
+        Tx.commit();
+        assertThat(usedBy(alice)).isEqualTo(1512);
+
+        userFiles.delete(alice, UserFileService.Scope.CHANNEL, doomed.getId());
+        Tx.commit();
+        assertThat(usedBy(alice)).isEqualTo(1000);
+
+        messages.delete(doomed.getMessage().getId(), alice);
+        Tx.commit();
+
+        assertThat(usedBy(alice))
+                .as("the tombstoned file was credited when it was tombstoned, not again now")
+                .isEqualTo(1000);
     }
 
     @Test

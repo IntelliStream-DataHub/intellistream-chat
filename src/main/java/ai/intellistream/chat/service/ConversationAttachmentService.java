@@ -113,6 +113,17 @@ public class ConversationAttachmentService {
         return credits;
     }
 
+    /**
+     * The DM mirror of {@link AttachmentService#creditsForLive}: skip rows the file manager has
+     * already tombstoned and already credited, so deleting the message they hung on cannot hand
+     * the uploader the same bytes twice. See that method for why the filter lives here rather
+     * than inside {@link #creditsFor}.
+     */
+    public static Map<Long, Long> creditsForLive(Collection<ConversationAttachment> attachments) {
+        if (attachments == null || attachments.isEmpty()) return Map.of();
+        return creditsFor(attachments.stream().filter(a -> !a.isDeleted()).toList());
+    }
+
     /** Best-effort delete of attachment files by storage key (used after a message/DM is removed). */
     public void deleteFiles(java.util.Collection<String> storageKeys) {
         if (storageKeys == null) return;

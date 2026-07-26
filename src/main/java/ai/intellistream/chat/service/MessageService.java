@@ -502,7 +502,10 @@ public class MessageService {
         //                     it. The account quietly loses quota it will never get back.
         //
         // A recoverable inconsistency beats an unrecoverable one.
-        quotas.releaseAll(AttachmentService.creditsFor(doomedAttachments));
+        // creditsForLive, not creditsFor: doomedAttachments is gathered unfiltered because every
+        // row has to be deleted and every file reaped, but a tombstoned one was credited when the
+        // file manager tombstoned it. Crediting it again here is bytes the account never had back.
+        quotas.releaseAll(AttachmentService.creditsForLive(doomedAttachments));
         afterCommit(() -> messageIndex.deleteAll(indexedIdsSnapshot));
         afterCommit(() -> attachmentService.deleteFiles(fileKeysSnapshot));
 

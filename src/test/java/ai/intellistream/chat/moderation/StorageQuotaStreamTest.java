@@ -178,6 +178,46 @@ class StorageQuotaStreamTest {
         assertThat(AttachmentService.creditsFor(null)).isEmpty();
     }
 
+    /**
+     * The bulk-delete rule. A tombstoned attachment was credited when the file manager tombstoned
+     * it, so a later delete of the message it hung on must not credit it again — that hands the
+     * account bytes it never had, and {@code UserStorage} offers only an atomic delta, so nothing
+     * downstream can spot it or put it right.
+     */
+    @Test
+    void creditsForLiveSkipsAttachmentsAlreadyCreditedWhenTheyWereTombstoned() {
+        var alice = user(1L, "alice");
+        var channel = new Channel("general", "General", null, ChannelType.PUBLIC, alice);
+        var live = attachment(alice, channel, 100);
+        var tombstoned = attachment(alice, channel, 250);
+        tombstoned.softDelete(alice);
+
+        assertThat(AttachmentService.creditsForLive(List.of(live, tombstoned)))
+                .containsExactlyInAnyOrderEntriesOf(java.util.Map.of(1L, 100L));
+    }
+
+    /**
+     * The counterpart, pinned deliberately: the file manager credits a row it has just tombstoned,
+     * in the same transaction. That is why the filter lives in {@code creditsForLive} and not
+     * inside {@code creditsFor} — moving it would silently stop the file manager crediting at all.
+     */
+    @Test
+    void creditsForStillCountsATombstoneSoTheFileManagerCanCreditItsOwnDelete() {
+        var alice = user(1L, "alice");
+        var channel = new Channel("general", "General", null, ChannelType.PUBLIC, alice);
+        var justTombstoned = attachment(alice, channel, 250);
+        justTombstoned.softDelete(alice);
+
+        assertThat(AttachmentService.creditsFor(List.of(justTombstoned)))
+                .containsExactlyInAnyOrderEntriesOf(java.util.Map.of(1L, 250L));
+    }
+
+    @Test
+    void creditsForLiveIsEmptyWhenThereIsNothingToDelete() {
+        assertThat(AttachmentService.creditsForLive(List.of())).isEmpty();
+        assertThat(AttachmentService.creditsForLive(null)).isEmpty();
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private static InputStream bytes(int count) {

@@ -262,7 +262,7 @@ public class RetentionPurgeScheduler {
                     + "on disk until the CLEAN-1 sweep runs", doomed.size(), e);
         }
         try {
-            quotas.releaseAll(AttachmentService.creditsFor(doomed));
+            quotas.releaseAll(AttachmentService.creditsForLive(doomed));
         } catch (RuntimeException e) {
             log.error("Purged {} attachment(s) and freed their files, but failed to credit the "
                     + "bytes back; the uploading accounts stay charged for storage they no longer "
