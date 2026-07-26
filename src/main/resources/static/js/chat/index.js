@@ -385,8 +385,12 @@ presenceMenu.init();
   };
 
   /**
-   * Surface an @mention via the shared notifications module. Skipped when the user is
-   * actively reading the channel (active + tab focused) — they can already see it.
+   * Surface an @mention via the shared notifications module.
+   *
+   * <p>Reading the channel you are mentioned in suppresses the toast, not the sound. The toast
+   * is redundant — it would point at a message already on screen — but a mention is addressed to
+   * you by name, and "someone just called on you" is worth hearing even while the channel is
+   * open. Watching a busy channel scroll is exactly the situation where a mention is missed.
    */
   const maybeNotifyMention = (message, channelId, isActiveChannel) => {
     if (!message) return;
@@ -395,7 +399,10 @@ presenceMenu.init();
     // (multi-channel mention storm) coalesces into one /api/mentions fetch.
     if (window.MentionInbox) window.MentionInbox.notifyMention();
     if (!window.MentionNotifications) return;
-    if (isActiveChannel && document.visibilityState === 'visible' && document.hasFocus()) return;
+    if (isActiveChannel && document.visibilityState === 'visible' && document.hasFocus()) {
+      window.MentionNotifications.playChime('mention');
+      return;
+    }
     const entry = sidebarChannels.get(channelId);
     const channelName = entry?.a.querySelector('.channel-name')?.textContent || 'channel';
     const author = message.authorDisplayName || message.authorUsername || 'someone';

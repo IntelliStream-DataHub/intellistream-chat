@@ -286,26 +286,45 @@
   });
 
   // ---------- Notification sound ----------
-  // The state lives in localStorage (notifications.js owns the key), so the checkbox is
-  // corrected here rather than rendered checked by the server, which cannot know it.
-  const soundBox = document.getElementById('notification-sound');
-  const soundPreview = document.getElementById('notification-sound-preview');
-  if (soundBox && window.MentionNotifications) {
-    soundBox.checked = window.MentionNotifications.soundEnabled();
-    soundBox.addEventListener('change', () => {
-      window.MentionNotifications.setSoundEnabled(soundBox.checked);
-      // Play on enable, so "did that work" is answered immediately. The click that ticked the
-      // box is also the gesture that unlocks audio, so this is the first moment it can be heard.
-      if (soundBox.checked) window.MentionNotifications.playChime();
-    });
-  }
-  soundPreview?.addEventListener('click', () => {
-    if (!window.MentionNotifications) return;
-    if (!window.MentionNotifications.soundEnabled()) {
-      // Previewing a sound that is switched off would be a lie about what happens on a mention.
-      soundBox.checked = true;
-      window.MentionNotifications.setSoundEnabled(true);
+  // One row per kind: whether it makes a sound, and which one. State lives in localStorage
+  // (notifications.js owns the keys), so the controls are corrected here rather than rendered
+  // by the server, which cannot know the answer.
+  const SOUND_ROWS = [
+    { kind: 'direct',  toggle: 'notification-sound-dm',      select: 'notification-voice-dm' },
+    { kind: 'mention', toggle: 'notification-sound-mention', select: 'notification-voice-mention' },
+  ];
+  const notifications = window.MentionNotifications;
+  if (notifications) {
+    const voices = notifications.soundVoices();
+    for (const { kind, toggle, select } of SOUND_ROWS) {
+      const box = document.getElementById(toggle);
+      const picker = document.getElementById(select);
+      if (!box || !picker) continue;
+
+      box.checked = notifications.soundEnabled(kind);
+      for (const { name, label } of voices) {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = label;
+        picker.appendChild(opt);
+      }
+      picker.value = notifications.soundVoice(kind);
+      picker.disabled = !box.checked;
+
+      box.addEventListener('change', () => {
+        notifications.setSoundEnabled(kind, box.checked);
+        // A picker for a sound that will never play is a control that does nothing.
+        picker.disabled = !box.checked;
+        // Play on enable so "did that work" is answered at once — and the click that ticked the
+        // box is also the gesture that unlocks audio, so it is the first moment it can be heard.
+        if (box.checked) notifications.playVoice(picker.value);
+      });
+      picker.addEventListener('change', () => {
+        notifications.setSoundVoice(kind, picker.value);
+        // Choosing a sound plays it. Picking one from a list of names without hearing it is
+        // guessing, and the whole point of five is that they differ.
+        notifications.playVoice(picker.value);
+      });
     }
-    window.MentionNotifications.playChime();
-  });
+  }
 })();

@@ -2008,6 +2008,20 @@ button.icon-btn > .icon {
 /* Checkbox and its text on one line. Labels in this app default to a stacked grid, which is
    right for a field with a caption above it and wrong for a checkbox, where the text is what
    you click. */
+/* One row per kind: switch, sound, preview. Grid so the selects line up under each other
+   however long the labels are. */
+.sound-prefs { display: grid; gap: 0.55rem; }
+.sound-pref {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.6rem;
+}
+.sound-pref select { font-size: var(--fs-sm); }
+@media (max-width: 560px) {
+  .sound-pref { grid-template-columns: 1fr; }
+}
+
 .notification-sound-toggle {
   display: flex;
   align-items: center;
@@ -2019,10 +2033,6 @@ button.icon-btn > .icon {
   width: auto;
   margin: 0;
   flex: none;
-}
-#notification-sound-preview {
-  margin-top: 0.5rem;
-  font-size: var(--fs-sm);
 }
 
 /* ---------- Admin console ---------- */

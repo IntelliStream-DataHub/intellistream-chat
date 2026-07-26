@@ -106,13 +106,27 @@
             <h2>Notifications</h2>
             <p class="profile-help">
                 Applies to this browser only. Mentions and direct messages always show a toast —
-                this controls whether they also make a sound.
+                these control whether they also make a sound, and which one. A direct message is
+                someone waiting on you; a mention is your name going past in a room that is talking
+                anyway — so they get their own switch and their own sound, and you can tell them
+                apart without looking.
             </p>
-            <label class="notification-sound-toggle">
-                <input type="checkbox" id="notification-sound"/>
-                <span>Play a sound for mentions and direct messages</span>
-            </label>
-            <button type="button" class="linklike" id="notification-sound-preview">Preview</button>
+            <div class="sound-prefs">
+                <div class="sound-pref" data-kind="direct">
+                    <label class="notification-sound-toggle">
+                        <input type="checkbox" id="notification-sound-dm"/>
+                        <span>Direct messages</span>
+                    </label>
+                    <select id="notification-voice-dm" aria-label="Sound for direct messages"></select>
+                </div>
+                <div class="sound-pref" data-kind="mention">
+                    <label class="notification-sound-toggle">
+                        <input type="checkbox" id="notification-sound-mention"/>
+                        <span>Mentions</span>
+                    </label>
+                    <select id="notification-voice-mention" aria-label="Sound for mentions"></select>
+                </div>
+            </div>
         </section>
 
         <section class="profile-section">

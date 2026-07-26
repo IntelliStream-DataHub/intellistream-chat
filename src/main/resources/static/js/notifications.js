@@ -42,9 +42,28 @@
   //
   // Per-device, not per-account, and stored in localStorage: whether you want a noise depends on
   // the room you are sitting in, not on who you are. Slack and Mattermost both treat it that way.
-  const SOUND_KEY = 'ichat.notification-sound';
-  const soundEnabled = () => localStorage.getItem(SOUND_KEY) !== 'off';
-  const setSoundEnabled = (on) => localStorage.setItem(SOUND_KEY, on ? 'on' : 'off');
+  //
+  // Two switches, because they are two different interruptions. A direct message is a person
+  // waiting on you; a mention is your name going past in a room that is talking anyway. Plenty of
+  // people want the first and not the second, and one switch forces them to give up both.
+  const SOUND_KEYS = {
+    mention: 'ichat.notification-sound.mention',
+    conversation: 'ichat.notification-sound.dm',
+  };
+  const LEGACY_SOUND_KEY = 'ichat.notification-sound';
+
+  const soundKeyFor = (kind) =>
+      (kind === 'direct' || kind === 'group') ? SOUND_KEYS.conversation : SOUND_KEYS.mention;
+
+  const soundEnabled = (kind) => {
+    const stored = localStorage.getItem(soundKeyFor(kind));
+    // Fall back to the single switch this replaced, so anyone who had already turned sound off
+    // stays off instead of having it come back on when they upgrade.
+    if (stored === null) return localStorage.getItem(LEGACY_SOUND_KEY) !== 'off';
+    return stored !== 'off';
+  };
+  const setSoundEnabled = (kind, on) =>
+      localStorage.setItem(soundKeyFor(kind), on ? 'on' : 'off');
 
   let audioCtx = null;
   // Browsers refuse to start an AudioContext until the user has interacted with the page, and a
@@ -65,26 +84,87 @@
     document.addEventListener(evt, unlockAudio, { once: true, passive: true });
   });
 
-  const playChime = () => {
-    if (!soundEnabled() || !audioCtx) return;
+  // Fifteen voices, synthesised like the original rather than shipped as files — same reasoning:
+  // no binary assets, no licences to track, no media-src in the CSP, nothing to 404. Each is a
+  // short list of [frequency, delay] notes plus a waveform and a decay, which is enough range to
+  // sound different without any of them sounding like an alarm. Gain is tuned per voice
+  // rather than shared: a square wave and a low triangle at the same amplitude are not the
+  // same loudness, and one voice being twice as loud as the rest is how a picker becomes a
+  // trap.
+  //
+  // 'chime' is first and is the default, because it is what everyone already has: changing the
+  // sound under people who never asked for a new one is its own small annoyance.
+  const VOICES = {
+    chime:   { label: 'Chime',   type: 'sine',     decay: 0.22, gain: 0.12,
+               notes: [[880, 0], [1174.66, 0.08]] },
+    ping:    { label: 'Ping',    type: 'sine',     decay: 0.34, gain: 0.10,
+               notes: [[1318.51, 0]] },
+    knock:   { label: 'Knock',   type: 'triangle', decay: 0.13, gain: 0.20,
+               notes: [[196, 0], [147, 0.09]] },
+    marimba: { label: 'Marimba', type: 'triangle', decay: 0.26, gain: 0.13,
+               notes: [[659.25, 0], [783.99, 0.07], [1046.5, 0.14]] },
+    pulse:   { label: 'Pulse',   type: 'square',   decay: 0.10, gain: 0.05,
+               notes: [[523.25, 0], [523.25, 0.13]] },
+    bell:    { label: 'Bell',    type: 'sine',     decay: 0.50, gain: 0.10,
+               notes: [[1046.5, 0], [1567.98, 0.05]] },
+    drop:    { label: 'Drop',    type: 'sine',     decay: 0.24, gain: 0.12,
+               notes: [[880, 0], [587.33, 0.07]] },
+    rise:    { label: 'Rise',    type: 'sine',     decay: 0.24, gain: 0.12,
+               notes: [[523.25, 0], [880, 0.07]] },
+    bloop:   { label: 'Bloop',   type: 'sine',     decay: 0.18, gain: 0.16,
+               notes: [[392, 0], [523.25, 0.06]] },
+    tritone: { label: 'Tri-tone', type: 'sine',    decay: 0.20, gain: 0.11,
+               notes: [[1046.5, 0], [880, 0.06], [698.46, 0.12]] },
+    glass:   { label: 'Glass',   type: 'sine',     decay: 0.16, gain: 0.08,
+               notes: [[1760, 0], [2093, 0.05]] },
+    wood:    { label: 'Wood',    type: 'triangle', decay: 0.12, gain: 0.24,
+               notes: [[130.81, 0]] },
+    sonar:   { label: 'Sonar',   type: 'sine',     decay: 0.55, gain: 0.11,
+               notes: [[440, 0]] },
+    tick:    { label: 'Tick',    type: 'square',   decay: 0.04, gain: 0.04,
+               notes: [[1200, 0]] },
+    arp:     { label: 'Arpeggio', type: 'triangle', decay: 0.22, gain: 0.11,
+               notes: [[523.25, 0], [659.25, 0.05], [783.99, 0.10], [1046.5, 0.15]] },
+  };
+  const DEFAULT_VOICE = 'chime';
+
+  const VOICE_KEYS = {
+    mention: 'ichat.notification-sound.voice.mention',
+    conversation: 'ichat.notification-sound.voice.dm',
+  };
+  const voiceKeyFor = (kind) =>
+      (kind === 'direct' || kind === 'group') ? VOICE_KEYS.conversation : VOICE_KEYS.mention;
+
+  /** Which voice this kind uses. Unknown or missing falls back rather than going silent. */
+  const soundVoice = (kind) => {
+    const stored = localStorage.getItem(voiceKeyFor(kind));
+    return (stored && VOICES[stored]) ? stored : DEFAULT_VOICE;
+  };
+  const setSoundVoice = (kind, name) => {
+    if (VOICES[name]) localStorage.setItem(voiceKeyFor(kind), name);
+  };
+  /** [{name, label}] for building a picker without exporting the synthesis details. */
+  const soundVoices = () => Object.entries(VOICES).map(([name, v]) => ({ name, label: v.label }));
+
+  const emit = (voiceName) => {
+    if (!audioCtx) return;
+    const v = VOICES[voiceName] || VOICES[DEFAULT_VOICE];
     // A context can be suspended again by the browser (backgrounded tab, media policy). Resuming
     // is async, so the notes are scheduled off the resulting time rather than "now".
     const start = (t0) => {
-      // Two notes a fourth apart. Short, with an exponential decay, because a notification that
-      // rings is one the user turns off.
-      [[880, 0], [1174.66, 0.08]].forEach(([freq, delay]) => {
+      v.notes.forEach(([freq, delay]) => {
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
-        osc.type = 'sine';
+        osc.type = v.type;
         osc.frequency.value = freq;
         const at = t0 + delay;
         // Ramp in over 8ms instead of starting at full gain: a hard start is an audible click.
         gain.gain.setValueAtTime(0.0001, at);
-        gain.gain.exponentialRampToValueAtTime(0.12, at + 0.008);
-        gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.22);
+        gain.gain.exponentialRampToValueAtTime(v.gain, at + 0.008);
+        gain.gain.exponentialRampToValueAtTime(0.0001, at + v.decay);
         osc.connect(gain).connect(audioCtx.destination);
         osc.start(at);
-        osc.stop(at + 0.24);
+        osc.stop(at + v.decay + 0.02);
       });
     };
     if (audioCtx.state === 'suspended') {
@@ -93,6 +173,15 @@
       start(audioCtx.currentTime);
     }
   };
+
+  /** Play the sound this kind is configured for, if that kind is switched on at all. */
+  const playChime = (kind) => {
+    if (!soundEnabled(kind)) return;
+    emit(soundVoice(kind));
+  };
+
+  /** Play a named voice regardless of the on/off switches — for previewing a picker. */
+  const playVoice = (name) => emit(name);
 
   function ensureStack() {
     if (stack) return stack;
@@ -205,10 +294,11 @@
     // Independent of the OS-notification permission on purpose. Denying desktop alerts is a
     // statement about banners, not about sound, and the two are separately useful: the sound is
     // what reaches you when the window is behind something else.
-    playChime();
+    playChime(opts.kind);
   }
 
   window.MentionNotifications = {
-    show, permissionState, playChime, soundEnabled, setSoundEnabled,
+    show, permissionState, playChime, playVoice,
+    soundEnabled, setSoundEnabled, soundVoice, setSoundVoice, soundVoices,
   };
 })();
