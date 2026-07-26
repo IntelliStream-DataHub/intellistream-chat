@@ -184,10 +184,12 @@ class FivePersonThreadIT {
                 .containsExactly(rDave.getId(), rEve.getId(), rAlice.getId());
         assertThat(messages.threadReplyCount(parent)).isEqualTo(3);
 
-        // --- Unread for the user who never visited: only the parent counts (replies live in the
-        // thread panel and are intentionally excluded from the main timeline unread count).
+        // --- Unread for the user who never visited: the parent plus every surviving reply. Replies
+        // count — a reply is a message in the channel, and excluding them meant a thread could run
+        // for a hundred messages while the sidebar said the channel was quiet. The two deleted
+        // replies do not count (soft-delete filter), so it is 1 parent + 3 live replies.
         assertThat(reads.unreadCounts(absent, List.of(room.getId())))
-                .containsEntry(room.getId(), 1L);
+                .containsEntry(room.getId(), 4L);
 
         // --- Marking the channel read clears unread but leaves mentions and reactions intact.
         reads.markRead(room, alice);

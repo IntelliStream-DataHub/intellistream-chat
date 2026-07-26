@@ -200,9 +200,21 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
     List<Object[]> countRepliesByParentIds(@Param("parentIds") Collection<Long> parentIds);
 
     /**
-     * For each channel id, count top-level messages that arrived after the viewer's last_read_at
-     * marker (no marker counts as "all unread"). Excludes the viewer's own messages — you don't
-     * generate unread counts for yourself.
+     * For each channel id, count messages that arrived after the viewer's last_read_at marker (no
+     * marker counts as "all unread"). Excludes the viewer's own messages — you don't generate unread
+     * counts for yourself.
+     *
+     * <p><b>Thread replies count.</b> This used to filter {@code parent_id is null}, which made a
+     * reply invisible to every unread signal the application has: no badge, no bold name, and — with
+     * no @mention in it — no bell entry either. A reply to your own thread produced literally zero
+     * indication anywhere, which is how a threaded conversation dies without anyone deciding to end
+     * it. A reply is a message in the channel and the channel is unread; there is no reading of
+     * "unread" under which that was true.
+     *
+     * <p>A reply is <em>ordinary</em> unread, not a mention: it bolds the channel name and does not
+     * put a number on it (see {@code ChannelSidebarDto.unreadCue}). Who gets told about it beyond
+     * the badge is a separate question, answered by thread participation — see
+     * {@link #findThreadParticipants}.
      */
     @Query(value = """
             select msg.channel_id, count(*)
@@ -210,7 +222,6 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
               left join channel_reads cr
                      on cr.channel_id = msg.channel_id and cr.user_id = :userId
              where msg.channel_id in (:channelIds)
-               and msg.parent_id is null
                and msg.deleted_at is null
                and msg.author_id <> :userId
                and (cr.last_read_at is null or msg.created_at > cr.last_read_at)
@@ -218,6 +229,28 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
             """, nativeQuery = true)
     List<Object[]> countUnreadPerChannel(@Param("userId") Long userId,
                                          @Param("channelIds") Collection<Long> channelIds);
+
+    /**
+     * Everyone in a thread: {@code (userId, username)} for the parent's author plus everyone who has
+     * replied to it. Live rows only, and the parent itself is included by the {@code m.id} arm.
+     *
+     * <p>Derived rather than stored. A follow/subscribe table would need a row written on every
+     * reply, a decision about what "unfollow" means, backfill for every thread that already exists,
+     * and a migration — to express something the messages already say. "The people in this thread"
+     * is exactly the set of people who wrote in it, which is also the set people expect to be
+     * notified, so the derived answer is not an approximation of the stored one; it <em>is</em> the
+     * answer.
+     *
+     * <p>Duplicates are collapsed here rather than by the caller because someone who replied five
+     * times is one participant.
+     */
+    @Query("""
+            select distinct m.author.id, m.author.username
+              from Message m
+             where (m.id = :parentId or m.parent.id = :parentId)
+               and m.deletedAt is null
+            """)
+    List<Object[]> findThreadParticipants(@Param("parentId") Long parentId);
 
     /**
      * Every <b>live</b> message id — the DB side of the Lucene↔DB reconcile (CLEAN-3).

@@ -347,6 +347,21 @@ public class ChannelService {
         return memberRepository.existsByChannelAndUser(channel, user);
     }
 
+    /**
+     * Which of {@code userIds} are currently members of {@code channel} — one query, not one per id.
+     *
+     * <p>Used to narrow a derived audience (thread participants) to people who are still here.
+     * Membership at the time somebody posted is not membership now: they may have left, or been
+     * removed, and neither should keep receiving the channel's traffic.
+     */
+    @Transactional(readOnly = true)
+    public java.util.Set<Long> membersAmong(Channel channel, java.util.Collection<Long> userIds) {
+        if (userIds.isEmpty()) {
+            return java.util.Set.of();
+        }
+        return java.util.Set.copyOf(memberRepository.findMemberUserIds(channel, userIds));
+    }
+
     @Transactional(readOnly = true)
     public boolean isAdmin(Channel channel, User user) {
         return memberRepository.findByChannelAndUser(channel, user)

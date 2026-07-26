@@ -317,6 +317,42 @@ public class MessageService {
         return saved;
     }
 
+    /**
+     * The usernames to notify about a reply in {@code parent}'s thread: everyone who has written in
+     * the thread — the parent's author plus every replier — except {@code excluding}, and narrowed to
+     * people who are still members of the channel.
+     *
+     * <p>Derived from the messages rather than from a follow table; see
+     * {@code MessageRepository.findThreadParticipants} for why that is the answer and not an
+     * approximation of it. {@code excluding} is the person who just replied: telling them about their
+     * own message is the one guaranteed-useless notification.
+     *
+     * <p>The membership narrowing is not paranoia. A private channel's thread can contain messages
+     * from someone who has since left, and a public channel's too; broadcasting the participant list
+     * to the channel topic means anything in it is a name the client will act on.
+     */
+    @Transactional(readOnly = true)
+    public List<String> threadParticipants(Message parent, User excluding) {
+        var rows = messageRepository.findThreadParticipants(parent.getId());
+        if (rows.isEmpty()) {
+            return List.of();
+        }
+        var byId = new java.util.LinkedHashMap<Long, String>(rows.size());
+        for (var row : rows) {
+            var id = ((Number) row[0]).longValue();
+            if (excluding != null && id == excluding.getId()) continue;
+            byId.put(id, (String) row[1]);
+        }
+        if (byId.isEmpty()) {
+            return List.of();
+        }
+        var stillMembers = channelService.membersAmong(parent.getChannel(), byId.keySet());
+        return byId.entrySet().stream()
+                .filter(e -> stillMembers.contains(e.getKey()))
+                .map(java.util.Map.Entry::getValue)
+                .toList();
+    }
+
     @Transactional(readOnly = true)
     public List<Message> threadReplies(Long parentId, User viewer) {
         var parent = messageRepository.findByIdWithChannelAndAuthor(parentId)

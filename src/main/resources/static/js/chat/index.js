@@ -524,40 +524,68 @@ presenceMenu.init();
     return mentioned;
   };
 
+  /** Am I one of the people in this thread, per the participant list on the broadcast? */
+  const inThread = (message) =>
+      !!(message?.threadParticipants || []).includes(myUsernameMeta);
+
   /**
-   * Surface an @mention via the shared notifications module.
+   * Should a reply in a thread I am in interrupt me?
    *
-   * <p>Reading the channel you are mentioned in suppresses the toast, not the sound. The toast
-   * is redundant — it would point at a message already on screen — but a mention is addressed to
-   * you by name, and "someone just called on you" is worth hearing even while the channel is
-   * open. Watching a busy channel scroll is exactly the situation where a mention is missed.
+   * <p>Mute wins, exactly as it does for an ordinary message: NONE means nothing from this channel,
+   * and a thread is part of the channel. Above that, a reply in a thread I have written in notifies
+   * at MENTIONS as well as at ALL — because being a participant is what makes it addressed to me,
+   * in the same sense a mention is. Treating it as ordinary traffic instead would mean the default
+   * level produces no signal for a threaded conversation, which is the exact failure being fixed
+   * here: the reply would count toward unread and nothing would ever tell the people in the thread
+   * to look. It stays out of the mention bell regardless — see maybeNotify.
    */
-  const maybeNotifyMention = (message, channelId, isActiveChannel, mentioned = true) => {
+  const shouldNotifyThreadReply = (channelId) => notifyLevelFor(channelId) !== 'NONE';
+
+  /**
+   * Surface an incoming message via the shared notifications module.
+   *
+   * <p>{@code kind} is one of 'mention' (addressed to you by name), 'thread' (a reply in a thread
+   * you are in) or 'channel' (ordinary traffic in a channel set to ALL). It decides the headline and
+   * whether the mention bell hears about it, so it is passed in rather than guessed.
+   *
+   * <p>Reading the channel suppresses the toast, not the sound, for the two kinds that are about
+   * you. The toast would point at a message already on screen — but "someone just called on you", or
+   * "the thread you are in moved", is worth hearing even while the channel is open, and watching a
+   * busy channel scroll is exactly the situation where either gets missed.
+   */
+  const maybeNotify = (message, channelId, isActiveChannel, kind = 'mention') => {
     if (!message) return;
+    const mentioned = kind === 'mention';
     // The bell is a mention inbox, so only an actual mention belongs in it. A channel set to
-    // ALL produces notifications for ordinary messages, and putting those in the bell would
-    // turn "things addressed to me" into "everything", which is the one thing it is for.
+    // ALL produces notifications for ordinary messages, and a thread reply produces one for its
+    // participants; putting either in the bell would turn "things addressed to me" into
+    // "everything", which is the one thing it is for.
     if (mentioned && window.MentionInbox) window.MentionInbox.notifyMention();
     if (!window.MentionNotifications) return;
     if (isActiveChannel && document.visibilityState === 'visible' && document.hasFocus()) {
-      // A mention still makes a sound while you are reading the channel — see below. An ordinary
-      // message in a channel set to ALL does not: you are looking straight at it.
-      if (mentioned) window.MentionNotifications.playChime('mention');
+      // An ordinary message in a channel set to ALL makes no sound: you are looking straight at it.
+      if (kind !== 'channel') window.MentionNotifications.playChime('mention');
       return;
     }
-    const entry = sidebarChannels.get(channelId);
+    const entry = sidebarChannels.get(String(channelId));
     const channelName = entry?.a.querySelector('.channel-name')?.textContent || 'channel';
     const author = message.authorDisplayName || message.authorUsername || 'someone';
     const snippet = (message.bodyMarkdown || '').replace(/\s+/g, ' ').slice(0, 200);
+    const anchorId = message.parentId || message.id;
     window.MentionNotifications.show({
       author,
       channel: channelName,
-      kind: mentioned ? undefined : 'channel',
+      kind: mentioned ? undefined : kind,
       snippet,
       // Match permalinkFor: ?m= makes the server render context around an older message
       // (it may be outside the latest page), #m= is what scrollToPermalinkTarget matches.
       // The old '#m-<id>' matched neither, landing the user at the tail with no highlight.
-      url: '/channels/' + channelId + '?m=' + encodeURIComponent(message.id) + '#m=' + message.id,
+      //
+      // A thread reply anchors on its PARENT. The server's context-around refuses a thread-reply
+      // anchor (messageService.around throws for one, and HomeController falls back to the latest
+      // 50), so linking to the reply's own id would drop the user at the tail of the channel with
+      // nothing highlighted — the parent puts them at the thread, with its "N replies" indicator.
+      url: '/channels/' + channelId + '?m=' + encodeURIComponent(anchorId) + '#m=' + anchorId,
     });
   };
 
@@ -644,15 +672,26 @@ presenceMenu.init();
         if (id === activeChannelId) return; // already subscribed above, with the full handler
         channelSubscriptions.set(id, stomp.subscribe('/topic/channels/' + id, (frame) => {
           const ev = JSON.parse(frame.body);
-          if (ev.type !== 'created' || ev.parentId) return;
+          if (ev.type !== 'created') return;
           if (ev.message?.authorUsername === myUsername) return;
           const mentioned = !!(ev.message?.mentions || []).includes(myUsername);
+          // Thread replies used to be dropped here (`|| ev.parentId` on the guard above), so a
+          // reply in another channel produced nothing at all. They count as ordinary unread — a
+          // reply is a message in the channel — and the server's unread query now agrees.
+          //
           // The badge is not the notification: an unread count still reflects reality in a muted
           // channel, it just does not interrupt. Muting means "stop telling me", not "pretend
           // nothing happened".
           bumpSidebarUnread(id, mentioned);
-          if (shouldNotify(id, mentioned)) {
-            maybeNotifyMention(ev.message, id, /* isActiveChannel */ false, mentioned);
+          if (mentioned) {
+            if (shouldNotify(id, true)) maybeNotify(ev.message, id, false, 'mention');
+          } else if (ev.parentId) {
+            // Only the people in the thread; everyone else gets the unread cue and nothing more.
+            if (inThread(ev.message) && shouldNotifyThreadReply(id)) {
+              maybeNotify(ev.message, id, false, 'thread');
+            }
+          } else if (shouldNotify(id, false)) {
+            maybeNotify(ev.message, id, false, 'channel');
           }
         }));
       });
@@ -846,6 +885,30 @@ presenceMenu.init();
         if (event.parentId) {
           appendThreadReply(event.message);
           bumpThreadIndicator(event.parentId, +1);
+          // A reply counts toward the channel's unread now, so the read marker has to move for the
+          // channel the viewer is looking at — otherwise navigating away leaves a phantom badge for
+          // messages they watched arrive. Same foreground-only rule as a top-level message: a tab
+          // left open in the background must not silently mark traffic read.
+          if (event.message?.authorUsername !== myUsername) {
+            if (document.visibilityState === 'visible' && document.hasFocus()) {
+              fetch('/api/channels/' + activeChannelId + '/read', {
+                method: 'POST', headers: headers(),
+              })
+                .then(() => { if (window.MentionInbox) window.MentionInbox.refresh(); })
+                .catch(() => {});
+            }
+            const mentioned = !!(event.message?.mentions || []).includes(myUsername);
+            if (mentioned) {
+              if (shouldNotify(activeChannelId, true)) {
+                maybeNotify(event.message, activeChannelId, true, 'mention');
+              }
+            } else if (inThread(event.message) && shouldNotifyThreadReply(activeChannelId)) {
+              // The chime fires even with the channel open (maybeNotify suppresses only the toast),
+              // which is right: the thread panel may be closed, or open on a different thread, and
+              // the reply is not on screen either way.
+              maybeNotify(event.message, activeChannelId, true, 'thread');
+            }
+          }
         } else {
           // If the viewer is reading context-around an old anchor and hasn't paged forward
           // to the live tail, skipping the live-append keeps the loaded batch chronologically
@@ -869,7 +932,8 @@ presenceMenu.init();
             }
             const mentioned = !!(event.message?.mentions || []).includes(myUsername);
             if (shouldNotify(activeChannelId, mentioned)) {
-              maybeNotifyMention(event.message, activeChannelId, /* isActiveChannel */ true, mentioned);
+              maybeNotify(event.message, activeChannelId, /* isActiveChannel */ true,
+                  mentioned ? 'mention' : 'channel');
             }
           }
         }

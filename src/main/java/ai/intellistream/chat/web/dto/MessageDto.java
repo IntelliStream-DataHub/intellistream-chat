@@ -39,7 +39,8 @@ public record MessageDto(
         List<ReactionGroupDto> reactions,
         long replyCount,
         List<String> mentions,
-        PollDto poll
+        PollDto poll,
+        List<String> threadParticipants
 ) {
     public static MessageDto from(Message message, String html) {
         return from(message, html, List.of(), List.of(), 0L, List.of(), null);
@@ -83,6 +84,31 @@ public record MessageDto(
     // conversation, and the two have different identities and different permalinks. See
     // SearchHitDto — it is where the highlighted snippet lives now.
 
+    /**
+     * Attach the thread's participants — the parent's author plus everyone who has replied, minus
+     * the person who just did.
+     *
+     * <p>This is how a thread reply reaches the people in the thread. It rides the existing
+     * {@code /topic/channels/{id}} broadcast rather than a per-recipient queue: the reply is already
+     * being sent to the whole channel (everyone who can read the channel can read the thread), so the
+     * list costs one array on a message that was going out anyway, and each client decides whether it
+     * is in it. A fan-out of one message per participant would be strictly more work to deliver
+     * strictly less-visible information.
+     *
+     * <p>Deliberately <b>not</b> the mention bell. The bell is an inbox of things addressed to you by
+     * name; a reply in a thread you are in is not that, and folding it in would turn "things
+     * addressed to me" into "everything", which is the one property it has. It produces the toast,
+     * the chime and the ordinary unread cue, and nothing else.
+     *
+     * <p>Empty on every other kind of message.
+     */
+    public MessageDto withThreadParticipants(List<String> participants) {
+        return new MessageDto(id, channelId, parentId, authorUsername, authorDisplayName,
+                authorHasAvatar, authorAvatarVersion, bodyMarkdown, bodyHtml, createdAt, editedAt,
+                attachments, reactions, replyCount, mentions, poll,
+                participants == null ? List.of() : List.copyOf(participants));
+    }
+
     private static MessageDto build(Message message, String html,
                                     List<Attachment> attachments,
                                     List<ReactionGroupDto> reactions,
@@ -106,7 +132,8 @@ public record MessageDto(
                 reactions,
                 replyCount,
                 mentions,
-                poll
+                poll,
+                List.of()
         );
     }
 }
