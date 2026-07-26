@@ -15,30 +15,27 @@
  */
 
 /*
- * Live message-search box: debounced query, keyboard-navigable dropdown, clear button.
+ * The message-search box: debounced query, keyboard-navigable dropdown, clear button.
  *
- * Lives in its own module because both the channel page and the direct-message page carry one.
- * It used to be a closure inside chat/index.js, which is why the DM page had no message search
- * at all — the behaviour was reachable from exactly one page, and the fix was either to copy it
- * or to move it. Copies of this much logic drift.
+ * There is one of these per page and it lives in the top bar. There used to be three search inputs
+ * on screen at once — "Search messages…" here, "Search channels…" in the sidebar, "Search this
+ * channel…" in the channel header — with three different meanings and nothing to tell them apart
+ * but their placeholder text. The channel-header box is gone; the sidebar's is a different tool
+ * (find a channel, not a message) and stays.
+ *
+ * Scope is read from the form's own hidden fields rather than passed in, so the dropdown and the
+ * results page the form submits to are searching the same thing by construction. The box's
+ * placeholder names that scope, because a search that silently narrows itself is the same class of
+ * bug as one that silently means something else.
  *
  * Results come back as SearchHitDto: a discriminated `scope` plus a precomputed `url`, so this
  * never has to know how to build a link to a channel message versus a conversation message.
  */
 
-/**
- * @param inputId      id of the <input type="search">
- * @param opts.scopeChannelIdFn  () => channelId, to scope the query to one channel; null = global
- * @param opts.anchorRight       hang the panel off the window's right margin instead of the
- *                               field's left edge. True for narrow fields sitting at the right of
- *                               a header, where left-anchoring runs the panel off-screen.
- */
-export function initSearchBox(inputId, opts = {}) {
+/** @param inputId id of the <input type="search">; it must live inside a form pointing at /search */
+export function initSearchBox(inputId) {
   const input = document.getElementById(inputId);
   if (!input) return;
-
-  const scopeChannelIdFn = opts.scopeChannelIdFn || null;
-  const anchorRight = !!opts.anchorRight;
 
   // channelId → channel name, read from the sidebar so a row can say "#general" without a second
   // round-trip. Only a hint: the server also sends channelName, which is the fallback for a
@@ -73,13 +70,8 @@ export function initSearchBox(inputId, opts = {}) {
     if (!dropdown) return;
     const r = input.getBoundingClientRect();
     dropdown.style.top = (r.bottom + 4) + 'px';
-    if (anchorRight) {
-      dropdown.style.right = '10px';
-      dropdown.style.left = 'auto';
-    } else {
-      dropdown.style.left = r.left + 'px';
-      dropdown.style.right = 'auto';
-    }
+    dropdown.style.left = r.left + 'px';
+    dropdown.style.right = 'auto';
     dropdown.style.minWidth = Math.max(r.width, 320) + 'px';
   };
 
@@ -114,14 +106,22 @@ export function initSearchBox(inputId, opts = {}) {
   });
   syncClear();
 
-  // Where "see everything" goes: the server-rendered results page, carrying the query and — via
-  // the form's own hidden fields — where the search started, so its way-back link is right.
-  const fullResultsUrl = () => {
-    const params = new URLSearchParams({ q: input.value.trim() });
-    const form = input.form;
-    form?.querySelectorAll('input[type="hidden"][name]').forEach((el) => {
+  // The scope, straight off the form. channelId / conversationId are rendered by the top-bar
+  // fragment when the page has one, and they say both what to search and where to get back to.
+  // Reading them here instead of taking them as an argument is what keeps the dropdown and the
+  // results page from being able to disagree.
+  const scopeParams = () => {
+    const params = new URLSearchParams();
+    input.form?.querySelectorAll('input[type="hidden"][name]').forEach((el) => {
       if (el.value) params.set(el.name, el.value);
     });
+    return params;
+  };
+
+  /** Where "see everything" goes: the server-rendered results page, same query, same scope. */
+  const fullResultsUrl = () => {
+    const params = scopeParams();
+    params.set('q', input.value.trim());
     return '/search?' + params.toString();
   };
 
@@ -197,9 +197,10 @@ export function initSearchBox(inputId, opts = {}) {
   };
 
   async function fetchResults(q) {
-    const params = new URLSearchParams({ q });
-    const cid = scopeChannelIdFn ? scopeChannelIdFn() : null;
-    if (cid) params.set('channelId', cid);
+    const params = scopeParams();
+    params.set('q', q);
+    // Ten is a taste of the result set, not the result set. The "See all results" row below them
+    // is what admits that, and is why this number no longer has to be a compromise.
     params.set('limit', '10');
     const res = await fetch('/api/search?' + params.toString());
     if (!res.ok) return [];

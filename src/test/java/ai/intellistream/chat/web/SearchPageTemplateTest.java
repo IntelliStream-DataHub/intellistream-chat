@@ -240,6 +240,30 @@ class SearchPageTemplateTest {
     }
 
     @Test
+    void theTopBarBoxNamesTheScopeItWillActuallySearch() {
+        // The one box is pre-scoped to the room you are reading, which is a convenience only as
+        // long as it is visible. An unmarked box that silently searches one channel is the same
+        // class of bug as a token that silently means the opposite of what you typed.
+        var channel = new ai.intellistream.chat.domain.Channel(
+                "general", "general", null, ai.intellistream.chat.domain.ChannelType.PUBLIC, viewer());
+        var scoped = new HashMap<String, Object>(Map.of(
+                "query", "", "searchQuery", "", "scope", "channel",
+                "results", SearchService.ResultPage.empty(0, 20),
+                "hits", List.of()));
+        scoped.put("originChannel", channel);
+        scoped.put("activeChannel", channel);
+        scoped.put("activeChannelId", 5L);
+
+        assertThat(render(scoped)).contains("Search #general…");
+
+        // Widened: same box, and it says so.
+        var wide = new HashMap<String, Object>(scoped);
+        wide.put("activeChannel", null);
+        wide.put("activeChannelId", null);
+        assertThat(render(wide)).contains("Search messages…");
+    }
+
+    @Test
     void theHooksTheSearchPageScriptQueriesForAreAllPresent() {
         // chat/search-page.js selects on these three. A rename here is a silently dead control.
         var html = render(Map.of(

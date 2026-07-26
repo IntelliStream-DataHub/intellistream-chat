@@ -345,14 +345,11 @@ presenceMenu.init();
   });
 
   // ---------- Search (live dropdown) ----------
-  // The box itself lives in chat/search-box.js — the conversation page needs the same one.
+  // The box itself lives in chat/search-box.js — every page carries the same one, in the top bar.
+  // There used to be a second call here for a "Search this channel…" field in the channel header;
+  // the channel is now a scope on the one box rather than a box of its own, and search-box.js
+  // reads it from the form's hidden fields.
   initSearchBox('global-search-input');
-  initSearchBox('channel-search-input', {
-    scopeChannelIdFn: () => activeChannelId,
-    // The in-room field is narrow and sits at the right of the channel header, where anchoring
-    // the panel to the field's left edge ran it past the window and clipped every result.
-    anchorRight: true,
-  });
 
   // Composer/textarea helpers (auto-resize, caret insert, format toolbar, emoji picker)
   // come from window.ChatKit (chat-kit.js). Pull them into local scope for terseness.

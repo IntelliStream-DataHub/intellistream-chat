@@ -83,18 +83,13 @@
                     <span th:if="${activeChannel.description}" class="channel-purpose"
                           th:text="${activeChannel.description}">description</span>
                 </div>
+                <!--/* The "Search this channel…" box that used to sit here is gone. It was the
+                       third search input visible at once, each meaning something different, and
+                       the narrowest of the three did the thing people most often want. Searching
+                       this channel is now what the top bar already does while you are reading it:
+                       the box says "Search #general", and the results page it opens has the scope
+                       control for widening — plus in:#channel for naming a different one. */-->
                 <div class="channel-header-actions">
-                    <form class="channel-search" id="channel-search-form">
-                        <span class="search-field">
-                            <input type="search" id="channel-search-input"
-                                   placeholder="Search this channel…" minlength="2" required/>
-                            <button type="button" class="search-clear" tabindex="-1" hidden
-                                    title="Clear search" aria-label="Clear search">
-                                <svg class="icon icon-sm" aria-hidden="true"><use href="#icon-close"/></svg>
-                            </button>
-                        </span>
-                        <button type="submit">Search</button>
-                    </form>
                     <button type="button" id="channel-members-toggle" class="icon-btn"
                             aria-haspopup="true" aria-expanded="false"
                             aria-controls="channel-members-panel"

@@ -117,11 +117,15 @@ public class SearchPageController {
         // there), and this page's own form reads `query`.
         model.addAttribute("query", q == null ? "" : q);
         model.addAttribute("searchQuery", q == null ? "" : q);
-        // The top bar builds its hidden origin fields from these, so a search started here keeps
-        // pointing back where the first one did.
-        model.addAttribute("activeChannelId", channel == null ? null : channel.getId());
+        // What the top-bar box searches, which is the scope this page is currently showing — not
+        // where the search started. The two differ once the viewer widens the scope, and the box
+        // has to describe itself honestly: its placeholder is built from these. The way-back link
+        // uses originChannel/originConversation below and is unaffected.
+        model.addAttribute("activeChannel", kind == ScopeKind.CHANNEL ? channel : null);
+        model.addAttribute("activeChannelId",
+                kind == ScopeKind.CHANNEL && channel != null ? channel.getId() : null);
         model.addAttribute("activeConversationId",
-                conversation == null ? null : conversation.getId());
+                kind == ScopeKind.CONVERSATION && conversation != null ? conversation.getId() : null);
         model.addAttribute("scope", SearchScopes.wireName(kind));
         model.addAttribute("originChannel", channel);
         model.addAttribute("originConversation", conversation);

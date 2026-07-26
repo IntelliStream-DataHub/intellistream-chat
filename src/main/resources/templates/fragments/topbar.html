@@ -56,10 +56,19 @@
                arrowed to a specific row, i.e. when they have said which result they meant. It used
                to guess the top hit and navigate there, which threw you into a channel you had not
                asked for with no way back. */-->
-        <form class="search-form" id="global-search-form" method="get" th:action="@{/search}">
+        <form class="search-form" id="global-search-form" method="get" th:action="@{/search}"
+              th:with="searchWhere=${activeChannel != null ? '#' + activeChannel.name
+                                     : (activeConversationId != null ? 'this conversation' : 'messages')}">
             <span class="search-field">
+                <!--/* The placeholder names the scope the hidden fields below impose. A box that
+                       silently narrows itself to the room you happen to be in is the same class of
+                       bug as one that silently means the opposite of what you typed; saying so is
+                       what makes the pre-selection a convenience rather than a trap. Widening is
+                       one control away on the results page, or in:#channel from here. */-->
                 <input type="search" id="global-search-input" name="q"
                        th:value="${searchQuery} ?: ''"
+                       th:placeholder="'Search ' + ${searchWhere} + '…'"
+                       th:aria-label="'Search ' + ${searchWhere}"
                        placeholder="Search messages…" minlength="2" required
                        autocomplete="off"/>
                 <button type="button" class="search-clear" tabindex="-1" hidden

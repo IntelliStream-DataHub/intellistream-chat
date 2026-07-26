@@ -595,20 +595,29 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   /* Rightward cast onto the content sheet. */
   box-shadow: 1px 0 6px rgba(0, 0, 0, 0.16);
 }
+/* The sidebar filter is a different tool from the message search in the top bar: it finds a
+   channel, not a message. It used to be dressed identically, which is how three inputs of three
+   different meanings ended up on screen looking like three ways to do one thing. It is now smaller
+   and flatter than the top-bar box — a filter above a list, which is what it is — and only takes on
+   a field's appearance once you are typing in it. Its behaviour is untouched: local filtering of
+   the shortlist as you type, plus the server-side lookup that finds channels you have not joined.
+   (Its placeholder still reads "Search channels…"; the wording lives in fragments/sidebar.html.) */
 .sidebar-search {
   padding: 0.25rem 0.75rem 0.6rem;
 }
 .sidebar-search input {
   width: 100%;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.05);
   border: 1px solid transparent;
   color: var(--sb-text);
-  font-size: var(--fs-md);
+  font-size: var(--fs-sm);
+  padding: 0.28rem 0.55rem;
 }
 .sidebar-search input::placeholder { color: var(--sb-muted); }
 .sidebar-search input:focus {
   background: var(--panel);
   color: var(--text);
+  font-size: var(--fs-md);
 }
 
 .sidebar-section {
@@ -972,19 +981,6 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
 }
 .channel-header-actions { display: flex; gap: 0.4rem; align-items: center; }
 .channel-header-actions form { display: inline; }
-.channel-header-actions .channel-search {
-  display: flex;
-  gap: 0;
-  align-items: center;
-}
-.channel-header-actions .channel-search input {
-  font-size: var(--fs-sm);
-  padding: 0.32rem 0.6rem;
-  min-width: 200px;
-}
-/* Same intent, same correction as .search-form above. */
-.channel-header-actions .channel-search button[type="submit"] { display: none; }
-.channel-header-actions .channel-search button.icon-btn { display: inline-flex; }
 
 .icon-btn {
   background: transparent;
@@ -3628,7 +3624,6 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
     margin-top: 0;
     border-radius: 0;
   }
-  .channel-header-actions .channel-search input { min-width: 140px; }
 }
 
 @media (max-width: 768px) {
@@ -3698,7 +3693,6 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
   }
   .channel-header h1 { font-size: var(--fs-base); }
   .channel-header .channel-purpose { font-size: var(--fs-sm); padding-left: 0.5rem; }
-  .channel-header-actions .channel-search input { min-width: 0; width: 140px; font-size: 16px; }
 
   /* Messages: room for touch on the left edge, full bleed on the right. */
   .message { padding-top: 0.45rem; padding-bottom: 0.45rem; gap: 0.55rem; grid-template-columns: 36px 1fr; }
