@@ -33,6 +33,19 @@ jobs:
       - name: Build, test, and bundle assets
         run: ./gradlew build --no-daemon --stacktrace
 
+      # The published site is served straight from docs/ by GitHub Pages, with no build step
+      # between the repository and the browser. There is also no assets directory: every image is
+      # an inline data: URI and the CSS is in a <style> block. So a remote RESOURCE would be an
+      # accident — a page silently depending on a host we do not control. Ordinary <a href> links
+      # to other sites are fine, which is why this looks only at src= and <link rel="stylesheet">.
+      - name: Site loads nothing from another host
+        run: |
+          if grep -nEo '(src="https?://[^"]*|<link[^>]+href="https?://[^"]*)' docs/*.html; then
+            echo "::error::The published pages load a resource from another host (see above)."
+            exit 1
+          fi
+          echo "Self-contained: no external resource loads."
+
       - name: Upload test report on failure
         if: failure()
         uses: actions/upload-artifact@v4

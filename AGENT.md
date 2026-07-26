@@ -107,9 +107,9 @@ Several autoconfigurations that lived inside `spring-boot-autoconfigure` in 3.x 
 - **UI icons come from the SVG sprite, never from emoji.** `templates/fragments/icon-sprite.html` holds every symbol; use it as `<svg class="icon"><use href="#icon-name"/></svg>` (`.icon` = 20px buttons, `.icon-sm` = 14px inline markers), and add a new 24×24 symbol rather than reaching for a glyph. Emoji as icons look wrong for three reasons: they render in the font's own colours so they ignore the theme and can't be dimmed or turned red for a destructive action, they're drawn differently on every platform, and they vanish entirely on hosts with no emoji font. Real emoji stay emoji — reactions, the picker, and custom status are content. Letterforms (`B`, `I`, `S`, `{ }`) in the composer toolbar are labels, not icons; leave them. Note that a message's action row is rendered in **two** places, server-side in the template and client-side in JS for live updates — change both.
 - **JS/CSS ship as build-time bundles** (Closure Compiler for JS; see `assets.gradle` + `ASSETS.md`). Templates include them via `~{fragments/assets :: js('<name>')}` / `css('app')` — never raw `<script>`/`<link>` tags for bundled files. Prod URLs are content-versioned (`?v=<hash>`); the dev profile (`ichat.assets.unbundled=true`) serves the original sources so edits show on refresh. The `js/chat/` ES-module graph and `js/vendor/*` are deliberately not bundled.
 - **Markdown is rendered server-side** (`MarkdownRenderer`) and sanitized with jsoup `Safelist.basic` plus a small allowlist for headings/tables/code. Clients receive both `bodyMarkdown` and `bodyHtml` — render `bodyHtml` directly with `innerHTML`.
-- **A user-visible change is not done until the website matches it.** `website/index.html`
-  carries inline screenshots and `website/docs.html` is the user manual; both go stale silently,
-  because nobody diffs a screenshot. Run the `website-shots` skill — `website/shots/capture.py`
+- **A user-visible change is not done until the website matches it.** `docs/index.html`
+  carries inline screenshots and `docs/docs.html` is the user manual; both go stale silently,
+  because nobody diffs a screenshot. Run the `website-shots` skill — `docs/shots/capture.py`
   re-captures every slide from a running instance and rewrites the carousel, and adding a feature
   means adding a `SHOTS` entry rather than editing HTML. Check the pictures, not just the exit
   code: a caption that promises more than its screenshot shows is worse than an old screenshot.

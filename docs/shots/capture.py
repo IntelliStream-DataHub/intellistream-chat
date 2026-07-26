@@ -1,13 +1,16 @@
 #!/usr/bin/env python3
 """
-Regenerate the website's screenshot carousel from a running instance.
+Regenerate the public site's screenshot carousel from a running instance.
+
+The site lives in docs/ because that is one of the two directories GitHub Pages will serve
+from a branch; docs/index.html is the landing page and docs/docs.html is the manual.
 
 The screenshots on the site are the product's only honest description of itself, and they rot
 silently: a feature ships, the prose gets updated, and the pictures keep showing the app as it
 was two releases ago. Nobody notices, because nobody diffs a screenshot. So this exists to make
 refreshing them a command rather than an afternoon.
 
-    ICHAT_BASE=http://localhost:8080 python3 website/shots/capture.py
+    ICHAT_BASE=http://localhost:8080 python3 docs/shots/capture.py
 
 What it does:
   1. logs into a running instance as a normal user
@@ -38,7 +41,7 @@ from pathlib import Path
 from playwright.async_api import async_playwright
 
 REPO = Path(__file__).resolve().parents[2]
-INDEX = REPO / "website" / "index.html"
+INDEX = REPO / "docs" / "index.html"
 BASE = os.environ.get("ICHAT_BASE", "http://localhost:8080").rstrip("/")
 KEYCLOAK = os.environ.get("ICHAT_KEYCLOAK", BASE.replace(":8080", ":8081")).rstrip("/")
 USER = os.environ.get("ICHAT_USER", "alice")
@@ -447,7 +450,7 @@ DOC_SHOTS = [
 
 def rewrite_docs(entries):
     """Insert (or replace) one figure per documented section in docs.html."""
-    path = REPO / "website" / "docs.html"
+    path = REPO / "docs" / "docs.html"
     html = path.read_text()
     # Drop any figures from a previous run first, so this is idempotent rather than cumulative.
     html = re.sub(r'\n\s*<figure class="doc-shot">.*?</figure>', "", html, flags=re.S)
@@ -465,7 +468,7 @@ def rewrite_docs(entries):
                f'  </figure>\n')
         html = html[:end] + fig + html[end:]
     path.write_text(html)
-    print(f"  wrote {len(entries)} figures into website/docs.html")
+    print(f"  wrote {len(entries)} figures into docs/docs.html")
 
 
 async def capture_docs(page, ctx):
