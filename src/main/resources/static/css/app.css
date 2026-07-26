@@ -1637,7 +1637,10 @@ button.icon-btn > .icon {
   align-items: center;
   gap: 0.4rem;
   background: var(--accent);
-  color: white;
+  /* var(--accent-on), not white. The accent is a themed colour and in a theme whose accent is
+     light — the dark theme's is — white on it is unreadable. The other hardcoded whites in this
+     file sit on fixed reds or the lightbox overlay and are fine; this one was on a variable. */
+  color: var(--accent-on);
   padding: 0.35rem 0.7rem;
   font-size: var(--fs-md);
   border-radius: var(--radius-sm);
@@ -1858,7 +1861,9 @@ button.icon-btn > .icon {
   --sb-text: #e8e8ec;
   --sb-muted: rgba(232, 232, 236, 0.6);
   --sb-active: #5d8eff;
-  --sb-active-text: #ffffff;
+  /* Dark ink, because --sb-active is a LIGHT blue. Every other theme already pairs a light
+     highlight with dark text; this one paired light with white and measured 3.1:1. */
+  --sb-active-text: #0d1b34;
   --sb-border: rgba(255, 255, 255, 0.08);
 
   --bg: #1f2024;
@@ -1870,6 +1875,10 @@ button.icon-btn > .icon {
   --accent-fg: #8ab0ff;
   --accent: #5d8eff;
   --accent-2: #4072e4;
+  /* Same pairing problem on buttons: this theme's accent is light, so the label on it has to be
+     dark. The button stays the blue it always was — only the text it carries changes, which is
+     the smallest change that makes it readable. */
+  --accent-on: #0d1b34;
   --border: #3a3b42;
   --border-strong: #4a4b53;
 }
