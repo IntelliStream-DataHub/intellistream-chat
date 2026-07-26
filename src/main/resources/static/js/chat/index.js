@@ -28,6 +28,7 @@ import { meta, csrfToken, csrfHeader, activeChannelId, headers } from './shared.
 import * as chrome from './chrome.js';
 import { initSearchBox } from './search-box.js';
 import { openPollModal } from './poll-modal.js';
+import { openForwardDialog } from './forward-dialog.js';
 import * as presenceMenu from './presence-menu.js';
 
 chrome.init();
@@ -2260,6 +2261,23 @@ presenceMenu.init();
     }
   };
 
+  // ---------- Forward ----------
+  const startForward = (id) => {
+    openForwardDialog({
+      messageId: id,
+      sourceChannelId: activeChannelId,
+      sourceIsPrivate: meta('active-channel-private') === 'true',
+      sourceName: document.getElementById('channel-name')?.textContent || '',
+      headers,
+      onDone: (result, target) => {
+        // No optimistic render: the message landed somewhere else, and the destination's own
+        // subscribers get it from the broadcast. All that is owed here is confirmation that it
+        // went, and where.
+        chrome.flashToast('Forwarded to ' + (target?.label || 'the channel'));
+      },
+    });
+  };
+
   async function toggleSave(id, save) {
     const key = String(id);
     const res = await fetch('/api/saved/messages/' + encodeURIComponent(id), {
@@ -2332,6 +2350,12 @@ presenceMenu.init();
       html += isPinned
           ? action('unpin', 'pin', 'Unpin from channel', true)
           : action('pin', 'pin', 'Pin to channel', true);
+    }
+    // Forwarding needs no write access here: the write happens in the destination room, and the
+    // server checks it there. What it needs is read access to this message, which is what having
+    // the message on screen means.
+    if (!isThreadReply) {
+      html += action('forward', 'forward', 'Forward to…', true);
     }
     html += action('permalink', 'link', 'Copy link to message', true);
     if (isMine && hasBody) {
@@ -2831,6 +2855,7 @@ presenceMenu.init();
     else if (btn.dataset.action === 'unpin') togglePin(id, false);
     else if (btn.dataset.action === 'save') toggleSave(id, true);
     else if (btn.dataset.action === 'unsave') toggleSave(id, false);
+    else if (btn.dataset.action === 'forward') startForward(id);
     else if (btn.dataset.action === 'permalink') copyPermalink(li);
   };
   if (messagesEl) {

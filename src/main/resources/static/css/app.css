@@ -4733,6 +4733,67 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
 }
 .poll-modal-submit:disabled { opacity: 0.6; cursor: progress; }
 
+/* ---------- Forward dialog ----------
+   Shares the poll modal's chrome on purpose: two dialogs that look and close differently read as
+   two applications. Only what is genuinely different is styled here — the destination list and the
+   disclosure warning. */
+.forward-modal { width: min(34rem, 100%); }
+.forward-targets {
+  list-style: none;
+  margin: 0;
+  padding: 0.2rem;
+  max-height: 15rem;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.forward-target {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.4rem 0.5rem;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.forward-target > .icon { color: var(--muted); flex: none; }
+.forward-target:hover { background: var(--panel-2); }
+.forward-target.is-chosen {
+  background: var(--accent-soft);
+  box-shadow: inset 3px 0 0 var(--accent);
+  font-weight: 600;
+}
+.forward-target.is-chosen > .icon { color: var(--accent-fg); }
+.forward-empty { padding: 0.6rem 0.5rem; color: var(--muted); font-size: var(--fs-sm); }
+/* The warning is the loudest thing in the dialog, because it is the only part of it that can
+   cause harm. Danger-tinted rather than a neutral note: this is not a hint. */
+.forward-warning {
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--danger);
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+}
+.forward-warning[hidden] { display: none; }
+.forward-warning-text { margin: 0 0 0.45rem; font-size: var(--fs-sm); line-height: 1.45; }
+.forward-ack {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.forward-ack input { margin-top: 0.15rem; }
+.forward-comment {
+  font: inherit;
+  font-size: var(--fs-md);
+  resize: vertical;
+}
+
 .about-backdrop {
   position: fixed;
   inset: 0;

@@ -41,6 +41,12 @@
            Pinning is a write, so it is offered on exactly this flag; the server checks anyway. */-->
     <meta name="me-can-write"
           th:content="${activeChannel != null and isMember and !activeChannel.archived ? 'true' : 'false'}"/>
+    <!--/* Is this channel private — read by the forward dialog to decide whether to show the
+           disclosure warning. The server enforces the matching rule (MessageForwardService refuses
+           an unacknowledged forward out of a private channel); this only decides what the dialog
+           says before it asks. */-->
+    <meta name="active-channel-private"
+          th:content="${activeChannel != null and activeChannel.type.name() == 'PRIVATE' ? 'true' : 'false'}"/>
 </head>
 <body class="app" th:attr="data-theme=${me.theme}">
 
