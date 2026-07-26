@@ -2232,6 +2232,53 @@ presenceMenu.init();
 
   const canWrite = meta('me-can-write') === 'true';
 
+  // ---------- Saved messages ----------
+  // Which of this channel's messages the viewer has saved, as strings so a data-id compares
+  // directly. Fetched once on load rather than carried on every MessageDto: a save is a fact about
+  // one reader, and putting it on the message would mean a join on the feed's hot read path to
+  // serve it. Set membership is what buildActions consults, so a message paged in later gets the
+  // right bookmark without a second request.
+  const savedMessageIds = new Set();
+  const loadSavedIds = async () => {
+    if (!activeChannelId) return;
+    try {
+      const res = await fetch('/api/saved/ids?channelId=' + encodeURIComponent(activeChannelId),
+          { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+      if (!res.ok) return;
+      const ids = await res.json();
+      if (!Array.isArray(ids)) return;
+      savedMessageIds.clear();
+      for (const id of ids) savedMessageIds.add(String(id));
+      // The rows on screen were drawn before the answer arrived; repaint their toolbars.
+      document.querySelectorAll('li.message').forEach((li) => {
+        li.querySelector('.message-actions')?.remove();
+        attachActions(li);
+      });
+    } catch (_) {
+      // A failed lookup leaves every bookmark drawn as "not saved". Clicking one still saves,
+      // which is idempotent server-side, so the worst case is a wrong-looking icon.
+    }
+  };
+
+  async function toggleSave(id, save) {
+    const key = String(id);
+    const res = await fetch('/api/saved/messages/' + encodeURIComponent(id), {
+      method: save ? 'PUT' : 'DELETE', headers: headers(),
+    });
+    if (!res.ok && res.status !== 204) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      alert('Could not update your saved messages: ' + (err.message || err.error || res.statusText));
+      return;
+    }
+    if (save) savedMessageIds.add(key); else savedMessageIds.delete(key);
+    // Repaint every copy of this message — the feed row and the thread panel's twin.
+    document.querySelectorAll('li.message[data-id="' + CSS.escape(key) + '"]').forEach((el) => {
+      el.querySelector('.message-actions')?.remove();
+      attachActions(el);
+    });
+    chrome.flashToast(save ? 'Saved for later' : 'Removed from saved');
+  }
+
   /**
    * The hover action row.
    *
@@ -2258,6 +2305,7 @@ presenceMenu.init();
     const isMine = authorUsername === myUsernameMeta;
     const canDelete = isMine || isAdmin;
     const isPinned = li.dataset.pinned === 'true';
+    const isSaved = savedMessageIds.has(String(li.dataset.id));
     const isThreadReply = !!li.dataset.parentId;
     const actions = document.createElement('div');
     actions.className = 'message-actions';
@@ -2271,6 +2319,12 @@ presenceMenu.init();
     // own announcement or the first 👍 under your own question is a normal thing to want.
     html += action('react', 'face-smile', 'Add reaction', false);
     html += action('reply', 'reply', 'Reply in thread', false);
+    // Saving stays inline and does not need write access: it is a private note to yourself that
+    // leaves no trace in the room, so anyone who can read the message can keep it. One click is
+    // the whole point of a to-do queue — behind an overflow it would be two, every time.
+    html += isSaved
+        ? action('unsave', 'bookmark-filled', 'Remove from saved', false)
+        : action('save', 'bookmark', 'Save for later', false);
     // --- overflow, in the order the menu shows them ---
     // Pinning is a write, so it needs write access; a thread reply has nowhere to be pinned to
     // (the pins panel links into the channel feed, which replies are not in), matching the server.
@@ -2775,11 +2829,15 @@ presenceMenu.init();
     }
     else if (btn.dataset.action === 'pin') togglePin(id, true);
     else if (btn.dataset.action === 'unpin') togglePin(id, false);
+    else if (btn.dataset.action === 'save') toggleSave(id, true);
+    else if (btn.dataset.action === 'unsave') toggleSave(id, false);
     else if (btn.dataset.action === 'permalink') copyPermalink(li);
   };
   if (messagesEl) {
     messagesEl.addEventListener('click', handleMessageClick);
     messagesEl.querySelectorAll('li.message').forEach(attachActions);
+    // After the toolbars exist, so the repaint it triggers has something to repaint.
+    loadSavedIds();
   }
   const threadPanelForClicks = document.getElementById('thread-panel');
   if (threadPanelForClicks) {

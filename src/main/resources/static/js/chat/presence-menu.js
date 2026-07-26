@@ -118,6 +118,15 @@ function openMenu(anchor, opts = {}) {
     statusLink.innerHTML = '<span class="presence-menu-label">Set a status</span>';
     menuEl.appendChild(statusLink);
 
+    // Saved — the private reading queue. Above "Your files" because it is checked far more often:
+    // both are per-person and span every room, but one is a to-do list and the other is storage.
+    const savedLink = document.createElement('a');
+    savedLink.className = 'presence-menu-item presence-menu-link';
+    savedLink.setAttribute('role', 'menuitem');
+    savedLink.href = '/saved';
+    savedLink.innerHTML = '<span class="presence-menu-label">Saved</span>';
+    menuEl.appendChild(savedLink);
+
     // Your files — the per-user file manager. Sits with the other "about me" items rather
     // than in a channel's toolbar: it spans every channel and DM the account has uploaded to,
     // so it belongs to the person, not to the room they happen to be looking at.

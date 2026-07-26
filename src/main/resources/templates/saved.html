@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+    <meta name="theme-color" content="#1e325c"/>
+    <title th:text="'Saved · ' + ${appTitle}">Saved · IntelliStream Chat</title>
+    <link rel="icon" th:href="${appFaviconUrl}"/>
+    <th:block th:replace="~{fragments/assets :: css('app')}"/>
+    <meta name="_csrf" th:content="${_csrf != null ? _csrf.token : ''}"/>
+    <meta name="_csrf_header" th:content="${_csrf != null ? _csrf.headerName : ''}"/>
+    <!-- Read by the avatar dropdown to decide whether to offer the Admin console item. -->
+    <meta name="me-is-workspace-admin" sec:authorize="hasRole('ADMIN')" content="true"/>
+</head>
+<body class="app saved-page" th:attr="data-theme=${me.theme}">
+
+<th:block th:replace="~{fragments/icon-sprite :: sprite}"/>
+
+<header class="topbar">
+    <div class="topbar-left">
+        <a th:href="@{/channels}" class="logo">
+            <th:block th:replace="~{fragments/logo :: mark('logo-mark')}"/>
+            <span class="logo-text" th:text="${appTitle}">IntelliStream Chat</span>
+        </a>
+    </div>
+    <div class="topbar-center"></div>
+    <div class="topbar-right">
+        <a th:href="@{/channels}" class="link-btn">Back to channels</a>
+        <span class="me">
+            <span class="avatar" th:data-author="${me.username}">
+                <img th:if="${me.hasAvatar()}" class="avatar-image" alt=""
+                     th:src="@{/api/users/{u}/avatar(u=${me.username},v=${me.avatarVersion()})}"/>
+                <span class="avatar-letter"
+                      th:text="${#strings.toUpperCase(#strings.substring(me.displayName ?: me.username, 0, 1))}">U</span>
+            </span>
+            <span th:text="${me.displayName ?: me.username}">user</span>
+        </span>
+        <!-- Submitted by the avatar dropdown's "Sign out" item (presence-menu.js). -->
+        <form id="logout-form" th:action="@{/logout}" method="post" hidden></form>
+    </div>
+</header>
+
+<main class="files-content">
+    <div class="files-wrap">
+        <h1>Saved</h1>
+        <p class="files-help">
+            Messages you have set aside, from channels and direct messages, newest first. Private to
+            you: saving leaves no trace in the room, nobody is told, and the person who wrote the
+            message cannot see that you kept it.
+        </p>
+
+        <!--
+          Server-rendered so the figure is right before a byte of JavaScript runs; saved.js
+          rewrites it after every load and every unsave, because a count that still shows the old
+          number after you cleared something is the one thing this page must not do.
+        -->
+        <section class="files-section">
+            <div class="files-toolbar">
+                <span class="files-count" id="saved-count" aria-live="polite"
+                      th:text="${savedCount} + (${savedCount} == 1 ? ' saved message' : ' saved messages')">0 saved messages</span>
+            </div>
+
+            <p class="files-error" id="saved-error" hidden></p>
+
+            <ol class="saved-list" id="saved-list">
+                <li class="files-empty">Loading…</li>
+            </ol>
+
+            <div class="files-pager" id="saved-pager" hidden>
+                <button type="button" id="saved-prev" class="link-btn">Newer</button>
+                <span id="saved-page-label"></span>
+                <button type="button" id="saved-next" class="link-btn">Older</button>
+            </div>
+        </section>
+    </div>
+</main>
+
+<!-- Bundled page scripts (assets.gradle); dev serves the source files. See ASSETS.md. -->
+<th:block th:replace="~{fragments/assets :: js('saved')}"/>
+<!-- Avatar dropdown (presence + sign out); ES module, outside the Closure bundle. -->
+<script type="module" th:src="@{/js/chat/presence-menu-boot.js}" defer></script>
+
+</body>
+</html>

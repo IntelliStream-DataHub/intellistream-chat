@@ -3487,6 +3487,9 @@ main.content.searching > :not(.channel-search-results) { display: none; }
 /* Destructive action reads as destructive on hover — the emoji 🗑 carried that signal in its
    own colour, an inherited-currentColor icon has to be told. */
 .msg-action[data-action="delete"]:hover { color: var(--danger); }
+/* Saved reads as on. The filled/outline sprite pair carries most of the signal; the accent colour
+   is what makes it legible at 16px, the same combination the sidebar's favourite star uses. */
+.msg-action[data-action="unsave"] { color: var(--accent); }
 
 /* The overflow tier. Every action is a real button in .message-actions — the mobile action sheet
    builds its rows from them and wants the full list — but on a pointer device only the two most
@@ -5017,6 +5020,48 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
   font-size: var(--fs-sm);
 }
 .files-pager button:disabled { opacity: 0.45; cursor: default; }
+
+/* ---------- Saved items (/saved) ----------
+   Reuses the file manager's page chrome (.files-content / .files-wrap / .files-section) because it
+   is the same kind of page: your own things, spanning every room, with no channel context. The list
+   itself is its own thing — a file is a row in a table, a saved message is a message. */
+.saved-list { list-style: none; margin: 0; padding: 0; }
+.saved-item {
+  padding: 0.9rem 0;
+  border-top: 1px solid var(--border);
+}
+.saved-item:first-child { border-top: 0; }
+.saved-meta {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.saved-where {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.saved-where > .icon { color: var(--muted); }
+.saved-author { color: var(--text); }
+.saved-when { font-size: var(--fs-xs); }
+.saved-chip {
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--muted);
+}
+.saved-body { margin-top: 0.35rem; }
+/* A saved item is a pointer, not a copy: cap it so one long message can't own the page. */
+.saved-body.message-body { max-height: 12em; overflow: hidden; }
+.saved-unavailable { color: var(--muted); font-style: italic; }
+.saved-actions { display: flex; gap: 0.9rem; margin-top: 0.45rem; }
 
 /* Screen-reader-only label. Used by the file manager's search field and its icon-only
    delete buttons, which otherwise reach a screen reader as an unnamed <button>. */
