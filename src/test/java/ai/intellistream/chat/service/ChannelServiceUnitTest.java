@@ -69,6 +69,87 @@ class ChannelServiceUnitTest {
     }
 
     // ---------------------------------------------------------------------------------------
+    // Rename. The authorization rule and the collision rule, without a database — both are pure
+    // decisions taken before anything is written, and both are easy to get wrong in a way no
+    // integration test would notice until it was in front of a user.
+    // ---------------------------------------------------------------------------------------
+
+    @Test
+    void renameRefusesASlugAnotherChannelAlreadyHas() {
+        var channelRepo = mock(ChannelRepository.class);
+        var memberRepo = mock(ChannelMemberRepository.class);
+        var service = channelService(channelRepo, memberRepo, new ChannelAccessCache(60, 1024));
+        var alice = withId(new User("sub", "alice", "a@e", "Alice"), User.class, 1L);
+        var channel = withId(new Channel("old", "Old", null, ChannelType.PUBLIC, alice),
+                Channel.class, 7L);
+        adminOf(memberRepo, channel, alice);
+        when(channelRepo.existsBySlugAndIdNot("taken", 7L)).thenReturn(true);
+
+        // Same rule and the same exception as create's duplicate check, so a name you could not have
+        // created is not reachable by editing into it either.
+        assertThatThrownBy(() -> service.rename(channel, "Taken", null, alice))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("taken");
+        verify(channelRepo, org.mockito.Mockito.never())
+                .renameById(any(), any(), any(), any());
+    }
+
+    @Test
+    void renamingToTheSameSlugIsAllowed() {
+        var channelRepo = mock(ChannelRepository.class);
+        var memberRepo = mock(ChannelMemberRepository.class);
+        var service = channelService(channelRepo, memberRepo, new ChannelAccessCache(60, 1024));
+        var alice = withId(new User("sub", "alice", "a@e", "Alice"), User.class, 1L);
+        var channel = withId(new Channel("deploys", "deploys", null, ChannelType.PUBLIC, alice),
+                Channel.class, 7L);
+        adminOf(memberRepo, channel, alice);
+        when(channelRepo.findById(7L)).thenReturn(Optional.of(channel));
+        // The channel's own slug is excluded from the collision check, which is the whole reason
+        // the query is existsBySlugAndIdNot rather than findBySlug: capitalising a name must not be
+        // refused for colliding with the channel being renamed.
+        when(channelRepo.existsBySlugAndIdNot("deploys", 7L)).thenReturn(false);
+
+        service.rename(channel, "Deploys", "  ", alice);
+
+        // Blank description stores NULL, not "": one representation of "no description", so the
+        // header does not render an empty separator beside the name.
+        verify(channelRepo).renameById(7L, "deploys", "Deploys", null);
+    }
+
+    @Test
+    void aPlainMemberCannotRenameTheChannel() {
+        var channelRepo = mock(ChannelRepository.class);
+        var memberRepo = mock(ChannelMemberRepository.class);
+        var service = channelService(channelRepo, memberRepo, new ChannelAccessCache(60, 1024));
+        var alice = withId(new User("sub", "alice", "a@e", "Alice"), User.class, 1L);
+        var bob = withId(new User("sub2", "bob", "b@e", "Bob"), User.class, 2L);
+        var channel = withId(new Channel("room", "Room", null, ChannelType.PUBLIC, alice),
+                Channel.class, 7L);
+        memberOf(memberRepo, channel, bob);
+
+        // Any member may invite; only an admin may change what the channel is. Same split the
+        // role-change endpoint already draws.
+        assertThatThrownBy(() -> service.rename(channel, "Bob's Room", null, bob))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+        verify(channelRepo, org.mockito.Mockito.never())
+                .renameById(any(), any(), any(), any());
+    }
+
+    @Test
+    void renameRejectsANameWithNothingToSlugify() {
+        var channelRepo = mock(ChannelRepository.class);
+        var memberRepo = mock(ChannelMemberRepository.class);
+        var service = channelService(channelRepo, memberRepo, new ChannelAccessCache(60, 1024));
+        var alice = withId(new User("sub", "alice", "a@e", "Alice"), User.class, 1L);
+        var channel = withId(new Channel("room", "Room", null, ChannelType.PUBLIC, alice),
+                Channel.class, 7L);
+        adminOf(memberRepo, channel, alice);
+
+        assertThatThrownBy(() -> service.rename(channel, "!!!", null, alice))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    // ---------------------------------------------------------------------------------------
     // SUBSCRIBE authorization. One frame per channel the user is a member of, so the cost of this
     // check is now multiplied by membership count on every connect.
     // ---------------------------------------------------------------------------------------
@@ -147,6 +228,20 @@ class ChannelServiceUnitTest {
                 // No broker in a unit test; ifAvailable() on an empty provider is a no-op.
                 new org.springframework.beans.factory.support.StaticListableBeanFactory()
                         .getBeanProvider(ChannelSubscriptionRevoker.class));
+    }
+
+    /** Make {@code user} an ADMIN of {@code channel} as far as the membership repository is concerned. */
+    private static void adminOf(ChannelMemberRepository memberRepo, Channel channel, User user) {
+        when(memberRepo.findByChannelAndUser(channel, user)).thenReturn(Optional.of(
+                new ai.intellistream.chat.domain.ChannelMember(channel, user,
+                        ai.intellistream.chat.domain.ChannelRole.ADMIN)));
+    }
+
+    /** …and a plain MEMBER. */
+    private static void memberOf(ChannelMemberRepository memberRepo, Channel channel, User user) {
+        when(memberRepo.findByChannelAndUser(channel, user)).thenReturn(Optional.of(
+                new ai.intellistream.chat.domain.ChannelMember(channel, user,
+                        ai.intellistream.chat.domain.ChannelRole.MEMBER)));
     }
 
     /** Ids are assigned by the database; a unit test has to plant them. */

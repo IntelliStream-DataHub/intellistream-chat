@@ -931,6 +931,52 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
 /* Invite form — the field and its submit read as one control, so the button sits at the end of
    the row rather than under it. Was id-scoped to #invite-form, which meant the group panel's
    identical form (#group-add-member-form) matched nothing and stacked its button underneath. */
+/* ---------- Rename / re-describe ----------
+   First in the settings panel, because "what is this channel" comes before "how loudly does it
+   talk to me". Two stacked fields rather than a row: a 120-character name and a 500-character
+   description do not want the same width, and side by side both end up too narrow to read what
+   you typed. */
+.channel-rename {
+  display: grid;
+  gap: 0.2rem;
+  margin-bottom: 0.9rem;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--border);
+}
+.channel-rename label {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.channel-rename label + input { margin-bottom: 0.35rem; }
+.channel-rename input {
+  width: 100%;
+  font-size: var(--fs-md);
+}
+.channel-rename-note {
+  margin: 0.15rem 0 0;
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  color: var(--muted);
+}
+.channel-rename-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+/* Sits to the LEFT of Save and takes the slack, so a long refusal wraps into the panel instead of
+   pushing the button off the edge of it. */
+.channel-rename-status {
+  margin: 0;
+  margin-right: auto;
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+  color: var(--muted);
+}
+.channel-rename-status[hidden] { display: none; }
+.channel-rename-status.is-error { color: var(--danger); }
+
 /* Notification level picker in the channel settings panel. It had no rule of its own, so the
    select sat flush against the invite form below it. */
 .channel-notify {
@@ -1096,6 +1142,9 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* The element is always rendered so a description added live has somewhere to land; with no text
+   it must take no space, or the header carries a stray divider rule. */
+.channel-header .channel-purpose.is-empty { display: none; }
 .channel-header-actions { display: flex; gap: 0.4rem; align-items: center; }
 .channel-header-actions form { display: inline; }
 .channel-header-actions .channel-search {

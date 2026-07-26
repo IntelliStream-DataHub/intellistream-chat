@@ -27,6 +27,15 @@ import java.util.Optional;
 public interface ChannelRepository extends JpaRepository<Channel, Long> {
     Optional<Channel> findBySlug(String slug);
 
+    /**
+     * Is this slug taken by some <em>other</em> channel? The rename collision check.
+     *
+     * <p>{@code create} asks {@link #findBySlug} instead, because at creation time there is no id
+     * to exclude. Renaming a channel to a name that slugifies to the one it already has must be a
+     * no-op, not a conflict — otherwise "Deploys" → "deploys" is refused for colliding with itself.
+     */
+    boolean existsBySlugAndIdNot(String slug, Long id);
+
     List<Channel> findAllByTypeOrderByNameAsc(ChannelType type);
 
     /**
@@ -50,4 +59,31 @@ public interface ChannelRepository extends JpaRepository<Channel, Long> {
             @org.springframework.data.repository.query.Param("user") ai.intellistream.chat.domain.User user,
             @org.springframework.data.repository.query.Param("publicType") ChannelType publicType,
             org.springframework.data.domain.Pageable pageable);
+
+    /**
+     * Rename / re-describe a channel, as one UPDATE rather than through a setter.
+     *
+     * <p><b>This is the shape the whole feature turns on.</b> {@code Channel} exposes no mutators and
+     * must not gain any: {@code ChannelAccessCache} hands cached instances to STOMP SUBSCRIBE
+     * authorization, and {@code ChannelImmutabilityTest} fails the build if a setter reappears. A
+     * bulk update writes the row without ever putting a mutable entity in anyone's hands, so the
+     * invariant is preserved by construction instead of by everybody remembering it. The eviction
+     * that keeps the cache honest lives in {@code ChannelService.rename}, which is the only caller.
+     *
+     * <p>{@code clearAutomatically} because a bulk update bypasses the persistence context: without
+     * it, a {@code Channel} already loaded in this transaction would keep serving the old name from
+     * the first-level cache, and the re-read that produces the broadcast payload would return stale
+     * values. {@code flushAutomatically} so a pending insert (the channel created moments ago in the
+     * same transaction, as the tests do it) is on the table before the UPDATE looks for it.
+     */
+    @org.springframework.data.jpa.repository.Modifying(clearAutomatically = true, flushAutomatically = true)
+    @org.springframework.data.jpa.repository.Query("""
+            update Channel c
+               set c.slug = :slug, c.name = :name, c.description = :description
+             where c.id = :id
+            """)
+    int renameById(@org.springframework.data.repository.query.Param("id") Long id,
+                   @org.springframework.data.repository.query.Param("slug") String slug,
+                   @org.springframework.data.repository.query.Param("name") String name,
+                   @org.springframework.data.repository.query.Param("description") String description);
 }

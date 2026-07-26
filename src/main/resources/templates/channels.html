@@ -106,9 +106,14 @@
                         <svg class="icon"><use href="#icon-cog"/></svg>
                     </button>
                     <h1>
-                        <span style="opacity:0.5">#</span><span th:text="${activeChannel.name}">general</span>
+                        <span style="opacity:0.5">#</span><span id="channel-name"
+                              th:text="${activeChannel.name}">general</span>
                     </h1>
-                    <span th:if="${activeChannel.description}" class="channel-purpose"
+                    <!--/* Always rendered, hidden by .is-empty when there is nothing to say. A
+                           th:if here meant a channel that gained a description could not show it
+                           without a reload — there was no element for the live update to fill. */-->
+                    <span id="channel-purpose" class="channel-purpose"
+                          th:classappend="${activeChannel.description} ? '' : 'is-empty'"
                           th:text="${activeChannel.description}">description</span>
                 </div>
                 <div class="channel-header-actions">
@@ -163,6 +168,33 @@
     <svg class="icon"><use href="#icon-close"/></svg>
 </button>
                     </header>
+                    <!--/* Rename / re-describe. Channel admins only — the server checks, this only
+                           decides whether to draw the controls. Both fields in one form because
+                           they are one thought ("what is this channel"), and because the endpoint
+                           takes them together: the name is required, so a PATCH that carried only a
+                           description would have to invent one.
+
+                           Wired from index.js: the CSP forbids inline handlers. */-->
+                    <form th:if="${isAdmin}" id="channel-rename-form" class="channel-rename"
+                          th:data-channel-id="${activeChannel.id}">
+                        <label for="channel-rename-name">Name</label>
+                        <input id="channel-rename-name" name="name" required maxlength="120"
+                               autocomplete="off" th:value="${activeChannel.name}"/>
+                        <label for="channel-rename-description">Description</label>
+                        <input id="channel-rename-description" name="description" maxlength="500"
+                               autocomplete="off" placeholder="What is this channel for?"
+                               th:value="${activeChannel.description}"/>
+                        <!--/* Said before the fact rather than after it: the address bar is
+                               id-based so no link breaks, but the name in a URL changing under
+                               someone is worth a sentence. */-->
+                        <p class="channel-rename-note">Renaming updates the channel's short name in
+                            links. Existing links keep working.</p>
+                        <div class="channel-rename-actions">
+                            <p class="channel-rename-status" id="channel-rename-status" hidden></p>
+                            <button type="submit" id="channel-rename-save">Save</button>
+                        </div>
+                    </form>
+
                     <!--/* Per-channel notifications. "Default" is the top entry and the stored
                            value, so changing the account setting moves this channel with it —
                            the picker shows what it inherits rather than hiding the link. */-->
@@ -216,7 +248,8 @@
                                 th:data-channel-id="${activeChannel.id}"
                                 th:data-private="${activeChannel.type.name() == 'PRIVATE'}">
                             <svg class="icon" aria-hidden="true"><use href="#icon-logout"/></svg>
-                            <span>Leave <span th:text="'#' + ${activeChannel.name}">#channel</span></span>
+                            <span>Leave <span class="channel-name-echo"
+                                  th:text="'#' + ${activeChannel.name}">#channel</span></span>
                         </button>
                         <div class="channel-leave-confirm" id="channel-leave-confirm" hidden>
                             <p>

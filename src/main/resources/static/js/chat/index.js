@@ -610,6 +610,106 @@ presenceMenu.init();
     });
   })();
 
+  // ======================= Channel administration (rename) =======================
+  // Everything between this banner and the matching END marker is the channel-settings block:
+  // rename / re-describe, and the live repaint that any of it triggers in another tab.
+  //
+  // applyChannelEvent is module scope because two STOMP subscriptions feed it — the active
+  // channel's full handler and the one-per-joined-channel badge handler — and a second copy of
+  // "what a channel-* frame means" is a second thing to keep in step.
+
+  /**
+   * Repaint whatever names the channel, from a /topic/channels/{id} channel-* frame.
+   *
+   * Every place a channel's name is on screen at once: the header, the description strip beside it,
+   * the sidebar row (and the star's labels, which quote the name), the composer placeholder and the
+   * leave button. Missing one leaves a page contradicting itself, which reads as a bug in whichever
+   * half the user happens to trust.
+   */
+  const applyChannelEvent = (ev) => {
+    if (!ev || !ev.id) return;
+    const id = String(ev.id);
+    if (ev.type === 'channel-updated') {
+      const row = sidebarChannels.get(id);
+      if (row) {
+        row.a.querySelector('.channel-name')?.replaceChildren(ev.name);
+        row.li.dataset.name = (ev.name || '').toLowerCase();
+        const star = row.li.querySelector('.channel-star');
+        if (star) {
+          const on = star.getAttribute('aria-pressed') === 'true';
+          star.setAttribute('aria-label',
+              (on ? 'Remove #' : 'Add #') + ev.name + (on ? ' from favourites' : ' to favourites'));
+        }
+      }
+      if (id !== String(activeChannelId)) return;
+      document.getElementById('channel-name')?.replaceChildren(ev.name);
+      const purpose = document.getElementById('channel-purpose');
+      if (purpose) {
+        purpose.textContent = ev.description || '';
+        purpose.classList.toggle('is-empty', !ev.description);
+      }
+      document.querySelectorAll('.channel-name-echo')
+          .forEach((el) => { el.textContent = '#' + ev.name; });
+      const composerInput = document.getElementById('composer-input');
+      if (composerInput) composerInput.placeholder = 'Write to #' + ev.name;
+      // The form is the one place that must NOT be repainted while it is focused: the person typing
+      // in it is the one who caused this frame, and overwriting their field mid-edit is worse than
+      // showing them a value they just submitted.
+      const nameField = document.getElementById('channel-rename-name');
+      const descField = document.getElementById('channel-rename-description');
+      if (nameField && document.activeElement !== nameField) nameField.value = ev.name || '';
+      if (descField && document.activeElement !== descField) descField.value = ev.description || '';
+    }
+  };
+
+  // ---------- Rename / re-describe ----------
+  (() => {
+    const form = document.getElementById('channel-rename-form');
+    if (!form) return;
+    const save = document.getElementById('channel-rename-save');
+    const status = document.getElementById('channel-rename-status');
+    const say = (text, bad) => {
+      if (!status) return;
+      status.textContent = text;
+      status.hidden = !text;
+      status.classList.toggle('is-error', !!bad);
+    };
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(form).entries());
+      save.disabled = true;
+      say('Saving…', false);
+      try {
+        const res = await fetch('/api/channels/' + form.dataset.channelId, {
+          method: 'PATCH',
+          headers: headers(),
+          body: JSON.stringify({ name: data.name, description: data.description }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          // 409 is the one refusal worth naming: the envelope's generic "Conflicting state" is
+          // exactly wrong advice here, since refreshing will not free the other channel's name.
+          throw new Error(res.status === 409
+              ? 'Another channel already uses that name.'
+              : (err.message || err.error || res.statusText));
+        }
+        const channel = await res.json();
+        // Paint from the server's answer, not from the form: the slug it derived and any trimming
+        // it did are what actually got stored.
+        applyChannelEvent({ type: 'channel-updated', id: channel.id, name: channel.name,
+          description: channel.description, slug: channel.slug });
+        say('Saved.', false);
+        setTimeout(() => say('', false), 2000);
+      } catch (err) {
+        say(err.message, true);
+      } finally {
+        save.disabled = false;
+      }
+    });
+  })();
+  // ===================== END channel administration =====================
+
   // ---------- Notification level ----------
   // Slack/Mattermost model: an account-wide default, and a per-channel override whose default
   // value is "inherit" rather than a copy. Resolving here rather than server-side keeps the
@@ -782,6 +882,9 @@ presenceMenu.init();
         if (id === activeChannelId) return; // already subscribed above, with the full handler
         channelSubscriptions.set(id, stomp.subscribe('/topic/channels/' + id, (frame) => {
           const ev = JSON.parse(frame.body);
+          // A channel renamed elsewhere has a sidebar row here that must move with it, even though
+          // this handler otherwise exists only to count unread.
+          if (ev.type && ev.type.startsWith('channel-')) { applyChannelEvent(ev); return; }
           if (ev.type !== 'created') return;
           if (ev.message?.authorUsername === myUsername) return;
           const mentioned = !!(ev.message?.mentions || []).includes(myUsername);
@@ -989,6 +1092,10 @@ presenceMenu.init();
 
     const handleMessageEvent = (event) => {
       if (!event || !event.type) return;
+      // ChannelEvent shares this destination with MessageEvent and is told apart by the prefix.
+      // Handled first and returned on, so nothing below ever has to guard against a frame with no
+      // `message` on it — see the note on the ChannelEvent record.
+      if (event.type.startsWith('channel-')) { applyChannelEvent(event); return; }
       if (event.type === 'created') {
         // Retire our placeholder before the real one is appended, so the two never coexist.
         resolvePendingSend(event.clientId);

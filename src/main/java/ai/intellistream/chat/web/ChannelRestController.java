@@ -133,6 +133,40 @@ public class ChannelRestController {
         return ChannelDto.from(channelService.create(body.name(), body.description(), body.type(), me));
     }
 
+    /**
+     * Rename a channel and rewrite its description — the two facts about a channel that were
+     * write-once at creation until now.
+     *
+     * <p>PATCH rather than PUT because the body is not a whole channel: {@code type}, {@code slug}
+     * and {@code createdBy} are not editable here, and a PUT that silently ignores most of the
+     * resource it claims to replace is a worse contract than a PATCH that names what it changes.
+     *
+     * <p>Channel admin only, authorised exactly as {@link #setMemberRole} is — {@code requireById}
+     * then {@code requireAdmin}, before anything else touches the request. Any member can invite;
+     * changing what the channel <em>is</em> stays with the people who run it.
+     *
+     * <p>Broadcast on the channel topic afterwards so open clients repaint. A rename with no
+     * broadcast leaves every other tab in the workspace showing the old name in the header, the
+     * sidebar and the composer placeholder until its next page load, which is the same
+     * stale-metadata problem {@code /topic/users} already solves for avatars.
+     */
+    @PatchMapping("/{id}")
+    public ChannelDto update(@PathVariable Long id,
+                             @RequestBody @Valid ai.intellistream.chat.web.dto.UpdateChannelRequest body,
+                             Principal principal) {
+        var me = currentUser.resolve(principal);
+        // A rename rewrites the slug, fans out to every connected member and invalidates a cache
+        // entry. Nobody renames a channel twenty times a minute; a script would.
+        if (!rateLimiter.tryAcquire(me.getUsername(), "channel-update", 20, Duration.ofMinutes(1))) {
+            throw new RateLimitExceededException("channel update rate exceeded");
+        }
+        var channel = channelService.requireById(id);
+        var updated = channelService.rename(channel, body.name(), body.description(), me);
+        broker.convertAndSend("/topic/channels/" + id,
+                ai.intellistream.chat.web.dto.ChannelEvent.updated(updated));
+        return ChannelDto.from(updated);
+    }
+
     @PostMapping("/{id}/join")
     public ResponseEntity<Void> join(@PathVariable Long id, Principal principal) {
         var me = currentUser.resolve(principal);
