@@ -9,7 +9,10 @@ sign-on. One JVM process, one Postgres database, one systemd unit.
 <a href="https://intellistream-datahub.github.io/intellistream-chat/">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/shots/hero-dark.webp">
-    <img src="docs/shots/hero-light.webp" alt="A channel in IntelliStream Chat: the sidebar listing channels and direct messages, a conversation with Markdown, a code block and a poll, and the message composer below." width="1200" height="733">
+    <!-- width only, no height: GitHub's markdown CSS caps images at max-width:100% without
+         setting height:auto, so a height attribute stays pinned while the width shrinks to the
+         ~880px README column — which renders this 1200x733 shot 195px too tall. -->
+    <img src="docs/shots/hero-light.webp" alt="A channel in IntelliStream Chat: the sidebar listing channels and direct messages, a conversation with Markdown, a code block and a poll, and the message composer below." width="1200">
   </picture>
 </a>
 
