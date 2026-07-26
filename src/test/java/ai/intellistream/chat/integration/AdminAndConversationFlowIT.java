@@ -131,12 +131,19 @@ class AdminAndConversationFlowIT {
         messages.unpin(clarkMsg.getId(), c.alice());
         assertThat(messages.pinned(general, c.bob())).isEmpty();
 
-        // Non-admin cannot destroy the channel.
+        // Deleting a channel is a workspace-admin action now, not a channel-admin one. This
+        // assertion was inverted rather than dropped: it used to say alice, the channel's own
+        // admin, could destroy it, and that is precisely the behaviour that has been removed.
+        // Destroying a channel wipes other people's messages and other people's files with no undo,
+        // and a channel admin is whoever happened to create the room; Slack draws the line in the
+        // same place and points everyone else at archiving, which is now available and reversible.
         assertThatThrownBy(() -> channels.destroy(general, c.bob()))
                 .isInstanceOf(AccessDeniedException.class);
+        assertThatThrownBy(() -> channels.destroy(general, c.alice()))
+                .isInstanceOf(AccessDeniedException.class);
 
-        // Alice destroys the channel; messages cascade away.
-        channels.destroy(general, c.alice());
+        // With ROLE_ADMIN on the request it goes; messages cascade away.
+        AsWorkspaceAdmin.run(() -> channels.destroy(general, c.alice()));
         assertThatThrownBy(() -> channels.requireById(general.getId()))
                 .isInstanceOf(ai.intellistream.chat.security.ResourceNotFoundException.class);
     }

@@ -151,7 +151,7 @@ class StorageCreditBackTest {
     void destroyingAChannelCreditsEveryoneWhoEverUploadedIntoIt() {
         var fixture = new ChannelFixture();
 
-        fixture.service.destroy(fixture.channel, alice);
+        asWorkspaceAdmin(() -> fixture.service.destroy(fixture.channel, alice));
 
         // Unlike one message's attachments, a channel's belong to the whole membership; the map is
         // the only reason a destroy doesn't leave every past uploader charged forever.
@@ -162,11 +162,40 @@ class StorageCreditBackTest {
     void destroyReapsTheSameFilesItCreditsFor() {
         var fixture = new ChannelFixture();
 
-        fixture.service.destroy(fixture.channel, alice);
+        asWorkspaceAdmin(() -> fixture.service.destroy(fixture.channel, alice));
 
         // Both halves come from the one pre-delete read: two queries could disagree if an upload
         // landed between them, and then a file is either reaped uncredited or credited unreaped.
         verify(fixture.attachmentService).deleteFiles(List.of("a-key", "b-key"));
+    }
+
+    @Test
+    void destroyDoesNotCreditATombstonedAttachmentASecondTime() {
+        var fixture = new ChannelFixture();
+
+        asWorkspaceAdmin(() -> fixture.service.destroy(fixture.channel, alice));
+
+        // The gathering query filters `deletedAt is null`, so the file the uploader already deleted
+        // from the file manager — whose bytes were reaped and credited back in that transaction — is
+        // not in the map and not in the reap list. Crediting it again would leave the account reading
+        // as having less used than it does, and user_storage exposes only an atomic delta, so there
+        // is nothing that could ever notice or repair it.
+        verify(fixture.attachmentRepository).findLiveByChannelWithAuthor(fixture.channel);
+        verify(fixture.attachmentService).deleteFiles(List.of("a-key", "b-key"));
+    }
+
+    @Test
+    void onlyAWorkspaceAdminCanDestroyAChannel() {
+        var fixture = new ChannelFixture();
+
+        // alice is the channel's ADMIN and that is no longer enough. Inverted deliberately: this
+        // action destroys other people's messages and files with no undo, so it moved to the
+        // workspace admin and everyone else got the reversible archive instead.
+        org.assertj.core.api.Assertions
+                .assertThatThrownBy(() -> fixture.service.destroy(fixture.channel, alice))
+                .isInstanceOf(org.springframework.security.access.AccessDeniedException.class);
+        org.mockito.Mockito.verify(fixture.channelRepository, org.mockito.Mockito.never())
+                .delete(any());
     }
 
     /** ChannelService.destroy's collaborators, with two uploaders' files in the doomed channel. */
@@ -182,7 +211,9 @@ class StorageCreditBackTest {
             var memberRepository = mock(ChannelMemberRepository.class);
             when(memberRepository.findByChannelAndUser(channel, alice))
                     .thenReturn(Optional.of(new ChannelMember(channel, alice, ChannelRole.ADMIN)));
-            when(attachmentRepository.findByChannelWithAuthor(channel)).thenReturn(List.of(
+            // Only the live rows come back — a tombstoned attachment is excluded by the query itself,
+            // which is what stops its bytes being credited twice.
+            when(attachmentRepository.findLiveByChannelWithAuthor(channel)).thenReturn(List.of(
                     attachment(message(1L, channel, alice), "a-key", 500L),
                     attachment(message(2L, channel, bob), "b-key", 250L)));
             // Inner instance stands in for the transactional proxy behind `self` — see MessageFixture.
@@ -202,6 +233,27 @@ class StorageCreditBackTest {
     }
 
     // ------------------------------------------------------------------ helpers
+
+    /**
+     * Run with {@code ROLE_ADMIN} in the security context, then clear it.
+     *
+     * <p>{@code destroy} reads Spring's live authority rather than {@code User.admin}, which is a
+     * login-time cache its own javadoc forbids deciding access from. Clearing in a finally block is
+     * not tidiness — {@code SecurityContextHolder} is thread-local and JUnit reuses the thread, so a
+     * leak would grant admin to every test that ran afterwards.
+     */
+    private static void asWorkspaceAdmin(Runnable body) {
+        org.springframework.security.core.context.SecurityContextHolder.getContext().setAuthentication(
+                new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                        "root", "n/a",
+                        List.of(new org.springframework.security.core.authority.SimpleGrantedAuthority(
+                                "ROLE_ADMIN"))));
+        try {
+            body.run();
+        } finally {
+            org.springframework.security.core.context.SecurityContextHolder.clearContext();
+        }
+    }
 
     private static Attachment attachment(Message message, String storageKey, long sizeBytes) {
         return new Attachment(message, "file.bin", "application/octet-stream", sizeBytes, storageKey);

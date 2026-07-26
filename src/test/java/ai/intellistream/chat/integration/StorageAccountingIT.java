@@ -170,7 +170,10 @@ class StorageAccountingIT {
         upload(room, bob, "b.bin", 250);
         Tx.commit();
 
-        channels.destroy(room, alice);
+        // Workspace admin, not channel admin — destroy narrowed to ROLE_ADMIN when the reversible
+        // archive arrived to take its place for everyone else. The accounting this test is about is
+        // unchanged; only who is allowed to trigger it moved.
+        AsWorkspaceAdmin.run(() -> channels.destroy(room, alice));
         Tx.commit();
 
         assertThat(usedBy(alice)).isZero();

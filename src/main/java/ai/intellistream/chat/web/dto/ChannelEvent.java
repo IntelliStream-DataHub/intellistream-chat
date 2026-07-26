@@ -66,6 +66,15 @@ public record ChannelEvent(
         return of("channel-unarchived", c);
     }
 
+    /**
+     * Nothing but the id: the row is gone, and so is everything that could describe it. A client that
+     * receives this has no use for the former name either — its only jobs are to drop the sidebar row
+     * and, if it is looking at the channel, to leave.
+     */
+    public static ChannelEvent deleted(Long id) {
+        return new ChannelEvent("channel-deleted", id, null, null, null, false);
+    }
+
     private static ChannelEvent of(String type, Channel c) {
         return new ChannelEvent(type, c.getId(), c.getSlug(), c.getName(), c.getDescription(),
                 c.isArchived());

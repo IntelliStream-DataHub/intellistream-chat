@@ -1140,6 +1140,69 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   font-size: var(--fs-md);
 }
 
+/* ---------- Delete forever ----------
+   Last in the panel, below the leave block, because it is the only thing here with no undo. Quiet
+   until hovered like its neighbours — a permanently red button in a panel people open to change a
+   notification setting is an alarm that stops being read. */
+.channel-destroy {
+  margin-top: 0.9rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+.channel-destroy-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: var(--fs-md);
+}
+.channel-destroy-trigger:hover {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.channel-destroy-confirm[hidden] { display: none; }
+.channel-destroy-confirm p {
+  margin: 0.6rem 0;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--muted);
+}
+.channel-destroy-confirm strong { color: var(--text); }
+.channel-destroy-confirm label {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.channel-destroy-confirm input {
+  width: 100%;
+  font-size: var(--fs-md);
+  margin-bottom: 0.5rem;
+}
+.channel-destroy-status {
+  margin: 0 0 0.5rem;
+  font-size: var(--fs-xs);
+  color: var(--danger);
+}
+.channel-destroy-status[hidden] { display: none; }
+.channel-destroy-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+.channel-destroy-danger { background: var(--danger); }
+.channel-destroy-danger:hover:not(:disabled) { background: var(--danger); filter: brightness(0.9); }
+/* Disabled until the typed name matches. Visibly inert rather than merely unclickable — a button
+   that looks ready and does nothing reads as a broken page. */
+.channel-destroy-danger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 /* The kick, in the members panel. Same treatment as the role toggle beside it, in red. */
 .channel-member-remove {
   background: transparent;

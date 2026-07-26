@@ -673,6 +673,16 @@ presenceMenu.init();
       // to reload to get the other set. Reloading is also what re-renders the composer, and the
       // person seeing this frame did not necessarily cause it.
       window.location.reload();
+      return;
+    }
+    if (ev.type === 'channel-deleted') {
+      sidebarChannels.get(id)?.li.remove();
+      dropChannelSubscription(id);
+      if (id !== String(activeChannelId)) return;
+      // Told, not just moved. Somebody else destroyed the channel this person was reading, and
+      // arriving at /channels with no explanation reads as the application losing their place.
+      chrome.flashToast('This channel was deleted.');
+      window.location.href = '/channels';
     }
   };
 
@@ -779,6 +789,84 @@ presenceMenu.init();
     }
 
     unarchive?.addEventListener('click', () => call('unarchive', unarchive, 'Unarchiving…'));
+  })();
+
+  // ---------- Delete forever ----------
+  // The one action in this application with no undo, so it is the only one that asks the user to
+  // type something. The Delete button stays disabled until the field matches the channel's name,
+  // which puts the failure mode before the click instead of after it — an error message that
+  // arrives after an irreversible action has already been attempted is not a safeguard.
+  //
+  // The server re-checks the name. This is a convenience for a human, not the enforcement.
+  (() => {
+    const box = document.querySelector('.channel-destroy');
+    if (!box) return;
+    const trigger = document.getElementById('channel-destroy-btn');
+    const panel = document.getElementById('channel-destroy-confirm');
+    const field = document.getElementById('channel-destroy-name');
+    const cancel = document.getElementById('channel-destroy-cancel');
+    const go = document.getElementById('channel-destroy-go');
+    const status = document.getElementById('channel-destroy-status');
+    if (!trigger || !panel || !field || !go) return;
+
+    // Case-insensitive and trimmed, matching the server: the confirmation is a statement of intent,
+    // not a typing test, and a name with a trailing space nobody can see would be a cruel way to
+    // fail someone twice.
+    const expected = (box.dataset.channelName || '').trim().toLowerCase();
+    const matches = () => field.value.trim().toLowerCase() === expected;
+    const sync = () => { go.disabled = !matches(); };
+
+    trigger.addEventListener('click', () => {
+      panel.hidden = false;
+      trigger.hidden = true;
+      field.focus();
+    });
+    cancel?.addEventListener('click', () => {
+      panel.hidden = true;
+      trigger.hidden = false;
+      field.value = '';
+      sync();
+      trigger.focus();
+    });
+    field.addEventListener('input', sync);
+    // Enter in the field is the same as clicking, but only once it matches — otherwise the key that
+    // finishes typing the name would also fire the action.
+    field.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && matches()) {
+        e.preventDefault();
+        go.click();
+      }
+    });
+
+    go.addEventListener('click', async () => {
+      if (!matches()) return;
+      go.disabled = true;
+      field.disabled = true;
+      go.textContent = 'Deleting…';
+      try {
+        const res = await fetch('/api/channels/' + box.dataset.channelId
+            + '?name=' + encodeURIComponent(field.value.trim()), {
+          method: 'DELETE', headers: headers(),
+        });
+        if (!res.ok && res.status !== 204) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.message || err.error || res.statusText);
+        }
+        // Stop listening before navigating, as the leave path does. The server revokes its side too
+        // — it has to, for the clients that never asked — but each half does its own.
+        dropChannelSubscription(box.dataset.channelId);
+        sidebarChannels.get(String(box.dataset.channelId))?.li.remove();
+        window.location.href = '/channels';
+      } catch (e) {
+        go.disabled = false;
+        field.disabled = false;
+        go.textContent = 'Delete forever';
+        if (status) {
+          status.textContent = e.message;
+          status.hidden = false;
+        }
+      }
+    });
   })();
   // ===================== END channel administration =====================
 

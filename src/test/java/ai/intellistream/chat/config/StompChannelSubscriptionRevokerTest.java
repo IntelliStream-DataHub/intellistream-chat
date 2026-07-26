@@ -81,12 +81,25 @@ class StompChannelSubscriptionRevokerTest {
     }
 
     private void registryHolds(String sessionId, SimpSubscription... subscriptions) {
+        registryHoldsAcross(session(sessionId, subscriptions));
+    }
+
+    private static SimpSession session(String sessionId, SimpSubscription... subscriptions) {
         var session = mock(SimpSession.class);
         when(session.getId()).thenReturn(sessionId);
         when(session.getSubscriptions()).thenReturn(Set.of(subscriptions));
-        var user = mock(SimpUser.class);
-        when(user.getSessions()).thenReturn(Set.of(session));
-        when(registry.getUsers()).thenReturn(Set.of(user));
+        return session;
+    }
+
+    /** One {@link SimpUser} per session — enough for these tests, and it is the sessions that matter. */
+    private void registryHoldsAcross(SimpSession... sessions) {
+        var users = new java.util.LinkedHashSet<SimpUser>();
+        for (var session : sessions) {
+            var user = mock(SimpUser.class);
+            when(user.getSessions()).thenReturn(Set.of(session));
+            users.add(user);
+        }
+        when(registry.getUsers()).thenReturn(users);
     }
 
     private List<Message<?>> sentFrames() {
@@ -151,6 +164,56 @@ class StompChannelSubscriptionRevokerTest {
         revoker.revoke(42L, ALICE);
 
         verify(registry, never()).getUsers();
+        verify(inbound, never()).send(any());
+    }
+
+    // ------------------------------------------------------------------------------ revokeAll
+    // A destroyed channel has no membership left to enumerate, so this one sweeps every session.
+
+    @Test
+    void revokeAllTakesEverySessionsSubscriptionToTheDestroyedChannel() {
+        // Bob is the interesting one: he never joined, and a PUBLIC channel's topic is subscribable
+        // by anyone because SUBSCRIBE goes through requireMember, which short-circuits for PUBLIC.
+        // Looping over the membership instead would leave exactly his subscription behind.
+        openSession("s-alice", ALICE);
+        openSession("s-bob", BOB);
+        registryHoldsAcross(
+                session("s-alice", subscription("a-1", "/topic/channels/42")),
+                session("s-bob", subscription("b-1", "/topic/channels/42"),
+                        subscription("b-2", "/topic/channels/42/typing")));
+
+        revoker.revokeAll(42L);
+
+        assertThat(sentFrames())
+                .extracting(f -> SimpMessageHeaderAccessor.getSubscriptionId(f.getHeaders()))
+                .containsExactlyInAnyOrder("a-1", "b-1", "b-2");
+    }
+
+    @Test
+    void revokeAllLeavesEveryOtherDestinationAlone() {
+        openSession("s1", ALICE);
+        registryHolds("s1",
+                subscription("keep-1", "/topic/channels/7"),
+                subscription("keep-2", "/topic/conversations/42"),
+                subscription("keep-3", "/topic/users"),
+                subscription("keep-4", "/topic/channels/420"),
+                subscription("kill-1", "/topic/channels/42"));
+
+        revoker.revokeAll(42L);
+
+        // Same equality-or-slash rule as the per-user sweep, so channel 42 does not take 420 with
+        // it, and the socket keeps everything that is not about the destroyed channel.
+        assertThat(sentFrames())
+                .extracting(f -> SimpMessageHeaderAccessor.getSubscriptionId(f.getHeaders()))
+                .containsExactly("kill-1");
+    }
+
+    @Test
+    void revokeAllOnAChannelNobodyIsWatchingIsANoOp() {
+        when(registry.getUsers()).thenReturn(Set.of());
+
+        revoker.revokeAll(42L);
+
         verify(inbound, never()).send(any());
     }
 

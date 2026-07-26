@@ -517,17 +517,53 @@ public class ChannelService {
         return channelRepository.findAllByArchivedAtIsNotNullOrderByArchivedAtDesc();
     }
 
+    /**
+     * Destroy a channel and everything in it. Irreversible.
+     *
+     * <p><b>Workspace admins only, and archiving is what everyone else gets.</b> The choice was
+     * between a channel admin and a workspace admin, and the conservative one is right here for a
+     * reason that is not caution for its own sake: a channel admin is whoever happened to create the
+     * room, or whoever inherited it when the previous admin left, and this action destroys other
+     * people's messages and other people's files with no undo of any kind. Slack draws the line in
+     * the same place and pushes everyone else towards archiving, which is exactly the trade this
+     * change makes available — archive is a channel-admin action, reversible, and loses nothing.
+     * Anybody who genuinely needs a channel gone can ask; nobody has ever needed it gone in the next
+     * thirty seconds.
+     *
+     * <p>The check reads Spring's live {@code ROLE_ADMIN} authority, the same way
+     * {@link #requireChannelOrWorkspaceAdmin} does and for the same reason. This is a <b>narrowing</b>
+     * of what the method used to require ({@code requireAdmin}, the channel role), so
+     * {@code AdminAndConversationFlowIT} and {@code StorageAccountingIT} were inverted rather than
+     * extended: what they asserted — that a channel admin can destroy their own channel — is the
+     * behaviour being removed.
+     *
+     * <p>Subscription revocation is deliberately <em>not</em> here. It has to happen after the
+     * {@code channel-deleted} broadcast, and the broadcast lives in the web layer, so the controller
+     * owns the order: destroy, announce, then {@link #revokeAllSubscriptions}. Registering the revoke
+     * as an {@code afterCommit} hook here would race the announcement it is supposed to follow, and
+     * losing that race means a client is silently cut off with no idea why.
+     */
     @Transactional
     public void destroy(Channel channel, User actor) {
-        requireAdmin(channel, actor);
+        if (!isWorkspaceAdmin()) {
+            throw new AccessDeniedException(
+                    "Deleting a channel requires a workspace administrator. Archive it instead.");
+        }
         // Capture the channel's message ids + attachment rows before the delete cascades them away,
         // then purge the Lucene docs, reap the files and credit the bytes back after commit —
         // otherwise all three leak forever (the index bloats, the disk fills, and everyone who ever
         // posted a file here stays charged for it) since rebuildIfEmpty never reconciles a
         // non-empty index and there is no reconcile at all for storage usage. Mirrors
         // MessageService.delete.
+        //
+        // findIdsByChannel is deliberately unfiltered — it includes soft-deleted messages, whose rows
+        // are going with the channel and whose index documents would otherwise be stale forever
+        // (nothing reconciles a non-empty index down, so allIndexedIds would keep them alive as
+        // "present"). The attachment query is the opposite: it excludes tombstones, because those
+        // bytes were already reaped and already credited when the uploader deleted the file, and
+        // crediting them twice is unrecoverable. See both queries' javadoc.
         var messageIds = messageRepository.findIdsByChannel(channel);
-        var doomedAttachments = attachmentRepository.findByChannelWithAuthor(channel);
+        var doomedAttachments = attachmentRepository.findLiveByChannelWithAuthor(channel);
         var fileKeys = doomedAttachments.stream().map(Attachment::getStorageKey).toList();
         // Unlike a single message's attachments, a channel's belong to everyone who ever posted in
         // it — hence the per-account map rather than one uploader. Read here for the usual reason:
@@ -546,6 +582,18 @@ public class ChannelService {
         afterCommit(() -> accessCache.evictChannel(channelId));
         afterCommit(() -> messageIndex.deleteAll(messageIds));
         afterCommit(() -> attachmentService.deleteFiles(fileKeys));
+    }
+
+    /**
+     * Tear down every live subscription to a destroyed channel's topics.
+     *
+     * <p>Separate from {@link #destroy} so the caller controls the order relative to its
+     * {@code channel-deleted} broadcast — that frame travels on the very subscription this removes,
+     * so it has to go out first. A no-op wherever there is no broker, which is the integration-test
+     * context.
+     */
+    public void revokeAllSubscriptions(long channelId) {
+        subscriptionRevoker.ifAvailable(r -> r.revokeAll(channelId));
     }
 
     // NOTE, kept because it cost real time to find: an afterCommit hook runs while the finished

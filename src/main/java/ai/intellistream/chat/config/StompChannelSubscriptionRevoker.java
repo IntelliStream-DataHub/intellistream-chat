@@ -90,17 +90,43 @@ public class StompChannelSubscriptionRevoker implements ChannelSubscriptionRevok
         if (sessionIds.isEmpty()) {
             return;
         }
+        int revoked = sweep(channelId, sessionIds::contains);
+        if (revoked > 0) {
+            log.debug("Revoked {} live subscription(s) on channel {} for user {}",
+                    revoked, channelId, userId);
+        }
+    }
+
+    /**
+     * Every session, not one user's — a destroyed channel has no membership left to enumerate, and a
+     * PUBLIC channel's topic could be held by people who never joined it anyway (SUBSCRIBE goes
+     * through {@code requireMember}, which short-circuits to allowed for PUBLIC).
+     *
+     * <p>The cost is a walk of the registry, which is bounded by connections rather than channels and
+     * happens once per channel deletion. That is the rarest event in the application.
+     */
+    @Override
+    public void revokeAll(long channelId) {
+        int revoked = sweep(channelId, sessionId -> true);
+        if (revoked > 0) {
+            log.debug("Revoked {} live subscription(s) on destroyed channel {}", revoked, channelId);
+        }
+    }
+
+    /** Feed an UNSUBSCRIBE for every subscription to this channel's topics held by a matching session. */
+    private int sweep(long channelId, java.util.function.Predicate<String> sessionMatches) {
         var topic = "/topic/channels/" + channelId;
         int revoked = 0;
         for (var user : userRegistry.getUsers()) {
             for (var session : user.getSessions()) {
-                if (!sessionIds.contains(session.getId())) {
+                if (!sessionMatches.test(session.getId())) {
                     continue;
                 }
                 for (var subscription : session.getSubscriptions()) {
                     var destination = subscription.getDestination();
                     // The channel topic and everything under it — /typing is a separate
-                    // subscription to the same channel and has to go with it.
+                    // subscription to the same channel and has to go with it. Equality-or-slash
+                    // rather than a bare startsWith, so channel 42 does not take channel 420 with it.
                     if (destination == null
                             || !(destination.equals(topic) || destination.startsWith(topic + "/"))) {
                         continue;
@@ -110,10 +136,7 @@ public class StompChannelSubscriptionRevoker implements ChannelSubscriptionRevok
                 }
             }
         }
-        if (revoked > 0) {
-            log.debug("Revoked {} live subscription(s) on channel {} for user {}",
-                    revoked, channelId, userId);
-        }
+        return revoked;
     }
 
     private void unsubscribe(String sessionId, String subscriptionId) {

@@ -31,21 +31,29 @@ public interface AttachmentRepository extends JpaRepository<Attachment, Long> {
     List<Attachment> findByMessageInOrderByCreatedAtAsc(Collection<Message> messages);
 
     /**
-     * Every attachment in a channel, with its message and that message's author loaded — captured
-     * before channel deletion so the files can be reaped and their bytes credited back.
+     * Every <b>live</b> attachment in a channel, with its message and that message's author loaded —
+     * captured before channel deletion so the files can be reaped and their bytes credited back.
      *
      * <p>Returns rows rather than storage keys because the key alone is not enough any more: the
      * uploader and the size are recorded nowhere but here, and once the channel is deleted there is
      * no way to work out who to credit. The author is join-fetched because destroying a busy
      * channel would otherwise emit one query per attachment just to learn its owner.
+     *
+     * <p><b>{@code deletedAt is null} is load-bearing, not tidiness.</b> A tombstoned attachment has
+     * already had its bytes reaped from disk and credited back to its uploader, at the moment the
+     * uploader deleted it in the file manager ({@code UserFileService.delete} does both in the
+     * tombstoning transaction). Including it here would credit the same bytes a second time, and
+     * {@code user_storage} exposes only an atomic delta — so the account would end up reading as
+     * having less used than it does, with nothing able to notice or repair it. The row itself still
+     * disappears with the channel; it goes via the {@code messages} cascade, not via this query.
      */
     @org.springframework.data.jpa.repository.Query("""
             select a from Attachment a
             join fetch a.message m
             join fetch m.author
-            where m.channel = :channel
+            where m.channel = :channel and a.deletedAt is null
             """)
-    List<Attachment> findByChannelWithAuthor(ai.intellistream.chat.domain.Channel channel);
+    List<Attachment> findLiveByChannelWithAuthor(ai.intellistream.chat.domain.Channel channel);
 
     /**
      * Attachments hanging off the given messages <b>or off any reply underneath them</b> — the set

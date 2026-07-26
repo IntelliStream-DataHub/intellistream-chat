@@ -295,6 +295,51 @@
                         </div>
                     </div>
 
+                    <!--/* Delete. Workspace admins only — me.admin here is for rendering; the server
+                           decides from Spring's ROLE_ADMIN authority. A channel admin gets Archive
+                           above and nothing here, which is the whole point of the pair: the
+                           reversible action is available to the people who run the channel, and the
+                           one with no undo is not.
+
+                           Typing the name is the confirmation, not a second button. There is no
+                           modal machinery for it and none is wanted — the leave and archive controls
+                           above are already inline two-step controls in this panel, so this is the
+                           established pattern here rather than a new one, and the only thing it adds
+                           is a field that has to be filled in correctly. The button stays disabled
+                           until it matches, so the failure mode is "nothing happens", not "an error
+                           after the irreversible click".
+
+                           Wired from index.js: the CSP forbids inline handlers. */-->
+                    <div class="channel-destroy" th:if="${me.admin}"
+                         th:data-channel-id="${activeChannel.id}"
+                         th:data-channel-name="${activeChannel.name}">
+                        <button type="button" id="channel-destroy-btn" class="channel-destroy-trigger">
+                            <svg class="icon" aria-hidden="true"><use href="#icon-trash"/></svg>
+                            <span>Delete <span class="channel-name-echo"
+                                  th:text="'#' + ${activeChannel.name}">#channel</span></span>
+                        </button>
+                        <div class="channel-destroy-confirm" id="channel-destroy-confirm" hidden>
+                            <p>
+                                <strong>This cannot be undone.</strong>
+                                Every message, file, poll, reaction and reminder in this channel is
+                                deleted permanently, for everyone. Consider archiving instead — that
+                                keeps the history and can be reversed.
+                            </p>
+                            <label for="channel-destroy-name">
+                                Type <strong th:text="${activeChannel.name}">channel</strong> to
+                                confirm
+                            </label>
+                            <input id="channel-destroy-name" type="text" autocomplete="off"
+                                   spellcheck="false" aria-describedby="channel-destroy-status"/>
+                            <p class="channel-destroy-status" id="channel-destroy-status" hidden></p>
+                            <div class="channel-destroy-actions">
+                                <button type="button" id="channel-destroy-cancel">Cancel</button>
+                                <button type="button" id="channel-destroy-go"
+                                        class="channel-destroy-danger" disabled>Delete forever</button>
+                            </div>
+                        </div>
+                    </div>
+
                     <div class="channel-leave">
                         <button type="button" id="channel-leave-btn" class="channel-leave-trigger"
                                 th:data-channel-id="${activeChannel.id}"

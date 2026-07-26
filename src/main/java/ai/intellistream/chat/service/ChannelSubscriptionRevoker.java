@@ -43,4 +43,25 @@ public interface ChannelSubscriptionRevoker {
      * a no-op for a user with nothing open.
      */
     void revoke(long channelId, long userId);
+
+    /**
+     * Drop <em>everybody's</em> subscriptions to {@code /topic/channels/{channelId}} and its
+     * sub-destinations — for a channel that no longer exists.
+     *
+     * <p>Not the same job as {@link #revoke} with a loop over the membership, and the difference is
+     * the whole reason this method exists: a PUBLIC channel's topic can be subscribed to by people
+     * who never joined it, because SUBSCRIBE authorisation goes through {@code requireMember}, which
+     * short-circuits to allowed for PUBLIC. Iterating members would leave exactly those sessions
+     * holding a subscription to a destination that no longer has a row behind it.
+     *
+     * <p>Called after a channel is destroyed, and hygiene rather than a leak: nothing can ever be
+     * published to that topic again, since every path to it starts with a lookup that now throws. What
+     * it prevents is the broker's subscription registry accumulating dead destinations for the life of
+     * each socket — and {@code DefaultSubscriptionRegistry}'s destination cache is the one piece of
+     * broker state this application is already documented as having to size deliberately.
+     *
+     * <p>Called <em>after</em> the {@code channel-deleted} broadcast, never before: the frame that
+     * tells open clients the channel is gone travels on the subscription this tears down.
+     */
+    void revokeAll(long channelId);
 }
