@@ -23,6 +23,7 @@ import ai.intellistream.chat.service.ConversationService;
 import ai.intellistream.chat.service.MarkdownRenderer;
 import ai.intellistream.chat.web.dto.ConversationMessageDto;
 import ai.intellistream.chat.web.dto.SendMessageRequest;
+import ai.intellistream.chat.web.dto.TypingEvent;
 import jakarta.validation.Valid;
 import org.springframework.messaging.handler.annotation.DestinationVariable;
 import org.springframework.messaging.handler.annotation.MessageMapping;
@@ -76,5 +77,32 @@ public class ConversationWebSocketController {
         // Separately, tell members who aren't subscribed to this conversation right now — the
         // topic above only reaches the page they'd have to already be looking at.
         alerts.alert(conversation, saved);
+    }
+
+    /**
+     * "X is typing…" for a conversation, mirroring {@link ChatWebSocketController#typing}.
+     *
+     * <p>This is the feature a 1:1 misses most. In a channel a typing indicator says one of forty
+     * people is composing something; in a DM it says <em>the person you are waiting for is
+     * answering you right now</em>, which is the difference between waiting and giving up.
+     *
+     * <p>Same budget as channels — clients throttle to one ping per 2s and the server caps at 60 a
+     * minute — and excess pings are dropped rather than refused: a typing indicator is not worth an
+     * ERROR frame, and tearing down the socket over one would cost the message being typed.
+     *
+     * <p>Membership is required, because broadcasting into a conversation is a write. A DM has no
+     * PUBLIC analogue for this to short-circuit on, so {@code requireMember} is both the read and
+     * the write check here and there is no second, weaker one to reach for by mistake.
+     */
+    @MessageMapping("/conversations/{conversationId}/typing")
+    public void typing(@DestinationVariable Long conversationId, Principal principal) {
+        var user = currentUser.resolve(principal);
+        if (!rateLimiter.tryAcquire(user.getUsername(), "ws-conv-typing", 60, Duration.ofMinutes(1))) {
+            return; // silently drop excess typing pings
+        }
+        var conversation = conversations.requireById(conversationId);
+        conversations.requireMember(conversation, user);
+        broker.convertAndSend("/topic/conversations/" + conversationId + "/typing",
+                new TypingEvent(user.getUsername(), user.getDisplayName()));
     }
 }

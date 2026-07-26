@@ -188,6 +188,11 @@
                 </ol>
             </div>
 
+            <!--/* Same element, same class and same place as the channel page's, so the existing
+                   .typing-indicator rule covers it. In a 1:1 this line is the whole difference
+                   between waiting and giving up. */-->
+            <div id="typing-indicator" class="typing-indicator" hidden></div>
+
             <div class="composer-wrap" th:data-conversation-id="${activeConversationId}">
                 <form id="composer" class="composer">
                     <div id="composer-attachments" class="composer-attachments" hidden></div>

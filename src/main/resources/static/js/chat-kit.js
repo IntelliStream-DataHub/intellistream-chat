@@ -709,6 +709,82 @@
   };
   };
 
+  // ---------- Typing indicator ----------
+  /**
+   * "X is typing…" — the receiving half. Names are held with an expiry rather than cleared by a
+   * stop-typing frame, because there isn't one and there shouldn't be: a client that closes its
+   * laptop mid-sentence sends nothing, and an indicator waiting for a frame that will never arrive
+   * would say somebody is typing forever. A ping refreshes the expiry, a sweep retires it, and the
+   * timer stops entirely once nobody is typing so an idle page costs no interval at all.
+   *
+   * Shared because both pages want the identical behaviour off the identical markup — a
+   * `<div class="typing-indicator" hidden>` under the message list.
+   *
+   * @param el       the element to write into
+   * @param graceMs  how long a ping keeps somebody "typing" — twice the 2s publish throttle, so a
+   *                 steady typist never flickers
+   */
+  const createTypingTracker = (el, graceMs = 4000) => {
+    const typists = new Map();
+    let sweep = null;
+
+    const render = () => {
+      if (!el) return;
+      const names = [...typists.values()].map((v) => v.displayName);
+      if (names.length === 0) {
+        el.hidden = true;
+        el.textContent = '';
+        return;
+      }
+      let text;
+      if (names.length === 1) text = names[0] + ' is typing…';
+      else if (names.length === 2) text = names[0] + ' and ' + names[1] + ' are typing…';
+      else text = names.length + ' people are typing…';
+      el.textContent = text;
+      el.hidden = false;
+    };
+
+    const tick = () => {
+      const now = Date.now();
+      let changed = false;
+      for (const [u, v] of typists) {
+        if (v.expiresAt <= now) { typists.delete(u); changed = true; }
+      }
+      if (changed) render();
+      if (typists.size === 0 && sweep) { clearInterval(sweep); sweep = null; }
+    };
+
+    return {
+      note(username, displayName) {
+        if (!username) return;
+        typists.set(username, { displayName: displayName || username, expiresAt: Date.now() + graceMs });
+        render();
+        if (!sweep) sweep = setInterval(tick, 1000);
+      },
+      clear() {
+        typists.clear();
+        render();
+        if (sweep) { clearInterval(sweep); sweep = null; }
+      },
+    };
+  };
+
+  /**
+   * The sending half: call {@code ping()} as often as you like, {@code send} fires at most once per
+   * {@code everyMs}. Trailing edge is deliberately not implemented — the point is to say "still
+   * typing", and a ping that arrives after the user stopped is a lie the tracker's expiry would
+   * then hold on screen for another four seconds.
+   */
+  const throttledPing = (send, everyMs = 2000) => {
+    let last = 0;
+    return () => {
+      const now = Date.now();
+      if (now - last < everyMs) return;
+      last = now;
+      send();
+    };
+  };
+
   // ---------- Thread indicator ----------
   // The "N replies" widget that hangs off the bottom of a message that started a thread. Pure DOM
   // and identical on both pages, so it lives here rather than in each page script: the channel page
@@ -1016,6 +1092,8 @@
     buildThreadIndicator,
     applyThreadIndicator,
     createThreadPanel,
+    createTypingTracker,
+    throttledPing,
     wireImageLightbox,
     buildRemovedAttachmentEl,
     hashCode,

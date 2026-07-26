@@ -508,6 +508,20 @@
   // tab — the "minimal" version — which is why image attachments felt different in a DM.
   window.ChatKit.wireImageLightbox();
 
+  // ---------- Typing indicator ----------
+  // Receiving and sending halves both come from ChatKit; what is local is the destination and the
+  // decision to stop pinging once the composer is empty. An empty composer is not "typing" — a
+  // ping after the last character was deleted would leave the other person watching a phantom for
+  // the tracker's whole four-second grace.
+  const typing = window.ChatKit.createTypingTracker(document.getElementById('typing-indicator'));
+  const publishTyping = window.ChatKit.throttledPing(() => {
+    if (!stomp.connected) return;
+    stomp.publish({ destination: '/app/conversations/' + conversationId + '/typing', body: '{}' });
+  });
+  input.addEventListener('input', () => {
+    if (input.value.trim().length > 0) publishTyping();
+  });
+
   // ---------- STOMP connection ----------
   const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
   const stomp = new StompJs.Client({
@@ -576,6 +590,17 @@
         const payload = JSON.parse(frame.body);
         if (backfilling) { pendingLive.push(payload); return; }
         handleFrame(payload);
+      } catch (e) { /* ignore malformed frame */ }
+    });
+    // Typing pings. Own pings are filtered here rather than not sent, because the server has to
+    // broadcast to the whole conversation either way and a self-conversation would otherwise watch
+    // itself type.
+    stomp.subscribe('/topic/conversations/' + conversationId + '/typing', (frame) => {
+      try {
+        const t = JSON.parse(frame.body);
+        if (t.username && t.username !== myUsername) {
+          typing.note(t.username, t.displayName || t.username);
+        }
       } catch (e) { /* ignore malformed frame */ }
     });
     // Messages in the user's OTHER conversations. The one on screen is handled by the topic
