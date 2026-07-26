@@ -18,6 +18,9 @@ package ai.intellistream.chat.config;
 
 import ai.intellistream.chat.moderation.SuspensionEnforcementFilter;
 import ai.intellistream.chat.security.KeycloakRolesConverter;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.server.servlet.CookieSameSiteSupplier;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
@@ -27,6 +30,7 @@ import org.springframework.core.annotation.Order;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.authority.mapping.GrantedAuthoritiesMapper;
@@ -35,11 +39,17 @@ import org.springframework.security.oauth2.client.registration.ClientRegistratio
 import org.springframework.security.oauth2.core.oidc.user.OidcUserAuthority;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.intercept.AuthorizationFilter;
+import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
+import org.springframework.security.web.authentication.SimpleUrlAuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.logout.LogoutSuccessHandler;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
+import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
+import org.springframework.security.web.savedrequest.RequestCache;
 
+import java.io.IOException;
+import java.net.URI;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Map;
@@ -47,6 +57,9 @@ import java.util.Set;
 
 @Configuration
 public class SecurityConfig {
+
+    /** Where a browser lands after signing in with nothing else to go back to. */
+    static final String DEFAULT_LANDING_PAGE = "/channels";
 
     /*
      * Cookie {@code Secure} flag is auto-detected per request: both the JSESSIONID and
@@ -123,6 +136,8 @@ public class SecurityConfig {
 
         var registrationResolver = new RegistrationAuthorizationRequestResolver(clientRegistrationRepository);
 
+        var requestCache = loginRequestCache();
+
         var csrfRepo = CookieCsrfTokenRepository.withHttpOnlyFalse();
         // SameSite=Strict blocks cross-site submission even if the cookie leaks. We
         // intentionally don't call .secure(...) — without it the repository falls back
@@ -170,10 +185,14 @@ public class SecurityConfig {
                         .frameOptions(f -> f.deny())
                         .referrerPolicy(rp -> rp.policy(ReferrerPolicyHeaderWriter.ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN))
                         .httpStrictTransportSecurity(hsts -> hsts.includeSubDomains(true).maxAgeInSeconds(31_536_000)))
+                // Remember where the browser was going before it got bounced to Keycloak, so a
+                // permalink survives the login round-trip. See loginRequestCache() for what is
+                // deliberately NOT remembered.
+                .requestCache(rc -> rc.requestCache(requestCache))
                 .oauth2Login(login -> login
                         .authorizationEndpoint(ep -> ep.authorizationRequestResolver(registrationResolver))
                         .userInfoEndpoint(uie -> uie.userAuthoritiesMapper(keycloakAuthoritiesMapper()))
-                        .defaultSuccessUrl("/channels", true))
+                        .successHandler(loginSuccessHandler(requestCache)))
                 // Single sign-out: hit Keycloak's end-session endpoint after clearing our session,
                 // then bounce back to the landing page. Without this, the OIDC SSO session stays
                 // alive and the next /oauth2/authorization/keycloak round-trip would silently
@@ -183,6 +202,140 @@ public class SecurityConfig {
                 // through, so a suspended user can still sign out of a session they can't use.
                 .addFilterAfter(suspensionFilter, AuthorizationFilter.class);
         return http.build();
+    }
+
+    // ------------------------------------------------------------------ post-login landing ----
+    //
+    // The web chain used to end every login at {@code defaultSuccessUrl("/channels", true)}, and
+    // the {@code true} is what made it unconditional: Spring's saved request was thrown away, so
+    // opening a permalink while signed out put you on the welcome page and left you to find the
+    // message yourself. The app ships a "Copy link to message" action and a {@code ?m=<id>} route
+    // that renders context around an older message, which makes this a shipped feature defeating
+    // another one — share a link with a colleague who isn't signed in and they land nowhere near
+    // it. Slack and Mattermost both return you to the deep link.
+    //
+    // An unvalidated post-login redirect is an open-redirect vector, so none of this reads a URL
+    // out of a request parameter. The target can only ever be a request that already reached this
+    // application and was refused for want of authentication — Spring records it, we hand it back.
+
+    /**
+     * The saved-request store, with a matcher deciding what is worth coming back to.
+     *
+     * <p>Two of the exclusions are the security-relevant ones. Browser calls to {@code /api/**}
+     * and the {@code /ws} handshake carry no {@code Authorization} header, so they do not match
+     * {@link #isBearerApiOrWs} and fall through to <em>this</em> chain. Without the exclusion, a
+     * background poll that happens to hit an expired session would save {@code /api/presence} as
+     * the thing to resume — and the user's next interactive login would land on a page of JSON,
+     * chosen by whichever XHR lost the race. Where a person ends up after signing in must be a
+     * consequence of something they did, not of the app's own housekeeping.
+     *
+     * <p>The rest is ergonomics. Only GET, because a saved POST comes back as a redirect and a
+     * redirect is a GET — the form would not be re-submitted, it would be silently dropped. And
+     * only a request whose {@code Accept} asks for HTML, which is what separates a page the user
+     * typed or clicked from the favicon fetch alongside it. {@code /favicon.ico} is not in the
+     * permitAll list, so without that test it is authenticated like anything else, and the
+     * classic version of this bug is landing on an icon after login.
+     */
+    public static RequestCache loginRequestCache() {
+        var cache = new HttpSessionRequestCache();
+        cache.setRequestMatcher(SecurityConfig::isResumableRequest);
+        // Spring appends a bare `continue` parameter to the saved URL as a marker, so that
+        // RequestCacheAwareFilter can recognise the replayed request later and hand the handler
+        // back the original request's parameters and headers. That machinery exists for resuming
+        // a POST; we only ever resume a GET, which the browser re-sends in full by itself, and
+        // the success handler consumes the saved request outright. All the marker would do here
+        // is leave "?m=1234&continue" in the address bar of every permalink anyone shares next.
+        cache.setMatchingRequestParameterName(null);
+        return cache;
+    }
+
+    /** @see #loginRequestCache() */
+    static boolean isResumableRequest(HttpServletRequest request) {
+        if (!"GET".equalsIgnoreCase(request.getMethod())) return false;
+        var path = pathWithinApplication(request);
+        if (path.startsWith("/api/") || path.equals("/api")) return false;
+        if (path.equals("/ws") || path.startsWith("/ws/")) return false;
+        // A missing Accept is allowed through: some minimal clients omit it entirely, and this
+        // test is here to tell pages apart from sub-resources, not to police header hygiene.
+        var accept = request.getHeader("Accept");
+        return accept == null || accept.contains("text/html");
+    }
+
+    /**
+     * Sends the browser to whatever it asked for before the login round-trip, or to
+     * {@link #DEFAULT_LANDING_PAGE} when there was nothing worth resuming.
+     */
+    public static AuthenticationSuccessHandler loginSuccessHandler(RequestCache requestCache) {
+        return new SavedRequestSuccessHandler(requestCache);
+    }
+
+    /** @see #loginSuccessHandler(RequestCache) */
+    public static final class SavedRequestSuccessHandler extends SimpleUrlAuthenticationSuccessHandler {
+
+        private final RequestCache requestCache;
+
+        public SavedRequestSuccessHandler(RequestCache requestCache) {
+            this.requestCache = requestCache;
+            setDefaultTargetUrl(DEFAULT_LANDING_PAGE);
+            // Both of these are already the framework defaults. They are set anyway because they
+            // are precisely the two switches that would turn this class into an open redirect —
+            // one honours a target named in a query parameter, the other honours the Referer —
+            // and a default nobody wrote down is not a decision, it is a thing that happens to
+            // be true until someone changes it.
+            setTargetUrlParameter(null);
+            setUseReferer(false);
+        }
+
+        @Override
+        public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response,
+                                            Authentication authentication)
+                throws IOException, ServletException {
+            var saved = requestCache.getRequest(request, response);
+            // Consumed either way: a saved request that survives its own login is a stale
+            // destination waiting to hijack the next one.
+            requestCache.removeRequest(request, response);
+            var target = saved == null ? null : sameOriginTarget(saved.getRedirectUrl());
+            if (target == null) {
+                super.onAuthenticationSuccess(request, response, authentication);
+                return;
+            }
+            clearAuthenticationAttributes(request);
+            getRedirectStrategy().sendRedirect(request, response, target);
+        }
+    }
+
+    /**
+     * Reduce a saved request's absolute URL to its path and query, dropping the scheme, host and
+     * port. Returns {@code null} when there is nothing safe to redirect to.
+     *
+     * <p>Visible for testing. A {@code SavedRequest} hands back an absolute URL that Spring built
+     * from the server's own view of the request — including {@code Host}, which
+     * {@code ForwardedHeaderFilter} will happily take from {@code X-Forwarded-Host} (see the note
+     * at the top of this class: it has no trusted-proxy allowlist and is safe only because the app
+     * binds to loopback). Keeping the host would put the post-login landing inside the blast
+     * radius of that footgun for no benefit — the destination is on this origin by construction,
+     * so the redirect may as well be structurally incapable of leaving it.
+     *
+     * <p>A path that is missing, relative, or starts with a second slash is refused rather than
+     * repaired: {@code //evil.example/x} is a protocol-relative URL, and a browser reads it as
+     * another origin even though it looks like a path. Note that it has to be caught on the way
+     * in as well as on the way out — {@code URI} parses a leading {@code //} as an authority, so
+     * {@code //evil.example/x} comes back with a perfectly innocent-looking path of {@code /x}.
+     */
+    public static String sameOriginTarget(String savedRedirectUrl) {
+        if (savedRedirectUrl == null || savedRedirectUrl.startsWith("//")) return null;
+        String path;
+        String query;
+        try {
+            var uri = URI.create(savedRedirectUrl);
+            path = uri.getRawPath();
+            query = uri.getRawQuery();
+        } catch (IllegalArgumentException notAUri) {
+            return null;
+        }
+        if (path == null || path.isEmpty() || path.charAt(0) != '/') return null;
+        if (path.length() > 1 && (path.charAt(1) == '/' || path.charAt(1) == '\\')) return null;
+        return query == null ? path : path + "?" + query;
     }
 
     /**
@@ -248,12 +401,18 @@ public class SecurityConfig {
         };
     }
 
-    private static boolean isBearerApiOrWs(jakarta.servlet.http.HttpServletRequest request) {
+    /** Request path with any deployment context path stripped, so the tests below are absolute. */
+    private static String pathWithinApplication(HttpServletRequest request) {
         var path = request.getRequestURI();
         var ctx = request.getContextPath();
         if (ctx != null && !ctx.isEmpty() && path.startsWith(ctx)) {
             path = path.substring(ctx.length());
         }
+        return path;
+    }
+
+    private static boolean isBearerApiOrWs(HttpServletRequest request) {
+        var path = pathWithinApplication(request);
         // "/ws" exactly, not just "/ws/": the STOMP endpoint is registered at "/ws" with no
         // trailing slash, so a startsWith("/ws/") test never matched the handshake itself. A
         // bearer-authenticated client then fell through to the browser chain and was answered

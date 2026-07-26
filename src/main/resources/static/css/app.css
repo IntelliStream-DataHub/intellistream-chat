@@ -1598,6 +1598,19 @@ button.icon-btn > .icon {
 }
 /* Hide the plain online dot when an emoji badge is present. */
 .avatar:has(.avatar-status-emoji)::after { display: none; }
+/* …except your own DND marker in the topbar, which moves to the other corner instead of
+   disappearing. Every other kind is a fact about you that other people read, and losing it
+   behind a 🍕 costs nothing; DND is the one that changes what this application does to you, and
+   a state that silences your notifications must not be invisible on the exact days you set a
+   status. Top-right rather than stacked on the emoji: both facts are true, and hiding one to
+   show the other is how this feature got here in the first place. data-self-presence is set on
+   <html> by presence.js. */
+html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::after {
+  display: block;
+  background: #d94f4f;
+  bottom: auto;
+  top: -2px;
+}
 /* Larger avatars (profile page, hovercard) get bigger badges. */
 .avatar.avatar-large::after { width: 14px; height: 14px; }
 .avatar.avatar-large .avatar-status-emoji { width: 22px; height: 22px; font-size: 14px; }
@@ -1617,7 +1630,9 @@ button.icon-btn > .icon {
 }
 .presence-menu-item {
   display: grid;
-  grid-template-columns: 12px 1fr;
+  /* dot | label+hint | tick. The third track is `auto`, so it collapses to nothing on the
+     link rows that carry no tick. */
+  grid-template-columns: 12px 1fr auto;
   grid-template-rows: auto auto;
   column-gap: 8px;
   align-items: center;
@@ -1673,6 +1688,26 @@ button.icon-btn > .icon {
 .presence-menu-label { font-weight: 500; }
 .presence-menu-hint { font-size: 0.75em; color: var(--muted); grid-column: 2; }
 .presence-menu-signout .presence-menu-label { color: var(--danger); }
+/* The kind you are currently in. `visibility` rather than `display`, so the tick's column keeps
+   its width and the four rows don't shuffle sideways as the selection moves between them. */
+.presence-menu-check {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  color: var(--accent);
+  visibility: hidden;
+}
+.presence-menu-item.is-current .presence-menu-check { visibility: visible; }
+.presence-menu-item.is-current .presence-menu-label { font-weight: 600; }
+/* What Do Not Disturb is suppressing, rendered only while it is on. */
+.presence-menu-note {
+  margin: 2px 4px 6px;
+  padding: 6px 8px;
+  font-size: 0.75em;
+  line-height: 1.4;
+  color: var(--muted);
+  background: var(--danger-soft);
+  border-radius: var(--radius-sm);
+}
 
 
 /* When the user has uploaded a profile picture the renderer adds an <img.avatar-image>

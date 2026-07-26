@@ -26,6 +26,8 @@
  *     refreshAll(),                 // re-scan DOM + fetch
  *     stateFor(username),           // last known PresenceDto, or null
  *     onChange(callback),           // subscribe to (username, dto) updates
+ *     me(),                         // last known PresenceDto for the signed-in user, or null
+ *     isDnd(),                      // is the signed-in user in Do Not Disturb right now
  *   };
  */
 (function () {
@@ -35,6 +37,24 @@
   const state = new Map();
   /** @type {Set<(username:string, dto:object)=>void>} */
   const listeners = new Set();
+
+  /*
+   * Who the viewer is. Every page that can raise a notification carries this meta; pages that
+   * don't (and a future one that forgets it) leave it null, and every caller below treats null
+   * as "no override". That is the direction to fail in: a presence client that cannot work out
+   * whose state it is looking at must not start silencing things.
+   */
+  const myUsername =
+      document.querySelector('meta[name="me-username"]')?.getAttribute('content') || null;
+
+  /*
+   * The viewer's own last-known DTO, tracked beside `state` rather than read back out of it.
+   * The map is keyed on the exact string the DOM asked about and the server echoes the spelling
+   * it was given, so an exact-match lookup would work today and break the day a caller passes a
+   * differently-cased name — which for this one entry means the DND gate silently becoming a
+   * no-op. One case-insensitive comparison on the way in is cheaper than trusting that.
+   */
+  let selfState = null;
 
   function csrfHeader() {
     const headers = { 'Accept': 'application/json' };
@@ -90,6 +110,13 @@
   function update(dto) {
     if (!dto || !dto.username) return;
     state.set(dto.username, dto);
+    if (myUsername && dto.username.toLowerCase() === myUsername.toLowerCase()) {
+      selfState = dto;
+      // Hoisted onto <html> so the stylesheet can react to your own state without a second
+      // source of truth in CSS-land. It is what keeps your own DND dot visible when a custom
+      // status emoji has taken the corner the presence dot normally occupies.
+      document.documentElement.setAttribute('data-self-presence', dto.kind || 'ACTIVE');
+    }
     applyEverywhere(dto.username, dto);
     listeners.forEach((cb) => {
       try { cb(dto.username, dto); } catch (e) { /* listener errors must not break the bus */ }
@@ -140,6 +167,28 @@
     return username ? state.get(username) || null : null;
   }
 
+  /**
+   * The signed-in user's own presence, or null until the first fetch lands (a few ms after
+   * load) or on a page with no me-username meta.
+   */
+  function me() {
+    return selfState;
+  }
+
+  /**
+   * Is the signed-in user in Do Not Disturb? The one question notifications.js asks, given a
+   * name so the answer lives here rather than being open-coded from `kind === 'DND'` in every
+   * caller that grows an interest in it.
+   *
+   * <p>Only DND. AWAY and OFFLINE are statements about what other people see — "I'll answer
+   * later", "don't show me as here" — and neither says anything about wanting to be left alone;
+   * Slack notifies through both. Unknown state (before the first fetch, or a page without the
+   * meta) reads as false, because an unanswerable question is not a request for silence.
+   */
+  function isDnd() {
+    return selfState != null && selfState.kind === 'DND';
+  }
+
   // Mutation observer: when chat.js inserts new messages with avatars, paint them with the
   // last known presence state without needing another network round-trip.
   const observer = new MutationObserver((mutations) => {
@@ -158,7 +207,7 @@
   });
   observer.observe(document.body, { childList: true, subtree: true });
 
-  window.Presence = { attachStomp, refreshAll, stateFor, onChange };
+  window.Presence = { attachStomp, refreshAll, stateFor, onChange, me, isDnd };
 
   // Prime the state on page load — even if the STOMP client never attaches (e.g. profile
   // page), we still want the dots painted from the latest server snapshot.
