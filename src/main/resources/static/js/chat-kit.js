@@ -1128,8 +1128,80 @@
     wireNewConversation();
   }
 
+  // ---------- Sidebar: direct-message unread badge ----------
+  /**
+   * Move a conversation's sidebar badge when one of its messages arrives.
+   *
+   * The server has always counted this correctly — the badge is right on every page load — but
+   * nothing moved it live, so a direct message to somebody sitting on another page produced a
+   * toast that vanished and no lasting trace anywhere. If they missed the toast, they missed the
+   * message until they happened to reload. Worse for a *new* conversation, which had no sidebar
+   * row at all: the first message from someone you had never spoken to was invisible.
+   *
+   * Deliberately not gated on the notification level. A muted conversation still counts, exactly
+   * as a muted channel does — muting means "stop interrupting me", not "hide it from me". The
+   * level decides whether `MentionNotifications.show` runs; this runs either way.
+   *
+   * @param alert the `/user/queue/conversation-alerts` payload.
+   */
+  const bumpConversationUnread = (alert) => {
+    const list = document.getElementById('sidebar-dm-list');
+    if (!list || !alert || !alert.conversationId) return;
+    const id = String(alert.conversationId);
+
+    // Reading it right now is not unread. Same rule the channel side uses: the marker only moves
+    // for a *focused* tab, so a conversation open in a background window still counts.
+    const active = document.querySelector('meta[name="active-conversation-id"]')?.content;
+    if (active && String(active) === id
+        && document.visibilityState === 'visible' && document.hasFocus()) {
+      return;
+    }
+
+    const esc = (window.CSS && CSS.escape) ? CSS.escape(id) : id;
+    let li = list.querySelector('li[data-conv-id="' + esc + '"]');
+    if (!li) {
+      // A conversation that did not exist when this page was rendered. Build the row the same
+      // shape the server writes, so a reload changes nothing about it.
+      list.querySelector('li.dm-empty')?.remove();
+      li = document.createElement('li');
+      li.dataset.convId = id;
+      li.dataset.convType = alert.type || 'DIRECT';
+      const a = document.createElement('a');
+      a.href = '/conversations/' + id;
+      a.appendChild(buildAvatarEl({
+        username: alert.authorUsername || '',
+        letter: ((alert.title || alert.author || '?').charAt(0) || '?').toUpperCase(),
+      }));
+      const name = document.createElement('span');
+      name.className = 'dm-name';
+      name.textContent = alert.title || alert.author || '';
+      a.appendChild(name);
+      li.appendChild(a);
+      list.insertBefore(li, list.firstChild);
+    }
+
+    const link = li.querySelector('a');
+    if (!link) return;
+    let badge = link.querySelector('.unread-badge');
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'unread-badge';
+      badge.textContent = '0';
+      link.appendChild(badge);
+    }
+    // "99+" is a ceiling, not a number — once it is showing, stop counting rather than parsing it
+    // back to 99 and creeping upwards from there.
+    const shown = badge.textContent.trim();
+    if (shown !== '99+') {
+      const next = (parseInt(shown, 10) || 0) + 1;
+      badge.textContent = next > 99 ? '99+' : String(next);
+    }
+    li.classList.add('has-unread');
+  };
+
   // ---------- Public surface ----------
   window.ChatKit = {
+    bumpConversationUnread,
     wirePopover,
     buildThreadIndicator,
     applyThreadIndicator,

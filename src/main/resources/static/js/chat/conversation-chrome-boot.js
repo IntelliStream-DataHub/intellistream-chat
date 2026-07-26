@@ -25,7 +25,7 @@
  * Loaded as a plain module <script>, like presence-menu-boot.js: the js/chat/ graph is
  * deliberately outside the Closure bundle (see ASSETS.md).
  */
-import { initFavouriteStars, initSidebarSearch } from './chrome.js';
+import { initCreateChannel, initFavouriteStars, initSidebarSearch } from './chrome.js';
 import { initSearchBox } from './search-box.js';
 
 // Global message search. No channel scope — on this page there is no channel to scope to, and
@@ -40,3 +40,4 @@ initSidebarSearch();
 // without this the stars would be visible and inert on the DM page — the exact drift the fragment
 // was consolidated to prevent.
 initFavouriteStars();
+initCreateChannel();

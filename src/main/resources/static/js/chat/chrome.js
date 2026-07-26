@@ -332,8 +332,52 @@ export function initFavouriteStars() {
     });
 }
 
+/**
+ * Create-channel: the sidebar "+" popover and the forms inside it.
+ *
+ * Here rather than in `chat/index.js` because the sidebar fragment renders on the channel page
+ * *and* the conversation page, while only the channel page loads index.js — so wiring it there
+ * left the "+" beside CHANNELS visibly present and completely dead whenever you were reading a
+ * direct message. That is the drift the sidebar fragment's own comment warns about: one copy of
+ * the markup, two copies of the behaviour, and only one of them kept up to date.
+ *
+ * The empty-state form (`create-channel-form`) only exists on the channel page; getElementById
+ * returning null for it here is the normal case on the conversation page, not a failure.
+ */
+export function initCreateChannel() {
+    const wireForm = (formId) => {
+        const form = document.getElementById(formId);
+        if (!form) return;
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const data = Object.fromEntries(new FormData(form).entries());
+            const res = await fetch('/api/channels', {
+                method: 'POST',
+                headers: headers(),
+                body: JSON.stringify(data),
+            });
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({ error: res.statusText }));
+                alert('Could not create channel: ' + err.error);
+                return;
+            }
+            const channel = await res.json();
+            window.location.href = '/channels/' + channel.id;
+        });
+    };
+    wireForm('create-channel-form');
+    wireForm('create-channel-form-sidebar');
+
+    // Bound here rather than inline because the CSP forbids inline handlers (script-src 'self').
+    // wirePopover lives in chat-kit.js, which both pages load. The "New message" popover beside
+    // the Direct messages heading wires itself there too, for the same reason.
+    window.ChatKit?.wirePopover('sidebar-create-add-btn', 'sidebar-create-popover',
+        'input[name="name"]');
+}
+
 export function init() {
     initTutorial();
     initSidebarSearch();
     initFavouriteStars();
+    initCreateChannel();
 }

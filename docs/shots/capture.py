@@ -85,12 +85,108 @@ def _api(token: str, path: str, method: str = "GET", body=None, raw=None, header
         return e.code, e.read().decode()[:200]
 
 
+# The demo workspace, built from nothing if the instance is empty.
+#
+# This used to assume somebody had already put realistic conversation into the database by hand,
+# which made the screenshots depend on the state of one developer's machine — and that state
+# accumulates. The published carousel has previously shown a workspace with duplicate suffixed test
+# accounts in the mention list and channels named after individual football matches. Building the
+# room here instead means `capture.py` is the whole recipe: wipe the database, start the app, run
+# this, and the pictures are the same pictures.
+#
+# The content is written to be worth photographing. Captions promise Markdown, code, threads,
+# reactions and polls, so the seeded conversation contains all of them, and it reads like a team
+# talking rather than like "test message 1".
+
+DEMO_CHANNELS = [
+    ("engineering", "Backend, infra, and the occasional incident"),
+    ("design", "Interface work, critique, and the design system"),
+    ("general", "Everything that is not about work"),
+]
+
+DEMO_CONVERSATION = [
+    (USER, "Morning. The write-behind batching landed on main last night, "
+           "**17,066 messages/second** on the bench box."),
+    (USER, "Numbers are in `scalability.md` if anyone wants the method. Short version: the "
+           "ceiling was a mis-wired STOMP executor, not the database."),
+    (SECOND_USER, "That executor bug is brutal. One thread for the whole server and every metric "
+                  "looks fine."),
+    (USER, "```java\n@Override\npublic void configureClientInboundChannel(ChannelRegistration r) {\n"
+           "    r.executor(stompInboundExecutor());\n}\n```"),
+    (SECOND_USER, f"Nice work @{USER} — that one was hiding well."),
+    (USER, "Thanks! Next up is getting the load generator off-box so the 150k number means "
+           "something."),
+]
+
+
+def _seed_workspace(me):
+    """Create the demo channels and conversation. Idempotent: re-running adds nothing."""
+    status, channels = _api(me, "/api/channels")
+    existing = {c["name"] for c in channels} if status == 200 and channels else set()
+    for name, description in DEMO_CHANNELS:
+        if name not in existing:
+            _api(me, "/api/channels", "POST",
+                 body={"name": name, "description": description, "type": "PUBLIC"})
+    status, channels = _api(me, "/api/channels")
+    by_name = {c["name"]: c["id"] for c in channels} if status == 200 else {}
+    room = by_name.get("engineering")
+    if room is None:
+        return None
+
+    # The second user has to be a member before they can post, and both have to be members for
+    # @-mentions and the member list to look like a real room.
+    _api(me, f"/api/channels/{room}/invite", "POST", body={"username": SECOND_USER})
+    other = _token(SECOND_USER)
+    _api(other, f"/api/channels/{room}/join", "POST")
+
+    # Each piece checks for itself rather than one count standing in for all of them. A single
+    # "enough messages?" guard skipped the reaction and the poll on any instance that had a
+    # conversation but not those — which is how a channel ended up photographed with the literal
+    # text "/poll Offsite venue? | a | b" sitting in it where the poll widget should have been.
+    status, msgs = _api(me, f"/api/channels/{room}/messages")
+    have_conversation = status == 200 and len(msgs) >= len(DEMO_CONVERSATION)
+    if have_conversation:
+        _seed_poll(me, room, msgs)
+        return room
+    for author, body in DEMO_CONVERSATION:
+        token = me if author == USER else other
+        _api(token, f"/api/channels/{room}/messages", "POST", body={"body": body})
+
+    # A reaction, so the captions that mention them are not writing cheques the picture cannot
+    # cash. Authors may react to their own messages, but a reaction from the other person is the
+    # honest illustration of what a reaction is for.
+    status, msgs = _api(me, f"/api/channels/{room}/messages")
+    if status == 200 and msgs:
+        _api(other, f"/api/messages/{msgs[0]['id']}/reactions", "POST", body={"emoji": "🎉"})
+
+    status, msgs = _api(me, f"/api/channels/{room}/messages")
+    _seed_poll(me, room, msgs if status == 200 else [])
+    return room
+
+
+POLL_COMMAND = "/poll Offsite venue in May? | The barn | The lighthouse | Somewhere with wifi"
+
+
+def _seed_poll(me, room, msgs):
+    """Post the demo poll unless it is already there. Idempotent on the poll specifically."""
+    if any(m.get("poll") for m in msgs):
+        return
+    _api(me, f"/api/channels/{room}/messages", "POST", body={"body": POLL_COMMAND})
+
+
 def seed(ctx):
     """Make sure the instance has something worth photographing. Safe to re-run."""
     me = _token(USER)
     status, channels = _api(me, "/api/channels")
+    if status != 200:
+        print(f"  ! cannot read channels ({status}) — is the app up?", file=sys.stderr)
+        return None
+    if not channels:
+        print("  empty instance — building the demo workspace")
+    _seed_workspace(me)
+    status, channels = _api(me, "/api/channels")
     if status != 200 or not channels:
-        print("  ! no channels visible — seed the instance first", file=sys.stderr)
+        print("  ! no channels visible after seeding", file=sys.stderr)
         return None
     # The busiest channel, not the first one. The captions promise threads, reactions, markdown
     # and code; pointing the camera at whichever channel sorts first produces a screenshot of an
@@ -601,6 +697,17 @@ async def main():
             await page.fill("#password", USER)
             await page.click("input[type=submit], button[type=submit]")
             await page.wait_for_load_state("domcontentloaded")
+
+        # Dismiss the welcome tutorial. On an instance seeded from empty this account has never
+        # signed in before, so the overlay is up — and it is modal, so it silently intercepts every
+        # click a recipe makes and each shot fails on a timeout with no obvious cause. Doing it once
+        # here rather than in each recipe: it is a property of the session, not of any one picture.
+        await page.wait_for_timeout(600)
+        try:
+            await page.click("#tutorial-done", timeout=2500)
+            await page.wait_for_timeout(400)
+        except Exception:
+            pass  # Already dismissed — the normal case on a re-run.
 
         for name, recipe, caption, theme in SHOTS:
             try:

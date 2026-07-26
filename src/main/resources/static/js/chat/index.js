@@ -35,35 +35,8 @@ chrome.init();
 presenceMenu.init();
 
 // ---------- Channel CRUD ----------
-  const wireCreateChannel = (formId) => {
-    const form = document.getElementById(formId);
-    if (!form) return;
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const data = Object.fromEntries(new FormData(form).entries());
-      const res = await fetch('/api/channels', {
-        method: 'POST',
-        headers: headers(),
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: res.statusText }));
-        alert('Could not create channel: ' + err.error);
-        return;
-      }
-      const channel = await res.json();
-      window.location.href = '/channels/' + channel.id;
-    });
-  };
-  wireCreateChannel('create-channel-form');
-  wireCreateChannel('create-channel-form-sidebar');
-
-  // Sidebar "+" opens the create-channel form as a popover anchored to the button. Bound here
-  // rather than inline because the CSP forbids inline handlers (script-src 'self').
-  // wirePopover lives in chat-kit.js — both pages need it. The "New message" popover beside the
-  // Direct messages header wires itself there too, for the same reason.
-  window.ChatKit.wirePopover('sidebar-create-add-btn', 'sidebar-create-popover',
-      'input[name="name"]');
+  // Create-channel (both forms + the sidebar popover) is wired by chrome.js, which the
+  // conversation page loads too — the sidebar it belongs to renders on both pages.
 
   // ---------- Enter-to-send (Slack/Mattermost-style) ----------
   // Wired at document level so it survives any failure in the larger composer-setup
@@ -1237,6 +1210,9 @@ presenceMenu.init();
       stomp.subscribe('/user/queue/conversation-alerts', (frame) => {
         try {
           const a = JSON.parse(frame.body);
+          // Badge first, and not gated on MentionNotifications being present: the
+          // count is a fact about the conversation, the toast is an interruption.
+          window.ChatKit?.bumpConversationUnread(a);
           if (!window.MentionNotifications) return;
           window.MentionNotifications.show({
             author: a.author,

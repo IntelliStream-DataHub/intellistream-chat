@@ -614,20 +614,12 @@
    * back out of the badge's own text — the badge renders "99+" past ninety-nine, and parsing that
    * back gives 99 and then 100, which is a number that only ever gets more wrong.
    */
-  const bumpSidebarUnread = (convId) => {
-    const li = document.querySelector('#sidebar-dm-list li[data-conv-id="' + CSS.escape(String(convId)) + '"]');
-    if (!li) return; // a conversation that is not in this sidebar — nothing to paint
-    const next = Number(li.dataset.unread || 0) + 1;
-    li.dataset.unread = String(next);
-    li.classList.add('has-unread');
-    let badge = li.querySelector('.unread-badge');
-    if (!badge) {
-      badge = document.createElement('span');
-      badge.className = 'unread-badge';
-      li.querySelector('a')?.appendChild(badge);
-    }
-    badge.textContent = next > 99 ? '99+' : String(next);
-  };
+  // Shared with the channel page via window.ChatKit, not reimplemented here. The local copy this
+  // replaces had two faults the shared one does not: it bailed out for a conversation with no
+  // sidebar row, so the first message from somebody you had never spoken to was invisible, and it
+  // counted from a `data-unread` attribute the server does not render — so the first live message
+  // overwrote a server-rendered "3" with "1" instead of making it "4".
+  const bumpSidebarUnread = (alert) => window.ChatKit?.bumpConversationUnread(alert);
 
   function handleFrame(payload) {
     if (payload && (payload.type === 'member-added' || payload.type === 'member-left')) {
@@ -719,7 +711,7 @@
         // arriving in another conversation left the row saying whatever it said at page load until
         // the next navigation. It is bumped here for the same reason the channel page bumps its
         // own: an unread count that is only true immediately after a reload is not a count.
-        if (!isCurrent) bumpSidebarUnread(a.conversationId);
+        if (!isCurrent) bumpSidebarUnread(a);
         if (!window.MentionNotifications) return;
         if (isCurrent && document.visibilityState === 'visible' && document.hasFocus()) return;
         window.MentionNotifications.show({
