@@ -203,6 +203,39 @@
                             <small th:text="${m.role}">role</small>
                         </li>
                     </ul>
+
+                    <!--/* Leave channel. Destructive and, for a private channel, irreversible from
+                           the user's side, so it is a two-step control rather than a one-click one —
+                           and the second step is inline rather than a native confirm(), which is
+                           unstyleable and reads as a browser error. No modal system for one
+                           two-button question.
+
+                           Wired from index.js: the CSP forbids inline handlers. */-->
+                    <div class="channel-leave">
+                        <button type="button" id="channel-leave-btn" class="channel-leave-trigger"
+                                th:data-channel-id="${activeChannel.id}"
+                                th:data-private="${activeChannel.type.name() == 'PRIVATE'}">
+                            <svg class="icon" aria-hidden="true"><use href="#icon-logout"/></svg>
+                            <span>Leave <span th:text="'#' + ${activeChannel.name}">#channel</span></span>
+                        </button>
+                        <div class="channel-leave-confirm" id="channel-leave-confirm" hidden>
+                            <p>
+                                Your messages stay in the channel.
+                                <!--/* Said out loud, because it is the part that cannot be undone
+                                       by the person doing it. */-->
+                                <strong th:if="${activeChannel.type.name() == 'PRIVATE'}">
+                                    This channel is private — you will need an invitation to come
+                                    back.</strong>
+                                <span th:if="${activeChannel.type.name() == 'PUBLIC'}">
+                                    You can rejoin at any time.</span>
+                            </p>
+                            <div class="channel-leave-actions">
+                                <button type="button" id="channel-leave-cancel">Cancel</button>
+                                <button type="button" id="channel-leave-go"
+                                        class="channel-leave-danger">Leave channel</button>
+                            </div>
+                        </div>
+                    </div>
                 </section>
             </div>
 

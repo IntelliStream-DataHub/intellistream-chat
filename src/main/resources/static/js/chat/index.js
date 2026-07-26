@@ -266,6 +266,48 @@ presenceMenu.init();
             }
           });
           meta.appendChild(toggle);
+
+          // The kick. Admin-only and never on their own row — leaving is the settings panel's
+          // "Leave channel", which knows to warn about a private channel; a Remove button on your
+          // own row would be the same action with none of the warning.
+          const remove = document.createElement('button');
+          remove.type = 'button';
+          remove.className = 'channel-member-remove';
+          remove.textContent = 'Remove';
+          remove.title = 'Remove ' + name + ' from this channel';
+          remove.addEventListener('click', async (ev) => {
+            ev.stopPropagation();
+            // Two-step in place, for the same reason the leave control is: it is destructive, and a
+            // native confirm() looks like a browser error. The button becoming "Remove?" is the
+            // confirmation.
+            if (remove.dataset.armed !== 'true') {
+              remove.dataset.armed = 'true';
+              remove.textContent = 'Remove?';
+              setTimeout(() => {
+                if (!remove.isConnected) return;
+                remove.dataset.armed = 'false';
+                remove.textContent = 'Remove';
+              }, 4000);
+              return;
+            }
+            remove.disabled = true;
+            try {
+              const res = await fetch('/api/channels/' + activeChannelId
+                  + '/members/' + encodeURIComponent(m.username), {
+                method: 'DELETE',
+                headers: headers(),
+              });
+              if (!res.ok && res.status !== 204) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.message || err.error || res.statusText);
+              }
+              await loadMembers();
+            } catch (e) {
+              alert('Could not remove that member: ' + e.message);
+              remove.disabled = false;
+            }
+          });
+          meta.appendChild(remove);
         }
         membersList.appendChild(li);
       }
@@ -306,6 +348,59 @@ presenceMenu.init();
     // Eagerly populate the count badge so the button shows "👥 N" before opening.
     loadMembers();
   }
+
+  // ---------- Leave channel ----------
+  // Two-step: the trigger reveals a confirmation with the consequence spelled out, and only the
+  // second button leaves. Destructive, and for a private channel irreversible from this side.
+  //
+  // No native confirm() — it is unstyleable, it reads as a browser error, and it is used elsewhere
+  // in this file only because nothing better was wired up. This is inline in the panel that
+  // launched it, which needs no modal machinery at all.
+  (() => {
+    const trigger = document.getElementById('channel-leave-btn');
+    const panel = document.getElementById('channel-leave-confirm');
+    const cancel = document.getElementById('channel-leave-cancel');
+    const go = document.getElementById('channel-leave-go');
+    if (!trigger || !panel || !go) return;
+
+    trigger.addEventListener('click', () => {
+      panel.hidden = false;
+      trigger.hidden = true;
+      go.focus();
+    });
+    cancel?.addEventListener('click', () => {
+      panel.hidden = true;
+      trigger.hidden = false;
+      trigger.focus();
+    });
+
+    go.addEventListener('click', async () => {
+      const channelId = trigger.dataset.channelId;
+      go.disabled = true;
+      go.textContent = 'Leaving…';
+      try {
+        const res = await fetch('/api/channels/' + channelId + '/leave', {
+          method: 'POST', headers: headers(),
+        });
+        if (!res.ok && res.status !== 204) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.message || err.error || res.statusText);
+        }
+        // Stop listening before navigating. The server revokes the subscription too — it has to,
+        // because a client that never asked could otherwise keep receiving a private channel — but
+        // the client must not be relying on that to stop bumping a badge for a channel it left.
+        dropChannelSubscription(channelId);
+        sidebarChannels.get(String(channelId))?.li.remove();
+        // The channel page is no longer ours to be on: a public one would render as a join screen,
+        // a private one as "ask an admin". Go somewhere that still makes sense.
+        window.location.href = '/channels';
+      } catch (e) {
+        go.disabled = false;
+        go.textContent = 'Leave channel';
+        chrome.flashToast('Could not leave: ' + e.message);
+      }
+    });
+  })();
 
   // ---------- Invite (admin) ----------
   const inviteForm = document.getElementById('invite-form');
@@ -375,6 +470,25 @@ presenceMenu.init();
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean);
+
+  // channelId -> StompJS subscription for the non-active joined channels, populated on connect.
+  // Module-scope rather than inside the STOMP block so the leave path can reach it: a client whose
+  // membership just ended must stop listening immediately, not at the next reload. The server
+  // revokes its side too (see ChannelSubscriptionRevoker) — that is what covers a client that never
+  // asked — but the two are independent and each has to do its own half.
+  const channelSubscriptions = new Map();
+
+  const dropChannelSubscription = (channelId) => {
+    const id = String(channelId);
+    const sub = channelSubscriptions.get(id);
+    if (!sub) return;
+    channelSubscriptions.delete(id);
+    try {
+      sub.unsubscribe();
+    } catch (_) {
+      // Socket already gone; the subscription went with it.
+    }
+  };
 
   // ---------- Sidebar unread tracking ----------
   // Index the rendered channel rows by id so STOMP listeners can bump a badge live. This IS
@@ -607,10 +721,6 @@ presenceMenu.init();
     let stompConnectedBefore = false;
     let backfilling = false;
     const pendingLive = [];
-    // channelId -> StompJS subscription, for the non-active joined channels. Kept so leaving a
-    // channel can drop its subscription without waiting for a reload: the client must stop
-    // listening the moment its membership ends, and the server-side revocation is the other half.
-    const channelSubscriptions = new Map();
 
     // Page the ?after= endpoint until caught up. The server caps each page at 50, so the old
     // single limit=200 request silently dropped every message past the first 50 (a permanent

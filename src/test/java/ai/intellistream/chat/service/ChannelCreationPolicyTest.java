@@ -62,7 +62,9 @@ class ChannelCreationPolicyTest {
                 mock(MessageRepository.class), mock(AttachmentRepository.class),
                 mock(MessageIndexService.class), mock(AttachmentService.class),
                 new ChannelAccessCache(60, 1024), settings, rateLimiter,
-                mock(ai.intellistream.chat.moderation.StorageQuotaService.class));
+                mock(ai.intellistream.chat.moderation.StorageQuotaService.class),
+                new org.springframework.beans.factory.support.StaticListableBeanFactory()
+                        .getBeanProvider(ChannelSubscriptionRevoker.class));
     }
 
     private static User member(String username) {

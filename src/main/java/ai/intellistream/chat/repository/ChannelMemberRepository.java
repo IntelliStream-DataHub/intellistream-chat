@@ -21,6 +21,7 @@ import ai.intellistream.chat.domain.ChannelMember;
 import ai.intellistream.chat.domain.ChannelRole;
 import ai.intellistream.chat.domain.User;
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -49,6 +50,23 @@ public interface ChannelMemberRepository extends JpaRepository<ChannelMember, Lo
     List<ChannelMember> findAllByChannelOrderByJoinedAtAsc(Channel channel);
 
     List<ChannelMember> findAllByUser(User user);
+
+    /**
+     * The channel's other members, longest-standing first — page it to 1 to get the successor when
+     * the last admin leaves.
+     *
+     * <p>Longest-standing rather than, say, most active: it needs no extra data, it is stable, and
+     * it is explicable to the person it happens to ("you were here first"). The {@code id} tiebreak
+     * matters because {@code joined_at} defaults to {@code now()} and everyone bulk-invited in one
+     * statement shares a timestamp.
+     */
+    @Query("""
+            select m from ChannelMember m
+            join fetch m.user
+            where m.channel = :channel and m.user <> :excluding
+            order by m.joinedAt asc, m.id asc
+            """)
+    List<ChannelMember> findOthersOldestFirst(Channel channel, User excluding, Pageable pageable);
 
     /** Memberships with their channels eager-fetched — the sidebar render reads m.getChannel()
      *  per row, so the plain findAllByUser lazy-loaded one channel per membership (N28). */

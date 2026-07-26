@@ -143,7 +143,10 @@ class ChannelServiceUnitTest {
                 cache,
                 permissiveSettings(),
                 new ai.intellistream.chat.security.RateLimiter(),
-                mock(ai.intellistream.chat.moderation.StorageQuotaService.class));
+                mock(ai.intellistream.chat.moderation.StorageQuotaService.class),
+                // No broker in a unit test; ifAvailable() on an empty provider is a no-op.
+                new org.springframework.beans.factory.support.StaticListableBeanFactory()
+                        .getBeanProvider(ChannelSubscriptionRevoker.class));
     }
 
     /** Ids are assigned by the database; a unit test has to plant them. */

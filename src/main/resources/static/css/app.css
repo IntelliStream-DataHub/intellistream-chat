@@ -954,6 +954,60 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
 .channel-notify-status[hidden] { display: none; }
 .channel-notify-status.is-error { color: var(--danger); }
 
+/* ---------- Leave channel ----------
+   Bottom of the channel settings panel, below a rule: it is the destructive action in a panel of
+   ordinary ones, and putting it inside the same visual group as "invite a member" is how people
+   click it by accident. Quiet until hovered — red-by-default in a panel you open to change a
+   notification setting reads as an alarm about nothing. */
+.channel-leave {
+  margin-top: 0.9rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+.channel-leave-trigger {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: var(--fs-md);
+}
+.channel-leave-trigger:hover {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+.channel-leave-confirm[hidden] { display: none; }
+.channel-leave-confirm p {
+  margin: 0.6rem 0;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--muted);
+}
+.channel-leave-confirm strong { color: var(--text); }
+.channel-leave-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: flex-end;
+}
+.channel-leave-danger { background: var(--danger); }
+.channel-leave-danger:hover { background: var(--danger); filter: brightness(0.9); }
+/* The kick, in the members panel. Same treatment as the role toggle beside it, in red. */
+.channel-member-remove {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  padding: 0.1rem 0.4rem;
+}
+.channel-member-remove:hover {
+  background: var(--danger-soft);
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
 .channel-admin-dropdown .invite-form {
   display: flex;
   gap: 0.5rem;
