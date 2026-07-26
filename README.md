@@ -141,20 +141,20 @@ Two design decisions behind those numbers are worth knowing before you fork:
 Performance is easy to demonstrate and hard to keep. What makes that possible here is that the
 codebase is small, conventional and covered:
 
-- **404 tests across 44 classes** (29 integration, 15 unit), running in 1–2 minutes. Integration
-  tests run against a real PostgreSQL via Testcontainers — never H2, which silently accepts SQL that
-  Postgres rejects.
+- **612 tests across 72 classes** (35 integration, 37 unit), running in about five minutes.
+  Integration tests run against a real PostgreSQL via Testcontainers — never H2, which silently
+  accepts SQL that Postgres rejects.
 - **Conventions are written down.** [`AGENT.md`](AGENT.md) documents the decisions you cannot infer
   from the code: the two security filter chains, `requireMember` vs `requireWriteAccess`, why
   broadcast happens after commit, why there is no SockJS. Read it before your first change.
 - **Security posture is explicit.** A strict CSP with no inline script, two separate filter chains,
   STOMP `SUBSCRIBE` authorisation, server-side Markdown rendering sanitised with jsoup, and a
-  hardened systemd unit that scores 4.7 OK on `systemd-analyze security`. The open items are listed
+  hardened systemd unit that scores 4.6 OK on `systemd-analyze security`. The open items are listed
   honestly in [`security_plan.md`](security_plan.md) and [`SECURITY.md`](SECURITY.md).
 - **One artifact, one unit file.** `./gradlew assemble` produces a single runnable jar. Deployment is
   copying it and `systemctl restart`.
 
-**Maturity:** 1.0, under active development. Tested and audited: 404 tests across 44 classes, the
+**Maturity:** 1.0, under active development. Tested and audited: 612 tests across 72 classes, the
 integration suite runs against a real PostgreSQL, and the installer is verified end to end on
 AlmaLinux 10.2 with SELinux enforcing. What it has not had is years of production exposure across
 many deployments, so read the code before trusting it with anything sensitive, follow the hardening
@@ -190,7 +190,7 @@ scratch. A feature typically touches one service, one controller, one migration 
    migration plus a JPA entity plus a repository. New endpoint? Decide `requireMember` or
    `requireWriteAccess` first.
 5. **Keep the suite green.** Add a unit test for pure logic and an integration test under
-   `integration/` for anything database-shaped. The existing 404 tests are the floor, not the ceiling.
+   `integration/` for anything database-shaped. The existing 612 tests are the floor, not the ceiling.
 
 ### What's intentionally under-engineered (so a fork can swap it)
 
@@ -519,12 +519,98 @@ JAVA_OPTS=-XX:+UseZGC -Xms4g -Xmx4g -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnO
 
 (Drop `+UseStringDeduplication` and `+AlwaysPreTouch` under ZGC — neither applies.)
 
+### NUMA: keep the JVM on one node
+
+**Check whether this applies to you before changing anything:**
+
+```bash
+lscpu | grep -i '^NUMA'
+# NUMA node(s):  1     -> nothing below applies; stop here.
+# NUMA node(s):  2     -> read on.
+```
+
+Most cloud instances present a single node whatever the host looks like underneath, so this is a
+no-op on a typical Hetzner VM. It matters on a dual-socket box, or a single-socket EPYC configured
+with NPS=2 or NPS=4, where memory is split into per-node pools and reaching the wrong one crosses
+the interconnect.
+
+On such a machine an unpinned JVM is free to run threads on node 1 while its heap sits on node 0.
+Remote access has both higher latency and lower bandwidth than local, and nothing in the workload
+makes up for it: this app's whole heap is 1 GiB, so it fits comfortably inside one node's memory,
+and there is nothing to gain from spreading it.
+
+**Use systemd's cgroup directives, not `numactl`.** As a drop-in, so an upgrade that rewrites the
+unit cannot silently drop them:
+
+```bash
+sudo systemctl edit intellistream-chat
+```
+
+```ini
+[Service]
+# CPUs belonging to node 0 — read the real list, don't guess it:
+#   cat /sys/devices/system/node/node0/cpulist
+AllowedCPUs=0-15
+AllowedMemoryNodes=0
+```
+
+Both are cgroup v2 `cpuset` settings and need systemd 244+ with the `cpuset` controller available
+(`cat /sys/fs/cgroup/cgroup.controllers`). AlmaLinux 10 has both.
+
+**Why not `numactl --cpunodebind=0 --membind=0` in `ExecStart`?** It works, and on the memory side
+it is not meaningfully safer — `--membind` and `cpuset.mems` are both *hard* restrictions, so under
+either one a full node means an allocation failure rather than a quiet spill to the neighbour. The
+difference is in the failure modes around it:
+
+- It puts a package in the boot path. If `numactl` is not installed, or is removed by an upgrade,
+  `ExecStart` fails and the service does not come up. An unsupported systemd directive is logged
+  and ignored — the service still starts, just unpinned.
+- It couples NUMA pinning to your syscall policy. `numactl` calls `set_mempolicy`/`mbind`, and
+  neither is in systemd's `@system-service` set (only `get_mempolicy` is). The unit above has no
+  `SystemCallFilter=` today, so nothing breaks now — but adding one later would stop the service
+  from starting, and the cause would not be obvious.
+- The cgroup settings apply to the whole service cgroup and are introspectable after the fact:
+  `systemctl show intellistream-chat -p AllowedCPUs -p AllowedMemoryNodes`.
+
+The one thing `numactl` offers that the cgroup interface has no equivalent for is
+`--preferred=0` — a *soft* bind that prefers node 0 and falls back to remote memory instead of
+failing. If you would rather degrade than fail, that is the reason to reach for it.
+
+For this app a hard bind is reasonable anyway, because `-Xms1g -Xmx1g -XX:+AlwaysPreTouch` commits
+and faults in the entire heap during startup. A node too small to hold it fails loudly at boot,
+where you will see it, rather than hours later under load.
+
+**Two things to get right when you pin:**
+
+- **Size the node for more than the heap.** The cpuset also bounds metaspace, thread stacks, direct
+  byte buffers, and the page cache backing Lucene's mmapped index. Budget well above `-Xmx`.
+- **Don't pin Postgres to the same node by default.** If it shares the box, the two now compete for
+  one node's cores and memory bandwidth while the rest of the machine idles. Either leave Postgres
+  unpinned, or give it a different node and accept the loopback traffic crossing the interconnect.
+
+Leave `-XX:+UseNUMA` **off** when pinned. It makes G1 partition the heap per node, which is what you
+want for a JVM deliberately spanning nodes — and pointless work for one confined to a single node.
+
+Verify after restarting:
+
+```bash
+systemctl show intellistream-chat -p AllowedCPUs -p AllowedMemoryNodes
+# Once the directives are set, systemd enables the controller and the effective values show up at
+# /sys/fs/cgroup/system.slice/intellistream-chat.service/cpuset.{cpus,mems}.effective
+
+# Per-node allocation for the running JVM (needs the numactl package, for the tool only):
+numastat -p "$(systemctl show -p MainPID --value intellistream-chat)"
+```
+
+In `numastat`, a healthy pinned process shows its pages concentrated on the bound node. Meaningful
+residency on another node means the binding is not in effect.
+
 ### Verifying the namespace lockdown
 
 After `systemctl restart intellistream-chat`, three quick checks:
 
 ```bash
-# Exposure score (target: drops into "OK" range, ~4.7 with the unit above).
+# Exposure score (target: drops into "OK" range, 4.6 with the unit above).
 sudo systemd-analyze security intellistream-chat.service
 
 # From inside the service's mount namespace — these should be Permission denied / ENOENT.
@@ -612,7 +698,7 @@ If you co-locate Postgres on the host, keep `PGDATA` under the default `/var/lib
 - **Per-channel notification levels**, on the Slack/Mattermost model: an account-wide default (*every message* / *mentions* / *nothing*) and a per-channel override whose default value is **inherit**, not a copy — change the account setting and every channel you haven't explicitly overridden moves with it. Muting is the bottom of that same control rather than a separate flag, and a muted channel still counts unread; it just stops interrupting.
 - **Markdown** message bodies — server-side render with CommonMark + GFM tables + autolinks, sanitized with jsoup, fenced-code syntax highlighting via highlight.js, and link previews / embedded YouTube.
 - **Full-text search** powered by an embedded **Apache Lucene** index. Three scopes: per-channel, across all channels you've joined, and (admin-only) everywhere.
-- **Themes** (8 built-in palettes) chosen on the profile page.
+- **Themes** (20 built-in palettes, five of them dark) chosen on the profile page.
 - **Admin console** at `/admin` for users with the Keycloak `ichat-admin` realm role. A bare `admin` role is deliberately ignored: administering the identity provider is not the same as administering this chat.
 
 ## Stack
@@ -661,7 +747,7 @@ If you co-locate Postgres on the host, keep `PGDATA` under the default `/var/lib
 - **JUnit 5** (Jupiter) via `spring-boot-starter-test`
 - **AssertJ**, **Mockito** (transitive)
 - `spring-security-test` for security helpers
-- **Testcontainers BOM 1.20.4** (`postgresql` + `junit-jupiter`) — real Postgres 18 per IT class (no H2)
+- **Testcontainers BOM 2.0.5** (`postgresql` + `junit-jupiter`) — real Postgres 18 per IT class (no H2)
 - `spring-boot-testcontainers` for `@ServiceConnection` wiring
 
 ### Code generation
@@ -1037,7 +1123,7 @@ The systemd / SELinux / Quick start sections cover the mechanical setup. This is
 
 ## Tests
 
-The suite is **338+ tests across 34 classes** — about 40 unit tests that run anywhere, and ~298 integration tests that need a Postgres container. Both layers run from a single `./gradlew test`.
+The suite is **612 tests across 72 classes** — 269 unit tests that run anywhere, and 343 integration tests that need a Postgres container. Both layers run from a single `./gradlew test`.
 
 ### Run everything
 
@@ -1049,7 +1135,7 @@ export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock
 ./gradlew test                    # full suite (unit + integration)
 ```
 
-The first run pulls `postgres:18-alpine` (~80 MB); subsequent runs reuse the cached image and finish in 1–2 minutes on a laptop. Reports land at `build/reports/tests/test/index.html` (HTML) and `build/test-results/test/TEST-*.xml` (JUnit XML for CI).
+The first run pulls `postgres:18-alpine` (~80 MB); subsequent runs reuse the cached image and finish in about five minutes — the cost is dominated by starting a Postgres container per IT class, not by the tests themselves. Reports land at `build/reports/tests/test/index.html` (HTML) and `build/test-results/test/TEST-*.xml` (JUnit XML for CI).
 
 ### Run a subset
 
@@ -1072,7 +1158,7 @@ The first run pulls `postgres:18-alpine` (~80 MB); subsequent runs reuse the cac
 ### Constraints worth knowing
 
 - **No H2 fallback.** Hibernate runs in `validate` mode against the production schema; H2 won't accept some of the column types it uses.
-- **Per-class Postgres container.** Each `@Container` spins up a fresh database (~21 transient containers for the full suite).
+- **Per-class Postgres container.** Each `@Container` spins up a fresh database — 34 transient containers for the full suite, since no class reuses another's. That isolation is why the run takes minutes rather than seconds.
 - **Stale daemon env.** Gradle's daemon caches `DOCKER_HOST` from when it started — `./gradlew --stop` if you change the export.
 - **Lucene lock.** "Failed to open Lucene index at …" usually means a stale lock — clear `build/test-lucene/` and rerun.
 
