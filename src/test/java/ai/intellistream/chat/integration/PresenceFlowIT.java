@@ -428,6 +428,42 @@ class PresenceFlowIT {
     }
 
     @Test
+    void manualDndSurvivesActivityAndReconnects() {
+        // The promise Do Not Disturb makes is "leave me alone until I say otherwise", and a DND
+        // that switches itself off the moment you type is the same broken promise in a different
+        // costume. Now that the client actually suppresses toasts, chimes and desktop alerts on
+        // this state (static/js/notifications.js), nothing may clear it except the user.
+        //
+        // Every event that could plausibly reset it, in one go: going idle past the auto-AWAY
+        // threshold, coming back and being active again, and a full disconnect/reconnect cycle.
+        var alice = newUser("alice");
+        tracker.connect(alice.getUsername(), "session-solo");
+        presenceService.setKind(alice, ai.intellistream.chat.domain.PresenceKind.DND);
+
+        alice.touchActive(Instant.now().minus(presenceService.awayThreshold().plusMinutes(1)));
+        users.save(alice);
+        assertThat(presenceService.presenceFor(alice).kind())
+                .isEqualTo(ai.intellistream.chat.domain.PresenceKind.DND);
+
+        alice.touchActive(Instant.now());
+        users.save(alice);
+        assertThat(presenceService.presenceFor(alice).kind())
+                .isEqualTo(ai.intellistream.chat.domain.PresenceKind.DND);
+
+        tracker.disconnect(alice.getUsername(), "session-solo");
+        tracker.connect(alice.getUsername(), "session-solo");
+        assertThat(presenceService.presenceFor(alice).kind())
+                .isEqualTo(ai.intellistream.chat.domain.PresenceKind.DND);
+
+        // Through the batch lookup too — that is the one the client's own dot and its DND gate
+        // are painted from, and it derives the kind by a separate code path from presenceFor(User).
+        assertThat(presenceService.presenceFor(List.of(alice.getUsername())))
+                .singleElement()
+                .extracting(PresenceDto::kind)
+                .isEqualTo(ai.intellistream.chat.domain.PresenceKind.DND);
+    }
+
+    @Test
     void disconnectedIdleUserStillReportsOffline() {
         // Auto-AWAY is for connected idle users. If they're disconnected, OFFLINE wins
         // regardless of how stale lastActiveAt is.

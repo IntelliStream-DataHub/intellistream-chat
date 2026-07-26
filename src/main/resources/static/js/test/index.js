@@ -24,6 +24,8 @@
  *   - API:    REST round-trips return 200 with the shape the JS expects. Catches "I
  *             broke the wire format".
  *   - STOMP:  WebSocket handshake + STOMP CONNECT succeed. Catches "I broke realtime".
+ *   - NOTIFY: the Do Not Disturb gate is still wired between presence.js and notifications.js.
+ *             Catches "I broke the one feature whose failure mode is silence".
  *
  * Each bucket lives in its own file and registers via the runner. The runner itself
  * is ~30 lines — no framework, the registry is just an array.
@@ -42,6 +44,7 @@ import { tests } from './registry.js';
 import './dom.test.js';
 import './api.test.js';
 import './stomp.test.js';
+import './notifications.test.js';
 
 window.runTests = async function runTests() {
     let pass = 0;

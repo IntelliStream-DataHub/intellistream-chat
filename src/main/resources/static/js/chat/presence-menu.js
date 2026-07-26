@@ -30,9 +30,17 @@ import { headers } from './shared.js';
 const KINDS = [
     { value: 'ACTIVE',  label: 'Active',         hint: 'Connected, available' },
     { value: 'AWAY',    label: 'Away',           hint: "Step away from the keyboard" },
-    { value: 'DND',     label: 'Do not disturb', hint: 'Notifications muted' },
+    // "Mute sounds and alerts", not the old "Notifications muted". The suppression is real now
+    // (notifications.js gates on it) but it is narrower than the old wording claimed: unread
+    // counts and the mention inbox keep filling up, which is the whole difference between
+    // silencing an interruption and hiding the information. Promising less than you deliver is
+    // survivable; the reverse is what this state was doing before.
+    { value: 'DND',     label: 'Do not disturb', hint: 'Mute sounds and alerts' },
     { value: 'OFFLINE', label: 'Offline',        hint: 'Appear offline to others' },
 ];
+
+/** Every focusable row, whichever ARIA role it carries. */
+const MENU_ITEM_SELECTOR = '[role="menuitem"], [role="menuitemradio"]';
 
 let menuEl = null;
 /** Index of the currently keyboard-focused item; -1 means nothing focused. */
@@ -62,7 +70,16 @@ function closeMenu() {
 
 /** All focusable menu items in DOM order. Used by the arrow-key nav. */
 function items() {
-    return menuEl ? [...menuEl.querySelectorAll('[role="menuitem"]')] : [];
+    return menuEl ? [...menuEl.querySelectorAll(MENU_ITEM_SELECTOR)] : [];
+}
+
+/**
+ * The viewer's own effective presence kind, or null before presence.js's first fetch lands.
+ * Read fresh on every open rather than cached: the menu is rebuilt from scratch each time, and
+ * the state can change from another tab between two opens.
+ */
+function currentKind() {
+    return window.Presence?.me?.()?.kind || null;
 }
 
 function focusItem(idx) {
@@ -81,22 +98,44 @@ function openMenu(anchor, opts = {}) {
     menuEl.addEventListener('mouseenter', cancelClose);
     menuEl.addEventListener('mouseleave', scheduleClose);
 
+    // Which of the four you are in. The menu never said, which was survivable while the four
+    // states only tinted a dot, and is not now that one of them silences the app: "am I still in
+    // Do Not Disturb?" is a question you must be able to answer without sending yourself a test
+    // message. menuitemradio rather than menuitem, so a screen reader announces the group as the
+    // single choice it is and reads the selected one back.
+    const current = currentKind();
     KINDS.forEach((k) => {
         const item = document.createElement('button');
         item.type = 'button';
         item.className = 'presence-menu-item';
-        item.setAttribute('role', 'menuitem');
+        item.setAttribute('role', 'menuitemradio');
+        item.setAttribute('aria-checked', String(k.value === current));
+        if (k.value === current) item.classList.add('is-current');
         item.dataset.kind = k.value;
         item.innerHTML =
             '<span class="presence-menu-dot" data-presence-kind="' + k.value + '"></span>' +
             '<span class="presence-menu-label">' + k.label + '</span>' +
-            '<span class="presence-menu-hint">' + k.hint + '</span>';
+            '<span class="presence-menu-hint">' + k.hint + '</span>' +
+            '<svg class="icon icon-sm presence-menu-check" aria-hidden="true">'
+                + '<use href="#icon-check"/></svg>';
         item.addEventListener('click', () => {
             applyKind(k.value);
             closeMenu();
         });
         menuEl.appendChild(item);
     });
+
+    // Only while DND is on, and only then. Saying exactly what is and is not being suppressed is
+    // the difference between trusting the switch and wondering whether the quiet afternoon meant
+    // it worked or meant nobody wrote to you. A permanent line of small print explaining a state
+    // you are not in is noise the other 99% of the time.
+    if (current === 'DND') {
+        const note = document.createElement('p');
+        note.className = 'presence-menu-note';
+        note.textContent = 'Sounds, toasts and desktop alerts are off. '
+            + 'Mentions and unread badges still arrive.';
+        menuEl.appendChild(note);
+    }
 
     // Divider then "View profile" / "Set a status" — match Slack's avatar dropdown shape.
     const divider = document.createElement('div');

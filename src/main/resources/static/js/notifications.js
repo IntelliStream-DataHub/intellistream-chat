@@ -25,7 +25,7 @@
  * Public surface: window.MentionNotifications = {
  *   show({ author, channel, snippet, url, kind }),
  *       kind: undefined (a mention) | 'thread' | 'channel' | 'direct' | 'group'
- *   playChime, soundEnabled, setSoundEnabled, permissionState
+ *   playChime, soundEnabled, setSoundEnabled, permissionState, dndActive
  * }
  *
  * Despite the name it now carries direct and group messages too — see headline().
@@ -34,6 +34,45 @@
   const TOAST_TIMEOUT_MS = 8000;
   let stack = null;
   let askedThisSession = false;
+
+  // ---------- Do Not Disturb ----------
+  // The avatar menu has offered a DND state since presence shipped, and until now it was
+  // decorative: the dot went red and every toast, chime and desktop banner arrived exactly as
+  // before. A promise the product makes and breaks is worse than a feature it never had, because
+  // the only way to discover the breakage is to be interrupted by it.
+  //
+  // The gate lives here rather than at the call sites for two reasons. There are three call
+  // sites today (js/chat/index.js twice, js/conversation.js once) and a fourth arrives the moment
+  // anyone adds a notification kind; and a rule enforced in n places is a rule that holds in n-1
+  // of them within a release. Everything that interrupts goes through show() or playChime(), so
+  // this is the whole surface.
+  //
+  // WHAT DND SUPPRESSES — the three things that reach across the room and take your attention:
+  //   the in-tab toast, the desktop/OS notification, and the sound.
+  //
+  // WHAT IT DELIBERATELY DOES NOT — everything that merely records what happened:
+  //   unread counts and the sidebar's mention badges, the mention inbox behind the bell (the
+  //   call sites ring it before they get here, which is the right order), the server broadcast
+  //   that keeps both correct, and the messages themselves.
+  //
+  // That split is the one this codebase already draws for a muted channel: muting means stop
+  // telling me, not pretend nothing happened. You are silencing the interruption, not hiding the
+  // information, and turning DND off must leave you with a true picture of what you missed rather
+  // than a quiet hole in it.
+  //
+  // Client-side, and that is the point. The server keeps publishing, so badges, the inbox and the
+  // unread marks stay correct whether or not any tab is listening — and a second device that is
+  // NOT the one you set DND from sees the same suppression, because the state is read from
+  // presence rather than from this tab's localStorage.
+  const dndActive = () => {
+    try {
+      return !!(window.Presence && window.Presence.isDnd && window.Presence.isDnd());
+    } catch (e) {
+      // Fail open. A presence client that has thrown is a bug; a notification system that
+      // silently stops notifying because of one is a worse bug wearing the first one's clothes.
+      return false;
+    }
+  };
 
   // ---------- Alert sound ----------
   // Synthesised with the Web Audio API rather than shipped as a file. It is ~40 lines against a
@@ -175,13 +214,26 @@
     }
   };
 
-  /** Play the sound this kind is configured for, if that kind is switched on at all. */
+  /**
+   * Play the sound this kind is configured for, if that kind is switched on at all and the
+   * user is not in Do Not Disturb.
+   *
+   * <p>Gated separately from show() because one call site plays a chime without a toast: a
+   * mention in the channel you are already looking at is worth hearing and not worth
+   * re-drawing on screen. That path must go quiet under DND too.
+   */
   const playChime = (kind) => {
+    if (dndActive()) return;
     if (!soundEnabled(kind)) return;
     emit(soundVoice(kind));
   };
 
-  /** Play a named voice regardless of the on/off switches — for previewing a picker. */
+  /**
+   * Play a named voice regardless of the on/off switches — for previewing a picker.
+   * Ungated by DND on purpose: this only fires from the settings page, in direct response to
+   * the user choosing a sound, and refusing to play the thing somebody just clicked to hear
+   * is not respecting their focus, it is breaking the control.
+   */
   const playVoice = (name) => emit(name);
 
   function ensureStack() {
@@ -300,6 +352,9 @@
 
   function show(opts) {
     if (!opts || !opts.author) return;
+    // Ahead of everything, including the toast: DND suppresses all three interruptions or it
+    // suppresses none of them. A silent banner is still a banner across your screen.
+    if (dndActive()) return;
     ensureStack().appendChild(buildToast(opts));
     fireOsNotification(opts);
     // Independent of the OS-notification permission on purpose. Denying desktop alerts is a
@@ -309,7 +364,7 @@
   }
 
   window.MentionNotifications = {
-    show, permissionState, playChime, playVoice,
+    show, permissionState, playChime, playVoice, dndActive,
     soundEnabled, setSoundEnabled, soundVoice, setSoundVoice, soundVoices,
   };
 })();
