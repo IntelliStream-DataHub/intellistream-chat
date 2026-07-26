@@ -1222,6 +1222,13 @@ presenceMenu.init();
               input.setSelectionRange(input.value.length, input.value.length);
             }
           }
+          // Take the optimistic bubble back down. It was drawn the moment they hit enter, and the
+          // only thing that ever retires one is the broadcast of the stored message — which a
+          // rejected command never gets. Left alone it sits there "sending" and then turns into
+          // "not delivered · Retry", which blames the network for a refusal and offers to repeat a
+          // command that will be refused again. The text is not lost: it went back in the composer
+          // just above.
+          if (n.clientId) resolvePendingSend(n.clientId);
         } catch (e) { /* ignore malformed */ }
       });
       // Direct messages and group messages. On this page the user is never looking at the

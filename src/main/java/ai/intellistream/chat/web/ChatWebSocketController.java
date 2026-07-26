@@ -156,10 +156,18 @@ public class ChatWebSocketController {
      * not the sanitized domain username — they differ for email-style or collision-suffixed
      * usernames, and mismatching one silently delivers nothing (N19).
      *
-     * <p>The rejected body rides along under {@code body}. Nothing reads it yet; it is here so a
-     * client can put the text back in the composer instead of asking the user to retype it. The
-     * server has the text at exactly this moment and nowhere else — leaving it out would make
-     * "your message was not sent" true and unrecoverable at the same time.
+     * <p>The rejected body rides along under {@code body}, so the client can put the text back in
+     * the composer instead of asking the user to retype it. The server has the text at exactly this
+     * moment and nowhere else — leaving it out would make "your message was not sent" true and
+     * unrecoverable at the same time.
+     *
+     * <p>{@code clientId} rides along for the opposite reason: to take something <em>off</em> the
+     * screen. The composer renders optimistically, so by the time this notice is written the sender
+     * is already looking at their own bubble. Nothing will ever retire it — the retirement signal is
+     * the broadcast, and a rejected command is never broadcast — so it sits in {@code sending} until
+     * the pending timeout relabels it "not delivered, Retry". That reads as a network fault, which
+     * is the one thing it is not, and it invites a retry of a command that will be refused again.
+     * The id is how the client finds that bubble.
      */
     private void sendNotice(Principal principal, SendMessageRequest payload,
                             String level, String text) {
@@ -167,7 +175,8 @@ public class ChatWebSocketController {
                 java.util.Map.of(
                         "level", level == null ? "error" : level,
                         "text", text == null ? "" : text,
-                        "body", payload.body() == null ? "" : payload.body()));
+                        "body", payload.body() == null ? "" : payload.body(),
+                        "clientId", payload.clientId() == null ? "" : payload.clientId()));
     }
 
     /**
