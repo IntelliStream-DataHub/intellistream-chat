@@ -198,7 +198,13 @@
                          aria-labelledby="channel-admin-title"
                          hidden>
                     <header>
-                        <h3 id="channel-admin-title">Channel members</h3>
+                        <!--/* "Channel settings", not "Channel members": this panel started as a
+                               member list with an invite box and has since grown rename, the
+                               notification level, archive, delete and leave. The cog that opens it
+                               has said "Channel settings" all along, and a heading that names the
+                               smallest thing in the panel sends people looking elsewhere for the
+                               rest. The members list keeps its own heading further down. */-->
+                        <h3 id="channel-admin-title">Channel settings</h3>
                         <button type="button" id="channel-admin-close" class="icon-btn" title="Close" aria-label="Close">
     <svg class="icon"><use href="#icon-close"/></svg>
 </button>

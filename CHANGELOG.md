@@ -3,6 +3,71 @@
 Notable changes to IntelliStream Chat. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project uses [semantic versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+A pass over the places where this app behaved differently from Slack and Mattermost in ways that
+would mislead someone arriving with those habits. Most of these were not missing features but
+promises the product made and then broke — a command that looked like it worked, a state that said
+"muted" and wasn't, a search token that meant the opposite of what it means everywhere else.
+
+### Fixed
+
+- **A `/word` that names no command is refused privately instead of being posted.** `/leave`,
+  `/dnd`, `/me` and a dozen other commands that exist elsewhere used to be broadcast verbatim to
+  the room. The sender now gets a private notice, the text goes back in their composer, and the
+  optimistic bubble is taken down rather than left to relabel itself "not delivered".
+- **`/remind` is private.** Both the confirmation and the reminder itself used to post into the
+  channel, so a personal note was announced to everyone. Reminders now arrive as a direct message,
+  and times resolve in the user's own timezone rather than the server's.
+- **Do Not Disturb silences notifications.** It set a red dot and claimed "notifications muted"
+  while every toast, chime and OS notification still fired. Unread counts and the mention inbox
+  deliberately keep working.
+- **Message permalinks survive the login round-trip.** A shared link used to drop a signed-out
+  colleague on the welcome page.
+- **`@bob` in search finds where Bob was mentioned**, as it does in Slack; `from:@bob` finds what
+  he wrote. The two were previously the same token with the opposite meaning, silently.
+- **Search reaches every channel you are allowed to read**, not only the ones you joined, and
+  matches attachment filenames.
+- **Thread replies count as unread** and notify the people in the thread. A reply without an
+  @mention previously produced no signal anywhere, so threaded conversations died quietly.
+- **You can react to your own message.** The rule refusing it cited Slack and Mattermost, neither
+  of which has ever worked that way.
+- **A deleted file's bytes are credited back exactly once.** Deleting a file and then its message
+  refunded the quota twice, unrepairably — `UserStorage` exposes only an atomic delta.
+- **`MultiFieldQueryParser` no longer silently ORs** multi-term input across fields with different
+  analyzers, which quietly widened any query containing a hyphenated word.
+
+### Added
+
+- **Leave a channel** — and an ex-member's open socket stops receiving it, since the broker
+  authorises SUBSCRIBE once and never re-checks.
+- **Rename, re-describe, archive, unarchive and delete channels.** Archive is reversible and
+  channel-admin level; delete is workspace-admin only.
+- **`@`-mention typeahead**, matching display names as well as handles — mentions previously
+  required an exact username while the UI showed display names, and failed silently otherwise.
+- **`@channel`, `@here` and `@everyone`.**
+- **Pin, save, forward and quote-reply.** Forwarding out of a private channel requires an explicit
+  acknowledgement; forwarding out of a DM is deliberately not offered.
+- **Direct messages reach parity with channels**: threads, typing indicators, read state, a
+  per-conversation notification level, and leaving a group.
+- **A search results page** with counts, paging and scope, plus `in:#channel`.
+- **Browse the files shared in a channel.**
+- **Favourite channels**, pinned to the top of the sidebar.
+- **A per-user timezone**, from the OIDC `zoneinfo` claim or the profile page.
+
+### Changed
+
+- **The sidebar lists every channel you are in**, alphabetically, instead of a ranked shortlist of
+  the five largest and five most active with the rest hidden behind a search box. Live
+  notifications now follow joined channels by construction rather than following whatever the
+  sidebar happened to render — a mention in an unlisted channel previously produced no toast, no
+  chime, no badge and no bell until the next page load.
+- **Unread reads like Slack's**: a bold channel name for ordinary unread, a number only for
+  mentions and DMs. Muted channels are dimmed and still count.
+- **The sidebar star means favourite**, not "you are an admin of this channel".
+- **One message-search box**, scoped to the channel you are reading, instead of three boxes with
+  three different meanings.
+
 ## [1.0.0] — 2026-07-26
 
 First public release. Everything below is new, so this entry is a description of what the

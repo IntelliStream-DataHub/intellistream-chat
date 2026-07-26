@@ -141,7 +141,7 @@ Two design decisions behind those numbers are worth knowing before you fork:
 Performance is easy to demonstrate and hard to keep. What makes that possible here is that the
 codebase is small, conventional and covered:
 
-- **612 tests across 72 classes** (35 integration, 37 unit), running in about five minutes.
+- **975 tests across 101 classes** (47 integration, 54 unit), running in about six minutes.
   Integration tests run against a real PostgreSQL via Testcontainers — never H2, which silently
   accepts SQL that Postgres rejects.
 - **Conventions are written down.** [`AGENT.md`](AGENT.md) documents the decisions you cannot infer
@@ -154,7 +154,7 @@ codebase is small, conventional and covered:
 - **One artifact, one unit file.** `./gradlew assemble` produces a single runnable jar. Deployment is
   copying it and `systemctl restart`.
 
-**Maturity:** 1.0, under active development. Tested and audited: 612 tests across 72 classes, the
+**Maturity:** 1.0, under active development. Tested and audited: 975 tests across 101 classes, the
 integration suite runs against a real PostgreSQL, and the installer is verified end to end on
 AlmaLinux 10.2 with SELinux enforcing. What it has not had is years of production exposure across
 many deployments, so read the code before trusting it with anything sensitive, follow the hardening
@@ -190,7 +190,7 @@ scratch. A feature typically touches one service, one controller, one migration 
    migration plus a JPA entity plus a repository. New endpoint? Decide `requireMember` or
    `requireWriteAccess` first.
 5. **Keep the suite green.** Add a unit test for pure logic and an integration test under
-   `integration/` for anything database-shaped. The existing 612 tests are the floor, not the ceiling.
+   `integration/` for anything database-shaped. The existing 975 tests are the floor, not the ceiling.
 
 ### What's intentionally under-engineered (so a fork can swap it)
 
@@ -687,18 +687,22 @@ If you co-locate Postgres on the host, keep `PGDATA` under the default `/var/lib
 ## Features
 
 - Sign in with **Keycloak** (OAuth2 / OIDC).
-- **Channels** (public + private). Anyone can join public channels; private channels require an admin invite. Channel admins can invite members and promote others.
-- **Direct messages** (1:1 and group). DM list lives alongside channels in the sidebar; "Send DM" entry point on every avatar hovercard.
+- **Channels** (public + private). Anyone can join public channels; private channels require an admin invite. Channel admins can invite members, promote others, rename the channel and edit its description, and **archive** it — read-only and out of the way, reversibly. Members can **leave**; when the last admin goes, the role passes to the longest-standing member rather than stranding the channel. Deleting a channel outright is a workspace-admin action, because it takes everyone else's messages and files with it. The sidebar lists **every channel you are in**, alphabetically, with favourites pinned to the top.
+- **Direct messages** (1:1 and group), the same surface as a channel: threads, typing indicators, read state, reactions, attachments, and a per-conversation notification level so a busy group DM can be muted. You can leave a group; a 1:1 you simply stop using. The DM list lives alongside channels in the sidebar, with a "Send DM" entry point on every avatar hovercard. A conversation with yourself is a real one — it is where your reminders land.
 - **Real-time messaging** over native STOMP-over-WebSocket — messages, edits, deletes, and avatar updates fan out live.
-- **Threaded replies**, **emoji reactions**, **mentions** (`@username`) with per-channel unread + mention badges, **per-user read state**, **typing indicators**, and **message permalinks**.
+- **Threaded replies** that mark the channel unread and notify the people in the thread, **emoji reactions** (including on your own messages), **mentions** with an `@`-typeahead that matches display names as well as handles, plus **`@channel` / `@here`**, **per-user read state**, **typing indicators**, and **message permalinks** that survive the login round-trip. Unread reads the way it does in Slack: a bold channel name, and a number only when someone used your name.
+- **Pin** a message to the channel, **save** one to a private list, **forward** it elsewhere, or **quote** it into a reply. Forwarding out of a private channel asks first.
 - **File attachments** uploaded as a raw request body streamed straight to disk — no multipart parsing, no buffering; image attachments open in a lightbox.
 - **Profile pictures** with server-side resize (PNG/JPEG ≤256px), live broadcast on change.
 - **Avatar hovercard** with profile info + "Send direct message" action.
 - **@mention notifications**: in-tab toast plus opportunistic OS notification (Notification API) when permitted, and a notification sound you can set separately for mentions and direct messages (fifteen to choose from, synthesised in the browser — no audio files to ship or serve).
+- **Do Not Disturb** that actually silences — toast, sound and OS notification — while unread counts and the mention inbox keep working, because silencing an interruption is not the same as hiding information.
 - **Per-channel notification levels**, on the Slack/Mattermost model: an account-wide default (*every message* / *mentions* / *nothing*) and a per-channel override whose default value is **inherit**, not a copy — change the account setting and every channel you haven't explicitly overridden moves with it. Muting is the bottom of that same control rather than a separate flag, and a muted channel still counts unread; it just stops interrupting.
 - **Markdown** message bodies — server-side render with CommonMark + GFM tables + autolinks, sanitized with jsoup, fenced-code syntax highlighting via highlight.js, and link previews / embedded YouTube.
-- **Full-text search** powered by an embedded **Apache Lucene** index. Three scopes: per-channel, across all channels you've joined, and (admin-only) everywhere.
+- **Full-text search** powered by an embedded **Apache Lucene** index, on a results page with counts and paging rather than a dropdown that guesses. Slack's syntax: `from:@bob` for what someone wrote, `@bob` for where they were mentioned, `in:#channel` to narrow. It reaches **every channel you are allowed to read**, not only the ones you joined, and matches **attachment filenames** as well as message text — the authorisation is a clause inside the Lucene query, never a filter applied afterwards. Admins can additionally search private channels they are not in.
 - **Themes** (20 built-in palettes, five of them dark) chosen on the profile page.
+- **Slash commands** — `/help`, `/poll`, `/remind`. A `/word` that names no command is refused privately and never posted, so a mistyped `/leave` does not become a message the whole room reads. Reminders arrive as a direct message, at the time your own timezone says, not as an announcement in the channel you set them from.
+- **Files** — browse what has been shared in a channel, or your own uploads across every channel and DM, with a per-account storage quota. Filenames are searchable.
 - **Admin console** at `/admin` for users with the Keycloak `ichat-admin` realm role. A bare `admin` role is deliberately ignored: administering the identity provider is not the same as administering this chat.
 
 ## Stack
@@ -1123,7 +1127,7 @@ The systemd / SELinux / Quick start sections cover the mechanical setup. This is
 
 ## Tests
 
-The suite is **612 tests across 72 classes** — 269 unit tests that run anywhere, and 343 integration tests that need a Postgres container. Both layers run from a single `./gradlew test`.
+The suite is **975 tests across 101 classes** — 436 unit tests that run anywhere, and 539 integration tests that need a Postgres container. Both layers run from a single `./gradlew test`.
 
 ### Run everything
 
@@ -1217,8 +1221,6 @@ Two things are worth knowing if you fork this:
 
 ## Roadmap (still open)
 
-- Highlighted snippets in search results.
-- Permission UI for promoting/demoting channel admins (the service supports it; no UI wired yet).
 - E2E test with a real Keycloak (Testcontainers Keycloak module).
 - Distributed rate limiting (`RateLimiter` is per-process; replace with Bucket4j-with-Hazelcast or Redis before going multi-instance).
 - OWASP `dependency-check` Gradle plugin for CVE scanning.

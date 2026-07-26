@@ -105,14 +105,32 @@ def seed(ctx):
     channel_id = best
     print(f"  using channel {channel_id} ({best_count} messages)")
 
-    # A file, so the file manager has a row.
+    # Files, so neither file page photographs as one row in an empty table. A channel that has
+    # had a project run through it accumulates a handful of these; one lonely attachment under a
+    # caption about browsing a channel's files reads as a feature nobody uses.
+    #
+    # Names carry their own weight in a screenshot: they are the only thing in the table a reader
+    # can actually read, so they say what a working team shares rather than "file1.bin".
+    DEMO_FILES = [
+        ("release-notes.txt", "text/plain", 7800,
+         "Draft release notes, comments welcome"),
+        ("load-test-results.csv", "text/csv", 24000,
+         "Raw numbers behind the 17k/s figure — one row per run"),
+        ("executor-config.patch", "text/x-patch", 3200,
+         "The one-line fix for the inbound channel executor"),
+        ("onboarding-checklist.md", "text/markdown", 5100,
+         "New-joiner checklist, updated after last week's session"),
+    ]
     status, files = _api(me, "/api/files")
-    if status == 200 and not files.get("files"):
+    have = {f.get("filename") for f in (files.get("files") or [])} if status == 200 else set()
+    for name, ctype, size, caption in DEMO_FILES:
+        if name in have:
+            continue
         _api(me, f"/api/channels/{channel_id}/attachments", "POST",
-             raw=b"screenshot fixture\n" * 400,
+             raw=b"screenshot fixture\n" * (size // 19),
              headers={"Content-Type": "application/octet-stream",
-                      "X-Upload-Filename": urllib.parse.quote("release-notes.txt"),
-                      "X-Upload-Caption": urllib.parse.quote("Draft release notes, comments welcome")})
+                      "X-Upload-Filename": urllib.parse.quote(name),
+                      "X-Upload-Caption": urllib.parse.quote(caption)})
 
     # A direct conversation, so the sidebar and the DM shots are not empty.
     _api(me, "/api/conversations/direct", "POST", body={"username": SECOND_USER})
@@ -247,19 +265,70 @@ async def shot_profile(page, ctx):
     return None
 
 
+async def shot_mention(page, ctx):
+    """The @-typeahead. Mentions used to need an exact username while the UI showed display
+    names, so a mistyped handle notified nobody and said nothing — this is the fix, and it
+    matches display names as well as handles."""
+    await page.goto(f"{BASE}/channels/{ctx['channel']}", wait_until="domcontentloaded")
+    await page.wait_for_timeout(1400)
+    await page.click("#composer-input")
+    # A bare "@" rather than "@a": the list then leads with the people actually in the room and
+    # the broadcast handles, which is what the caption promises. A letter narrows it to whoever
+    # happens to match, and on a workspace with test accounts that is mostly people who are not
+    # in the channel — a screenshot of the feature failing to do the thing described under it.
+    await page.type("#composer-input", "Nice work on the executor fix @", delay=45)
+    try:
+        await page.wait_for_selector(".mention-dropdown .search-dropdown-row", timeout=6000)
+    except Exception:
+        pass
+    await page.wait_for_timeout(500)
+    return None
+
+
+async def shot_search_results(page, ctx):
+    """The results page: a count, a scope, and hits you can read — rather than a ten-row
+    dropdown that jumps you to whichever one it guessed."""
+    await page.goto(f"{BASE}/search?q=the", wait_until="domcontentloaded")
+    await page.wait_for_timeout(1400)
+    return None
+
+
+async def shot_channel_settings(page, ctx):
+    """Channel administration: rename, edit the description, archive — and leave."""
+    await page.goto(f"{BASE}/channels/{ctx['channel']}", wait_until="domcontentloaded")
+    await page.wait_for_timeout(1400)
+    await page.evaluate("() => document.getElementById('channel-admin-cog')?.click()")
+    await page.wait_for_timeout(900)
+    return None
+
+
+async def shot_channel_files(page, ctx):
+    """The files shared in one channel. Finding a PDF someone posted last month used to mean
+    scrolling the channel or remembering words from the message that carried it."""
+    await page.goto(f"{BASE}/channels/{ctx['channel']}/files", wait_until="domcontentloaded")
+    await page.wait_for_timeout(1400)
+    return None
+
+
 SHOTS = [
     # (name, recipe, caption, theme). The theme is applied before the shot, so the strip shows
     # what the app looks like in more than one skin — twenty ship, and a carousel entirely in the
     # default one undersells that. At least two light and two dark, deliberately spread rather
     # than clustered, so a visitor scrolling sees the range without being told about it.
     ("channel", shot_channel,
-     "A channel, with the sidebar showing the channels you actually use rather than every channel that exists.",
+     "A channel, with every room you are in listed down the left and your favourites pinned to the top.",
      "default"),
     ("thread", shot_thread,
      "Threads open beside the conversation instead of burying replies inside it. Shown in Midnight — one of twenty themes.",
      "midnight"),
     ("search", shot_search,
-     "One search box across every channel and every direct message you can read, served by an embedded Lucene index.",
+     "One search box, scoped to the room you are reading, with the fast path still a keystroke away.",
+     "default"),
+    ("search-results", shot_search_results,
+     "Search reaches every channel you are allowed to read, not only the ones you joined, and matches attachment filenames. from:@bob finds what someone wrote, @bob finds where they were mentioned.",
+     "slate"),
+    ("mention", shot_mention,
+     "Typing @ offers the people in the room, matching display names as well as handles — and @channel or @here when you mean everyone.",
      "default"),
     ("poll", shot_poll,
      "Polls are built in a dialog — or typed as a slash command, if that is faster for you. Shown in Dusk.",
@@ -270,6 +339,12 @@ SHOTS = [
     ("files", shot_files,
      "Every file you have uploaded, in one place, searchable — and deleting one leaves the message that posted it standing.",
      "carbon"),
+    ("channel-files", shot_channel_files,
+     "The files shared in one channel, with the message each came from a click away.",
+     "default"),
+    ("channel-settings", shot_channel_settings,
+     "Rename a channel, edit what it is for, archive it when the project ends — or leave it.",
+     "midnight"),
     ("about", shot_about,
      "The About dialog: version, build time, runtime and the exact component versions you are running.",
      "default"),
@@ -448,7 +523,7 @@ async def doc_notifications(page, ctx):
 # (docs.html section id, recipe, caption)
 DOC_SHOTS = [
     ("sidebar", doc_sidebar,
-     "The sidebar is a shortlist — your largest and most active channels, then direct messages — not every channel that exists."),
+     "The sidebar: every channel you are in, favourites first, then your direct messages. Bold means unread; a number means someone used your name."),
     ("messages", doc_composer,
      "The composer: Markdown with a formatting toolbar, and a live preview of what you are about to send."),
     ("threads", doc_threads,
@@ -456,7 +531,7 @@ DOC_SHOTS = [
     ("dms", doc_dms,
      "Starting a conversation: one name opens a direct message, more than one creates a group and asks for a name."),
     ("search", doc_search,
-     "Search spans every channel and every conversation you can read; each hit says where it came from."),
+     "Search spans every channel you are allowed to read — joined or not — and every conversation you are in. Each hit says where it came from."),
     ("polls", doc_poll_builder,
      "Polls are built in a dialog, or typed as a slash command — both produce the same poll."),
     ("files", doc_files,
