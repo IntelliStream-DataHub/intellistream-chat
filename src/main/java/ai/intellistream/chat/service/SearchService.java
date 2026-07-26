@@ -23,10 +23,12 @@ import ai.intellistream.chat.domain.ConversationType;
 import ai.intellistream.chat.domain.Message;
 import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.repository.ChannelMemberRepository;
+import ai.intellistream.chat.repository.ChannelRepository;
 import ai.intellistream.chat.repository.ConversationMemberRepository;
 import ai.intellistream.chat.repository.ConversationMessageRepository;
 import ai.intellistream.chat.repository.MessageRepository;
 import ai.intellistream.chat.search.MessageIndexService;
+import ai.intellistream.chat.security.PublicBadRequestException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -36,6 +38,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
@@ -56,6 +59,19 @@ import java.util.stream.Collectors;
  *       authority {@code ROLE_ADMIN}).</li>
  * </ul>
  *
+ * <h2>Query syntax</h2>
+ * Parsed by {@link #parsed}, which is where the meaning of each token is decided:
+ * <ul>
+ *   <li>{@code from:bob} / {@code from:@bob} — written by bob.</li>
+ *   <li>{@code @bob} — <em>mentions</em> bob. Not the same question as the line above, and the
+ *       opposite of what this token used to mean here.</li>
+ *   <li>{@code in:#general} — one channel, resolved to an id the viewer may read; an unknown or
+ *       unreadable name is a {@link PublicBadRequestException}, never a silently dropped filter.</li>
+ *   <li>Anything else, including an unrecognised {@code word:} prefix, is body text.</li>
+ * </ul>
+ * {@code before:} / {@code after:} / {@code has:} are not implemented and are therefore searched
+ * for as literal text like any other unknown prefix.
+ *
  * <h2>Where access control happens</h2>
  * For the scoped searches it happens here, before the query runs. For {@link #searchAccessible}
  * it happens <em>inside</em> the Lucene query: the viewer's channel and conversation ids become a
@@ -69,12 +85,16 @@ public class SearchService {
 
     static final int MAX_RESULTS = 100;
     static final String ADMIN_ROLE = "ROLE_ADMIN";
-    /** {@code @username} tokens at the start of a token boundary. Underscored / hyphenated /
-     *  dotted usernames are honoured (matches {@link ai.intellistream.chat.service.UserService#SAFE_USERNAME}). */
-    private static final Pattern AT_USER = Pattern.compile("(?:^|\\s)@([A-Za-z0-9._-]+)");
+    private static final String FROM_PREFIX = "from:";
+    private static final String IN_PREFIX = "in:";
+    /** What may follow a bare {@code @} for the token to read as a handle rather than as text.
+     *  Underscored / hyphenated / dotted usernames are honoured (matches
+     *  {@link ai.intellistream.chat.service.UserService#SAFE_USERNAME}). */
+    private static final Pattern HANDLE = Pattern.compile("[A-Za-z0-9._-]+");
 
     private final MessageRepository messageRepository;
     private final ChannelMemberRepository memberRepository;
+    private final ChannelRepository channelRepository;
     private final ChannelService channelService;
     private final MessageIndexService messageIndex;
     private final ConversationMessageRepository conversationMessageRepository;
@@ -83,6 +103,7 @@ public class SearchService {
 
     public SearchService(MessageRepository messageRepository,
                          ChannelMemberRepository memberRepository,
+                         ChannelRepository channelRepository,
                          ChannelService channelService,
                          MessageIndexService messageIndex,
                          ConversationMessageRepository conversationMessageRepository,
@@ -90,6 +111,7 @@ public class SearchService {
                          ConversationService conversationService) {
         this.messageRepository = messageRepository;
         this.memberRepository = memberRepository;
+        this.channelRepository = channelRepository;
         this.channelService = channelService;
         this.messageIndex = messageIndex;
         this.conversationMessageRepository = conversationMessageRepository;
@@ -108,7 +130,15 @@ public class SearchService {
         channelService.requireMember(channel, viewer);
         var p = parsed(query);
         if (p == null) return List.of();
-        var hits = messageIndex.searchInChannel(channel.getId(), p.body(), p.authors(), clamp(limit));
+        // An in: that names this channel is redundant; one that names another is a contradiction,
+        // and an empty result is the honest answer to a query that asks for two scopes at once.
+        // Resolving it either way still rejects a channel the viewer can't read, visibly.
+        if (p.inChannel() != null
+                && !resolveInChannel(p.inChannel(), viewer, true).equals(channel.getId())) {
+            return List.of();
+        }
+        var hits = messageIndex.searchInChannel(
+                channel.getId(), p.body(), p.authors(), p.mentions(), clamp(limit));
         return resolve(hits);
     }
 
@@ -123,8 +153,10 @@ public class SearchService {
         conversationService.requireMember(conversation, viewer);
         var p = parsed(query);
         if (p == null) return List.of();
+        // in: names a channel; a conversation is not one, so the two scopes cannot both hold.
+        if (p.inChannel() != null) return List.of();
         var hits = messageIndex.searchInConversation(
-                conversation.getId(), p.body(), p.authors(), clamp(limit));
+                conversation.getId(), p.body(), p.authors(), p.mentions(), clamp(limit));
         return resolveConversation(hits);
     }
 
@@ -139,15 +171,25 @@ public class SearchService {
     public List<SearchHit> searchAccessible(User viewer, String query, int limit) {
         var p = parsed(query);
         if (p == null) return List.of();
-        List<Long> channelIds = memberRepository.findChannelsForUser(viewer).stream()
-                .map(Channel::getId)
-                .toList();
-        List<Long> conversationIds = conversationMemberRepository.findConversationIdsForUser(viewer);
+        List<Long> channelIds;
+        List<Long> conversationIds;
+        if (p.inChannel() != null) {
+            // in: narrows, and it can only narrow: the id it resolves to has already been checked
+            // against the viewer's read rules, so the filter handed to Lucene is still a subset of
+            // what they may see. Conversations drop out — in: names a channel.
+            channelIds = List.of(resolveInChannel(p.inChannel(), viewer, true));
+            conversationIds = List.of();
+        } else {
+            channelIds = memberRepository.findChannelsForUser(viewer).stream()
+                    .map(Channel::getId)
+                    .toList();
+            conversationIds = conversationMemberRepository.findConversationIdsForUser(viewer);
+        }
         if (channelIds.isEmpty() && conversationIds.isEmpty()) {
             return List.of();
         }
         var hits = messageIndex.searchAccessible(
-                channelIds, conversationIds, p.body(), p.authors(), clamp(limit));
+                channelIds, conversationIds, p.body(), p.authors(), p.mentions(), clamp(limit));
         return resolveHits(hits);
     }
 
@@ -165,7 +207,15 @@ public class SearchService {
         }
         var p = parsed(query);
         if (p == null) return List.of();
-        var hits = messageIndex.searchEverywhere(p.body(), p.authors(), clamp(limit));
+        if (p.inChannel() != null) {
+            // No read check: this scope reads every channel by definition, so requiring membership
+            // of the named one would reject exactly the channels the scope exists to reach.
+            var hits = messageIndex.searchInChannel(
+                    resolveInChannel(p.inChannel(), viewer, false),
+                    p.body(), p.authors(), p.mentions(), clamp(limit));
+            return resolve(hits);
+        }
+        var hits = messageIndex.searchEverywhere(p.body(), p.authors(), p.mentions(), clamp(limit));
         return resolve(hits);
     }
 
@@ -272,25 +322,158 @@ public class SearchService {
         return List.copyOf(out);
     }
 
-    /** Body + author tokens parsed out of one user-supplied query. */
-    record Parsed(String body, Set<String> authors) {}
+    /**
+     * One user-supplied query, split into the parts the index takes separately.
+     *
+     * @param body      what is left after the modifiers are removed, handed to the Lucene parser
+     * @param authors   lowercased usernames from {@code from:}
+     * @param mentions  lowercased handles from bare {@code @handle} tokens
+     * @param inChannel the raw argument of {@code in:}, unresolved — turning a name into an id the
+     *                  viewer may read needs the database and an access check, which is each search
+     *                  method's job rather than the parser's
+     */
+    record Parsed(String body, Set<String> authors, Set<String> mentions, String inChannel) {}
 
     /**
-     * Pull {@code @username} filter tokens out of the raw query and return what remains as the
-     * body fuzzy-match. Returns {@code null} when the user supplied neither a body keyword
-     * (≥2 chars) nor an author filter — caller can short-circuit with empty results.
+     * Split a raw query into body text and modifiers.
+     *
+     * <h2>{@code @bob} means "mentions bob", not "written by bob"</h2>
+     * It used to mean the latter, which is the exact opposite of what the same token does in
+     * Slack and Mattermost — so somebody searching {@code @bob} to find where they had pinged him
+     * got Bob's own messages back, with nothing on screen to say the query had been read the other
+     * way round. The author filter is now spelled {@code from:bob} (or {@code from:@bob}); the
+     * bare {@code @handle} filters on the mention field. Both names are borrowed rather than
+     * invented, because a search syntax nobody can guess is one nobody uses.
+     *
+     * <h2>An unrecognised {@code foo:} is text, not a modifier</h2>
+     * Lucene's own parser reads {@code foo:bar} as "field foo contains bar", so a typo'd or
+     * imagined modifier used to become a query against a field that does not exist and quietly
+     * matched nothing. Any prefix this method doesn't recognise has its colon escaped and is
+     * searched for literally: {@code befor:friday} finds messages containing "befor" and "friday"
+     * instead of silently finding none. A modifier that finds nothing is a bad day; one that
+     * silently changes the result set is a wrong answer nobody checks.
+     *
+     * <p>Double-quoted runs are left exactly as they arrive, so {@code "from: the top"} is a
+     * phrase and not a filter, and phrase/negation/boolean syntax reaches Lucene untouched.
+     *
+     * @return {@code null} when nothing searchable was supplied — no body keyword of 2+ characters,
+     *         no {@code from:}, no {@code @handle}. An {@code in:} on its own is a scope with
+     *         nothing to search for and counts as nothing; callers short-circuit to empty results.
      */
     static Parsed parsed(String raw) {
         if (raw == null) return null;
-        var matcher = AT_USER.matcher(raw);
         Set<String> authors = new LinkedHashSet<>();
-        while (matcher.find()) {
-            authors.add(matcher.group(1).toLowerCase());
+        Set<String> mentions = new LinkedHashSet<>();
+        String inChannel = null;
+        var body = new StringBuilder();
+        for (var token : tokenize(raw)) {
+            var lower = token.toLowerCase(Locale.ROOT);
+            if (lower.startsWith(FROM_PREFIX)) {
+                var value = strip(token.substring(FROM_PREFIX.length()), '@');
+                if (!value.isEmpty()) {
+                    authors.add(value.toLowerCase(Locale.ROOT));
+                    continue;
+                }
+            } else if (lower.startsWith(IN_PREFIX)) {
+                var value = strip(token.substring(IN_PREFIX.length()), '#');
+                if (!value.isEmpty()) {
+                    inChannel = value; // last one wins; two in: modifiers is a contradiction anyway
+                    continue;
+                }
+            } else if (token.length() > 1 && token.charAt(0) == '@') {
+                var value = token.substring(1);
+                if (HANDLE.matcher(value).matches()) {
+                    mentions.add(value.toLowerCase(Locale.ROOT));
+                    continue;
+                }
+            }
+            if (!body.isEmpty()) body.append(' ');
+            body.append(asBodyText(token));
         }
-        var body = matcher.replaceAll(" ").trim();
-        var bodyOrNull = body.length() < 2 ? null : body;
-        if (bodyOrNull == null && authors.isEmpty()) return null;
-        return new Parsed(bodyOrNull == null ? "" : bodyOrNull, authors);
+        var text = body.toString().trim();
+        var bodyOrNull = text.length() < 2 ? null : text;
+        if (bodyOrNull == null && authors.isEmpty() && mentions.isEmpty()) return null;
+        return new Parsed(bodyOrNull == null ? "" : bodyOrNull, authors, mentions, inChannel);
+    }
+
+    /**
+     * Whitespace-separated tokens, except that a double-quoted run stays one token (quotes
+     * included). Without this a phrase search for {@code "from: first principles"} would lose its
+     * first two words to the author filter.
+     */
+    static List<String> tokenize(String raw) {
+        var out = new java.util.ArrayList<String>();
+        var current = new StringBuilder();
+        boolean quoted = false;
+        for (int i = 0; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            if (c == '"') {
+                quoted = !quoted;
+            } else if (!quoted && Character.isWhitespace(c)) {
+                if (!current.isEmpty()) {
+                    out.add(current.toString());
+                    current.setLength(0);
+                }
+                continue;
+            }
+            current.append(c);
+        }
+        if (!current.isEmpty()) out.add(current.toString());
+        return out;
+    }
+
+    /**
+     * A token on its way into the body clause. Colons in an unquoted token are escaped so Lucene
+     * reads them as text rather than as a field qualifier — see {@link #parsed}. Quoted runs are
+     * already literal to the parser and are passed through untouched.
+     */
+    private static String asBodyText(String token) {
+        if (token.startsWith("\"") || token.indexOf(':') < 0) return token;
+        return token.replace(":", "\\:");
+    }
+
+    /** Drop one leading sigil if present, so {@code from:@bob} and {@code from:bob} agree. */
+    private static String strip(String value, char sigil) {
+        return !value.isEmpty() && value.charAt(0) == sigil ? value.substring(1) : value;
+    }
+
+    /**
+     * Resolve an {@code in:} argument to a channel id the viewer may actually read.
+     *
+     * <p>Unknown and unreadable produce the <em>same</em> message on purpose. Distinguishing them
+     * would turn the search box into an oracle for private channel names: type {@code in:#} and a
+     * guess, and "you can't read that" versus "no such channel" tells you which private channels
+     * exist. Either way it is a visible failure rather than a filter that quietly does nothing,
+     * which is the whole point of resolving it here instead of dropping it.
+     *
+     * @param enforceRead false only for the admin-wide scope, which reads every channel by definition
+     */
+    private Long resolveInChannel(String name, User viewer, boolean enforceRead) {
+        var channel = lookupChannel(name)
+                .orElseThrow(() -> new PublicBadRequestException(unknownChannelMessage(name)));
+        if (enforceRead) {
+            try {
+                channelService.requireMember(channel, viewer);
+            } catch (AccessDeniedException e) {
+                throw new PublicBadRequestException(unknownChannelMessage(name));
+            }
+        }
+        return channel.getId();
+    }
+
+    private java.util.Optional<Channel> lookupChannel(String name) {
+        var direct = channelRepository.findFirstBySlugOrNameIgnoreCase(name);
+        if (direct.isPresent()) return direct;
+        // "in:#product team" can't happen (whitespace splits tokens), but "in:#Product-Team" and
+        // "in:#product_team" both plausibly mean the channel whose slug is product-team.
+        var slugish = name.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-")
+                .replaceAll("(^-|-$)", "");
+        return slugish.equals(name) ? java.util.Optional.empty()
+                : channelRepository.findFirstBySlugOrNameIgnoreCase(slugish);
+    }
+
+    private static String unknownChannelMessage(String name) {
+        return "No channel called #" + name + " that you can read.";
     }
 
     private static int clamp(int limit) {

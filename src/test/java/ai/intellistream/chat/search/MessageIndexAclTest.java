@@ -117,6 +117,41 @@ class MessageIndexAclTest {
     }
 
     @Test
+    void aMentionFilterDoesNotBypassTheMembershipFilter() {
+        // `@bob` with no keyword takes the same MatchAllDocs branch the author filter does, and it
+        // arrived later — so it gets its own test rather than trusting that "the ACL wraps the
+        // composed query" stayed true when a second filter was threaded through mainQuery.
+        index.indexConversationMessage(20L, DM_OF_OTHERS, "alice", "hey @bob look at this");
+        index.indexConversationMessage(21L, SEARCHERS_OWN_DM, "alice", "@bob are you around");
+
+        var asOutsider = index.searchAccessible(
+                List.of(), List.of(SEARCHERS_OWN_DM), "", Set.of(), Set.of("bob"), 50);
+        assertThat(asOutsider).containsExactly(new Hit(Scope.CONVERSATION, 21L));
+        assertThat(asOutsider).doesNotContain(new Hit(Scope.CONVERSATION, 20L));
+
+        // Control: the mention really is indexed on the document the outsider couldn't reach.
+        assertThat(index.searchAccessible(
+                List.of(), List.of(DM_OF_OTHERS), "", Set.of(), Set.of("bob"), 50))
+                .containsExactly(new Hit(Scope.CONVERSATION, 20L));
+    }
+
+    @Test
+    void mentioningSomeoneAndBeingSomeoneAreDifferentFilters() {
+        // The behaviour change the syntax exists for, at the index layer: one document is written
+        // by bob, the other is about bob, and the two filters must not agree on either.
+        index.index(22L, 5L, "bob", "standup notes from bob himself");
+        index.index(23L, 5L, "alice", "@bob can you take standup");
+
+        assertThat(index.searchAccessible(List.of(5L), List.of(), "standup", Set.of("bob"), Set.of(), 50))
+                .containsExactly(new Hit(Scope.CHANNEL, 22L));
+        assertThat(index.searchAccessible(List.of(5L), List.of(), "standup", Set.of(), Set.of("bob"), 50))
+                .containsExactly(new Hit(Scope.CHANNEL, 23L));
+        // Both at once is an intersection, and these two documents satisfy one condition each.
+        assertThat(index.searchAccessible(List.of(5L), List.of(), "standup",
+                Set.of("bob"), Set.of("bob"), 50)).isEmpty();
+    }
+
+    @Test
     void noAccessibleContainerMatchesNothingRatherThanEverything() {
         // The degenerate case an ACL filter has to get right: "the viewer belongs to nothing"
         // must mean no results, never "no restriction".

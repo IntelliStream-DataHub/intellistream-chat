@@ -30,6 +30,24 @@ public interface ChannelRepository extends JpaRepository<Channel, Long> {
     List<Channel> findAllByTypeOrderByNameAsc(ChannelType type);
 
     /**
+     * Exact (case-insensitive) lookup by either identifier, for search's {@code in:#channel}
+     * modifier — a user types the name they see in the sidebar, which is the display name, while
+     * every URL in the app carries the slug.
+     *
+     * <p>Returns at most one row and does <b>no</b> access check: the caller must apply the
+     * channel read rules, and must not let "found but unreadable" and "not found" produce
+     * different messages, or the modifier becomes a way to enumerate private channel names.
+     */
+    @org.springframework.data.jpa.repository.Query("""
+            select c from Channel c
+             where lower(c.slug) = lower(:q) or lower(c.name) = lower(:q)
+             order by c.id asc
+             limit 1
+            """)
+    Optional<Channel> findFirstBySlugOrNameIgnoreCase(
+            @org.springframework.data.repository.query.Param("q") String q);
+
+    /**
      * Channels matching {@code q} by name or slug that {@code user} is allowed to see: every
      * PUBLIC channel, plus the PRIVATE ones they belong to. The visibility rule lives in the query
      * rather than in a filter afterwards, so a private channel the user isn't in never leaves the

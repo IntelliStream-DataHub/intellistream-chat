@@ -19,6 +19,7 @@ package ai.intellistream.chat.service;
 import ai.intellistream.chat.domain.Channel;
 import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.repository.ChannelMemberRepository;
+import ai.intellistream.chat.repository.ChannelRepository;
 import ai.intellistream.chat.repository.ConversationMemberRepository;
 import ai.intellistream.chat.repository.ConversationMessageRepository;
 import ai.intellistream.chat.repository.MessageRepository;
@@ -49,6 +50,7 @@ class SearchServiceUnitTest {
 
     private MessageRepository messages;
     private ChannelMemberRepository members;
+    private ChannelRepository channelRepository;
     private ChannelService channels;
     private MessageIndexService index;
     private ConversationMessageRepository conversationMessages;
@@ -58,12 +60,13 @@ class SearchServiceUnitTest {
     private SearchService newService() {
         messages = mock(MessageRepository.class);
         members = mock(ChannelMemberRepository.class);
+        channelRepository = mock(ChannelRepository.class);
         channels = mock(ChannelService.class);
         index = mock(MessageIndexService.class);
         conversationMessages = mock(ConversationMessageRepository.class);
         conversationMembers = mock(ConversationMemberRepository.class);
         conversations = mock(ConversationService.class);
-        return new SearchService(messages, members, channels, index,
+        return new SearchService(messages, members, channelRepository, channels, index,
                 conversationMessages, conversationMembers, conversations);
     }
 
@@ -111,13 +114,14 @@ class SearchServiceUnitTest {
         when(joined.getId()).thenReturn(7L);
         when(members.findChannelsForUser(user)).thenReturn(List.of(joined));
         when(conversationMembers.findConversationIdsForUser(user)).thenReturn(List.of(11L, 12L));
-        when(index.searchAccessible(List.of(7L), List.of(11L, 12L), "hello", Set.of(), 10))
+        when(index.searchAccessible(List.of(7L), List.of(11L, 12L), "hello", Set.of(), Set.of(), 10))
                 .thenReturn(List.of());
 
         assertThat(service.searchAccessible(user, "hello", 10)).isEmpty();
 
-        verify(index).searchAccessible(List.of(7L), List.of(11L, 12L), "hello", Set.of(), 10);
+        verify(index).searchAccessible(List.of(7L), List.of(11L, 12L), "hello", Set.of(), Set.of(), 10);
         verify(index, never()).searchEverywhere(
+                org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.anyInt());
