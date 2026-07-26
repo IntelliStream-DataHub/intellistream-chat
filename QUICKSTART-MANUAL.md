@@ -231,6 +231,18 @@ systemctl status intellistream-chat
 journalctl -u intellistream-chat -f   # startup: Flyway migrations, then Tomcat on :8080
 ```
 
+One check worth doing on a dual-socket or NPS-partitioned host, before you call the install done:
+
+```bash
+lscpu | grep -i '^NUMA'
+```
+
+More than one node and the JVM can end up running on one node while its heap sits on another,
+paying interconnect latency for every access. The whole heap is 1 GiB and fits inside a single
+node, so pin it — as a `systemctl edit` drop-in using `AllowedCPUs=` / `AllowedMemoryNodes=`,
+which is safer than wrapping `ExecStart` in `numactl`. One node, and there is nothing to do.
+See [NUMA: keep the JVM on one node](README.md#numa-keep-the-jvm-on-one-node).
+
 ## 6. Reverse proxy + smoke test
 
 Put nginx (or caddy) in front for TLS — [`frontend.md`](frontend.md) has a working
