@@ -17,6 +17,7 @@
 package ai.intellistream.chat.integration;
 
 import ai.intellistream.chat.attachments.AttachmentBytes;
+import ai.intellistream.chat.config.SecurityConfig;
 import ai.intellistream.chat.domain.ChannelType;
 import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.repository.UserRepository;
@@ -41,10 +42,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
+import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
+import org.springframework.security.web.savedrequest.RequestCache;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -334,5 +339,156 @@ class InternetExposureSecurityIT {
 
         var hits = search.searchChannel(room, alice, "brown", 10);
         assertThat(hits).hasSize(1);
+    }
+
+    // ---------- Post-login redirect (a permalink must survive the login round-trip) ----------
+    //
+    // The web chain sends an unauthenticated browser to Keycloak and brings it back. Where it
+    // lands is the one place in this application where a URL decides where a user goes, which
+    // makes it the one place an open redirect could live. These exercise the real wiring —
+    // SecurityConfig.loginRequestCache() and SecurityConfig.loginSuccessHandler() are the same
+    // static factories webFilterChain calls — against mock requests, so no Keycloak is needed to
+    // assert what the Location header comes out as.
+
+    /** The saved-request store and the handler that reads it, wired the way the web chain wires them. */
+    private record LoginRoundTrip(RequestCache cache,
+                                  org.springframework.security.web.authentication.AuthenticationSuccessHandler handler,
+                                  MockHttpSession session) {
+
+        static LoginRoundTrip start() {
+            var cache = SecurityConfig.loginRequestCache();
+            return new LoginRoundTrip(cache, SecurityConfig.loginSuccessHandler(cache),
+                    new MockHttpSession());
+        }
+
+        /** A signed-out browser asks for {@code path}; the chain refuses and saves the request. */
+        void refuse(MockHttpServletRequest wanted) {
+            wanted.setSession(session);
+            cache.saveRequest(wanted, new MockHttpServletResponse());
+        }
+
+        /** …and comes back from Keycloak. Returns the Location the browser is sent to. */
+        String landing() throws Exception {
+            var callback = new MockHttpServletRequest("GET", "/login/oauth2/code/keycloak");
+            callback.setSession(session);
+            var response = new MockHttpServletResponse();
+            var auth = new TestingAuthenticationToken("alice", "n/a", "ROLE_USER");
+            auth.setAuthenticated(true);
+            handler.onAuthenticationSuccess(callback, response, auth);
+            return response.getRedirectedUrl();
+        }
+    }
+
+    /** A page request of the shape a browser actually makes. */
+    private static MockHttpServletRequest pageRequest(String path, String query) {
+        var request = new MockHttpServletRequest("GET", path);
+        request.setQueryString(query);
+        request.addHeader("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8");
+        return request;
+    }
+
+    @Test
+    void loginRedirect_returnsToThePermalinkThatTriggeredIt() throws Exception {
+        // The whole point: /channels/2?m=1234 is what "Copy link to message" produces, and it has
+        // to be where you end up, not where you were going before the welcome page swallowed it.
+        var trip = LoginRoundTrip.start();
+        trip.refuse(pageRequest("/channels/2", "m=1234"));
+
+        assertThat(trip.landing()).isEqualTo("/channels/2?m=1234");
+    }
+
+    @Test
+    void loginRedirect_withNothingSaved_landsOnChannels() throws Exception {
+        // Signing in from the landing page still goes where it always went.
+        assertThat(LoginRoundTrip.start().landing()).isEqualTo("/channels");
+    }
+
+    @Test
+    void loginRedirect_ignoresRedirectTargetsNamedInTheCallback() throws Exception {
+        // The open-redirect classic: an attacker gets the victim to start a login carrying a
+        // target of the attacker's choosing. Nothing here reads a URL out of a parameter, under
+        // any of the names that convention has attached to this idea.
+        var trip = LoginRoundTrip.start();
+        var callback = new MockHttpServletRequest("GET", "/login/oauth2/code/keycloak");
+        callback.setSession(trip.session());
+        callback.setParameter("continue", "https://evil.example/harvest");
+        callback.setParameter("redirect_uri", "https://evil.example/harvest");
+        callback.setParameter("next", "//evil.example/harvest");
+        callback.setParameter("url", "https://evil.example/harvest");
+        callback.addHeader("Referer", "https://evil.example/");
+        var response = new MockHttpServletResponse();
+        var auth = new TestingAuthenticationToken("alice", "n/a", "ROLE_USER");
+        auth.setAuthenticated(true);
+
+        trip.handler().onAuthenticationSuccess(callback, response, auth);
+
+        assertThat(response.getRedirectedUrl()).isEqualTo("/channels");
+    }
+
+    @Test
+    void loginRedirect_cannotBeSentOffSiteByTheHostHeader() throws Exception {
+        // A SavedRequest hands back an ABSOLUTE url built from the server's view of the request,
+        // Host header included — and ForwardedHeaderFilter takes that from X-Forwarded-Host with
+        // no trusted-proxy allowlist. The handler keeps the path and drops the origin, so even a
+        // saved request that claims to be for another host redirects within this one.
+        var trip = LoginRoundTrip.start();
+        var wanted = pageRequest("/channels/2", "m=1234");
+        wanted.setScheme("https");
+        wanted.setServerName("evil.example");
+        wanted.setServerPort(443);
+        trip.refuse(wanted);
+
+        var landing = trip.landing();
+        assertThat(landing).isEqualTo("/channels/2?m=1234");
+        assertThat(landing).doesNotContain("evil.example");
+    }
+
+    @Test
+    void loginRedirect_refusesAProtocolRelativeTarget() {
+        // "//evil.example/x" looks like a path and is read by every browser as another origin.
+        // Refused rather than repaired — there is no version of this that was meant.
+        assertThat(SecurityConfig.sameOriginTarget("https://chat.example//evil.example/x")).isNull();
+        assertThat(SecurityConfig.sameOriginTarget("//evil.example/x")).isNull();
+        assertThat(SecurityConfig.sameOriginTarget("https://chat.example/channels/2?m=1"))
+                .isEqualTo("/channels/2?m=1");
+    }
+
+    @Test
+    void loginRedirect_isNotHijackedByABackgroundApiCall() throws Exception {
+        // Browser calls to /api/** carry no bearer token, so they run on the WEB chain: an
+        // expired session turns a presence poll into a 302 and, without the exclusion, into the
+        // saved request that decides where the user's next real login lands. A page of JSON,
+        // chosen by whichever XHR lost the race.
+        var trip = LoginRoundTrip.start();
+        trip.refuse(new MockHttpServletRequest("GET", "/api/presence"));
+
+        assertThat(trip.landing()).isEqualTo("/channels");
+    }
+
+    @Test
+    void loginRedirect_isNotHijackedByTheWebSocketHandshake() throws Exception {
+        // Same reasoning as /api/**: an unauthenticated /ws handshake lands on the web chain too.
+        var trip = LoginRoundTrip.start();
+        trip.refuse(new MockHttpServletRequest("GET", "/ws"));
+
+        assertThat(trip.landing()).isEqualTo("/channels");
+    }
+
+    @Test
+    void loginRedirect_isNotHijackedBySubResourcesOrForms() throws Exception {
+        // /favicon.ico is NOT in the permitAll list, so it authenticates like any other request
+        // and would otherwise be a perfectly valid thing to resume. And a saved POST comes back
+        // as a redirect, which is a GET — the form is not re-submitted, it is silently dropped.
+        var favicon = LoginRoundTrip.start();
+        var iconRequest = new MockHttpServletRequest("GET", "/favicon.ico");
+        iconRequest.addHeader("Accept", "image/avif,image/webp,*/*");
+        favicon.refuse(iconRequest);
+        assertThat(favicon.landing()).isEqualTo("/channels");
+
+        var form = LoginRoundTrip.start();
+        var post = pageRequest("/channels/2", null);
+        post.setMethod("POST");
+        form.refuse(post);
+        assertThat(form.landing()).isEqualTo("/channels");
     }
 }
