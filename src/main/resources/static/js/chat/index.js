@@ -2261,6 +2261,51 @@ presenceMenu.init();
     }
   };
 
+  // ---------- Quote reply ----------
+  // The cheapest of the message actions and the most used: pull the target into the composer as a
+  // Markdown blockquote with a permalink back, then get out of the way. No schema, no endpoint,
+  // nothing stored — what gets sent is an ordinary message the author can edit before sending,
+  // which is the point. A reply that quotes what it answers is a reply you can read a week later.
+  //
+  // The quote's shape deliberately matches a forward's, minus the "in #channel" that a forward
+  // needs and this does not: both are "somebody said this, here is where", and having them read
+  // differently would make the same gesture look like two features.
+  const QUOTE_MAX_CHARS = 1500;
+  const quoteFor = (li) => {
+    const author = li.dataset.author || '';
+    const body = li.dataset.bodyMarkdown || '';
+    const lines = [];
+    lines.push('> **@' + author + '** [wrote](' + permalinkFor(li.dataset.id) + '):');
+    const truncated = body.length > QUOTE_MAX_CHARS;
+    const quoted = truncated ? body.slice(0, QUOTE_MAX_CHARS) : body;
+    // Per line, not one indent for the whole thing: Markdown's lazy continuation would otherwise
+    // fold a quoted list or heading into the surrounding quote and change what was said.
+    for (const line of quoted.split('\n')) lines.push('> ' + line);
+    if (truncated) lines.push('> …');
+    return lines.join('\n') + '\n\n';
+  };
+
+  const startQuote = (li) => {
+    // Quote into whichever composer the message is next to. A thread reply belongs in the thread,
+    // and dropping its quote into the channel composer would be answering in the wrong room.
+    const inThread = !!li.closest('#thread-panel');
+    const target = inThread
+        ? document.getElementById('thread-input')
+        : document.getElementById('composer-input');
+    if (!target) return;
+    const quote = quoteFor(li);
+    const existing = target.value;
+    // Separate from whatever was already typed rather than splicing into the middle of it: a draft
+    // half-written is still a sentence, and a blockquote inserted at the caret would cut it in two.
+    target.value = existing && !existing.endsWith('\n\n')
+        ? existing.replace(/\s*$/, '') + '\n\n' + quote
+        : existing + quote;
+    target._autoResize?.();
+    target.focus();
+    target.setSelectionRange(target.value.length, target.value.length);
+    target.scrollTop = target.scrollHeight;
+  };
+
   // ---------- Forward ----------
   const startForward = (id) => {
     openForwardDialog({
@@ -2350,6 +2395,11 @@ presenceMenu.init();
       html += isPinned
           ? action('unpin', 'pin', 'Unpin from channel', true)
           : action('pin', 'pin', 'Pin to channel', true);
+    }
+    // Quote-reply: the in-room counterpart of forwarding, and the cheapest of the four. Needs a
+    // composer to put the quote into, which is exactly what write access means here.
+    if (canWrite) {
+      html += action('quote', 'quote', 'Quote reply', true);
     }
     // Forwarding needs no write access here: the write happens in the destination room, and the
     // server checks it there. What it needs is read access to this message, which is what having
@@ -2856,6 +2906,7 @@ presenceMenu.init();
     else if (btn.dataset.action === 'save') toggleSave(id, true);
     else if (btn.dataset.action === 'unsave') toggleSave(id, false);
     else if (btn.dataset.action === 'forward') startForward(id);
+    else if (btn.dataset.action === 'quote') startQuote(li);
     else if (btn.dataset.action === 'permalink') copyPermalink(li);
   };
   if (messagesEl) {
@@ -3097,6 +3148,9 @@ presenceMenu.init();
       right.appendChild(renderAttachmentTray(msg.attachments));
     }
     if (msg.parentId) li.dataset.parentId = msg.parentId;
+    // Before attachActions: the toolbar reads data-pinned to decide whether it offers Pin or
+    // Unpin, so the thread panel's copy of a pinned parent has to know it is pinned.
+    applyPinFlag(li, msg.pinnedAt);
     attachActions(li);
     return li;
   };
