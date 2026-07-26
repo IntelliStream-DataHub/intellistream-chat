@@ -109,9 +109,46 @@ class ChannelFlowIT {
                 .isInstanceOfSatisfying(ai.intellistream.chat.service.SearchService.SearchHit.ChannelHit.class,
                         hit -> assertThat(hit.message().getBodyMarkdown()).contains("test message"));
 
-        var alicesSidebar = sidebar.sidebarFor(alice);
+        var alicesSidebar = sidebar.joinedFor(alice).channels();
         assertThat(alicesSidebar).extracting("name", "joined", "admin")
                 .contains(org.assertj.core.groups.Tuple.tuple("General Discussion", true, true));
+    }
+
+    /**
+     * The sidebar is the full joined list, alphabetically — not a ranked shortlist. Written with
+     * more channels than the old cap of five per group so a regression back to a capped, ranked
+     * list fails here rather than being noticed by a user with a sixth channel.
+     */
+    @Test
+    void theSidebarListsEveryJoinedChannelAlphabetically() {
+        var alice = users.save(new User("kc-sb", "sbalice", "sb@example.com", "Alice"));
+        var bob = users.save(new User("kc-sb2", "sbbob", "sb2@example.com", "Bob"));
+
+        // Deliberately created out of alphabetical order. Split across two creators only because
+        // channel creation is rate-limited to 10/hour per account; alice ends up in all twelve.
+        for (var name : java.util.List.of("zulu", "alfa", "mike", "kilo", "echo", "papa")) {
+            channels.create("sb-" + name, null, ChannelType.PUBLIC, alice);
+        }
+        for (var name : java.util.List.of("bravo", "delta", "golf", "hotel", "india", "juliet")) {
+            channels.join(channels.create("sb-" + name, null, ChannelType.PUBLIC, bob), alice);
+        }
+        channels.create("sb-not-alices", null, ChannelType.PUBLIC, bob);
+
+        var view = sidebar.joinedFor(alice);
+
+        assertThat(view.channels())
+                .describedAs("every joined channel, nothing collapsed into an 'and N more' line")
+                .hasSize(12);
+        assertThat(view.channels()).extracting("name")
+                .containsExactly("sb-alfa", "sb-bravo", "sb-delta", "sb-echo", "sb-golf",
+                        "sb-hotel", "sb-india", "sb-juliet", "sb-kilo", "sb-mike", "sb-papa",
+                        "sb-zulu");
+        assertThat(view.channels()).extracting("name")
+                .describedAs("only channels the viewer is a member of")
+                .doesNotContain("sb-not-alices");
+        // The subscription set the client drives its STOMP subscriptions from must cover all of
+        // them — that is the whole point of deriving it here rather than off the rendered DOM.
+        assertThat(view.channelIds().split(",")).hasSize(12);
     }
 
     @Test

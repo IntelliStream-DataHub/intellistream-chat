@@ -93,7 +93,7 @@ public class HomeController {
     public String channels(Principal principal, Model model) {
         var me = currentUser.resolve(principal);
         model.addAttribute("me", me);
-        model.addAttribute("sidebar", sidebarService.curatedFor(me, null));
+        model.addAttribute("sidebar", sidebarService.joinedFor(me));
         model.addAttribute("conversations", listDirectConversations(me));
         model.addAttribute("activeChannelId", null);
         model.addAttribute("activeChannel", null);
@@ -153,9 +153,7 @@ public class HomeController {
         }
 
         model.addAttribute("me", me);
-        // Pass the channel being read so the curation always keeps it visible — otherwise opening
-        // a channel from search would drop it out of the sidebar the moment you arrived.
-        model.addAttribute("sidebar", sidebarService.curatedFor(me, channel.getId()));
+        model.addAttribute("sidebar", sidebarService.joinedFor(me));
         model.addAttribute("conversations", listDirectConversations(me));
         model.addAttribute("activeChannelId", channel.getId());
         model.addAttribute("activeChannel", channel);
@@ -228,7 +226,7 @@ public class HomeController {
         conversationService.markRead(conversation, me);
 
         model.addAttribute("me", me);
-        model.addAttribute("sidebar", sidebarService.curatedFor(me, null));
+        model.addAttribute("sidebar", sidebarService.joinedFor(me));
         model.addAttribute("conversations", listDirectConversations(me));
         model.addAttribute("activeConversationId", conversation.getId());
         // Null here, but present: the shared sidebar fragment reads both ids to decide which row

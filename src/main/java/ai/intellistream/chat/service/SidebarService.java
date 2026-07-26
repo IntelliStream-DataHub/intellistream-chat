@@ -22,164 +22,74 @@ import ai.intellistream.chat.domain.NotificationLevel;
 import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.repository.ChannelMemberRepository;
 import ai.intellistream.chat.repository.ChannelRepository;
-import ai.intellistream.chat.repository.MessageRepository;
 import ai.intellistream.chat.web.dto.ChannelSidebarDto;
 import ai.intellistream.chat.web.dto.SidebarView;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 
 import static ai.intellistream.chat.domain.ChannelRole.ADMIN;
 import static ai.intellistream.chat.domain.ChannelType.PUBLIC;
 
 /**
- * Builds the left-sidebar channel list: public channels + private channels the user belongs to,
- * each annotated with whether the viewer has joined and whether they are an admin.
+ * Builds the left-sidebar channel list: every channel the viewer is a member of, and — separately,
+ * through {@link #search} — the channels they could join but haven't.
  */
 @Service
 public class SidebarService {
 
     private final ChannelRepository channelRepository;
     private final ChannelMemberRepository memberRepository;
-    private final MessageRepository messageRepository;
     private final ReadStateService readStateService;
 
     public SidebarService(ChannelRepository channelRepository,
                           ChannelMemberRepository memberRepository,
-                          MessageRepository messageRepository,
                           ReadStateService readStateService) {
         this.channelRepository = channelRepository;
         this.memberRepository = memberRepository;
-        this.messageRepository = messageRepository;
         this.readStateService = readStateService;
     }
 
-    @Transactional(readOnly = true)
-    public List<ChannelSidebarDto> sidebarFor(User user) {
-        var publicChannels = channelRepository.findAllByTypeOrderByNameAsc(PUBLIC);
-        var memberships = memberRepository.findAllByUserFetchingChannel(user); // avoid per-row channel N+1 (N28)
-
-        LinkedHashMap<Long, ChannelSidebarDto> byId = new LinkedHashMap<>();
-        for (var m : memberships) {
-            var c = m.getChannel();
-            byId.put(c.getId(), ChannelSidebarDto.of(c, true, m.getRole() == ADMIN, m.getNotifyLevel()));
-        }
-        for (var c : publicChannels) {
-            byId.computeIfAbsent(c.getId(), k -> ChannelSidebarDto.of(c, false, false));
-        }
-
-        // Unread + mention counts only meaningful for joined channels — others are background catalog.
-        var joinedIds = byId.values().stream()
-                .filter(ChannelSidebarDto::joined)
-                .map(ChannelSidebarDto::id)
-                .toList();
-        var unread = readStateService.unreadCounts(user, joinedIds);
-        var mentions = readStateService.mentionCounts(user, joinedIds);
-        if (!unread.isEmpty() || !mentions.isEmpty()) {
-            byId.replaceAll((id, dto) -> dto.joined()
-                    ? dto.withCounts(unread.getOrDefault(id, 0L), mentions.getOrDefault(id, 0L))
-                    : dto);
-        }
-
-        var list = new ArrayList<>(byId.values());
-        list.sort(Comparator
-                .comparing(ChannelSidebarDto::joined).reversed()
-                .thenComparing(d -> d.name().toLowerCase()));
-        return list;
-    }
-
-    /** How many channels each sidebar group shows. */
-    static final int GROUP_SIZE = 5;
-    /** How far back "most active" looks. Long enough to survive a quiet weekend. */
-    static final Duration ACTIVITY_WINDOW = Duration.ofDays(7);
-
     /**
-     * The curated sidebar: the user's largest channels and their most active ones, rather than
-     * every channel in the workspace.
+     * Every channel {@code user} belongs to, alphabetically, with unread and mention counts.
      *
-     * <p>Ranking is only half the job; the other half is making sure the sidebar never hides
-     * something the user needs to act on. Two channels are force-included regardless of rank:
-     * one with unread messages (an unread badge the user can't see does nothing), and the channel
-     * they're currently reading (which would otherwise vanish from under them the moment they
-     * opened it from search). Both displace the weakest entry in the active group rather than
-     * growing the list, so the sidebar stays a fixed, scannable size.
+     * <p>No ranking, no cap, nothing hidden. See {@link SidebarView} for why the previous curated
+     * shortlist was a mistake; the short version is that a sidebar is spatial memory, and a list
+     * that reorders itself when someone else joins a channel destroys it. The column scrolls, which
+     * is what makes "all of them" work at sixty channels as well as at six.
+     *
+     * <p>There is deliberately no {@code activeChannelId} parameter any more. The old signature
+     * took one so the channel being read could be force-included against the cap — it would
+     * otherwise vanish from under the user the moment they opened it from search. With nothing
+     * falling off the list there is nothing to force-include, and the template highlights the
+     * active row from the model attribute it already has.
      */
     @Transactional(readOnly = true)
-    public SidebarView curatedFor(User user, Long activeChannelId) {
+    public SidebarView joinedFor(User user) {
         // The account-wide notification default rides along on every sidebar render: each row
         // carries its raw per-channel level, and DEFAULT only means something next to this.
         var notifyDefault = accountDefaultOf(user);
-        var memberships = memberRepository.findAllByUserFetchingChannel(user);
+        var memberships = memberRepository.findAllByUserFetchingChannel(user); // avoid channel N+1 (N28)
         if (memberships.isEmpty()) {
-            return new SidebarView(List.of(), List.of(), 0, notifyDefault);
+            return new SidebarView(List.of(), notifyDefault);
         }
 
-        var joined = new LinkedHashMap<Long, ChannelSidebarDto>();
+        var rows = new ArrayList<ChannelSidebarDto>(memberships.size());
+        var ids = new ArrayList<Long>(memberships.size());
         for (var m : memberships) {
             var c = m.getChannel();
-            joined.put(c.getId(), ChannelSidebarDto.of(c, true, m.getRole() == ADMIN, m.getNotifyLevel()));
+            rows.add(ChannelSidebarDto.of(c, true, m.getRole() == ADMIN, m.getNotifyLevel()));
+            ids.add(c.getId());
         }
-        var joinedIds = List.copyOf(joined.keySet());
 
-        var unread = readStateService.unreadCounts(user, joinedIds);
-        var mentions = readStateService.mentionCounts(user, joinedIds);
-        joined.replaceAll((id, dto) ->
-                dto.withCounts(unread.getOrDefault(id, 0L), mentions.getOrDefault(id, 0L)));
-
-        var memberCounts = toCountMap(memberRepository.memberCountsForChannelsOf(user));
-        var recentMessages = toCountMap(
-                messageRepository.countRecentByChannel(joinedIds, Instant.now().minus(ACTIVITY_WINDOW)));
-
-        // Largest: most members, ties broken by name so the order is stable between page loads.
-        var largest = joined.values().stream()
-                .sorted(Comparator
-                        .comparingLong((ChannelSidebarDto d) -> memberCounts.getOrDefault(d.id(), 0L)).reversed()
-                        .thenComparing(d -> d.name().toLowerCase()))
-                .limit(GROUP_SIZE)
-                .toList();
-        var shown = new LinkedHashSet<Long>();
-        largest.forEach(d -> shown.add(d.id()));
-
-        // Most active: the busiest of what's left. Unread counts as traffic, which is what makes
-        // a quiet channel that just pinged you climb into view.
-        var active = new ArrayList<>(joined.values().stream()
-                .filter(d -> !shown.contains(d.id()))
-                .sorted(Comparator
-                        .comparingLong((ChannelSidebarDto d) ->
-                                recentMessages.getOrDefault(d.id(), 0L) + d.unreadCount()).reversed()
-                        .thenComparing(d -> d.name().toLowerCase()))
-                .limit(GROUP_SIZE)
-                .toList());
-        active.forEach(d -> shown.add(d.id()));
-
-        // Force-include what the user must not lose sight of, weakest-first displacement.
-        for (var dto : joined.values()) {
-            boolean needsAttention = dto.unreadCount() > 0 || dto.mentionCount() > 0;
-            boolean isBeingRead = dto.id().equals(activeChannelId);
-            if ((needsAttention || isBeingRead) && !shown.contains(dto.id())) {
-                if (active.size() >= GROUP_SIZE) {
-                    shown.remove(active.remove(active.size() - 1).id());
-                }
-                active.add(dto);
-                shown.add(dto.id());
-            }
-        }
-        // Re-sort after promotion so mentions sit above plain unread above quiet channels.
-        active.sort(Comparator
-                .comparingLong((ChannelSidebarDto d) -> d.mentionCount()).reversed()
-                .thenComparing(Comparator.comparingLong((ChannelSidebarDto d) -> d.unreadCount()).reversed())
-                .thenComparing(Comparator.comparingLong(
-                        (ChannelSidebarDto d) -> recentMessages.getOrDefault(d.id(), 0L)).reversed())
-                .thenComparing(d -> d.name().toLowerCase()));
-
-        return new SidebarView(largest, List.copyOf(active), joined.size() - shown.size(), notifyDefault);
+        var unread = readStateService.unreadCounts(user, ids);
+        var mentions = readStateService.mentionCounts(user, ids);
+        rows.replaceAll(d -> d.withCounts(
+                unread.getOrDefault(d.id(), 0L), mentions.getOrDefault(d.id(), 0L)));
+        rows.sort(ChannelSidebarDto.BY_NAME);
+        return new SidebarView(List.copyOf(rows), notifyDefault);
     }
 
     /** The viewer's account-wide notification default, tolerating a row written before V7. */
@@ -190,8 +100,11 @@ public class SidebarService {
 
     /**
      * Name/slug search across the channels a user may see, annotated with whether they've joined.
-     * This is the other half of the curated sidebar: the shortlist covers what you use daily,
-     * search covers everything else.
+     *
+     * <p>This is the half of channel navigation the sidebar cannot do. The sidebar lists what you
+     * are in; this finds what you are not in yet, which is why its results render in the main
+     * content area — there is room there for a description and a Join button, and none in a 260px
+     * column.
      */
     @Transactional(readOnly = true)
     public List<ChannelSidebarDto> search(User user, String query, int limit) {
@@ -218,15 +131,6 @@ public class SidebarService {
                                     membership.getNotifyLevel());
                 })
                 .toList();
-    }
-
-    /** Collapse {@code (id, count)} rows into a map; both queries return Object[] pairs. */
-    private static java.util.Map<Long, Long> toCountMap(List<Object[]> rows) {
-        var out = new java.util.HashMap<Long, Long>(rows.size());
-        for (var row : rows) {
-            out.put(((Number) row[0]).longValue(), ((Number) row[1]).longValue());
-        }
-        return out;
     }
 
     @Transactional(readOnly = true)

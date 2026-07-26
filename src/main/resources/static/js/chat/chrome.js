@@ -42,16 +42,20 @@ function initTutorial() {
 }
 
 /**
- * Sidebar channel search.
+ * Sidebar channel search — two jobs in one box, and the split matters.
  *
- * The sidebar shows a shortlist — the user's largest channels and their most active ones — so
- * filtering the rendered list is no longer a way to find anything: the channel you're looking for
- * usually isn't in the DOM. This queries the server instead, and renders matches into the main
- * content area rather than the sidebar, where there is room to show the description, the member
- * count and a Join button for channels you aren't in yet.
+ * The sidebar now lists <em>every channel you are in</em>, so filtering the rendered list is a real
+ * answer again: what you're looking for is usually right there in the DOM, and narrowing it is
+ * instant and offline. That is job one, and it happens on every keystroke.
  *
- * Local matches still get filtered as you type, so the shortlist narrows instantly while the
- * server request is in flight.
+ * Job two is the one local filtering can never do: finding a channel you have <b>not</b> joined.
+ * Those aren't on the page, so it takes a server query, and its results render into the main
+ * content area where there is room to say what a channel is rather than into a 260px column.
+ *
+ * Both run at once, which is only usable if the user can tell which surface answered them — hence
+ * the standing hint under the input, the "none of yours match" line in the sidebar, and the
+ * explicit "includes channels you haven't joined" heading on the results panel. An unlabelled
+ * split box reads as one search behaving inconsistently.
  */
 export function initSidebarSearch() {
     const input = document.getElementById('sidebar-filter');
@@ -67,10 +71,18 @@ export function initSidebarSearch() {
     panel.className = 'channel-search-results';
     panel.hidden = true;
 
+    const noMatch = document.getElementById('sidebar-no-match');
+
     const narrowShortlist = (q) => {
+        let shown = 0;
+        let rows = 0;
         document.querySelectorAll('.sidebar .channel-list > li').forEach((li) => {
-            li.style.display = !q || fuzzyMatch(q, li.dataset.name || '') ? '' : 'none';
+            rows++;
+            const keep = !q || fuzzyMatch(q, li.dataset.name || '');
+            li.style.display = keep ? '' : 'none';
+            if (keep) shown++;
         });
+        if (noMatch) noMatch.hidden = !q || rows === 0 || shown > 0;
     };
 
     // The results panel HIDES the page's own content rather than replacing it. The previous
@@ -96,13 +108,16 @@ export function initSidebarSearch() {
             ? `Channels matching “${q}”`
             : `No channels match “${q}”`;
         panel.append(heading);
-        if (!results.length) {
-            const hint = document.createElement('p');
-            hint.className = 'channel-search-hint';
-            hint.textContent = 'Private channels you are not a member of are not searchable.';
-            panel.append(hint);
-            return;
-        }
+        const hint = document.createElement('p');
+        hint.className = 'channel-search-hint';
+        hint.textContent = results.length
+            // Says which surface this is, because the sidebar filtered at the same time and the two
+            // answers are different questions.
+            ? 'Every channel you can see, including ones you have not joined. Your own channels are '
+              + 'filtered in the sidebar.'
+            : 'Private channels you are not a member of are not searchable.';
+        panel.append(hint);
+        if (!results.length) return;
         const list = document.createElement('ul');
         list.className = 'channel-search-list';
         for (const c of results) {
@@ -118,10 +133,13 @@ export function initSidebarSearch() {
                 lock.textContent = 'private';
                 li.append(lock);
             }
-            if (!c.joined) {
+            // "joined" rather than "not joined": now that the sidebar carries every channel you are
+            // in, being in one is the useful thing to mark — it tells you the row is also sitting
+            // in the list on the left.
+            if (c.joined) {
                 const tag = document.createElement('span');
                 tag.className = 'channel-search-tag';
-                tag.textContent = 'not joined';
+                tag.textContent = 'joined';
                 li.append(tag);
             }
             if (c.unreadCount > 0) {
@@ -171,10 +189,6 @@ export function initSidebarSearch() {
             restore();
             input.blur();
         }
-    });
-
-    document.getElementById('sidebar-browse-all')?.addEventListener('click', () => {
-        input.focus();
     });
 }
 

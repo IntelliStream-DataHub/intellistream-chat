@@ -71,20 +71,6 @@ public interface ChannelMemberRepository extends JpaRepository<ChannelMember, Lo
 
     long countByChannel(Channel channel);
 
-    /**
-     * {@code (channelId, memberCount)} for every channel {@code user} belongs to, in one query.
-     * Feeds the sidebar's "largest channels" group — counting members per channel individually
-     * would be a query per row of a list that is rendered on every page load.
-     */
-    @Query("""
-           select m.channel.id, count(other.id)
-             from ChannelMember m
-             join ChannelMember other on other.channel = m.channel
-            where m.user = :user
-            group by m.channel.id
-           """)
-    List<Object[]> memberCountsForChannelsOf(@Param("user") User user);
-
     /** Insert a MEMBER row if absent, ignore if the (channel,user) row already exists (N1). */
     @org.springframework.data.jpa.repository.Modifying(flushAutomatically = true)
     @org.springframework.data.jpa.repository.Query(value = "insert into channel_members (channel_id, user_id, role) values (:channelId, :userId, 'MEMBER') on conflict (channel_id, user_id) do nothing", nativeQuery = true)

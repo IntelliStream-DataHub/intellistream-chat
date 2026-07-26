@@ -2,11 +2,11 @@
 <html xmlns:th="http://www.thymeleaf.org">
 <body>
 <!--/*
-  One group of sidebar channels ("Largest", "Most active"). Both groups render through this
-  fragment so their markup — unread badges, private/admin icons, the active highlight — can't
-  drift apart as one of them gets tweaked.
+  One list of sidebar channels. A fragment rather than inline markup because the sidebar renders
+  more than one of these (and index.js re-renders rows live), so the row markup — unread badge,
+  private marker, active highlight — has exactly one definition and cannot drift between them.
 
-  Usage: <ul th:replace="~{fragments/channel-group :: group(${sidebar.largest}, ${activeChannelId}, 'sidebar-channel-list')}"></ul>
+  Usage: <ul th:replace="~{fragments/channel-group :: group(${sidebar.channels}, ${activeChannelId}, 'sidebar-channel-list')}"></ul>
 */-->
 <th:block th:fragment="group(channels, activeChannelId, listId)">
     <ul class="channel-list" th:id="${listId}">

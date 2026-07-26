@@ -45,6 +45,19 @@ public record ChannelSidebarDto(
         long mentionCount,
         NotificationLevel notifyLevel
 ) {
+    /**
+     * The sidebar's order: case-insensitive by name, ties broken by id.
+     *
+     * <p>Alphabetical is the honest default for a list whose job is spatial memory — the position
+     * of a row changes only when the viewer joins or leaves something, which is a change they made
+     * themselves. The id tiebreak is what makes the order <em>total</em>: two channels sharing a
+     * name would otherwise swap places between page loads, reintroducing exactly the instability
+     * this ordering exists to remove.
+     */
+    public static final java.util.Comparator<ChannelSidebarDto> BY_NAME = java.util.Comparator
+            .comparing((ChannelSidebarDto d) -> d.name().toLowerCase(java.util.Locale.ROOT))
+            .thenComparing(ChannelSidebarDto::id);
+
     /** For a channel the viewer has not joined: no membership, so nothing but {@code DEFAULT}. */
     public static ChannelSidebarDto of(Channel c, boolean joined, boolean admin) {
         return of(c, joined, admin, NotificationLevel.DEFAULT);

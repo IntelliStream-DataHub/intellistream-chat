@@ -112,15 +112,16 @@ class ReadStateAndMentionsIT {
         em.flush();
 
         // bxx exists -> a row; ghost doesn't -> nothing.
-        var sidebars = sidebar.sidebarFor(bob);
-        // Auto-join is not a thing — bob isn't a member yet, so mention badge won't show in his sidebar.
-        assertThat(sidebars).noneMatch(d -> d.id().equals(room.getId()) && d.joined());
+        var sidebars = sidebar.joinedFor(bob).channels();
+        // Auto-join is not a thing — bob isn't a member yet, so the channel isn't in his sidebar
+        // at all, and no mention badge can be.
+        assertThat(sidebars).noneMatch(d -> d.id().equals(room.getId()));
 
         // Make bob a member, then re-query.
         channels.join(room, bob);
         em.flush();
 
-        var withBob = sidebar.sidebarFor(bob);
+        var withBob = sidebar.joinedFor(bob).channels();
         var entry = withBob.stream().filter(d -> d.id().equals(room.getId())).findFirst().orElseThrow();
         assertThat(entry.joined()).isTrue();
         assertThat(entry.mentionCount()).isEqualTo(1);
@@ -242,7 +243,7 @@ class ReadStateAndMentionsIT {
         messages.post(room, alice, "more chatter");
         em.flush();
 
-        var entry = sidebar.sidebarFor(bob).stream()
+        var entry = sidebar.joinedFor(bob).channels().stream()
                 .filter(d -> d.id().equals(room.getId()))
                 .findFirst().orElseThrow();
         assertThat(entry.unreadCount()).isEqualTo(2);

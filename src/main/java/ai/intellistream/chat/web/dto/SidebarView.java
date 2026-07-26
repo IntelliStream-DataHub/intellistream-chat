@@ -21,33 +21,58 @@ import ai.intellistream.chat.domain.NotificationLevel;
 import java.util.List;
 
 /**
- * The curated left sidebar: a short, ranked shortlist rather than every channel that exists.
+ * The left sidebar: <b>every channel the viewer is a member of</b>, in a stable order.
  *
- * <p>Listing everything stops working long before it stops rendering. A user in several hundred
- * channels gets a wall of links they have to read linearly to find anything, and the page pays for
- * loading all of it on every request. So the sidebar shows two small groups — the channels with
- * the most people in them, and the ones with the most traffic lately — and everything else is
- * found by searching, with results in the main content area where there's room to show them.
+ * <p>This replaced a ranked shortlist — "your five largest channels" and "your five most active
+ * ones", everything else collapsed into "and 812 more". Ranking read well and worked badly. A
+ * sidebar is spatial memory: people find {@code #deploys} by where it sits, not by reading the
+ * list, and both of those rankings are computed from numbers that drift on their own (someone joins
+ * a channel, a quiet channel gets busy) so the list reordered itself under the user for reasons
+ * they had no part in. Member count is also a dimension nobody thinks in — nobody has ever wanted
+ * their channels sorted by population.
  *
- * @param largest      the user's channels with the most members.
- * @param mostActive   the user's channels with the most recent traffic, plus anything demanding
- *                     attention: a channel with unread messages is promoted here even if it is
- *                     otherwise quiet, because an unread badge nobody can see is pointless.
- * @param hiddenCount  how many of the user's joined channels didn't make either list — surfaced so
- *                     the UI can say "and 812 more" rather than silently pretending they're gone.
+ * <p>So: all of them, alphabetically, and the column scrolls. Alphabetical is the honest default
+ * precisely because it is not a judgement — the position of a channel changes only when the user
+ * joins or leaves one, which is the one kind of change they caused themselves.
+ *
+ * <p>Discovering channels the viewer has <em>not</em> joined is a different job and stays with the
+ * search box, which queries the server and renders into the main content area where there is room
+ * to show what a channel is and offer a Join button.
+ *
+ * @param channels      every channel the viewer belongs to, ordered by name (case-insensitive,
+ *                      ties by id so the order is total). Each row carries its own unread and
+ *                      mention counts and its raw notification level.
  * @param notifyDefault the viewer's account-wide notification default — never {@code DEFAULT}.
- *                     Here so the channel page can render every row's notification state, and the
- *                     per-channel picker, without a second request: each row carries its raw
- *                     level, which is only meaningful next to the default it may be inheriting.
- *                     Resolve as {@code row.notifyLevel == DEFAULT ? notifyDefault : row.notifyLevel}.
+ *                      Here so the page can render every row's notification state, and the
+ *                      per-channel picker, without a second request: each row carries its raw
+ *                      level, which is only meaningful next to the default it may be inheriting.
+ *                      Resolve as {@code row.notifyLevel == DEFAULT ? notifyDefault : row.notifyLevel}.
  */
 public record SidebarView(
-        List<ChannelSidebarDto> largest,
-        List<ChannelSidebarDto> mostActive,
-        int hiddenCount,
+        List<ChannelSidebarDto> channels,
         NotificationLevel notifyDefault
 ) {
     public boolean isEmpty() {
-        return largest.isEmpty() && mostActive.isEmpty();
+        return channels.isEmpty();
+    }
+
+    /**
+     * The ids of every channel the viewer belongs to, comma-joined.
+     *
+     * <p>This is the <b>notification subscription set</b>, and it is deliberately derived here
+     * rather than scraped out of the rendered sidebar. The client subscribes to
+     * {@code /topic/channels/{id}} for each id in this list; if it instead read the ids off the
+     * DOM, then any future change to how the sidebar renders — a collapsed group, a virtualised
+     * list, a filter applied server-side — would silently narrow which channels can produce a
+     * toast, a chime or a badge. That is exactly the bug this list exists to make impossible: the
+     * rendering is a view of the membership, never the source of it.
+     */
+    public String channelIds() {
+        var out = new StringBuilder();
+        for (var c : channels) {
+            if (out.length() > 0) out.append(',');
+            out.append(c.id());
+        }
+        return out.toString();
     }
 }

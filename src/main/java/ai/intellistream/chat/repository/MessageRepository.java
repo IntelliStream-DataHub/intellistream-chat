@@ -238,22 +238,6 @@ public interface MessageRepository extends JpaRepository<Message, Long> {
            + "where m.author.id = :authorId and m.deletedAt is null")
     List<Object[]> findIndexRowsByAuthor(Long authorId);
 
-    /**
-     * {@code (channelId, messageCount)} since a cutoff, for the given channels — how the sidebar
-     * decides which of a user's channels are "most active". Native and grouped so it rides the
-     * {@code ix_messages_channel_created} index rather than counting rows per channel.
-     */
-    @Query(value = """
-            select m.channel_id, count(*)
-              from messages m
-             where m.channel_id in (:channelIds)
-               and m.created_at >= :since
-               and m.deleted_at is null
-             group by m.channel_id
-            """, nativeQuery = true)
-    List<Object[]> countRecentByChannel(@Param("channelIds") Collection<Long> channelIds,
-                                        @Param("since") Instant since);
-
     // ------------------------------------------------------------------ moderation ----
     // Everything below deliberately sees deleted rows: it is the code that sets, clears and
     // finally reaps the flag the read paths above filter on.
