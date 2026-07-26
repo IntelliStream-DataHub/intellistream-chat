@@ -45,6 +45,52 @@ class MarkdownRendererTest {
         assertThat(html).doesNotContain("<span").doesNotContain("data-username");
     }
 
+    /**
+     * A handle nobody owns stays bare text. It is half of the "silent mention" fix: the stylesheet
+     * tints {@code .mention}, so leaving an unresolved handle undecorated is what makes the failure
+     * visible — the text no longer looks identical to a mention that will actually notify someone.
+     */
+    @Test
+    void unresolvedHandleIsNotDecorated() {
+        var html = renderer.render("ping @nobody-here about it");
+        assertThat(html).contains("@nobody-here")
+                .doesNotContain("class=\"mention\"")
+                .doesNotContain("data-username");
+    }
+
+    /**
+     * A broadcast handle is highlighted with no help from the username lookup — the mock resolves
+     * nobody here, which is exactly the state a real @channel is in. Before this, @channel rendered
+     * as plain text: it notified nobody and said nothing about it.
+     */
+    @Test
+    void broadcastHandlesAreDecorated() {
+        var html = renderer.render("heads up @channel and @here");
+        assertThat(html).contains("class=\"mention mention-broadcast\" data-mention=\"channel\"")
+                .contains(">@channel</span>")
+                .contains("class=\"mention mention-broadcast\" data-mention=\"here\"")
+                .contains(">@here</span>");
+    }
+
+    /**
+     * The @everyone decision has to be visible in the message, not just in the code: it carries
+     * @channel's audience marker and says so in the title.
+     */
+    @Test
+    void everyoneIsRenderedAsAChannelBroadcast() {
+        var html = renderer.render("@everyone please read");
+        assertThat(html).contains("data-mention=\"channel\"")
+                .contains(">@everyone</span>")
+                .contains("works like @channel");
+    }
+
+    /** N21: a broadcast inside code is documentation, not an announcement. */
+    @Test
+    void broadcastInsideCodeIsNotDecorated() {
+        var html = renderer.render("write `@channel` to notify the room");
+        assertThat(html).contains("@channel").doesNotContain("mention-broadcast");
+    }
+
     @Test
     void rendersFencedCodeBlock() {
         var html = renderer.render("""

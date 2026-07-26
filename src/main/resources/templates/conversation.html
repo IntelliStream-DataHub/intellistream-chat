@@ -243,6 +243,9 @@
 <!-- Sidebar channel search + global message search. Same modules the channel page uses;
      this page loads them directly because it doesn't load chat/index.js. -->
 <script type="module" th:src="@{/js/chat/conversation-chrome-boot.js}" defer></script>
+<!-- @-mention typeahead. Same module the channel page loads; scoped to this conversation's
+     participants, which it reads from .composer-wrap[data-conversation-id]. -->
+<script type="module" th:src="@{/js/chat/mention-autocomplete-boot.js}" defer></script>
 
 </body>
 </html>

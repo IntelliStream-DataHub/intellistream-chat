@@ -17,17 +17,24 @@
 package ai.intellistream.chat.web;
 
 import ai.intellistream.chat.security.CurrentUser;
+import ai.intellistream.chat.security.PublicBadRequestException;
 import ai.intellistream.chat.security.RateLimitExceededException;
 import ai.intellistream.chat.security.RateLimiter;
+import ai.intellistream.chat.service.ChannelService;
+import ai.intellistream.chat.service.ConversationService;
+import ai.intellistream.chat.service.MentionService;
 import ai.intellistream.chat.service.UserService;
+import ai.intellistream.chat.web.dto.MentionCandidateDto;
 import ai.intellistream.chat.web.dto.UserProfileDto;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.security.Principal;
 import java.time.Duration;
+import java.util.List;
 
 /**
  * Public user lookup powering the avatar hovercard. Same authorization stance as
@@ -37,6 +44,10 @@ import java.time.Duration;
  * one valid session can otherwise probe the full username space by walking 200 vs 4xx
  * responses. 120 lookups/min is enough for the hovercard (one per hover, throttled
  * client-side) but well below brute-force throughput.
+ *
+ * <p>Also home to the composer's @-mention typeahead, which is a search over people rather than
+ * a lookup of one, and is therefore scoped to a channel or conversation instead of being open
+ * over the whole user table — see {@link #mentionCandidates}.
  */
 @RestController
 public class UserRestController {
@@ -44,13 +55,22 @@ public class UserRestController {
     private final UserService userService;
     private final CurrentUser currentUser;
     private final RateLimiter rateLimiter;
+    private final ChannelService channelService;
+    private final ConversationService conversationService;
+    private final MentionService mentionService;
 
     public UserRestController(UserService userService,
                               CurrentUser currentUser,
-                              RateLimiter rateLimiter) {
+                              RateLimiter rateLimiter,
+                              ChannelService channelService,
+                              ConversationService conversationService,
+                              MentionService mentionService) {
         this.userService = userService;
         this.currentUser = currentUser;
         this.rateLimiter = rateLimiter;
+        this.channelService = channelService;
+        this.conversationService = conversationService;
+        this.mentionService = mentionService;
     }
 
     @GetMapping("/api/users/{username}")
@@ -61,5 +81,52 @@ public class UserRestController {
         }
         var user = userService.requireByUsername(username);
         return ResponseEntity.ok(UserProfileDto.from(user));
+    }
+
+    /**
+     * Backs the composer's @-mention typeahead: the people the caller could mean by {@code @q},
+     * within the channel or conversation they are composing to.
+     *
+     * <p><b>Scoped, not global.</b> Exactly one of {@code channelId} / {@code conversationId} is
+     * required, and the answer is that room's members (a {@code PUBLIC} channel also pads with
+     * non-members, since a mention there reaches them — see
+     * {@link MentionService#candidatesInChannel}). There is deliberately no unscoped mode: an
+     * endpoint that answers prefix queries over every user is a workspace directory, and shipping
+     * one as a side effect of an autocomplete is how directories leak.
+     *
+     * <p><b>Write access, not read access.</b> A typeahead only helps someone who is about to
+     * post, and {@code requireWriteAccess} is the check that means "may post here" — it demands
+     * real membership even for a {@code PUBLIC} channel, where {@code requireMember} would wave
+     * any authenticated viewer through. Using the read check here would hand the member list of
+     * every public channel to a lurker one prefix at a time.
+     *
+     * <p>Its own rate-limit action rather than the neighbouring {@code user-lookup}: that budget
+     * is 20/min, sized for a deliberate act like inviting somebody, and a typeahead would exhaust
+     * it inside one sentence. 120/min matches the hovercard — the client debounces and narrows
+     * cached results locally, so a mention costs about one request.
+     */
+    @GetMapping("/api/mention-candidates")
+    public List<MentionCandidateDto> mentionCandidates(
+            @RequestParam(required = false) Long channelId,
+            @RequestParam(required = false) Long conversationId,
+            @RequestParam(required = false, defaultValue = "") String q,
+            @RequestParam(required = false, defaultValue = "8") int limit,
+            Principal principal) {
+        var me = currentUser.resolve(principal);
+        if (!rateLimiter.tryAcquire(me.getUsername(), "mention-candidates", 120, Duration.ofMinutes(1))) {
+            throw new RateLimitExceededException("mention lookup rate exceeded");
+        }
+        if ((channelId == null) == (conversationId == null)) {
+            throw new PublicBadRequestException(
+                    "Provide exactly one of channelId or conversationId");
+        }
+        if (channelId != null) {
+            var channel = channelService.requireById(channelId);
+            channelService.requireWriteAccess(channel, me);
+            return mentionService.candidatesInChannel(channel, q, limit);
+        }
+        var conversation = conversationService.requireById(conversationId);
+        conversationService.requireMember(conversation, me);
+        return mentionService.candidatesInConversation(conversation, q, limit);
     }
 }

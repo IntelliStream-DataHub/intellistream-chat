@@ -1518,6 +1518,31 @@ button.icon-btn > .icon {
 .message-body a { color: var(--accent-fg); }
 .message-body a:hover { color: var(--accent-2); }
 
+/* A mention that resolved to somebody. MarkdownRenderer only emits this span for a handle it
+   could match to a real user, so the tint is the whole answer to "did that work?" — an @handle
+   nobody owns is left as bare text and now reads as bare text, instead of looking identical to a
+   mention that will actually notify someone. Tinted rather than coloured-only: colour alone is
+   also how links are marked here, and a mention is not a link. */
+.message-body .mention {
+  background: var(--accent-soft);
+  color: var(--accent-fg);
+  font-weight: 600;
+  padding: 0 3px;
+  border-radius: var(--radius-sm);
+  /* Long handles shouldn't force a horizontal scroll — break like the rest of the body. */
+  word-break: break-word;
+}
+/* @channel / @here / @everyone. Louder than a personal mention because it is: a stronger tint and
+   a full pill, so "this went to the room" is legible at a glance and not confusable with somebody's
+   name. Shape as well as colour — the two mention kinds have to be distinguishable without relying
+   on a tint difference nobody measures. */
+.message-body .mention-broadcast {
+  background: var(--accent-soft-2);
+  border-radius: var(--radius-full);
+  padding: 0 6px;
+  font-weight: 700;
+}
+
 /* Responsive wrapper for YouTube / Vimeo embeds inserted by MarkdownRenderer.
    Default is the landscape 4:1 compact strip used for /watch, /embed, youtu.be, and Vimeo.
    Shorts ("data-orientation=vertical") flip to a 9:16 phone-shaped frame instead. */
@@ -1870,6 +1895,75 @@ button.icon-btn > .icon {
   padding: 0 1px;
   border-radius: 2px;
   font-weight: 600;
+}
+
+/* ---------- Mention typeahead ----------
+   Reuses .search-dropdown for the panel itself — same surface, same elevation, same row hover —
+   so the composer's popup is recognisably the same object as the search popup rather than a
+   second dropdown design. Only the row's internals differ: a person, not a message. */
+.mention-dropdown {
+  padding: 0.2rem;
+  /* Narrower than the search panel: a row is a name, not a message excerpt. */
+  max-width: 340px;
+}
+/* Group label above the @channel / @here rows. They notify a roomful of people, so they are
+   separated from the list of individuals rather than sitting in it looking like one more name. */
+.mention-dropdown-hint {
+  padding: 0.35rem 0.55rem 0.2rem;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+/* Stands in for the avatar on a broadcast row, at the same size, so the two row kinds line up. */
+.mention-row-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-full);
+  background: var(--accent-soft-2);
+  color: var(--accent-fg);
+}
+.mention-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0.55rem;
+}
+.mention-row .avatar {
+  width: 24px;
+  height: 24px;
+  font-size: var(--fs-xs);
+  flex: 0 0 auto;
+}
+.mention-row-text {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  min-width: 0;
+}
+.mention-row-name {
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The handle is the payload — it is what gets typed into the message — so it stays legible
+   rather than dropping to --muted like an ordinary secondary line. */
+.mention-row-handle {
+  color: var(--accent-fg);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+}
+.mention-row-note {
+  margin-left: auto;
+  padding-left: 0.4rem;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
 }
 
 /* ===========================================================

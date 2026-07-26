@@ -94,6 +94,10 @@ class HovercardAndDmFlowIT {
     @Autowired ai.intellistream.chat.moderation.StorageQuotaService quotas;
     @Autowired ai.intellistream.chat.service.ConversationReactionService convReactions;
     @Autowired MarkdownRenderer markdown;
+    // The controller also serves the @-mention typeahead now, so it needs the collaborators that
+    // scope a search to a channel or conversation. This class only exercises the hovercard route.
+    @Autowired ai.intellistream.chat.service.ChannelService channels;
+    @Autowired ai.intellistream.chat.service.MentionService mentionService;
 
     private CurrentUser currentUser;
     private SimpMessagingTemplate broker;
@@ -114,7 +118,8 @@ class HovercardAndDmFlowIT {
             // Default: a throwaway viewer so rate-limit keys are stable per test.
             return users.findAll().stream().findFirst().orElseThrow();
         });
-        userController = new UserRestController(userService, currentUser, new RateLimiter());
+        userController = new UserRestController(userService, currentUser, new RateLimiter(),
+                channels, conversations, mentionService);
         conversationController = new ConversationRestController(
                 conversations, userService, currentUser, markdown,
                 convAttachments, convReactions, broker, new RateLimiter(), quotas,

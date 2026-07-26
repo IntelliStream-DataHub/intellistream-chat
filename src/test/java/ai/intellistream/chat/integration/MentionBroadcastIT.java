@@ -85,12 +85,19 @@ class MentionBroadcastIT {
     @Autowired MessageMentionRepository mentionRepository;
     @Autowired ai.intellistream.chat.slash.SlashCommandService slashCommands;
     @Autowired ai.intellistream.chat.service.PollService pollService;
+    @Autowired ai.intellistream.chat.service.PresenceTracker presence;
 
     private CurrentUser currentUser;
     private SimpMessagingTemplate broker;
     private ChatWebSocketController controller;
 
     private static final AtomicInteger SEQ = new AtomicInteger();
+
+    @org.junit.jupiter.api.AfterEach
+    void clearPresence() {
+        // Process-wide in-memory state shared by every test in this context.
+        presence.resetForTests();
+    }
 
     @BeforeEach
     void wire() {
@@ -172,6 +179,37 @@ class MentionBroadcastIT {
         org.mockito.Mockito.verify(broker).convertAndSend(eq("/topic/channels/" + room.getId()), captor.capture());
         assertThat(captor.getValue().message().mentions())
                 .containsExactlyInAnyOrder(bob.getUsername(), carol.getUsername());
+    }
+
+    /**
+     * The {@code mentions} array on the broadcast frame is a live-notify hint — it drives a toast
+     * and a chime in a browser that is receiving this frame — so an @channel puts the *connected*
+     * members in it, not the whole membership. The absent members still get their mention row, which
+     * is what the bell inbox and the channel badge read; sending a thousand names to a thousand
+     * subscribers for the sake of people who are not there would be a kilobyte per message.
+     */
+    @Test
+    void channelBroadcastAnnouncesOnlyConnectedMembers() {
+        var alice = newUser("alice");
+        var online = newUser("bob");
+        var offline = newUser("carol");
+        var room = channels.create("Broadcast room " + SEQ.incrementAndGet(),
+                null, ChannelType.PUBLIC, alice);
+        channels.join(room, online);
+        channels.join(room, offline);
+        presence.connect(online.getUsername(), "stomp-session-1");
+        when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
+
+        controller.send(room.getId(), new SendMessageRequest("@channel standup now"),
+                mock(Principal.class));
+
+        var captor = ArgumentCaptor.forClass(MessageEvent.class);
+        org.mockito.Mockito.verify(broker).convertAndSend(eq("/topic/channels/" + room.getId()), captor.capture());
+        assertThat(captor.getValue().message().mentions()).containsExactly(online.getUsername());
+        // The row exists for the disconnected member all the same.
+        assertThat(mentionRepository.usernamesByMessage(
+                messages.requireById(captor.getValue().message().id())))
+                .containsExactlyInAnyOrder(online.getUsername(), offline.getUsername());
     }
 
     private User newUser(String prefix) {

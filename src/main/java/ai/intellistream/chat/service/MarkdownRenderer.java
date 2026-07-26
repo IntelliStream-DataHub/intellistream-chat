@@ -171,11 +171,26 @@ public class MarkdownRenderer {
 
     /**
      * After CommonMark + jsoup-clean, walk the text nodes and wrap any {@code @username} that
-     * resolves to a known user in a {@code <span class="mention" data-username="x">} tag. We
-     * don't touch text inside {@code <code>} / {@code <pre>} so code samples stay untouched.
+     * resolves to a known user in a {@code <span class="mention" data-username="x">} tag, and any
+     * broadcast handle ({@code @channel} / {@code @here} / {@code @everyone}) in a
+     * {@code <span class="mention mention-broadcast" data-mention="…">}. We don't touch text inside
+     * {@code <code>} / {@code <pre>} so code samples stay untouched.
+     *
+     * <p>Runs after the safelist clean, which strips {@code span} outright — so these tags are ours
+     * by construction and a hand-written mention span in raw markdown cannot survive to forge one
+     * (N29). Nothing sanitizes after this point, hence the explicit escaping below.
+     *
+     * <p>A handle that is neither a known user nor a broadcast is left as bare text, which is the
+     * visible difference between a mention that will notify somebody and one that will not.
      */
     private String decorateMentions(String html, Set<String> knownUsernames) {
-        if (knownUsernames.isEmpty()) return html;
+        // Every mention starts with '@'. Note the second check is no longer just "are there known
+        // usernames": a body whose only mention is @channel has none and still has work to do. It
+        // stays a string scan rather than becoming an unconditional walk, because this runs on the
+        // send path for every message and the common miss is an email address — one linear pass to
+        // rule that out, instead of a jsoup parse plus a full tree walk to find nothing.
+        if (html == null || html.indexOf('@') < 0) return html;
+        if (knownUsernames.isEmpty() && !BROADCAST_WORD.matcher(html).find()) return html;
         Document doc = Jsoup.parseBodyFragment(html);
         decorateRecursively(doc.body(), knownUsernames);
         return doc.body().html();
@@ -216,16 +231,49 @@ public class MarkdownRenderer {
         while (m.find()) {
             var handle = m.group(1);
             var lc = handle.toLowerCase();
-            if (!known.contains(lc)) continue;
+            var broadcast = MentionService.broadcastFor(lc);
+            if (broadcast == null && !known.contains(lc)) continue;
             sb.append(escape(text, last, m.start()));
-            sb.append("<span class=\"mention\" data-username=\"").append(escapeAttr(handle)).append("\">@")
-              .append(escapeText(handle)).append("</span>");
+            if (broadcast != null) {
+                // data-mention carries the *audience*, not the word typed, so a client reading it
+                // sees that @everyone reached the channel. The title says the same thing in prose,
+                // because "@everyone behaves as @channel here" is a decision the reader of the
+                // message is entitled to see rather than a convention they have to know.
+                sb.append("<span class=\"mention mention-broadcast\" data-mention=\"")
+                  .append(broadcast.audience().handle()).append("\" title=\"")
+                  .append(escapeAttr(broadcastTitle(broadcast))).append("\">@")
+                  .append(escapeText(handle)).append("</span>");
+            } else {
+                sb.append("<span class=\"mention\" data-username=\"").append(escapeAttr(handle)).append("\">@")
+                  .append(escapeText(handle)).append("</span>");
+            }
             last = m.end();
             any = true;
         }
         if (!any) return null;
         sb.append(escape(text, last, text.length()));
         return sb.toString();
+    }
+
+    /**
+     * Whether the rendered HTML could contain a broadcast handle at all. Deliberately loose — it can
+     * match inside a code span, which the tree walk then correctly declines to decorate (N21) — its
+     * only job is to keep a body with an '@' and no mention from paying for a parse.
+     */
+    private static final Pattern BROADCAST_WORD =
+            Pattern.compile("(?i)@(?:channel|here|everyone)\\b");
+
+    /**
+     * Hover text for a broadcast pill. It is also the only place a reader learns what a broadcast in
+     * a direct message did, which is nothing: mention rows exist for channel messages only, so in a
+     * conversation this pill is decoration — exactly as {@code @alice} has always been there.
+     */
+    private static String broadcastTitle(MentionService.Broadcast broadcast) {
+        return switch (broadcast) {
+            case CHANNEL -> "Notifies every member of this channel";
+            case HERE -> "Notifies the members who are online right now";
+            case EVERYONE -> "@everyone works like @channel here: it notifies every member of this channel";
+        };
     }
 
     private static String escape(String s, int from, int to) { return escapeText(s.substring(from, to)); }

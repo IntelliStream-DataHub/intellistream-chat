@@ -29,6 +29,7 @@ import ai.intellistream.chat.service.ChannelService;
 import ai.intellistream.chat.service.ConversationAttachmentService;
 import ai.intellistream.chat.service.ConversationService;
 import ai.intellistream.chat.service.MarkdownRenderer;
+import ai.intellistream.chat.service.MentionService;
 import ai.intellistream.chat.service.MessageService;
 import ai.intellistream.chat.service.SearchService;
 import ai.intellistream.chat.service.UserService;
@@ -106,6 +107,7 @@ class InternetExposureSecurityIT {
     @Autowired ConversationAttachmentService convAttachments;
     @Autowired MarkdownRenderer markdown;
     @Autowired SearchService search;
+    @Autowired MentionService mentionService;
 
     private CurrentUser currentUser;
     private SimpMessagingTemplate broker;
@@ -243,7 +245,8 @@ class InternetExposureSecurityIT {
         var alice = newUser("alice");
         var bob = newUser("bob");
         when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
-        var controller = new UserRestController(userService, currentUser, rateLimiter);
+        var controller = new UserRestController(userService, currentUser, rateLimiter,
+                channels, conversations, mentionService);
 
         // 120/min is the configured cap. Hammer past it and assert the 121st throws.
         for (int i = 0; i < 120; i++) {
@@ -258,7 +261,8 @@ class InternetExposureSecurityIT {
         var alice = newUser("alice");
         var bob = newUser("bob");
         var carol = newUser("carol");
-        var controller = new UserRestController(userService, currentUser, rateLimiter);
+        var controller = new UserRestController(userService, currentUser, rateLimiter,
+                channels, conversations, mentionService);
 
         // Alice exhausts her quota looking up carol.
         when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
@@ -268,6 +272,27 @@ class InternetExposureSecurityIT {
         // Bob's quota is unaffected — different rate-limit key.
         when(currentUser.resolve(any(Principal.class))).thenReturn(bob);
         controller.profile(carol.getUsername(), mock(Principal.class)); // no throw
+    }
+
+    /**
+     * The @-mention typeahead answers prefix queries, so an unbounded one is a name-enumeration
+     * tool. Its budget is its own action (a typeahead would drain the 20/min {@code user-lookup}
+     * budget mid-sentence) but it is still a budget.
+     */
+    @Test
+    void mentionCandidates_isRateLimited() {
+        var alice = newUser("alice");
+        var room = channels.create("r-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice);
+        when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
+        var controller = new UserRestController(userService, currentUser, rateLimiter,
+                channels, conversations, mentionService);
+
+        for (int i = 0; i < 120; i++) {
+            controller.mentionCandidates(room.getId(), null, "ali", 8, mock(Principal.class));
+        }
+        assertThatThrownBy(() ->
+                controller.mentionCandidates(room.getId(), null, "ali", 8, mock(Principal.class)))
+                .isInstanceOf(RateLimitExceededException.class);
     }
 
     // ---------- Lucene wildcard refusal ----------
