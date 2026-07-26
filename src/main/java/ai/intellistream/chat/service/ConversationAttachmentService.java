@@ -55,15 +55,18 @@ import java.util.stream.Collectors;
 public class ConversationAttachmentService {
 
     private final ConversationAttachmentRepository repo;
+    private final ai.intellistream.chat.repository.ConversationMessageRepository messages;
     private final ConversationService conversations;
     private final StorageQuotaService quotas;
     private final Path storageRoot;
 
     public ConversationAttachmentService(ConversationAttachmentRepository repo,
+                                         ai.intellistream.chat.repository.ConversationMessageRepository messages,
                                          ConversationService conversations,
                                          StorageQuotaService quotas,
                                          @Value("${ichat.attachments.dir:./data/attachments}") String storageDir) {
         this.repo = repo;
+        this.messages = messages;
         this.conversations = conversations;
         this.quotas = quotas;
         this.storageRoot = Path.of(storageDir).toAbsolutePath().normalize();
@@ -166,8 +169,18 @@ public class ConversationAttachmentService {
         // Orphan guard: rollback after the file is on disk would otherwise strand it.
         deleteOnRollback(target);
 
-        var savedMessage = conversations.post(conversation, uploader,
-                captionText.isEmpty() ? "(attachment)" : captionText);
+        // A file with no caption posts an EMPTY message, exactly as the channel path does — the
+        // attachment is the content, and the clients already skip the body element when there is
+        // nothing in it. This used to substitute the literal text "(attachment)", which is why a
+        // DM upload read differently from the same upload in a channel.
+        //
+        // Saved through the repository rather than conversations.post(), which rejects a blank
+        // body. That guard is right for typing a message and wrong for posting a file, and it is
+        // the same reason AttachmentService bypasses MessageService for the no-caption case.
+        var savedMessage = captionText.isEmpty()
+                ? messages.save(new ai.intellistream.chat.domain.ConversationMessage(
+                        conversation, uploader, ""))
+                : conversations.post(conversation, uploader, captionText);
         var saved = repo.save(new ConversationAttachment(
                 savedMessage, safeName, resolvedType, bytesWritten, storageKey));
         // Charged with the bytes actually written, inside this transaction so a rollback takes the

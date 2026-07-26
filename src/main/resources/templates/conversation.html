@@ -132,6 +132,46 @@
                                 </div>
                                 <div th:if="${!#strings.isEmpty(msg.bodyMarkdown)}"
                                      class="message-body" th:utext="${msg.bodyHtml}">html</div>
+                                <!--/* Attachments were missing from this loop entirely, so a file
+                                       posted in a DM rendered as nothing at all on page load and
+                                       only appeared if it arrived live over the WebSocket. Same
+                                       markup as the channel page, tombstone branch included. */-->
+                                <div th:if="${msg.attachments != null and !msg.attachments.isEmpty()}"
+                                     class="message-attachments">
+                                    <th:block th:each="a : ${msg.attachments}">
+                                        <span th:if="${a.deletedAt != null}" class="attachment attachment-removed"
+                                              th:title="|Deleted ${#temporals.format(a.deletedAt, 'd MMM yyyy, HH:mm')}${a.deletedBy != null ? ' by ' + a.deletedBy : ''}|">
+                                            <svg class="icon attachment-icon" aria-hidden="true"><use href="#icon-paperclip"/></svg>
+                                            <span class="attachment-info">
+                                                <span class="attachment-name" th:text="${a.filename}">file</span>
+                                                <span class="attachment-meta"
+                                                      th:text="|Deleted ${#temporals.format(a.deletedAt, 'd MMM yyyy, HH:mm')}${a.deletedBy != null ? ' by ' + a.deletedBy : ''}|">removed</span>
+                                            </span>
+                                        </span>
+                                        <a th:if="${a.deletedAt == null and #strings.startsWith(a.contentType, 'image/')}"
+                                           class="attachment-image"
+                                           th:href="@{${a.downloadUrl}}"
+                                           target="_blank" rel="noopener"
+                                           th:title="${a.filename}">
+                                            <img th:src="@{${a.downloadUrl}}" th:alt="${a.filename}" loading="lazy"/>
+                                        </a>
+                                        <a th:if="${a.deletedAt == null and !#strings.startsWith(a.contentType, 'image/')}"
+                                           class="attachment"
+                                           th:href="@{${a.downloadUrl}}"
+                                           th:attr="data-content-type=${a.contentType}"
+                                           th:title="${a.filename}">
+                                            <svg class="icon attachment-icon"><use href="#icon-paperclip"/></svg>
+                                            <span class="attachment-info">
+                                                <span class="attachment-name" th:text="${a.filename}">file</span>
+                                                <span class="attachment-meta">
+                                                    <span th:text="${a.contentType}">type</span> ·
+                                                    <span th:text="${#numbers.formatDecimal(a.sizeBytes / 1024.0, 1, 1) + ' KiB'}">size</span>
+                                                </span>
+                                            </span>
+                                            <svg class="icon attachment-download"><use href="#icon-download"/></svg>
+                                        </a>
+                                    </th:block>
+                                </div>
                                 <div th:if="${msg.reactions != null and !msg.reactions.isEmpty()}"
                                      class="message-reactions">
                                     <button th:each="r : ${msg.reactions}"

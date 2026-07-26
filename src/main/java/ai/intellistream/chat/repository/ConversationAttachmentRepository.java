@@ -26,9 +26,38 @@ import java.util.List;
 
 public interface ConversationAttachmentRepository extends JpaRepository<ConversationAttachment, Long> {
 
-    List<ConversationAttachment> findByMessageOrderByCreatedAtAsc(ConversationMessage message);
+    /** Same join-fetch reasoning as the batch variant below. */
+    @org.springframework.data.jpa.repository.Query("""
+            select a from ConversationAttachment a
+            join fetch a.message m
+            join fetch m.conversation
+            where a.message = :message
+              and a.deletedAt is null
+            order by a.createdAt asc
+            """)
+    List<ConversationAttachment> findByMessageOrderByCreatedAtAsc(
+            @org.springframework.data.repository.query.Param("message") ConversationMessage message);
 
-    List<ConversationAttachment> findByMessageInOrderByCreatedAtAsc(Collection<ConversationMessage> messages);
+    /**
+     * Page-render fetch. The message and its conversation are join-fetched because
+     * {@code ConversationAttachmentDto.from} builds the download URL from
+     * {@code attachment.message.conversation.id}, and open-in-view is off — with a derived query
+     * the message comes back as a proxy, the DTO is built after the transaction has closed, and
+     * dereferencing it throws LazyInitializationException. That failure is invisible until a
+     * conversation actually has an attachment in it, which is why it surfaced as "this one
+     * conversation 500s" rather than as anything to do with attachments.
+     */
+    @org.springframework.data.jpa.repository.Query("""
+            select a from ConversationAttachment a
+            join fetch a.message m
+            join fetch m.conversation
+            where a.message in :messages
+              and a.deletedAt is null
+            order by a.createdAt asc
+            """)
+    List<ConversationAttachment> findByMessageInOrderByCreatedAtAsc(
+            @org.springframework.data.repository.query.Param("messages")
+            Collection<ConversationMessage> messages);
 
     /**
      * A message's attachments with their uploader loaded — captured before a delete so the files
