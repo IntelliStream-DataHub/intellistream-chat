@@ -16,14 +16,19 @@
 
 package ai.intellistream.chat.service;
 
+import ai.intellistream.chat.domain.Channel;
 import ai.intellistream.chat.domain.ChannelType;
+import ai.intellistream.chat.domain.Conversation;
 import ai.intellistream.chat.domain.Message;
 import ai.intellistream.chat.domain.MessageMention;
 import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.repository.ChannelMemberRepository;
 import ai.intellistream.chat.repository.MessageMentionRepository;
 import ai.intellistream.chat.repository.UserRepository;
+import ai.intellistream.chat.web.dto.MentionCandidateDto;
 import ai.intellistream.chat.web.dto.MentionInboxItemDto;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.commonmark.ext.autolink.AutolinkExtension;
 import org.commonmark.ext.gfm.tables.TablesExtension;
 import org.commonmark.node.AbstractVisitor;
@@ -65,6 +70,14 @@ public class MentionService {
     private final UserRepository userRepo;
     private final MessageMentionRepository mentionRepo;
     private final ChannelMemberRepository memberRepo;
+
+    /**
+     * Used only by the typeahead below. Field-injected rather than constructor-injected so the
+     * pure-logic unit tests can build this service from mocks without a persistence unit — they
+     * exercise the pattern, which is the part that has historically gone wrong.
+     */
+    @PersistenceContext
+    private EntityManager em;
 
     public MentionService(UserRepository userRepo, MessageMentionRepository mentionRepo,
                           ChannelMemberRepository memberRepo) {
@@ -181,5 +194,128 @@ public class MentionService {
                     (String) r[4], (String) r[5], (String) r[6], ts));
         }
         return out;
+    }
+
+    // ---------------------------------------------------------------------------------------
+    // Typeahead — "who can I @-mention here"
+    // ---------------------------------------------------------------------------------------
+
+    /** Hard ceiling on a typeahead page, whatever limit the caller asks for. */
+    private static final int MAX_CANDIDATES = 25;
+    /** Longer than any handle the MENTION pattern can match, so nothing legitimate is truncated. */
+    private static final int MAX_QUERY_LEN = 100;
+
+    /**
+     * Candidate rows, ordered so the obvious match is first: a username starting with the query,
+     * then a display name starting with it, then a display name whose <em>later</em> words start
+     * with it ("an" → "Alice <b>An</b>derson"), then any remaining substring hit. Ties break on
+     * display name so the order is stable between keystrokes.
+     *
+     * <p>Ranked in SQL rather than in Java on purpose: the alternative is fetching the whole
+     * membership on every keystroke and sorting it in the service, which is a table scan of a
+     * 5,000-member channel per typed character. Here the database does the work and returns at
+     * most {@link #MAX_CANDIDATES} rows.
+     *
+     * <p>An empty query is legal and means "the first few names" — typing a bare {@code @} should
+     * open a list, exactly like Slack, rather than wait for a letter.
+     */
+    private static final String CANDIDATE_SQL = """
+            select u.username,
+                   u.display_name,
+                   (u.avatar_storage_key is not null) as has_avatar,
+                   coalesce(cast(extract(epoch from u.avatar_updated_at) * 1000 as bigint), 0) as avatar_version
+              from users u
+             where %s
+               and (position(:q in lower(u.username)) > 0
+                 or position(:q in lower(coalesce(u.display_name, ''))) > 0)
+             order by case
+                        when starts_with(lower(u.username), :q) then 0
+                        when starts_with(lower(coalesce(u.display_name, '')), :q) then 1
+                        when position(' ' || :q in lower(coalesce(u.display_name, ''))) > 0 then 2
+                        else 3
+                      end,
+                      lower(coalesce(u.display_name, u.username)),
+                      u.username
+             limit :lim
+            """;
+
+    private static final String IN_CHANNEL = """
+            exists (select 1 from channel_members cm
+                     where cm.channel_id = :scopeId and cm.user_id = u.id)""";
+    private static final String NOT_IN_CHANNEL = """
+            not exists (select 1 from channel_members cm
+                         where cm.channel_id = :scopeId and cm.user_id = u.id)""";
+    private static final String IN_CONVERSATION = """
+            exists (select 1 from conversation_members cv
+                     where cv.conversation_id = :scopeId and cv.user_id = u.id)""";
+
+    /**
+     * Who the author of a message in {@code channel} can reasonably mean by {@code @query}.
+     *
+     * <p>Members come first and always. A {@code PUBLIC} channel then pads the remaining slots
+     * with people who aren't in it yet, marked {@code member=false}: a public channel is readable
+     * by the whole workspace and {@link #syncMentions} deliberately lets a mention there reach a
+     * non-member, so a typeahead that hid them would be hiding something that works.
+     *
+     * <p>A {@code PRIVATE} channel is never padded. Answering prefix queries about people who are
+     * not in the room would turn a private conversation's composer into a workspace directory,
+     * which is the one thing this endpoint must not become — and the caller is authorised against
+     * the channel, not against the directory.
+     */
+    @Transactional(readOnly = true)
+    public List<MentionCandidateDto> candidatesInChannel(Channel channel, String query, int limit) {
+        var q = normaliseQuery(query);
+        var capped = cappedLimit(limit);
+        var members = candidates(IN_CHANNEL, channel.getId(), q, capped, true);
+        if (members.size() >= capped || channel.getType() != ChannelType.PUBLIC) {
+            return members;
+        }
+        var out = new ArrayList<>(members);
+        out.addAll(candidates(NOT_IN_CHANNEL, channel.getId(), q, capped - members.size(), false));
+        return out;
+    }
+
+    /**
+     * The same for a DM or group conversation: its participants, and nobody else. There is no
+     * public tier for a conversation, so there is no padding branch here either.
+     */
+    @Transactional(readOnly = true)
+    public List<MentionCandidateDto> candidatesInConversation(Conversation conversation, String query, int limit) {
+        return candidates(IN_CONVERSATION, conversation.getId(),
+                normaliseQuery(query), cappedLimit(limit), true);
+    }
+
+    private List<MentionCandidateDto> candidates(String scopeClause, Long scopeId, String q,
+                                                 int limit, boolean member) {
+        if (limit <= 0) return List.of();
+        @SuppressWarnings("unchecked")
+        List<Object[]> rows = em.createNativeQuery(CANDIDATE_SQL.formatted(scopeClause))
+                .setParameter("scopeId", scopeId)
+                .setParameter("q", q)
+                .setParameter("lim", limit)
+                .getResultList();
+        var out = new ArrayList<MentionCandidateDto>(rows.size());
+        for (var r : rows) {
+            out.add(new MentionCandidateDto((String) r[0], (String) r[1], member,
+                    Boolean.TRUE.equals(r[2]), ((Number) r[3]).longValue()));
+        }
+        return out;
+    }
+
+    /**
+     * Lower-case, trimmed, and with a leading {@code @} dropped — the client sends the text after
+     * the {@code @} but a paste can easily include it, and "@@alice" matching nobody would look
+     * like the feature is broken rather than like the input was odd.
+     */
+    private static String normaliseQuery(String query) {
+        if (query == null) return "";
+        var q = query.trim();
+        while (q.startsWith("@")) q = q.substring(1);
+        if (q.length() > MAX_QUERY_LEN) q = q.substring(0, MAX_QUERY_LEN);
+        return q.toLowerCase();
+    }
+
+    private static int cappedLimit(int limit) {
+        return Math.min(Math.max(limit, 1), MAX_CANDIDATES);
     }
 }

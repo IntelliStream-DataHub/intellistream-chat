@@ -45,6 +45,22 @@ add('GET /api/users/{me} returns the logged-in user', async () => {
     }
 });
 
+add('GET /api/mention-candidates returns rows the typeahead can render', async () => {
+    const channelId = document.querySelector('meta[name="active-channel-id"]')?.content;
+    if (!channelId) return; // channel list — nothing to scope to, not a failure
+    // The endpoint requires write access (i.e. real membership), which is exactly the condition
+    // under which the page renders a composer. No composer, nothing to autocomplete into.
+    if (!document.getElementById('composer-input')) return;
+    const rows = await expectJson('/api/mention-candidates?limit=5&q=&channelId='
+            + encodeURIComponent(channelId), (b) => Array.isArray(b));
+    // An empty query means "the first few members", so the caller's own membership guarantees
+    // at least one row. Each must carry the handle the completion inserts.
+    if (!rows.length) throw new Error('no candidates for a channel the viewer can post in');
+    if (typeof rows[0].username !== 'string' || !('displayName' in rows[0])) {
+        throw new Error('MentionCandidateDto shape changed; got: ' + JSON.stringify(rows[0]));
+    }
+});
+
 add('GET /api/presence returns the kind field', async () => {
     const me = document.querySelector('meta[name="me-username"]')?.content;
     if (!me) throw new Error('me-username meta missing');

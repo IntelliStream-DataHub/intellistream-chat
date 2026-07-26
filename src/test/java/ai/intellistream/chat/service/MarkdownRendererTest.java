@@ -45,6 +45,19 @@ class MarkdownRendererTest {
         assertThat(html).doesNotContain("<span").doesNotContain("data-username");
     }
 
+    /**
+     * A handle nobody owns stays bare text. It is half of the "silent mention" fix: the stylesheet
+     * tints {@code .mention}, so leaving an unresolved handle undecorated is what makes the failure
+     * visible — the text no longer looks identical to a mention that will actually notify someone.
+     */
+    @Test
+    void unresolvedHandleIsNotDecorated() {
+        var html = renderer.render("ping @nobody-here about it");
+        assertThat(html).contains("@nobody-here")
+                .doesNotContain("class=\"mention\"")
+                .doesNotContain("data-username");
+    }
+
     @Test
     void rendersFencedCodeBlock() {
         var html = renderer.render("""
