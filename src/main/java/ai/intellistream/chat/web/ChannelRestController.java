@@ -63,9 +63,11 @@ public class ChannelRestController {
     private final SimpMessagingTemplate broker;
     private final MessageMentionRepository mentionRepository;
     private final ai.intellistream.chat.service.SidebarService sidebarService;
+    private final ai.intellistream.chat.slash.SlashCommandService slashCommands;
 
     public ChannelRestController(ChannelService channelService,
                                  MessageService messageService,
+                                 ai.intellistream.chat.slash.SlashCommandService slashCommands,
                                  AttachmentService attachmentService,
                                  ReactionService reactionService,
                                  ReadStateService readStateService,
@@ -78,6 +80,7 @@ public class ChannelRestController {
                                  MessageMentionRepository mentionRepository,
                                  ai.intellistream.chat.service.SidebarService sidebarService) {
         this.sidebarService = sidebarService;
+        this.slashCommands = slashCommands;
         this.channelService = channelService;
         this.messageService = messageService;
         this.attachmentService = attachmentService;
@@ -453,6 +456,31 @@ public class ChannelRestController {
             throw new RateLimitExceededException("send rate exceeded");
         }
         var channel = channelService.requireById(id);
+        // Slash commands are dispatched here as well as on the WebSocket path. They used to be
+        // dispatched only there, on the reasoning that the browser never sends a command over HTTP
+        // — which is true of the browser and of nothing else. Every other client, including this
+        // project's own screenshot seeder, got the raw text posted instead: "/poll Lunch? | a | b"
+        // arriving in the channel as a message, and an unknown "/leave" being broadcast exactly the
+        // way the WebSocket path was fixed to stop doing. One transport refusing what the other
+        // publishes is not a policy, it is an accident of which file the check was written in.
+        var slashed = slashCommands.dispatch(channel, me, body.body());
+        if (slashed.handled()) {
+            // A command's own output (a poll's host message) is broadcast below like any other
+            // message. A command that answers privately has no message to return, and a refusal
+            // carries its reason — over HTTP there is no notice queue to put it on, so it becomes
+            // the response instead of vanishing.
+            if (slashed.message() == null) {
+                var notice = slashed.notice();
+                if (notice != null && "error".equals(notice.level())) {
+                    throw new ai.intellistream.chat.security.PublicBadRequestException(notice.text());
+                }
+                return null;
+            }
+            var commandDto = MessageDto.from(slashed.message(),
+                    markdown.render(slashed.message().getBodyMarkdown()));
+            broker.convertAndSend("/topic/channels/" + id, MessageEvent.created(commandDto));
+            return commandDto;
+        }
         var posted = messageService.postWithMentions(channel, me, body.body());
         var saved = posted.message();
         var dto = MessageDto.from(saved, markdown.render(saved.getBodyMarkdown()),

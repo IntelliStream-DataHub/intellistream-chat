@@ -55,6 +55,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -104,12 +105,13 @@ class ChannelHttpSendIT {
     private static final AtomicInteger SEQ = new AtomicInteger();
 
     @Autowired ai.intellistream.chat.service.SidebarService sidebarService;
+    @Autowired ai.intellistream.chat.slash.SlashCommandService slashCommands;
 
     @BeforeEach
     void wire() {
         currentUser = mock(CurrentUser.class);
         broker = mock(SimpMessagingTemplate.class);
-        controller = new ChannelRestController(channels, messages, attachments, reactions,
+        controller = new ChannelRestController(channels, messages, slashCommands, attachments, reactions,
                 reads, userService, pollService, markdown, currentUser, new RateLimiter(),
                 broker, mentionRepo, sidebarService);
     }
@@ -135,6 +137,49 @@ class ChannelHttpSendIT {
         verify(broker).convertAndSend(eq("/topic/channels/" + room.getId()), payload.capture());
         assertThat(payload.getValue()).isInstanceOf(MessageEvent.class);
         assertThat(((MessageEvent) payload.getValue()).type()).isEqualTo("created");
+    }
+
+    /**
+     * The HTTP send path dispatches slash commands, exactly as the WebSocket path does. It used to
+     * dispatch none, on the reasoning that the browser never sends a command over HTTP — true of
+     * the browser and of nothing else. Any other client got the raw text posted: this project's own
+     * screenshot seeder put a literal "/poll Offsite venue? | a | b" into a channel and photographed
+     * it for the website.
+     */
+    @Test
+    void aSlashCommandSentOverHttpRunsInsteadOfBeingPosted() {
+        var alice = newUser("alice");
+        var room = channels.create("Http-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice);
+        when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
+
+        var dto = controller.post(room.getId(),
+                new SendMessageRequest("/poll Lunch? | Soup | Sandwich"), mock(Principal.class));
+
+        // The poll's own host message, not the command text.
+        assertThat(dto.bodyMarkdown()).doesNotContain("/poll");
+        assertThat(dto.bodyMarkdown()).contains("Lunch?");
+        assertThat(messages.recent(room, alice, 20))
+                .as("the raw command must not survive as a message")
+                .noneSatisfy(m -> assertThat(m.getBodyMarkdown()).startsWith("/poll"));
+    }
+
+    /**
+     * And an unknown command is refused rather than broadcast — the same rule the WebSocket path
+     * enforces, so which transport a client happens to use cannot change what the room sees.
+     */
+    @Test
+    void anUnknownSlashCommandOverHttpIsRefusedNotPosted() {
+        var alice = newUser("alice");
+        var room = channels.create("Http-" + SEQ.incrementAndGet(), null, ChannelType.PUBLIC, alice);
+        when(currentUser.resolve(any(Principal.class))).thenReturn(alice);
+
+        assertThatThrownBy(() -> controller.post(room.getId(),
+                new SendMessageRequest("/leave"), mock(Principal.class)))
+                .isInstanceOf(ai.intellistream.chat.security.PublicBadRequestException.class)
+                .hasMessageContaining("isn't a command here");
+
+        assertThat(messages.recent(room, alice, 20)).isEmpty();
+        verify(broker, never()).convertAndSend(eq("/topic/channels/" + room.getId()), any(Object.class));
     }
 
     @Test

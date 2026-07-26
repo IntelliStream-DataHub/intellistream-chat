@@ -90,6 +90,7 @@ class ChannelMembersListIT {
     @Autowired UserService userService;
     @Autowired PollService pollService;
     @Autowired MarkdownRenderer markdown;
+    @Autowired ai.intellistream.chat.slash.SlashCommandService slashCommands;
 
     private CurrentUser currentUser;
     private ChannelRestController controller;
@@ -99,7 +100,7 @@ class ChannelMembersListIT {
     @BeforeEach
     void wire() {
         currentUser = mock(CurrentUser.class);
-        controller = new ChannelRestController(channels, messages, attachments, reactions,
+        controller = new ChannelRestController(channels, messages, slashCommands, attachments, reactions,
                 reads, userService, pollService, markdown, currentUser, new RateLimiter(),
                 mock(org.springframework.messaging.simp.SimpMessagingTemplate.class),
                 mock(ai.intellistream.chat.repository.MessageMentionRepository.class),
