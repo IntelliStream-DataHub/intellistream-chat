@@ -168,7 +168,7 @@ public class ReminderScheduler {
         r.markFired(now);
         repo.save(r);
         // Built inside the tx, where the associations are loaded; sent by runOnce after it commits.
-        var dto = ConversationMessageDto.from(saved, markdown.render(saved.getBodyMarkdown()));
+        var dto = ConversationMessageDto.from(saved, markdown.renderInConversation(saved.getBodyMarkdown()));
         var title = recipient.getId().equals(creator.getId())
                 ? ai.intellistream.chat.web.dto.ConversationDto.SELF_TITLE
                 : displayName(creator);

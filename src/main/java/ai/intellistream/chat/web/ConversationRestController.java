@@ -267,7 +267,7 @@ public class ConversationRestController {
         requireRate(me, "dm-reply", 30);
         var saved = conversations.replyInThread(messageId, me, body.body());
         var participants = conversations.threadParticipants(messageId, me);
-        var dto = ConversationMessageDto.from(saved, markdown.render(saved.getBodyMarkdown()),
+        var dto = ConversationMessageDto.from(saved, markdown.renderInConversation(saved.getBodyMarkdown()),
                 List.of(), List.of(), 0L, participants);
         // Same destination as a feed message; the client routes on parentId. A second topic for
         // replies would mean two subscriptions per conversation and a whole class of "the reply
@@ -286,7 +286,7 @@ public class ConversationRestController {
         var replyCounts = conversations.threadReplyCounts(rows);
         return rows.stream()
                 .map(m -> ConversationMessageDto.from(m,
-                        markdown.render(m.getBodyMarkdown()),
+                        markdown.renderInConversation(m.getBodyMarkdown()),
                         attachmentMap.getOrDefault(m.getId(), List.of()),
                         reactionMap.getOrDefault(m.getId(), List.of()),
                         replyCounts.getOrDefault(m.getId(), 0L),
@@ -393,7 +393,7 @@ public class ConversationRestController {
         // and a "3 replies" indicator that vanished when somebody reacted would look like the
         // replies had.
         var dto = ConversationMessageDto.from(message,
-                markdown.render(message.getBodyMarkdown()), atts, rs,
+                markdown.renderInConversation(message.getBodyMarkdown()), atts, rs,
                 conversations.threadReplyCount(message), List.of());
         broker.convertAndSend("/topic/conversations/" + dto.conversationId(),
                 ConversationEvent.messageUpdated(dto));
@@ -421,7 +421,7 @@ public class ConversationRestController {
         }
         var conv = conversations.requireById(id);
         var saved = conversations.post(conv, me, body.body());
-        var dto = ConversationMessageDto.from(saved, markdown.render(saved.getBodyMarkdown()));
+        var dto = ConversationMessageDto.from(saved, markdown.renderInConversation(saved.getBodyMarkdown()));
         broker.convertAndSend("/topic/conversations/" + id, dto);
         alerts.alert(conv, saved);
         return dto;
@@ -446,7 +446,7 @@ public class ConversationRestController {
 
         var message = savedAttachment.getMessage();
         var dto = ConversationMessageDto.from(message,
-                markdown.render(message.getBodyMarkdown()),
+                markdown.renderInConversation(message.getBodyMarkdown()),
                 List.of(savedAttachment));
         broker.convertAndSend("/topic/conversations/" + conversationId, dto);
         return dto;

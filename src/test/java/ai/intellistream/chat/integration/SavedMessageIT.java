@@ -319,4 +319,61 @@ class SavedMessageIT {
         assertThat(saved.savedIdsAmong(alice, java.util.List.of(mine.getId(), other.getId())))
                 .containsExactlyInAnyOrder(mine.getId(), other.getId());
     }
+
+    /**
+     * The DM page's counterpart. Saving a DM was enforced and covered from the day saved messages
+     * landed; what was missing was the lookup the action row needs on first paint to know which
+     * bookmark to draw filled, and therefore the button itself.
+     */
+    @Test
+    void savedIdsInConversationIsScopedToThatConversation() {
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var here = conversations.directBetween(alice, bob);
+        var elsewhere = conversations.createGroup("Elsewhere", alice, java.util.List.of(bob));
+        var mine = conversations.post(here, bob, "worth keeping");
+        var other = conversations.post(elsewhere, bob, "also worth keeping");
+        em.flush();
+        saved.saveConversationMessage(mine.getId(), alice);
+        saved.saveConversationMessage(other.getId(), alice);
+        em.flush();
+
+        assertThat(saved.savedIdsInConversation(alice, here.getId())).containsExactly(mine.getId());
+        // Channel and conversation message ids come from independent sequences, so the two lookups
+        // must not see each other's rows — a saved DM must never mark a channel message.
+        assertThat(saved.savedIdsInChannel(alice, here.getId())).isEmpty();
+        // And it is per reader, like every other saved lookup.
+        assertThat(saved.savedIdsInConversation(bob, here.getId())).isEmpty();
+    }
+
+    /** A thread reply in a DM is a conversation message, so it can be saved like any other. */
+    @Test
+    void aThreadReplyInAConversationCanBeSaved() {
+        var alice = newUser("alice");
+        var bob = newUser("bob");
+        var conv = conversations.directBetween(alice, bob);
+        var parent = conversations.post(conv, bob, "question");
+        var reply = conversations.replyInThread(parent.getId(), bob, "answer");
+        em.flush();
+
+        saved.saveConversationMessage(reply.getId(), alice);
+        em.flush();
+
+        assertThat(saved.savedIdsInConversation(alice, conv.getId())).containsExactly(reply.getId());
+    }
+
+    /** A DM with yourself is a conversation, and its notes are savable like any other. */
+    @Test
+    void aSelfConversationsMessagesCanBeSaved() {
+        var solo = newUser("solo");
+        var conv = conversations.directBetween(solo, solo);
+        var note = conversations.post(conv, solo, "look into the flaky test");
+        em.flush();
+
+        saved.saveConversationMessage(note.getId(), solo);
+        em.flush();
+
+        assertThat(saved.savedIdsInConversation(solo, conv.getId())).containsExactly(note.getId());
+        assertThat(saved.hasSavedConversationMessage(solo, note.getId())).isTrue();
+    }
 }

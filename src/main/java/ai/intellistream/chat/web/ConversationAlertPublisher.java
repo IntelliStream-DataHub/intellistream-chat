@@ -132,9 +132,9 @@ public class ConversationAlertPublisher {
                     : author.getUsername();
             var levels = preferences.effectiveLevelsFor(conversation);
             var handles = lowercased(mentions.extractHandles(message.getBodyMarkdown()));
-            // @channel / @here / @everyone name the room, so they name everyone in it. See the
-            // commit that wired this: a conversation needs no fan-out table to answer that
-            // question, because "everyone in the room" is the alert loop it is already inside.
+            // @channel / @here / @everyone name the room, so they name everyone in it. A
+            // conversation needs no `message_mentions` equivalent to answer "who is everyone here":
+            // that set is the loop this is already standing inside. See the class note above.
             boolean broadcastHandle = handles.stream().anyMatch(h -> MentionService.broadcastFor(h) != null);
             var inThread = lowercased(threadParticipants);
 

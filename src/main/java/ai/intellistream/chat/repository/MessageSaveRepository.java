@@ -72,6 +72,14 @@ public interface MessageSaveRepository extends JpaRepository<MessageSave, Long> 
     List<Long> findSavedMessageIdsInChannel(@Param("user") User user,
                                             @Param("channelId") Long channelId);
 
+    /** The same, for one conversation — what the DM page needs on first paint. */
+    @Query("""
+            select s.conversationMessage.id from MessageSave s
+            where s.user = :user and s.conversationMessage.conversation.id = :conversationId
+            """)
+    List<Long> findSavedMessageIdsInConversation(@Param("user") User user,
+                                                 @Param("conversationId") Long conversationId);
+
     /** Save if absent, ignore the duplicate — a double-click is one save, not an error. */
     @Modifying(flushAutomatically = true)
     @Query(value = """

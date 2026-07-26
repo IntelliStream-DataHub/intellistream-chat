@@ -84,6 +84,31 @@ class MarkdownRendererTest {
                 .contains("works like @channel");
     }
 
+    /**
+     * The pill has to name the room it is actually in. In a direct or group conversation the old
+     * wording said "this channel", which was wrong twice over — there is no channel, and until
+     * conversations gained their own fan-out the handle notified nobody. The second half is fixed;
+     * this is the first.
+     */
+    @Test
+    void aBroadcastPillInAConversationTalksAboutTheConversation() {
+        var html = renderer.renderInConversation("heads up @channel");
+        assertThat(html).contains("Notifies everyone in this conversation")
+                .doesNotContain("member of this channel");
+
+        assertThat(renderer.renderInConversation("@everyone please read"))
+                .contains("everyone in this conversation");
+        assertThat(renderer.renderInConversation("@here quick one"))
+                .contains("the people here who are online right now");
+    }
+
+    /** And a channel keeps the wording it had — this is additive, not a rename. */
+    @Test
+    void aBroadcastPillInAChannelIsUnchanged() {
+        assertThat(renderer.render("heads up @channel"))
+                .contains("Notifies every member of this channel");
+    }
+
     /** N21: a broadcast inside code is documentation, not an announcement. */
     @Test
     void broadcastInsideCodeIsNotDecorated() {

@@ -85,6 +85,17 @@ public class SavedMessageRestController {
         return saved.savedIdsInChannel(currentUser.resolve(principal), channelId);
     }
 
+    /**
+     * The same, for one conversation. A separate route rather than an optional second parameter on
+     * the one above: channel ids and conversation message ids come from independent sequences, so
+     * "which of these are saved" is two different questions and a single endpoint answering either
+     * depending on which parameter was supplied would have to guess when it got both.
+     */
+    @GetMapping("/conversation-ids")
+    public List<Long> idsInConversation(@RequestParam Long conversationId, Principal principal) {
+        return saved.savedIdsInConversation(currentUser.resolve(principal), conversationId);
+    }
+
     @PutMapping("/messages/{id}")
     public ResponseEntity<Void> save(@PathVariable Long id, Principal principal) {
         var me = currentUser.resolve(principal);
@@ -101,11 +112,7 @@ public class SavedMessageRestController {
         return ResponseEntity.noContent().build();
     }
 
-    /**
-     * Saving a DM. The endpoint exists and is enforced; the DM page does not yet offer the button —
-     * its action row lives in {@code static/js/conversation.js}, which this change does not touch.
-     * Saved DMs already render on {@code /saved}, so the remaining work is one button.
-     */
+    /** Saving a DM. Reached from the DM action row in {@code static/js/conversation.js}. */
     @PutMapping("/conversation-messages/{id}")
     public ResponseEntity<Void> saveConversationMessage(@PathVariable Long id, Principal principal) {
         var me = currentUser.resolve(principal);

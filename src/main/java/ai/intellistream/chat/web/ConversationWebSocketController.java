@@ -72,7 +72,7 @@ public class ConversationWebSocketController {
         }
         var conversation = conversations.requireById(conversationId);
         var saved = conversations.post(conversation, user, payload.body());
-        var dto = ConversationMessageDto.from(saved, markdown.render(saved.getBodyMarkdown()));
+        var dto = ConversationMessageDto.from(saved, markdown.renderInConversation(saved.getBodyMarkdown()));
         broker.convertAndSend("/topic/conversations/" + conversationId, dto);
         // Separately, tell members who aren't subscribed to this conversation right now — the
         // topic above only reaches the page they'd have to already be looking at.

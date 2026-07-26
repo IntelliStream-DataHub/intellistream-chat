@@ -211,7 +211,7 @@ public class HomeController {
         var replyCounts = conversationService.threadReplyCounts(rows);
         var messages = rows.stream()
                 .map(m -> ConversationMessageDto.from(m,
-                        markdown.render(m.getBodyMarkdown()),
+                        markdown.renderInConversation(m.getBodyMarkdown()),
                         attachmentMap.getOrDefault(m.getId(), List.of()),
                         reactionMap.getOrDefault(m.getId(), List.of()),
                         replyCounts.getOrDefault(m.getId(), 0L),

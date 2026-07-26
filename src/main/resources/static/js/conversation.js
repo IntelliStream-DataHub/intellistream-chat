@@ -185,6 +185,56 @@
     btn.querySelector('.reaction-count').textContent = g.count;
     return btn;
   };
+  // ---------- Saved messages ----------
+  // Which of this conversation's messages the viewer has saved, as strings so a data-id compares
+  // directly. Fetched once rather than carried on every ConversationMessageDto: a save is a fact
+  // about one reader, and putting it on the message would mean a join on the feed's read path to
+  // serve it. Same shape as the channel page, same reasoning.
+  //
+  // The endpoint and its tests have been here since saved messages landed; the DM page just never
+  // got the button, because its action row lives in a file that change did not touch.
+  const savedMessageIds = new Set();
+  const repaintActions = (id) => {
+    const sel = id === undefined
+        ? 'li.message'
+        : 'li.message[data-id="' + CSS.escape(String(id)) + '"]';
+    document.querySelectorAll(sel).forEach((el) => {
+      el.querySelector('.message-actions')?.remove();
+      attachActions(el);
+    });
+  };
+  const loadSavedIds = async () => {
+    try {
+      const res = await fetch('/api/saved/conversation-ids?conversationId='
+              + encodeURIComponent(conversationId),
+          { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
+      if (!res.ok) return;
+      const ids = await res.json();
+      if (!Array.isArray(ids)) return;
+      savedMessageIds.clear();
+      for (const id of ids) savedMessageIds.add(String(id));
+      // The rows on screen were drawn before the answer arrived; repaint their toolbars.
+      repaintActions();
+    } catch (_) {
+      // A failed lookup leaves every bookmark drawn as "not saved". Clicking one still saves,
+      // which is idempotent server-side, so the worst case is a wrong-looking icon.
+    }
+  };
+
+  async function toggleSave(id, save) {
+    const res = await fetch('/api/saved/conversation-messages/' + encodeURIComponent(id), {
+      method: save ? 'PUT' : 'DELETE', headers: headers(),
+    });
+    if (!res.ok && res.status !== 204) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      alert('Could not update your saved messages: ' + (err.message || err.error || res.statusText));
+      return;
+    }
+    if (save) savedMessageIds.add(String(id)); else savedMessageIds.delete(String(id));
+    // Repaint every copy — the feed row and, for a thread parent, the panel's twin.
+    repaintActions(id);
+  }
+
   const buildActions = (li) => {
     const authorUsername = li.dataset.author;
     const hasBody = !!(li.dataset.bodyMarkdown && li.dataset.bodyMarkdown.length > 0);
@@ -205,6 +255,12 @@
     // A reply may not be replied to: threads are one level deep, which is what the server enforces
     // and what makes the panel a flat list. Offering the button anyway would be a guaranteed 400.
     if (!isThreadReply) html += action('reply', 'reply', 'Reply in thread');
+    // Saving is a private note to yourself that leaves no trace in the conversation, so anyone who
+    // can read the message can keep it. Inline rather than behind an overflow for the reason the
+    // channel row keeps it inline: one click is the whole point of a to-do queue.
+    html += savedMessageIds.has(String(li.dataset.id))
+        ? action('unsave', 'bookmark-filled', 'Remove from saved')
+        : action('save', 'bookmark', 'Save for later');
     if (isMine && hasBody) html += action('edit', 'pencil', 'Edit');
     if (canDelete) html += action('delete', 'trash', 'Delete');
     actions.innerHTML = html;
@@ -215,8 +271,10 @@
     const actions = buildActions(li);
     if (actions.children.length > 0) li.appendChild(actions);
   };
-  // Wire actions for server-rendered messages on initial load.
+  // Wire actions for server-rendered messages on initial load, then ask which of them are saved
+  // and repaint. Drawing first and correcting means the row is usable before the round trip.
   messagesEl?.querySelectorAll('li.message').forEach(attachActions);
+  loadSavedIds();
 
   // Feed first, then the thread panel: an older reply lives only in the panel's <ol>, so a
   // reaction or edit broadcast for it has nowhere else to land.
@@ -389,6 +447,8 @@
     if (btn.dataset.action === 'edit') startEdit(li);
     else if (btn.dataset.action === 'delete') deleteMessage(id);
     else if (btn.dataset.action === 'reply') threadPanel?.open(id);
+    else if (btn.dataset.action === 'save') toggleSave(id, true);
+    else if (btn.dataset.action === 'unsave') toggleSave(id, false);
     else if (btn.dataset.action === 'react') {
       openEmojiPicker(btn, (emoji) => toggleReaction(id, emoji, false));
     }
@@ -842,6 +902,10 @@
     const setOpen = (open) => {
       panel.hidden = !open;
       toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      // Both header panels are .channel-admin-dropdown, and both anchor to `right: 1rem` — two
+      // open at once is two panels in the same place. Closing the other one here rather than
+      // giving this one its own offset: they are alternatives, not a pair to compare.
+      if (open) window.__closeGroupMembersPanel?.();
     };
     toggle.addEventListener('click', (e) => { e.stopPropagation(); setOpen(panel.hidden); });
     closeBtn?.addEventListener('click', () => setOpen(false));
@@ -1063,7 +1127,13 @@
       if (open && !loaded) loadMembers();
       panel.hidden = !open;
       toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      // See the note on the settings panel: the two header dropdowns share an anchor point.
+      if (open) document.getElementById('conversation-settings-close')?.click();
     };
+    // Exposed so the settings panel can close this one when it opens. One tiny window-level surface,
+    // the same trick __refreshGroupMembers already uses, rather than hoisting both panels into a
+    // shared scope they otherwise have no reason to share.
+    window.__closeGroupMembersPanel = () => setOpen(false);
     toggle?.addEventListener('click', (e) => {
       e.stopPropagation();
       setOpen(panel.hidden);

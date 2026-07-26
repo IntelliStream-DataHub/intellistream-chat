@@ -141,6 +141,19 @@ public class SavedMessageService {
         return saves.findSavedMessageIdsInChannel(user, channelId);
     }
 
+    /**
+     * The viewer's saved message ids in one conversation — the DM page's counterpart, and the last
+     * piece that was missing between a saved DM being supported server-side and being reachable.
+     *
+     * <p>No membership check, deliberately: this returns only ids the caller already saved, so it
+     * can tell them nothing they did not already know. Reading the messages behind them still goes
+     * through the ordinary conversation checks.
+     */
+    @Transactional(readOnly = true)
+    public List<Long> savedIdsInConversation(User user, Long conversationId) {
+        return saves.findSavedMessageIdsInConversation(user, conversationId);
+    }
+
     /** Which of these channel-message ids the viewer has saved. One query for a whole page. */
     @Transactional(readOnly = true)
     public Set<Long> savedIdsAmong(User user, Collection<Long> messageIds) {
