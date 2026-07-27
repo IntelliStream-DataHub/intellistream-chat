@@ -667,7 +667,7 @@
 <section id="quickstart" class="band">
   <div class="wrap">
     <h2><span class="marker"></span>Quick start</h2>
-    <p class="intro">Four commands to a running workspace on your own machine.</p>
+    <p class="intro">Five commands to a running workspace on your own machine.</p>
 
     <div class="qs-step">
       <h3><span class="num">1</span>Clone</h3>
@@ -676,12 +676,12 @@ cd intellistream-chat</code></pre>
     </div>
 
     <div class="qs-step">
-      <h3><span class="num">2</span>Install Java 25 and Podman</h3>
+      <h3><span class="num">2</span>Install Java 25, Podman and jq</h3>
 <pre><code># Fedora / RHEL / AlmaLinux
-sudo dnf install -y java-25-openjdk-devel podman podman-compose
+sudo dnf install -y java-25-openjdk-devel podman podman-compose jq
 
 # Ubuntu / Debian
-sudo apt install -y openjdk-25-jdk podman podman-compose</code></pre>
+sudo apt install -y openjdk-25-jdk podman podman-compose jq</code></pre>
       <p class="qs-note">
         Docker works too if you already have it, the compose file is plain OCI.
         JDK 25 is in the default archives on the RHEL family 9 and 10 (AlmaLinux, Rocky, RHEL),
@@ -698,7 +698,13 @@ sudo apt install -y openjdk-25-jdk podman podman-compose</code></pre>
     </div>
 
     <div class="qs-step">
-      <h3><span class="num">4</span>Run it</h3>
+      <h3><span class="num">4</span>Export the dev OIDC client secret</h3>
+<pre><code>export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="ichat-client") | .secret' keycloak/realm.json)</code></pre>
+      <p class="qs-note">Needed in every new shell you start the app from. <code>KEYCLOAK_CLIENT_SECRET</code> has no default, in dev as much as in production, so the app fails fast, printing that same <code>jq</code> line, rather than starting into a login that would break at the token exchange.</p>
+    </div>
+
+    <div class="qs-step">
+      <h3><span class="num">5</span>Run it</h3>
 <pre><code>./gradlew bootRun</code></pre>
       <p class="qs-note">Open <a href="http://localhost:8080">http://localhost:8080</a> and sign in as alice. The Keycloak admin console is on <a href="http://localhost:8081">http://localhost:8081</a> with <code>admin</code> / <code>admin</code>.</p>
     </div>

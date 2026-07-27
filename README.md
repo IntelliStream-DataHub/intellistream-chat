@@ -21,29 +21,37 @@ for how well it ages, not for how new it is.
 
 ## Quick start
 
-Four commands to a running workspace on your own machine.
+Five commands to a running workspace on your own machine.
 
 ```bash
 # 1. Clone
 git clone https://github.com/IntelliStream-DataHub/intellistream-chat.git
 cd intellistream-chat
 
-# 2. Install Java 25 and Podman
+# 2. Install Java 25, Podman and jq
 #    Fedora / RHEL / AlmaLinux
-sudo dnf install -y java-25-openjdk-devel podman podman-compose
+sudo dnf install -y java-25-openjdk-devel podman podman-compose jq
 #    Ubuntu / Debian
-sudo apt install -y openjdk-25-jdk podman podman-compose
+sudo apt install -y openjdk-25-jdk podman podman-compose jq
 
 # 3. Start Postgres 18 and Keycloak 26
 podman compose up -d
 
-# 4. Run it
+# 4. Export the dev OIDC client secret
+export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="ichat-client") | .secret' keycloak/realm.json)
+
+# 5. Run it
 ./gradlew bootRun
 ```
 
 Open <http://localhost:8080> and sign in as `alice` / `alice`. The Keycloak admin console is on
 <http://localhost:8081> with `admin` / `admin`. First `podman compose up` takes 15 to 30 seconds
 while Keycloak imports the `ichat-realm` realm and its two test users, `alice` and `bob`.
+
+Step 4 is needed in every new shell you start the app from. `KEYCLOAK_CLIENT_SECRET` has no
+default, and the app fails fast — printing that same `jq` line — rather than starting into a login
+that would break at the token exchange. See [Quick start — development
+(detail)](#quick-start--development-detail).
 
 Docker works too if you already have it; the compose file is plain OCI.
 
@@ -259,12 +267,17 @@ If `java` doesn't end up on `PATH`, follow the post-install instructions Homebre
 The short version is at the top of this file. What follows is the same flow with the optional paths: the prod profile, an external database, and Vault.
 
 
-For exploring the app, hacking on it, or quick local testing. Two commands once the prerequisites above are installed:
+For exploring the app, hacking on it, or quick local testing. Three commands once the prerequisites above are installed:
 
 ```bash
 podman compose up -d   # Postgres 18 + Keycloak 26, with the 'ichat-realm' realm pre-imported
+export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="ichat-client") | .secret' keycloak/realm.json)
 ./gradlew bootRun      # the Spring Boot app on :8080
 ```
+
+The `export` is not optional and is not a production-only step — the dev profile has no secret of
+its own either, so a plain `./gradlew bootRun` in a fresh shell stops at `OidcClientSecretCheck`
+before Tomcat binds.
 
 Open http://localhost:8080 and sign in as `alice` / `alice` or `bob` / `bob`. Keycloak admin console is at http://localhost:8081 (`admin` / `admin`).
 
@@ -277,7 +290,7 @@ export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="ichat-cli
 SPRING_PROFILES_ACTIVE=prod ./gradlew bootRun
 ```
 
-`KEYCLOAK_CLIENT_SECRET` has no default (`application.yml` deliberately leaves it empty rather than falling back to the secret baked into `keycloak/realm.json`), so it must be set explicitly. The app **refuses to start** without it — an empty string is a valid property value, so previously the context came up, `/actuator/health` returned 200, and then every login died at the token exchange and bounced to `/login?error` with nothing in the log. See `OidcClientSecretCheck`.
+`KEYCLOAK_CLIENT_SECRET` has no default (`application.yml` deliberately leaves it empty rather than falling back to the secret baked into `keycloak/realm.json`), so it must be set explicitly in every profile, dev included. The app **refuses to start** without it — an empty string is a valid property value, so previously the context came up, `/actuator/health` returned 200, and then every login died at the token exchange and bounced to `/login?error` with nothing in the log. See `OidcClientSecretCheck`.
 
 ### Quick start — without Podman (external Postgres + Keycloak)
 
@@ -649,6 +662,7 @@ systemctl --user enable --now podman.socket
 export DOCKER_HOST=unix:///run/user/$(id -u)/podman/podman.sock
 
 podman compose up -d            # or `podman-compose up -d`
+export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="ichat-client") | .secret' keycloak/realm.json)
 ./gradlew bootRun
 ```
 
