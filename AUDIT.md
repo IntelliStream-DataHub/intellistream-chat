@@ -19,12 +19,95 @@ findings reported independently by two tracks are marked **[2 auditors]**.
 > loops, a `TenantContext` ThreadLocal leak) does **not** apply: Spring owns all session threads
 > and teardown here, and there's no per-connection external resource to drain.
 
-Everything below is resolved. The P0/P1/P2 grouping is the severity each item carried *at the time
-of the audit*, kept so the ids stay findable rather than as any remaining order of work. Two
-entries record a deliberate limitation instead of a fix, and say so where they sit.
+The P0/P1/P2 grouping below is the severity each item carried *at the time of the audit*, kept so the
+ids stay findable rather than as any remaining order of work. The table that follows says where each
+one stands today, because a reader arriving from a `// BUG-9` comment wants that before anything
+else.
 
 ---
 
+## Status index
+
+Every finding and where it stands, so an id met in a code comment can be resolved without reading the
+whole document. **Pinned by** names a file or test that cites the id, which is the strongest evidence a
+fix is still in place — a regression has to delete the reference to escape notice. The rest were closed
+when the audit was closed and carry no such anchor; four were re-verified against current code while
+writing this index and are marked *(re-checked)*.
+
+| Finding | What it was | Status | Pinned by |
+|---|---|---|---|
+| **SEC-1** | Rotate & un-commit the Keycloak client secret | ⚠️ Operator — Code side done — the prod profile has no secret default, so it fails fast. The **dev** secret still ships in `keycloak/realm.json` on purpose, so `podman compose up` works for newcomers; rotating it is item 1 of the README hardening checklist. | — |
+| **SEC-2** | Prod profile defaults auth endpoints to plaintext HTTP | ✅ Fixed *(re-checked)* | — |
+| **BUG-1** | Editing a message that keeps a mention throws 500 | ✅ Fixed | — |
+| **SEC-3** | Purge maintainer LAN IP so the default quickstart works for outsiders | ✅ Fixed *(re-checked)* | — |
+| **SEC-4** | Poll voting uses the read check | ✅ Fixed *(re-checked)* | `PollFlowIT.java` |
+| **SEC-5** | Username-enumeration oracle on group/DM/invite | ✅ Fixed | `ChannelRestController.java`, `GroupConversationFlowIT.java` |
+| **SEC-6** | DM reaction/edit/delete are not rate limited | ✅ Fixed | — |
+| **SEC-7** | CSP `connect-src` wildcards weaken the policy | ✅ Fixed *(re-checked)* | — |
+| **WS-1** | One throttled/oversized message tears down the whole STOMP connection | ✅ Fixed | — |
+| **WS-2** | No STOMP heartbeat or idle timeout → phantom-online sessions leak | ✅ Fixed | — |
+| **BUG-2** | Non-unique username mis-routes private notices & breaks login | ✅ Fixed | — |
+| **BUG-3** | No message catch-up after STOMP reconnect | ✅ Fixed | `ConversationMessageRepository.java`, `ConversationReactionAndEditFlowIT.java` |
+| **BUG-4** | Edit button vanishes on live/paged channel messages | ✅ Fixed | — |
+| **BUG-5** | Broken mention deep-links | ✅ Fixed | — |
+| **BUG-6** | Reminder batch aborts on one bad row | ✅ Fixed | — |
+| **BUG-7** | Presence counter corrupted by duplicate disconnects | ✅ Fixed | — |
+| **BUG-8** | Upload captions bypass mention + search indexing | ✅ Fixed | — |
+| **BUG-9** | Channel delete leaks attachment files & Lucene docs | ✅ Fixed | `CleanupProperties.java`, `CleanupTasks.java` |
+| **BUG-10** | DM attachment files orphaned on message delete | ✅ Fixed | — |
+| **BUG-11** | Reminder `at`-times resolve in server timezone | ✅ Fixed | — |
+| **BUG-12** | Backgrounded tab wipes unread/mention state | ✅ Fixed | — |
+| **BUG-13** | Timezone-split day grouping & timestamps | ✅ Fixed | — |
+| **BUG-14** | Reacting deletes an in-progress edit form | ✅ Fixed | `conversation.js` |
+| **BUG-15** | Live append force-scrolls readers to the bottom | ✅ Fixed | `conversation.js` |
+| **BUG-16** | `appendMessage` has no de-dupe → duplicate rows | ✅ Fixed | — |
+| **SEC-8** | No rate limit on markdown preview** low | ✅ Fixed | — |
+| **SEC-9** | No rate limit on channel creation** low | ✅ Fixed | — |
+| **SEC-10** | Presence mutations & GET batch unbounded** low | ✅ Fixed | — |
+| **SEC-11** | No SUBSCRIBE-frame rate limit** low | ✅ Fixed | — |
+| **SEC-12** | `forward-headers-strategy: framework` trusts X-Forwarded-* unconditionally | ✅ Fixed | — |
+| **SEC-13** | Realm enables direct-access (ROPC) grant** low | ✅ Fixed | — |
+| **SEC-14** | nginx example disables body-size cap** low | ✅ Fixed | — |
+| **SEC-15** | Presence is globally visible to all authenticated users** low | ✅ Fixed | `StompAuthorizationConfig.java` |
+| **BUG-17** | Check-then-act insert races surface as 500s** low | ✅ Fixed | — |
+| **BUG-18** | `openThread` has no stale-response guard** low | ✅ Fixed | — |
+| **BUG-19** | Avatar-preview blob leak + optimistic preview** low | ✅ Fixed | — |
+| **BUG-20** | Keyset pagination lacks an id tie-break** low | ✅ Fixed | `MessageRepository.java`, `MessageService.java` |
+| **BUG-21** | afterCommit index write has an unrecoverable loss window** low | ✅ Fixed | `ChannelService.java`, `MessageService.java` |
+| **BUG-22** | RateLimiter prune race under-enforces at the sweep** low | 📌 Limitation — Fixed per-process. `RateLimiter` is in-memory, so it still does not compose across replicas — deferred with the rest of horizontal scaling. | `RateLimiter.java` |
+| **BUG-23** | `demote` last-admin TOCTOU** low | ✅ Fixed | — |
+| **BUG-24** | LuceneBootstrap loads the whole messages table into heap** low | ✅ Fixed | `LuceneBootstrap.java`, `MessageRepository.java` |
+| **CLEAN-1** | Scheduled orphan-attachment sweep** low **[backstop for BUG-9/10] | ✅ Fixed | `AttachmentRepository.java`, `CleanupTasks.java` |
+| **CLEAN-2** | Avatar orphan sweep + fix the replace-path leak** low **[NEW leak] | ✅ Fixed | `AvatarService.java`, `CleanupTasks.java` |
+| **CLEAN-3** | Periodic Lucene↔DB reconciliation** low **[backstop for BUG-21] | ✅ Fixed | `CleanupTasks.java`, `ConversationService.java` |
+| **CLEAN-4** | Cleanup observability: dry-run + enabled flags + summary logging** low | ✅ Fixed | — |
+| **CLEAN-5** | The sweeps are single-instance only** low | 📌 Limitation — Recorded, not fixed: the sweeps race across nodes because `@EnableScheduling` runs on every one. Single-node deployments are unaffected; see `CleanupProperties`. | `CleanupProperties.java` |
+| **OSS-1** | Community health files | ✅ Fixed | — |
+| **OSS-2** | Add missing license headers | ✅ Fixed | — |
+| **OSS-3** | Third-party notices | ✅ Fixed | — |
+| **OSS-4** | Add CI | ✅ Fixed | — |
+| **OSS-5** | Ship `application-dev.properties.example` | ✅ Fixed | — |
+| **OSS-6** | Refresh or trim `security_plan.md` | ✅ Fixed | — |
+| **OSS-7** | Rework the README "AI-slop" framing | ✅ Fixed | — |
+| **OSS-8** | Relocate the root `index.html` | ✅ Fixed | — |
+| **OSS-9** | Fix test-count claims | ✅ Fixed | — |
+| **OSS-10** | Publish point and stale branches | 📌 Tracked elsewhere — Release logistics rather than an audit finding. | — |
+| **OSS-11** | `.gitignore` whitelists `!.env.example` but none exists | ✅ Fixed | — |
+
+### Still open, and owned by whoever deploys it
+
+Not code defects — decisions that only a deployment can make. All four are in the README's production
+hardening checklist, and they are the whole of what the earlier security review
+([`security_plan.md`](security_plan.md)) still lists as open.
+
+- **Rotate the bundled Keycloak client secret.** It ships so the compose quickstart works; it is a
+  credential the moment your instance is real.
+- **Turn on email verification** before opening registration, or bots can mass-register.
+- **Replace the rate limiter** before running more than one node — it is per-process.
+- **HSTS is set unconditionally**, including over plain HTTP in development. A no-op without TLS,
+  and accepted.
+
+---
 ## P0 — Release blockers
 
 ### SEC-1 · Rotate & un-commit the Keycloak client secret  🔴 critical  **[2 auditors, verified]**

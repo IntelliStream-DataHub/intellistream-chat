@@ -1,7 +1,12 @@
 # IntelliStream Chat — Security Plan
 
-> **Note:** this is the historical hardening audit and checklist. For the pre-release audit —
-> every finding, what it was and what was done about it — see [`AUDIT.md`](AUDIT.md).
+> **Start with [`AUDIT.md`](AUDIT.md).** Its status index lists every finding from both reviews and
+> where each one stands, including the four items that are still open and owned by whoever deploys
+> this. That is the document to read if you want the current position.
+>
+> This file is the *earlier* hardening review (April 2026), kept for its reasoning: what was
+> examined, what was decided, and why. It is a record of a moment, not a live checklist, and the
+> "still open" list inside it is reproduced — and kept current — in `AUDIT.md`.
 
 > **Companion test files:**
 > - `src/test/java/ai/intellistream/chat/integration/SecurityBoundaryIT.java` — locks in the
