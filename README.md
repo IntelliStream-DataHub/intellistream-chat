@@ -55,6 +55,22 @@ that would break at the token exchange. See [Quick start — development
 
 Docker works too if you already have it; the compose file is plain OCI.
 
+**When you're done.** `Ctrl-C` in the terminal running `./gradlew bootRun` stops the app — Gradle
+reports the cancelled run as a failed build, which is expected and not an error on your part. Then
+stop the containers:
+
+```bash
+podman compose down      # stop Postgres and Keycloak; chat history survives
+podman compose down -v   # also wipe the Postgres volume — chat history gone, fresh schema on next up
+```
+
+The `intellistream-chat-pg` volume is the only difference between those two. Keycloak keeps no
+volume of its own — it runs `start-dev` against a database inside the container — so the realm
+re-imports on either form and `alice` and `bob` come back regardless.
+
+Neither form touches `data/`, where attachments, avatars and the Lucene search index live on the
+host rather than in a container. For a genuinely clean slate, remove that directory as well.
+
 **Deploying to a server rather than trying it out?** That is a different job, and it has its own
 guides: [`QUICKSTART-MANUAL.md`](QUICKSTART-MANUAL.md) for PostgreSQL and Keycloak on the host plus
 the installer script and the hardened systemd unit, [`QUICKSTART-COMPOSE.md`](QUICKSTART-COMPOSE.md)

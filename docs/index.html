@@ -709,6 +709,15 @@ sudo apt install -y openjdk-25-jdk podman podman-compose jq</code></pre>
       <p class="qs-note">Open <a href="http://localhost:8080">http://localhost:8080</a> and sign in as alice. The Keycloak admin console is on <a href="http://localhost:8081">http://localhost:8081</a> with <code>admin</code> / <code>admin</code>.</p>
     </div>
 
+    <div class="qs-step">
+      <h3>When you're done</h3>
+<pre><code>Ctrl-C                   # stops the app in the terminal running bootRun
+
+podman compose down      # stop Postgres and Keycloak; chat history survives
+podman compose down -v   # also wipe the Postgres volume, for a fresh database</code></pre>
+      <p class="qs-note">Gradle reports the cancelled run as a failed build on <code>Ctrl-C</code>, which is expected. The Postgres volume is the only difference between the two <code>down</code> forms — Keycloak keeps no volume of its own, so the realm re-imports either way and the test users come back. Neither touches <code>data/</code>, where attachments, avatars and the Lucene search index live on the host rather than in a container, so remove that directory too for a genuinely clean slate.</p>
+    </div>
+
     <div class="qs-small">
       <h3>It fits on a very small machine</h3>
       <p>

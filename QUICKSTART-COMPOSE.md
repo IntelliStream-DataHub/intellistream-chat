@@ -60,10 +60,19 @@ export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="ichat-cli
 
 ## Stopping / resetting
 
+Stop the app first with `Ctrl-C` in the terminal running `bootRun` — Gradle reports the cancelled
+run as a failed build, which is expected. Then the containers:
+
 ```bash
 podman compose down        # stop containers, keep the Postgres volume (chat history survives)
-podman compose down -v     # also wipe the volume — full reset, realm re-imports on next up
+podman compose down -v     # also wipe the volume — chat history gone, fresh schema on next up
 ```
+
+That volume is the only difference between the two. Keycloak keeps no volume of its own, so the
+realm re-imports on either form and `alice` / `bob` come back regardless.
+
+Neither touches `data/` on the host (attachments, avatars, Lucene index), so delete that too if you
+want `down -v` to leave nothing behind.
 
 ## Troubleshooting
 
