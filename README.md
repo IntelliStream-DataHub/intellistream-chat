@@ -362,17 +362,17 @@ Defaults that fail fast and dump enough to debug:
 
 | Flag | Why |
 |---|---|
-| `-Xms1g -Xmx1g` | Fix the heap. Resizing during a load spike causes a full GC right when you can least afford it. 1 GiB comfortably handles low-thousands of concurrent WebSocket sessions; bump to 2 GiB if you cross ~5k concurrent users or grow a large Lucene index. |
+| `-Xms256m -Xmx2g` | A low floor and a generous ceiling, which is what the installer writes. This app is self-hosted on hardware it cannot predict: a five-person workspace should not reserve memory it never touches, and a thousand-person one should not be capped. 1 GiB comfortably handles low-thousands of concurrent WebSocket sessions, so 2 GiB leaves room for a large Lucene index. **Set `-Xms` equal to `-Xmx`** if you would rather have a predictable RSS to size a `MemoryMax=` against — that is the reason to fix the heap, more than any single GC pause. |
+| `-XX:+UseG1GC` | Not needed — G1 is the JVM default and is the right collector at this heap size. Do not reach for ZGC here; see below. |
 | `-XX:+ExitOnOutOfMemoryError` | Don't limp along with a half-broken VM — let systemd restart instead. |
 | `-XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=…` | A 1 GiB heap dump is small. You'll want it the next time OOM hits. Make sure the path is writable and rotated occasionally. |
 | `-XX:+UseStringDeduplication` | G1-only. Collapses duplicate `String` byte arrays — free win on a chat app where the same usernames / channel names appear in every message DTO. |
-| `-XX:+AlwaysPreTouch` | Pre-faults every heap page at startup. Adds ~1 s to boot, removes first-allocation jitter at runtime. Worth it for a long-lived server. |
+| `-XX:+AlwaysPreTouch` | Pre-faults every heap page at startup: ~1 s of boot for no first-allocation jitter later. Only worth setting alongside `-Xms` = `-Xmx`, since it pre-faults the *initial* heap — with a 256 MiB floor it touches an eighth of what you will end up using. Not in the shipped default for that reason. |
 | `-Duser.timezone=UTC` | Container hosts often default to local TZ; pin to UTC so log timestamps line up with your dashboards. |
 
 Things you do **not** need to set:
 
 - `-XX:MaxRAMPercentage` — only useful when running in a container with a cgroup limit and no fixed `-Xmx`.
-- `-XX:+UseG1GC` — already the default since Java 9.
 - `-XX:+UseCompressedOops` — already on for any heap < 32 GiB.
 - `--enable-preview` — Spring Boot 4 doesn't use preview language features here.
 

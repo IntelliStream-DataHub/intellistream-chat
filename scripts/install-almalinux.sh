@@ -370,7 +370,7 @@ ICHAT_BRANDING_DIR=${APP_HOME}/data/branding
 ICHAT_SEARCH_LUCENE_DIR=${APP_HOME}/data/lucene
 
 # --- JVM ---
-JAVA_OPTS=-Xms256m -Xmx${HEAP_MAX} -XX:+UseZGC -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=${APP_HOME}/data/heapdumps --enable-native-access=ALL-UNNAMED
+JAVA_OPTS=-Xms256m -Xmx${HEAP_MAX} -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=${APP_HOME}/data/heapdumps -XX:+UseStringDeduplication -Duser.timezone=UTC --enable-native-access=ALL-UNNAMED
 EOF
   chown root:"$APP_GROUP" "$ENV_FILE"
   chmod 0640 "$ENV_FILE"
