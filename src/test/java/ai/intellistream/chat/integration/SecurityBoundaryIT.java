@@ -53,7 +53,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Locks in the security boundaries the codebase enforces today. If any of these regress, an
- * authorization or input-validation hole has slipped in. Companion to {@code security_plan.md}.
+ * authorization or input-validation hole has slipped in. Companion to {@code AUDIT.md}.
  */
 @Testcontainers
 @SpringBootTest(

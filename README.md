@@ -150,7 +150,7 @@ codebase is small, conventional and covered:
 - **Security posture is explicit.** A strict CSP with no inline script, two separate filter chains,
   STOMP `SUBSCRIBE` authorisation, server-side Markdown rendering sanitised with jsoup, and a
   hardened systemd unit that scores 4.6 OK on `systemd-analyze security`. The open items are listed
-  honestly in [`security_plan.md`](security_plan.md) and [`SECURITY.md`](SECURITY.md).
+  honestly in [`AUDIT.md`](AUDIT.md) and [`SECURITY.md`](SECURITY.md).
 - **One artifact, one unit file.** `./gradlew assemble` produces a single runnable jar. Deployment is
   copying it and `systemctl restart`.
 
@@ -858,7 +858,7 @@ The authoritative knob is **Keycloak**, not the chat app. To change the timeout:
 3. Bump `server.servlet.session.timeout` in `application.yml` (or set `SERVER_SERVLET_SESSION_TIMEOUT` as an env var) to match — otherwise Spring's web session may expire before Keycloak's.
 4. Update the `IDLE_TIMEOUT_MS` constant at the top of `static/js/idle-logout.js` if you want the proactive client-side logout to align too.
 
-For production, also: terminate TLS in front of the JVM (Caddy / Nginx / a managed LB), front Keycloak with TLS too, and review `security_plan.md` for the full hardening checklist.
+For production, also: terminate TLS in front of the JVM (Caddy / Nginx / a managed LB), front Keycloak with TLS too, and work through the production hardening checklist below.
 
 ### Admin email visibility
 
@@ -893,7 +893,7 @@ The systemd / SELinux / Quick start sections cover the mechanical setup. This is
 | ☐ | Enable CVE scanning in CI (OWASP `dependency-check`, Dependabot, etc.) | Hibernate / Tomcat / Jackson ship CVEs over any deploy's lifetime. |
 | ☐ | Replace the in-memory `RateLimiter` before scaling past one replica | Per-process limits don't compose across N replicas. |
 
-`security_plan.md` has the full per-finding rationale; `SecurityBoundaryIT` and `InternetExposureSecurityIT` pin the invariants.
+[`AUDIT.md`](AUDIT.md) has every finding, its status, and the full per-finding rationale; `SecurityBoundaryIT` and `InternetExposureSecurityIT` pin the invariants.
 
 ## Tests
 
@@ -927,7 +927,7 @@ The first run pulls `postgres:18-alpine` (~80 MB); subsequent runs reuse the cac
 - **Unit** (`src/test/java/.../service/`, `.../security/`) — pure-logic branches: Markdown rendering + sanitization, slug rules, search input validation, role conversion. No Docker.
 - **Integration** (`src/test/java/.../integration/`) — `IntegrationTestApplication` boots a slimmed Spring context (no security / OAuth2 / web autoconfig) against Testcontainers Postgres and exercises the service layer end-to-end. Each IT class registers its own `ichat.search.lucene-dir` via `TestLuceneDirs.register(...)` so cached Spring contexts don't fight over the Lucene lock.
 - **Controller-shaped ITs** (`AvatarBroadcastIT`, `HovercardAndDmFlowIT`, `MentionBroadcastIT`) wire a controller manually with mocked `CurrentUser` / `SimpMessagingTemplate` to assert broadcast wiring without a full web layer.
-- **Security boundary ITs** (`SecurityBoundaryIT`, `InternetExposureSecurityIT`) pin the auth/authz invariants — see `security_plan.md`.
+- **Security boundary ITs** (`SecurityBoundaryIT`, `InternetExposureSecurityIT`) pin the auth/authz invariants — see [`AUDIT.md`](AUDIT.md).
 
 ### Constraints worth knowing
 
