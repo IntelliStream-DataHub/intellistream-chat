@@ -141,7 +141,7 @@ Two design decisions behind those numbers are worth knowing before you fork:
 Performance is easy to demonstrate and hard to keep. What makes that possible here is that the
 codebase is small, conventional and covered:
 
-- **975 tests across 101 classes** (47 integration, 54 unit), running in about six minutes.
+- **981 tests across 101 classes** (47 integration, 54 unit), running in about six minutes.
   Integration tests run against a real PostgreSQL via Testcontainers — never H2, which silently
   accepts SQL that Postgres rejects.
 - **Conventions are written down.** [`AGENT.md`](AGENT.md) documents the decisions you cannot infer
@@ -154,7 +154,7 @@ codebase is small, conventional and covered:
 - **One artifact, one unit file.** `./gradlew assemble` produces a single runnable jar. Deployment is
   copying it and `systemctl restart`.
 
-**Maturity:** 1.0, under active development. Tested and audited: 975 tests across 101 classes, the
+**Maturity:** 1.0, under active development. Tested and audited: 981 tests across 101 classes, the
 integration suite runs against a real PostgreSQL, and the installer is verified end to end on
 AlmaLinux 10.2 with SELinux enforcing. What it has not had is years of production exposure across
 many deployments, so read the code before trusting it with anything sensitive, follow the hardening
@@ -190,7 +190,7 @@ scratch. A feature typically touches one service, one controller, one migration 
    migration plus a JPA entity plus a repository. New endpoint? Decide `requireMember` or
    `requireWriteAccess` first.
 5. **Keep the suite green.** Add a unit test for pure logic and an integration test under
-   `integration/` for anything database-shaped. The existing 975 tests are the floor, not the ceiling.
+   `integration/` for anything database-shaped. The existing 981 tests are the floor, not the ceiling.
 
 ### What's intentionally under-engineered (so a fork can swap it)
 
@@ -922,7 +922,7 @@ The systemd / SELinux / Quick start sections cover the mechanical setup. This is
 
 ## Tests
 
-The suite is **975 tests across 101 classes** — 436 unit tests that run anywhere, and 539 integration tests that need a Postgres container. Both layers run from a single `./gradlew test`.
+The suite is **981 tests across 101 classes** — 436 unit tests that run anywhere, and 545 integration tests that need a Postgres container. Both layers run from a single `./gradlew test`.
 
 ### Run everything
 
