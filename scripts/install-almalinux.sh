@@ -54,6 +54,7 @@ CLIENT_ID="ichat-client"
 CLIENT_SECRET="${KEYCLOAK_CLIENT_SECRET:-}"
 
 JAR_SRC=""
+HEAP_MIN="512m"
 HEAP_MAX="1g"
 BIND_ADDRESS="127.0.0.1"
 BIND_PORT="8080"
@@ -109,6 +110,9 @@ Application:
                           with ./gradlew bootJar.
   --client-id ID          OIDC client id (default: ${CLIENT_ID}).
   --heap SIZE             JVM max heap (default: ${HEAP_MAX}).
+  --heap-min SIZE         JVM initial heap (default: ${HEAP_MIN}). Set it equal to --heap on a
+                          machine with memory to spare: G1 sizes the young generation from the
+                          *current* heap, so a low floor collects more often until it grows.
   --bind ADDR             Listen address (default: ${BIND_ADDRESS} — keep it on
                           loopback and put a reverse proxy in front).
   --port PORT             Listen port (default: ${BIND_PORT}).
@@ -144,6 +148,7 @@ while [[ $# -gt 0 ]]; do
     --db-url)        DB_URL="${2:?}"; shift 2 ;;
     --jar)           JAR_SRC="${2:?}"; shift 2 ;;
     --heap)          HEAP_MAX="${2:?}"; shift 2 ;;
+    --heap-min)      HEAP_MIN="${2:?}"; shift 2 ;;
     --bind)          BIND_ADDRESS="${2:?}"; shift 2 ;;
     --port)          BIND_PORT="${2:?}"; shift 2 ;;
     --app-home)      APP_HOME="${2:?}"; APP_HOME_GIVEN=1; shift 2 ;;
@@ -370,7 +375,7 @@ ICHAT_BRANDING_DIR=${APP_HOME}/data/branding
 ICHAT_SEARCH_LUCENE_DIR=${APP_HOME}/data/lucene
 
 # --- JVM ---
-JAVA_OPTS=-Xms256m -Xmx${HEAP_MAX} -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=${APP_HOME}/data/heapdumps -XX:+UseStringDeduplication -Duser.timezone=UTC --enable-native-access=ALL-UNNAMED
+JAVA_OPTS=-Xms${HEAP_MIN} -Xmx${HEAP_MAX} -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=${APP_HOME}/data/heapdumps -XX:+UseStringDeduplication -Duser.timezone=UTC --enable-native-access=ALL-UNNAMED
 EOF
   chown root:"$APP_GROUP" "$ENV_FILE"
   chmod 0640 "$ENV_FILE"
