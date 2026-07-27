@@ -380,13 +380,38 @@ The app already enables **virtual threads** via `spring.threads.virtual.enabled=
 
 ### What about ZGC / generational ZGC?
 
-G1 is the right default at a 1 GiB heap (10–50 ms pauses, mature, well-understood). **ZGC** and **Shenandoah** trade ~15% RAM and ~10% throughput for sub-millisecond pauses; that's only a win once heap > ~4 GiB **and** GC pauses become user-visible. If you scale up later:
+Stay on G1 unless pauses are actually hurting you. The deciding question is not how big the heap is
+— it is whether anyone can tell when a collection happens.
+
+G1 is a large-heap collector: it runs 30–64 GiB heaps routinely, and its young pauses scale with the
+*live young data*, not with the size of the heap, so they do not grow just because you gave it more
+memory. At a 100 ms tolerance — which a chat server has, being a WebSocket fan-out rather than a
+trading system — G1 at 30 GiB is the better choice, not a compromise. **ZGC** and **Shenandoah**
+trade ~15% RAM and ~10% throughput for sub-millisecond pauses, and if nobody would have noticed the
+pause, that is a bill for nothing.
+
+Two things do change as the heap grows, and neither is fixed by switching collector:
+
+- **The risk stops being the routine pause and becomes the full GC.** G1 usually meets its pause
+  goal; what hurts at 30 GiB is an evacuation failure, which degrades to a full GC measured in
+  seconds. Give it headroom, and lower `-XX:InitiatingHeapOccupancyPercent` so concurrent marking
+  starts earlier if you see them in the log.
+- **Do not cross 32 GiB.** Compressed object pointers switch off there (verified on the OpenJDK 25
+  this ships against: on at `-Xmx31g`, off at `-Xmx32g`), and every reference in the heap doubles in
+  width. A 32 GiB heap holds *less* usable data than a 31 GiB one. If you genuinely need more,
+  the next useful size is a long way above 32 GiB, not just over it.
+
+Switch to ZGC when a GC pause is visible to users and you have measured that it is the pause, not
+the database or the network. That is a real case above ~4 GiB with strict latency goals — the
+benchmarks in `scalability.md` use it for exactly that reason at 100,000 connections and an 11.2 GiB
+heap. For that:
 
 ```bash
 JAVA_OPTS=-XX:+UseZGC -Xms4g -Xmx4g -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/opt/intellistream-chat/data/heapdumps -Duser.timezone=UTC
 ```
 
-(Drop `+UseStringDeduplication` and `+AlwaysPreTouch` under ZGC — neither applies.)
+(Drop `+UseStringDeduplication` under ZGC — it is a G1 feature. Fix `-Xms` to `-Xmx` at that
+size, so the RSS is predictable and the heap is not resized while 100,000 sockets are attached.)
 
 ## Production: SELinux on AlmaLinux / RHEL
 
