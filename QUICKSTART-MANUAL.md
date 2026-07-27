@@ -154,10 +154,122 @@ Optional: Vault/OpenBao instead of a plaintext file — `ICHAT_VAULT_*`, see `sc
 
 ## 5. systemd service
 
-The unit lives in the README, under
-[Production: systemd + JVM tuning](README.md#production-systemd--jvm-tuning) — annotated directive
-by directive, sandboxed, scoring 4.6 OK on `systemd-analyze security`. `install-almalinux.sh`
-writes exactly that unit, so the two cannot drift. Don't add a second one here.
+`/etc/systemd/system/intellistream-chat.service` — or let `install-almalinux.sh` write it, which it
+does verbatim, so the documented unit and the installed one cannot drift. Every directive is
+annotated. Tested as-is on AlmaLinux 10.2 with SELinux enforcing; `systemd-analyze security` scores
+it **4.6 OK**.
+
+```ini
+[Unit]
+Description=IntelliStream Chat
+Wants=network-online.target
+After=network-online.target postgresql.service
+
+[Service]
+Type=simple
+User=intellistream-chat
+Group=intellistream-chat
+WorkingDirectory=/opt/intellistream-chat
+EnvironmentFile=/etc/intellistream-chat/env
+# New files default to mode 0750/0640 — no "other" read.
+UMask=0027
+
+ExecStart=/usr/lib/jvm/java-25-openjdk/bin/java $JAVA_OPTS -jar /opt/intellistream-chat/intellistream-chat.jar
+
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+KillSignal=SIGTERM
+
+# === Process-level sandbox ============================================
+# Block setuid/setgid binaries from elevating privilege if the JVM ever exec's one.
+NoNewPrivileges=true
+# Block creation of new namespaces (CLONE_NEWUSER / NEWNET / NEWNS …). The JVM doesn't need them.
+RestrictNamespaces=true
+# Block personality(2) — defence against syscall-table tricks that flip x86_64 to 32-bit.
+LockPersonality=true
+# Only allow native-arch syscalls. Same idea: no "compat" path for an attacker to ride.
+SystemCallArchitectures=native
+# Block creation of files with the setuid/setgid bit set.
+RestrictSUIDSGID=true
+# MemoryDenyWriteExecute is intentionally NOT set — the JIT needs writable + executable
+# pages, and the JVM won't start with it on.
+
+# === Filesystem isolation =============================================
+# Whole filesystem read-only EXCEPT what ReadWritePaths= explicitly opens up.
+# Important caveat: this only blocks WRITES. Reads of world-readable files
+# elsewhere on the host are still possible — the InaccessiblePaths= block
+# below closes the read leaks that matter.
+ProtectSystem=strict
+# The only writable location: attachments, avatars, lucene index, heap dumps.
+ReadWritePaths=/opt/intellistream-chat/data
+# /home, /root, /run/user/* become inaccessible (mounted over with empty bind).
+ProtectHome=true
+# Service gets a private /tmp and /var/tmp. Can't see other services' temp files,
+# can't leave files behind that survive the unit.
+PrivateTmp=true
+# Minimal /dev — /dev/null, /dev/zero, /dev/random, /dev/urandom, /dev/tty.
+# No /dev/mem, /dev/sda*, /dev/kmem.
+PrivateDevices=true
+
+# === Hide trees the JVM has no business reading =======================
+# `open(2)` on any of these returns ENOENT to the service — they literally
+# do not exist from the JVM's point of view. Without these directives,
+# ProtectSystem=strict only stops writes; everything below is still readable.
+# Verified on AlmaLinux 10.2: with this list, /etc/cron.d/*, /var/log/dnf.log,
+# /var/log/messages and /var/lib/* are all GONE inside the namespace.
+InaccessiblePaths=/var/log /var/spool /var/lib
+InaccessiblePaths=/etc/cron.d /etc/cron.daily /etc/cron.hourly /etc/cron.weekly /etc/cron.monthly /etc/crontab /etc/anacrontab
+InaccessiblePaths=/etc/sudoers /etc/sudoers.d
+InaccessiblePaths=/etc/sssd /etc/pam.d /etc/security
+InaccessiblePaths=/etc/rsyslog.d /etc/rsyslog.conf
+InaccessiblePaths=/etc/ssh /etc/NetworkManager
+# /etc/audit is intentionally NOT in this list — SELinux targeted policy on
+# AlmaLinux 10 / RHEL 10 denies init_t the `mounton` permission for
+# auditd_etc_t, so adding it makes the unit fail to start. The audit logs
+# under /var/log/audit/ are mode 600 anyway, so DAC keeps them out of reach.
+
+# === Kernel surface ===================================================
+# Block writes to /proc/sys (sysctl) and most of /sys.
+ProtectKernelTunables=true
+# Block init_module / finit_module / delete_module — no module load/unload.
+ProtectKernelModules=true
+# /proc/kmsg and /dev/kmsg become inaccessible. The JVM has no use for the kernel ring buffer.
+ProtectKernelLogs=true
+# /sys/fs/cgroup is read-only. Service can't escape its own cgroup.
+ProtectControlGroups=true
+# Block settimeofday(), adjtimex() and friends.
+ProtectClock=true
+# Block sethostname() and setdomainname().
+ProtectHostname=true
+# Hide other processes' /proc entries; only this service's PIDs are visible.
+ProtectProc=invisible
+# /proc shows only PID directories — no /proc/scsi, /proc/sysrq-trigger, /proc/cmdline, …
+ProcSubset=pid
+
+# === Network ==========================================================
+# Restrict socket(2) families to UNIX + IP. No raw, packet, netlink, bluetooth, can, …
+# (The JVM never needs anything else — outbound to Postgres / Keycloak is plain TCP.)
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+# Deny SCHED_FIFO / SCHED_RR — the JVM has no use for realtime scheduling.
+RestrictRealtime=true
+
+# === NUMA =============================================================
+# Only on a host with more than one NUMA node — check with `lscpu | grep -i '^NUMA'`. With two or
+# more, the JVM can run on one node while its heap sits on another and pay interconnect latency on
+# every access. The heap fits inside a single node, so pin both to the same one and uncomment:
+# AllowedCPUs=0-11
+# AllowedMemoryNodes=0
+# (Directives rather than wrapping ExecStart in numactl: an unsupported directive is logged and
+# ignored, while a missing numactl binary means the service does not start at all.)
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`JAVA_OPTS` lives in the env file from step 4; see
+[JVM options](README.md#jvm-options) in the README for what each flag buys. Every tunable the
+application reads is listed in [`.env.example`](.env.example).
 
 ```bash
 sudo systemctl daemon-reload
@@ -168,16 +280,6 @@ journalctl -u intellistream-chat -f     # Flyway migrations, then Tomcat on :808
 
 Relocating from `/opt/intellistream-chat`? Four things move together: `WorkingDirectory`,
 `ReadWritePaths`, the jar, and the SELinux fcontext rule (`selinux-harden.sh --data-dir`).
-
-On a dual-socket or NPS-partitioned host, check:
-
-```bash
-lscpu | grep -i '^NUMA'
-```
-
-More than one node means the JVM can run on one while its heap sits on another. Pin it with a
-`systemctl edit` drop-in (`AllowedCPUs=` / `AllowedMemoryNodes=`) — see
-[NUMA: keep the JVM on one node](README.md#numa-keep-the-jvm-on-one-node). One node, nothing to do.
 
 ## 6. Reverse proxy + smoke test
 

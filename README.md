@@ -326,9 +326,9 @@ export ICHAT_DB_PASSWORD=$(openssl rand -base64 32)
 export KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/ichat-realm
 export KEYCLOAK_CLIENT_SECRET=$(openssl rand -base64 32)   # rotate from the dev default
 export SERVER_ADDRESS=127.0.0.1                            # bind localhost only; nginx fronts it
-# Cookie Secure flag auto-detects from X-Forwarded-Proto via forward-headers-strategy:
-# framework (already set in application.yml), so no explicit ICHAT_SECURITY_COOKIE_SECURE
-# is needed when nginx forwards X-Forwarded-Proto: https.
+# The cookie Secure flag auto-detects from X-Forwarded-Proto (forward-headers-strategy:
+# framework, already set in application.yml), so there is nothing to configure here as long
+# as your proxy forwards it.
 
 # 4. Run behind a TLS-terminating reverse proxy (see frontend.md in this repo):
 java -jar build/libs/intellistream-chat-*.jar
@@ -344,148 +344,17 @@ the upstream ephemeral-port limit that bites long before the app runs out of mem
 one deployment mistake that silently breaks login (Keycloak must share a registrable domain
 with the app, because the session cookie is `SameSite=Strict`).
 
-## Production: systemd + JVM tuning
+## Production: JVM tuning
 
 The bare `java -jar …` line above gets you running once. For an actual deployment, run under systemd so the OS supervises the process, restarts it on crash, captures logs to `journald`, and applies basic sandboxing.
 
-### systemd unit
+### The systemd unit
 
-Drop this at `/etc/systemd/system/intellistream-chat.service`:
+Lives in [`QUICKSTART-MANUAL.md`](QUICKSTART-MANUAL.md#5-systemd-service), next to the install steps
+that need it, annotated directive by directive. `scripts/install-almalinux.sh` writes exactly that
+text, so there is one copy of the unit and it cannot drift from what gets installed. This section
+is the tuning that goes *inside* it.
 
-Every directive is annotated below — read top to bottom and you'll see exactly what each line buys you. Tested as-is on AlmaLinux 10.2 with SELinux enforcing; `systemd-analyze security` reports an exposure score of **4.6 OK** with this configuration. `scripts/install-almalinux.sh` writes exactly this unit, so the documented one and the installed one cannot drift.
-
-```ini
-[Unit]
-Description=IntelliStream Chat
-Wants=network-online.target
-After=network-online.target postgresql.service
-
-[Service]
-Type=simple
-User=intellistream-chat
-Group=intellistream-chat
-WorkingDirectory=/opt/intellistream-chat
-EnvironmentFile=/etc/intellistream-chat/env
-# New files default to mode 0750/0640 — no "other" read.
-UMask=0027
-
-ExecStart=/usr/lib/jvm/java-25-openjdk/bin/java $JAVA_OPTS -jar /opt/intellistream-chat/intellistream-chat.jar
-
-Restart=on-failure
-RestartSec=5s
-TimeoutStopSec=30s
-KillSignal=SIGTERM
-
-# === Process-level sandbox ============================================
-# Block setuid/setgid binaries from elevating privilege if the JVM ever exec's one.
-NoNewPrivileges=true
-# Block creation of new namespaces (CLONE_NEWUSER / NEWNET / NEWNS …). The JVM doesn't need them.
-RestrictNamespaces=true
-# Block personality(2) — defence against syscall-table tricks that flip x86_64 to 32-bit.
-LockPersonality=true
-# Only allow native-arch syscalls. Same idea: no "compat" path for an attacker to ride.
-SystemCallArchitectures=native
-# Block creation of files with the setuid/setgid bit set.
-RestrictSUIDSGID=true
-# MemoryDenyWriteExecute is intentionally NOT set — the JIT needs writable + executable
-# pages, and the JVM won't start with it on.
-
-# === Filesystem isolation =============================================
-# Whole filesystem read-only EXCEPT what ReadWritePaths= explicitly opens up.
-# Important caveat: this only blocks WRITES. Reads of world-readable files
-# elsewhere on the host are still possible — the InaccessiblePaths= block
-# below closes the read leaks that matter.
-ProtectSystem=strict
-# The only writable location: attachments, avatars, lucene index, heap dumps.
-ReadWritePaths=/opt/intellistream-chat/data
-# /home, /root, /run/user/* become inaccessible (mounted over with empty bind).
-ProtectHome=true
-# Service gets a private /tmp and /var/tmp. Can't see other services' temp files,
-# can't leave files behind that survive the unit.
-PrivateTmp=true
-# Minimal /dev — /dev/null, /dev/zero, /dev/random, /dev/urandom, /dev/tty.
-# No /dev/mem, /dev/sda*, /dev/kmem.
-PrivateDevices=true
-
-# === Hide trees the JVM has no business reading =======================
-# `open(2)` on any of these returns ENOENT to the service — they literally
-# do not exist from the JVM's point of view. Without these directives,
-# ProtectSystem=strict only stops writes; everything below is still readable.
-# Verified on AlmaLinux 10.2: with this list, /etc/cron.d/*, /var/log/dnf.log,
-# /var/log/messages and /var/lib/* are all GONE inside the namespace.
-InaccessiblePaths=/var/log /var/spool /var/lib
-InaccessiblePaths=/etc/cron.d /etc/cron.daily /etc/cron.hourly /etc/cron.weekly /etc/cron.monthly /etc/crontab /etc/anacrontab
-InaccessiblePaths=/etc/sudoers /etc/sudoers.d
-InaccessiblePaths=/etc/sssd /etc/pam.d /etc/security
-InaccessiblePaths=/etc/rsyslog.d /etc/rsyslog.conf
-InaccessiblePaths=/etc/ssh /etc/NetworkManager
-# /etc/audit is intentionally NOT in this list — SELinux targeted policy on
-# AlmaLinux 10 / RHEL 10 denies init_t the `mounton` permission for
-# auditd_etc_t, so adding it makes the unit fail to start. The audit logs
-# under /var/log/audit/ are mode 600 anyway, so DAC keeps them out of reach.
-
-# === Kernel surface ===================================================
-# Block writes to /proc/sys (sysctl) and most of /sys.
-ProtectKernelTunables=true
-# Block init_module / finit_module / delete_module — no module load/unload.
-ProtectKernelModules=true
-# /proc/kmsg and /dev/kmsg become inaccessible. The JVM has no use for the kernel ring buffer.
-ProtectKernelLogs=true
-# /sys/fs/cgroup is read-only. Service can't escape its own cgroup.
-ProtectControlGroups=true
-# Block settimeofday(), adjtimex() and friends.
-ProtectClock=true
-# Block sethostname() and setdomainname().
-ProtectHostname=true
-# Hide other processes' /proc entries; only this service's PIDs are visible.
-ProtectProc=invisible
-# /proc shows only PID directories — no /proc/scsi, /proc/sysrq-trigger, /proc/cmdline, …
-ProcSubset=pid
-
-# === Network ==========================================================
-# Restrict socket(2) families to UNIX + IP. No raw, packet, netlink, bluetooth, can, …
-# (The JVM never needs anything else — outbound to Postgres / Keycloak is plain TCP.)
-RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-# Deny SCHED_FIFO / SCHED_RR — the JVM has no use for realtime scheduling.
-RestrictRealtime=true
-
-[Install]
-WantedBy=multi-user.target
-```
-
-The companion env file at `/etc/intellistream-chat/env` (chmod 600, owned by `intellistream-chat`):
-
-```bash
-# JVM tuning — see the table below for what each flag does.
-JAVA_OPTS=-Xms1g -Xmx1g -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/opt/intellistream-chat/data/heapdumps -XX:+UseStringDeduplication -XX:+AlwaysPreTouch -Duser.timezone=UTC
-
-# App config (see "Quick start — production" for the full list)
-ICHAT_DB_URL=jdbc:postgresql://db.internal:5432/intellistream_chat
-ICHAT_DB_USERNAME=ichat_role
-ICHAT_DB_PASSWORD=...
-KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/ichat-realm
-KEYCLOAK_CLIENT_SECRET=...
-SERVER_ADDRESS=127.0.0.1
-# ICHAT_SECURITY_COOKIE_SECURE is no longer needed — cookies auto-mark Secure based on
-# request.isSecure() (which RemoteIpValve sets from X-Forwarded-Proto). Override at the
-# Servlet API level (server.servlet.session.cookie.secure=true) only if you want to force
-# Secure even on non-forwarded requests — e.g. behind a proxy that doesn't set the header.
-```
-
-Bring it up:
-
-```bash
-sudo useradd --system --home /opt/intellistream-chat --shell /usr/sbin/nologin intellistream-chat
-sudo install -d -o intellistream-chat -g intellistream-chat /opt/intellistream-chat /opt/intellistream-chat/data /opt/intellistream-chat/data/heapdumps
-sudo install -d -o root -g intellistream-chat -m 750 /etc/intellistream-chat
-sudo install -m 640 -o root -g intellistream-chat /path/to/env /etc/intellistream-chat/env
-sudo install -m 644 build/libs/intellistream-chat-*.jar /opt/intellistream-chat/intellistream-chat.jar
-sudo chown intellistream-chat:intellistream-chat /opt/intellistream-chat/intellistream-chat.jar
-sudo systemctl daemon-reload
-sudo systemctl enable --now intellistream-chat
-sudo systemctl status intellistream-chat
-sudo journalctl -u intellistream-chat -f
-```
 
 ### JVM options
 
@@ -518,109 +387,6 @@ JAVA_OPTS=-XX:+UseZGC -Xms4g -Xmx4g -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnO
 ```
 
 (Drop `+UseStringDeduplication` and `+AlwaysPreTouch` under ZGC — neither applies.)
-
-### NUMA: keep the JVM on one node
-
-**Check whether this applies to you before changing anything:**
-
-```bash
-lscpu | grep -i '^NUMA'
-# NUMA node(s):  1     -> nothing below applies; stop here.
-# NUMA node(s):  2     -> read on.
-```
-
-Most cloud instances present a single node whatever the host looks like underneath, so this is a
-no-op on a typical Hetzner VM. It matters on a dual-socket box, or a single-socket EPYC configured
-with NPS=2 or NPS=4, where memory is split into per-node pools and reaching the wrong one crosses
-the interconnect.
-
-On such a machine an unpinned JVM is free to run threads on node 1 while its heap sits on node 0.
-Remote access has both higher latency and lower bandwidth than local, and nothing in the workload
-makes up for it: this app's whole heap is 1 GiB, so it fits comfortably inside one node's memory,
-and there is nothing to gain from spreading it.
-
-**Use systemd's cgroup directives, not `numactl`.** As a drop-in, so an upgrade that rewrites the
-unit cannot silently drop them:
-
-```bash
-sudo systemctl edit intellistream-chat
-```
-
-```ini
-[Service]
-# CPUs belonging to node 0 — read the real list, don't guess it:
-#   cat /sys/devices/system/node/node0/cpulist
-AllowedCPUs=0-15
-AllowedMemoryNodes=0
-```
-
-Both are cgroup v2 `cpuset` settings and need systemd 244+ with the `cpuset` controller available
-(`cat /sys/fs/cgroup/cgroup.controllers`). AlmaLinux 10 has both.
-
-**Why not `numactl --cpunodebind=0 --membind=0` in `ExecStart`?** It works, and on the memory side
-it is not meaningfully safer — `--membind` and `cpuset.mems` are both *hard* restrictions, so under
-either one a full node means an allocation failure rather than a quiet spill to the neighbour. The
-difference is in the failure modes around it:
-
-- It puts a package in the boot path. If `numactl` is not installed, or is removed by an upgrade,
-  `ExecStart` fails and the service does not come up. An unsupported systemd directive is logged
-  and ignored — the service still starts, just unpinned.
-- It couples NUMA pinning to your syscall policy. `numactl` calls `set_mempolicy`/`mbind`, and
-  neither is in systemd's `@system-service` set (only `get_mempolicy` is). The unit above has no
-  `SystemCallFilter=` today, so nothing breaks now — but adding one later would stop the service
-  from starting, and the cause would not be obvious.
-- The cgroup settings apply to the whole service cgroup and are introspectable after the fact:
-  `systemctl show intellistream-chat -p AllowedCPUs -p AllowedMemoryNodes`.
-
-The one thing `numactl` offers that the cgroup interface has no equivalent for is
-`--preferred=0` — a *soft* bind that prefers node 0 and falls back to remote memory instead of
-failing. If you would rather degrade than fail, that is the reason to reach for it.
-
-For this app a hard bind is reasonable anyway, because `-Xms1g -Xmx1g -XX:+AlwaysPreTouch` commits
-and faults in the entire heap during startup. A node too small to hold it fails loudly at boot,
-where you will see it, rather than hours later under load.
-
-**Two things to get right when you pin:**
-
-- **Size the node for more than the heap.** The cpuset also bounds metaspace, thread stacks, direct
-  byte buffers, and the page cache backing Lucene's mmapped index. Budget well above `-Xmx`.
-- **Don't pin Postgres to the same node by default.** If it shares the box, the two now compete for
-  one node's cores and memory bandwidth while the rest of the machine idles. Either leave Postgres
-  unpinned, or give it a different node and accept the loopback traffic crossing the interconnect.
-
-Leave `-XX:+UseNUMA` **off** when pinned. It makes G1 partition the heap per node, which is what you
-want for a JVM deliberately spanning nodes — and pointless work for one confined to a single node.
-
-Verify after restarting:
-
-```bash
-systemctl show intellistream-chat -p AllowedCPUs -p AllowedMemoryNodes
-# Once the directives are set, systemd enables the controller and the effective values show up at
-# /sys/fs/cgroup/system.slice/intellistream-chat.service/cpuset.{cpus,mems}.effective
-
-# Per-node allocation for the running JVM (needs the numactl package, for the tool only):
-numastat -p "$(systemctl show -p MainPID --value intellistream-chat)"
-```
-
-In `numastat`, a healthy pinned process shows its pages concentrated on the bound node. Meaningful
-residency on another node means the binding is not in effect.
-
-### Verifying the namespace lockdown
-
-After `systemctl restart intellistream-chat`, three quick checks:
-
-```bash
-# Exposure score (target: drops into "OK" range, 4.6 with the unit above).
-sudo systemd-analyze security intellistream-chat.service
-
-# From inside the service's mount namespace — these should be Permission denied / ENOENT.
-sudo nsenter -t $(systemctl show -p MainPID --value intellistream-chat) -m ls /var/log /etc/cron.d
-
-# No SELinux denials.
-sudo ausearch -m AVC -ts recent
-```
-
-The textbook whitelist alternative (`TemporaryFileSystem=/etc:ro` + `BindReadOnlyPaths=`) **doesn't work on AlmaLinux 10 with SELinux enforcing** — the targeted policy denies `init_t` the `mounton` / `create` rights needed to materialise the bind-mount destinations. Making it work needs a custom policy module; the `InaccessiblePaths=` blacklist above runs with stock policy. If you need a true whitelist, write a custom SELinux domain (see the SELinux section below).
 
 ## Production: SELinux on AlmaLinux / RHEL
 

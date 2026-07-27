@@ -586,6 +586,7 @@
         <a href="#configuration">2. Configuration</a>
         <ol>
           <li><a href="#config-layers">How settings are layered</a></li>
+          <li><a href="#config-service">Running it as a service</a></li>
           <li><a href="#config-http">HTTP and the proxy</a></li>
           <li><a href="#config-db">Database</a></li>
           <li><a href="#config-identity">Identity and Keycloak</a></li>
@@ -1594,6 +1595,61 @@
     the entities; schema changes go through Flyway migrations. And
     <code>spring.jpa.open-in-view</code> is <code>false</code>, which is why lazy associations have
     to be touched inside a service transaction.
+  </p>
+</section>
+
+<section class="doc" id="config-service">
+  <h3><span class="marker"></span>Running it as a service</h3>
+  <p>
+    One jar, one systemd unit, one environment file. The unit lives in
+    <a href="https://github.com/IntelliStream-DataHub/intellistream-chat/blob/main/QUICKSTART-MANUAL.md#5-systemd-service">the
+    manual-install guide</a>, annotated directive by directive, and <code>scripts/install-almalinux.sh</code>
+    writes exactly that text — so there is one copy of it and it cannot drift. An earlier revision
+    of the install guide carried a second, weaker unit that disagreed with the first on paths and
+    on where the environment file lived, and following both in sequence produced an install that
+    started and then failed on its first write. Copy the unit from there rather than from anywhere
+    else.
+  </p>
+  <p>What it gives you, and what you have to keep in agreement with it:</p>
+  <div class="tw">
+  <table class="nowrap-1">
+    <thead><tr><th>Directive</th><th>Why it is there</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>EnvironmentFile=</code></td>
+        <td><code>/etc/intellistream-chat/env</code>, mode 0640, owner <code>root:intellistream-chat</code>. systemd parses it itself: no quoting, no <code>$</code> expansion, no trailing comments after a value. Every setting on this page can go in it.</td>
+      </tr>
+      <tr>
+        <td><code>ReadWritePaths=</code></td>
+        <td>The single writable directory. Attachments, avatars, branding, the Lucene index and heap dumps all live under it, so the four directory settings must point inside it. A data directory outside this fails at runtime as a permission error under a service log that looks healthy.</td>
+      </tr>
+      <tr>
+        <td><code>ProtectSystem=strict</code>, <code>NoNewPrivileges</code>, <code>RestrictNamespaces</code>, <code>RestrictAddressFamilies</code>, <code>InaccessiblePaths</code></td>
+        <td>The sandbox. <code>systemd-analyze security intellistream-chat</code> scores it <b>4.6 OK</b>. If you relax one, re-run that command and know what you traded.</td>
+      </tr>
+      <tr>
+        <td><code>LimitNOFILE=</code></td>
+        <td>Every WebSocket is a file descriptor. The default is far below what a few thousand concurrent users need.</td>
+      </tr>
+      <tr>
+        <td><code>Restart=</code> / <code>RestartSec=</code></td>
+        <td>The JVM is started with <code>-XX:+ExitOnOutOfMemoryError</code>, so an out-of-memory condition exits rather than limping — this is what brings it back.</td>
+      </tr>
+      <tr>
+        <td><code>JAVA_OPTS</code> (from the env file)</td>
+        <td>Heap and GC. Fix <code>-Xms</code> and <code>-Xmx</code> to the same value so a load spike cannot trigger a resize, and keep <code>-XX:+ExitOnOutOfMemoryError</code>.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <pre><code>sudo systemctl daemon-reload
+sudo systemctl enable --now intellistream-chat
+systemctl status intellistream-chat
+journalctl -u intellistream-chat -f     # Flyway migrations, then Tomcat on :8080</code></pre>
+  <p>
+    Relocating from <code>/opt/intellistream-chat</code> moves four things together:
+    <code>WorkingDirectory</code>, <code>ReadWritePaths</code>, wherever the jar is installed, and
+    the SELinux file context for the data directory (<code>selinux-harden.sh --data-dir</code>).
   </p>
 </section>
 
