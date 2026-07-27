@@ -140,7 +140,7 @@ ICHAT_AVATARS_DIR=/opt/intellistream-chat/data/avatars
 ICHAT_BRANDING_DIR=/opt/intellistream-chat/data/branding
 ICHAT_SEARCH_LUCENE_DIR=/opt/intellistream-chat/data/lucene
 
-JAVA_OPTS=-Xms256m -Xmx2g -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/opt/intellistream-chat/data/heapdumps -XX:+UseStringDeduplication -Duser.timezone=UTC --enable-native-access=ALL-UNNAMED
+JAVA_OPTS=-Xms256m -Xmx1g -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/opt/intellistream-chat/data/heapdumps -XX:+UseStringDeduplication -Duser.timezone=UTC --enable-native-access=ALL-UNNAMED
 ```
 
 ```bash
