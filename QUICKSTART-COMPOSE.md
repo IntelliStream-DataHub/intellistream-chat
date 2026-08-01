@@ -25,6 +25,14 @@ This starts:
 |----------|------------------------------|-------------------------|-------------|
 | Postgres | `postgres:18-alpine`         | `127.0.0.1:5432`        | `ichat_role` / `ichat_role`, db `intellistream_chat` |
 | Keycloak | `keycloak:26.0`              | port `8081` (see note)  | admin console: `admin` / `admin` |
+| coturn   | `coturn:4.6`                 | `127.0.0.1:3478/udp`    | shared secret `dev-turn-secret` |
+
+coturn is the TURN relay that carries voice and video for 1:1 calls. It binds to loopback, which is
+both what the quick start needs — two browsers on this machine — and the only safe default for a
+container that starts on its own with a shared secret published in this repo. Reaching it from
+another device means setting `ICHAT_TURN_RELAY_IP` *and* a real `ICHAT_TURN_SECRET`; the comments
+on the `coturn` service in `docker-compose.yml` spell out what else has to change, and
+`QUICKSTART-MANUAL.md` covers running it properly on a host.
 
 Keycloak imports the `ichat-realm` realm from `keycloak/realm.json` on first boot (takes
 15–30 s — watch `podman compose logs -f keycloak` for `Imported realm ichat-realm`). The realm
@@ -44,6 +52,10 @@ An optional OpenBao (Vault) dev server is profile-gated — only started with
 # The OIDC client secret is baked into the dev realm file; export it for the app:
 export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="ichat-client") | .secret' keycloak/realm.json)
 
+# Point the app at the coturn started in step 1, so the call buttons appear:
+export ICHAT_TURN_URLS=turn:127.0.0.1:3478?transport=udp
+export ICHAT_TURN_SECRET=dev-turn-secret
+
 ./gradlew bootRun
 ```
 
@@ -51,12 +63,30 @@ export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="ichat-cli
 `ASSETS.md`), runs Flyway migrations against Postgres, and serves the app on
 **http://localhost:8080**.
 
+The two `ICHAT_TURN_*` values must match coturn's, which they do above — the app signs a short-lived
+credential with that secret and coturn recomputes the same HMAC to check it. Get them out of step
+and every call fails to connect while looking exactly like a network problem. Both are unset by
+default and the call buttons simply don't render until they are, so the feature fails closed rather
+than offering a control that cannot work.
+
 ## 3. Sign in and smoke-test
 
 1. Open http://localhost:8080 → **Sign in with Keycloak** → `alice` / `alice`.
 2. Create a channel, post a message.
 3. Open a second browser (or private window) as `bob` / `bob`, join the channel — bob sees
    alice's messages appear live over WebSocket without a reload.
+4. Call: from alice, open a direct message with bob and press the phone or camera button in the
+   header. Bob's window rings. Answer it, and both sides show a running timer; hang up and the
+   conversation gets a `Call · 12 sec` line.
+
+The call buttons are in direct messages only — a channel has no single person to ring, and one
+peer connection has nowhere to put a third participant.
+
+> **It has to be `localhost`.** `getUserMedia` requires a secure context, and `localhost` is the
+> only origin exempt from the HTTPS requirement. Reach the same app over a LAN IP and the camera
+> and microphone are blocked outright — no permission prompt, no useful console error, just a call
+> that never gets media. This catches people who test from a phone on the same network; that needs
+> real TLS, not a different bind address.
 
 ## Stopping / resetting
 
@@ -82,3 +112,11 @@ want `down -v` to leave nothing behind.
   `bootRun` (step 2).
 - **Login redirect loops** — Keycloak was still importing the realm; wait for
   `Imported realm ichat-realm` in its logs.
+- **No call buttons in a direct message** — `ICHAT_TURN_URLS` and `ICHAT_TURN_SECRET` aren't both
+  exported in the shell running `bootRun` (step 2). The app hides the buttons rather than render a
+  control with no media path behind it.
+- **The call rings, is answered, then never connects** — the app and coturn disagree about the
+  secret, or coturn isn't up: `podman compose ps coturn` and `podman compose logs coturn`. Every
+  candidate pair failing to authenticate is indistinguishable from a network fault from the
+  browser's side.
+- **Camera or microphone never prompts** — you're not on `localhost`. See the note in step 3.

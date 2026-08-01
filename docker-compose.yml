@@ -95,9 +95,9 @@ services:
       timeout: 5s
       retries: 10
 
-  # TURN relay for 1:1 calls. Profile-gated like openbao, so the default
-  # `podman compose up -d` skips it and the four-command quick start stays four commands —
-  # bring it up with `podman compose --profile calls up -d`.
+  # TURN relay for 1:1 voice and video calls. Started by the plain `podman compose up -d`, so the
+  # quick start gets working calls without a second command — the app still needs the two matching
+  # env vars, which the quick start exports alongside KEYCLOAK_CLIENT_SECRET.
   #
   # The app is not in the media path. It relays SDP and ICE candidates over its own WebSocket;
   # the audio and video go through here, and coturn forwards encrypted UDP without being able
@@ -105,16 +105,15 @@ services:
   # so no TURN server means no calls — which is why CallProperties.isConfigured() reports the
   # feature as unavailable until ICHAT_TURN_URLS and ICHAT_TURN_SECRET are both set.
   #
-  # To use it locally, in the shell that runs the app:
+  # In the shell that runs the app:
   #   export ICHAT_TURN_URLS=turn:127.0.0.1:3478?transport=udp
   #   export ICHAT_TURN_SECRET=dev-turn-secret
-  # Then sign in as alice and bob in two browsers on http://localhost:8080 and call one.
-  # It must be localhost: getUserMedia needs a secure context, and localhost is the only
-  # origin exempt from the HTTPS requirement — over a LAN IP the camera and microphone are
-  # blocked outright, with no prompt and no obvious error.
+  # Then sign in as alice and bob in two browsers on http://localhost:8080, open a direct message
+  # and press the call button. It must be localhost: getUserMedia needs a secure context, and
+  # localhost is the only origin exempt from the HTTPS requirement — over a LAN IP the camera and
+  # microphone are blocked outright, with no prompt and no obvious error.
   coturn:
     image: docker.io/coturn/coturn:4.6
-    profiles: ["calls"]
     # Host networking rather than published ports, because a relay needs a range of UDP ports
     # and asking podman to map forty of them makes `up` take visibly longer for no benefit on a
     # machine where the relay is only ever reached from the same host. A production deployment
@@ -124,10 +123,17 @@ services:
       - "-n"                         # no config file; everything is on this line
       - "--log-file=stdout"
       - "--listening-port=3478"
-      - "--listening-ip=0.0.0.0"
-      # The address coturn hands out as the relay endpoint. Loopback is right for two browsers on
-      # this machine and wrong for anything else: a phone told to relay via 127.0.0.1 dials itself.
-      # Set ICHAT_TURN_RELAY_IP to the LAN address when testing from another device.
+      # All three addresses share one knob, and it defaults to loopback on purpose. This container
+      # starts by default and its shared secret is published two lines below, so binding it to
+      # 0.0.0.0 would put an open relay with a known password on every interface of every machine
+      # that runs the quick start — on a cloud VM, a public one. Loopback is also exactly what the
+      # quick start needs, since two browsers on this host are the only clients that can place a
+      # call anyway (getUserMedia is blocked off localhost).
+      #
+      # Set ICHAT_TURN_RELAY_IP to a LAN or public address to reach it from another device — and
+      # set ICHAT_TURN_SECRET to something unguessable in the same breath, because the default
+      # below stops being a dev convenience the moment the relay is reachable.
+      - "--listening-ip=${ICHAT_TURN_RELAY_IP:-127.0.0.1}"
       - "--relay-ip=${ICHAT_TURN_RELAY_IP:-127.0.0.1}"
       - "--external-ip=${ICHAT_TURN_RELAY_IP:-127.0.0.1}"
       - "--min-port=49160"
@@ -147,10 +153,21 @@ services:
       - "--no-dtls"
       - "--no-cli"
       # A relay on the public internet with no restrictions is a tool for reflecting traffic at
-      # third parties. These two are the standard minimum: refuse to relay to loopback ranges
-      # other than the one we relay from, and to link-local/multicast.
+      # third parties. These are the standard minimum: no multicast peers, and no link-local.
       - "--no-multicast-peers"
       - "--denied-peer-ip=169.254.0.0-169.254.255.255"
+      # Required for the loopback default above, and dev-only. In a relayed 1:1 call each browser
+      # allocates on coturn and then asks it for permission to send to the *other* allocation — so
+      # with --relay-ip=127.0.0.1 the peer address is loopback, which coturn refuses out of the box
+      # (403 Forbidden IP) and the call silently never connects.
+      #
+      # It is safe here only because the relay accepts nothing but loopback clients, who can already
+      # reach loopback directly. Set ICHAT_TURN_RELAY_IP to a reachable address and this flag turns
+      # into a way for remote clients to relay into this host's own 127.0.0.1 — Postgres on 5432,
+      # Keycloak on 8081, the app itself. Exposing this service means dropping this line and setting
+      # a real --static-auth-secret, and at that point see QUICKSTART-MANUAL.md and run coturn on
+      # the host properly instead.
+      - "--allow-loopback-peers"
 
 volumes:
   intellistream-chat-pg:

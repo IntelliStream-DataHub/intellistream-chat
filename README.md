@@ -34,11 +34,13 @@ sudo dnf install -y java-25-openjdk-devel podman podman-compose jq
 #    Ubuntu / Debian
 sudo apt install -y openjdk-25-jdk podman podman-compose jq
 
-# 3. Start Postgres 18 and Keycloak 26
+# 3. Start Postgres 18, Keycloak 26 and the TURN relay that carries calls
 podman compose up -d
 
-# 4. Export the dev OIDC client secret
+# 4. Export the dev OIDC client secret, and point the app at the relay
 export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="ichat-client") | .secret' keycloak/realm.json)
+export ICHAT_TURN_URLS=turn:127.0.0.1:3478?transport=udp
+export ICHAT_TURN_SECRET=dev-turn-secret
 
 # 5. Run it
 ./gradlew bootRun
@@ -50,8 +52,16 @@ while Keycloak imports the `ichat-realm` realm and its two test users, `alice` a
 
 Step 4 is needed in every new shell you start the app from. `KEYCLOAK_CLIENT_SECRET` has no
 default, and the app fails fast — printing that same `jq` line — rather than starting into a login
-that would break at the token exchange. See [Quick start — development
-(detail)](#quick-start--development-detail).
+that would break at the token exchange. The two `ICHAT_TURN_*` values have no defaults either, and
+until both are set the call buttons are not rendered at all: with `force-relay` on there is no
+media path without a relay, so the feature fails closed rather than offering a button that cannot
+work. See [Quick start — development (detail)](#quick-start--development-detail).
+
+To try a call, sign in as `alice` in one browser and `bob` in another, open a direct message and
+press the phone or camera button. It only works on `localhost` — `getUserMedia` needs a secure
+context and `localhost` is the only origin exempt from HTTPS, so over a LAN IP the camera and
+microphone are blocked with no prompt and no useful error. The buttons appear in direct messages
+only; a channel has no single person to ring.
 
 Docker works too if you already have it; the compose file is plain OCI.
 
@@ -60,13 +70,14 @@ reports the cancelled run as a failed build, which is expected and not an error 
 stop the containers:
 
 ```bash
-podman compose down      # stop Postgres and Keycloak; chat history survives
+podman compose down      # stop Postgres, Keycloak and coturn; chat history survives
 podman compose down -v   # also wipe the Postgres volume — chat history gone, fresh schema on next up
 ```
 
 The `intellistream-chat-pg` volume is the only difference between those two. Keycloak keeps no
 volume of its own — it runs `start-dev` against a database inside the container — so the realm
-re-imports on either form and `alice` and `bob` come back regardless.
+re-imports on either form and `alice` and `bob` come back regardless. coturn keeps no state at all;
+it holds relay allocations in memory for the length of a call.
 
 Neither form touches `data/`, where attachments, avatars and the Lucene search index live on the
 host rather than in a container. For a genuinely clean slate, remove that directory as well.
