@@ -53,7 +53,9 @@ class AssetServiceTest {
         // theme-loader must stay first (it ran before the other scripts as a standalone tag);
         // the rest mirror the manifest's declared order.
         assertEquals("/js/theme-loader.js", sources.getFirst());
-        assertEquals(8, sources.size());
+        // Tracks chat.manifest.js — bump it when you add a source there. What the count guards is
+        // that the manifest was parsed at all rather than silently yielding a short list.
+        assertEquals(10, sources.size());
         assertTrue(sources.contains("/js/chat-kit.js"), sources.toString());
         assertTrue(sources.stream().allMatch(s -> s.startsWith("/js/")), sources.toString());
     }

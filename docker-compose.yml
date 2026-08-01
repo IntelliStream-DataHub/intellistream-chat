@@ -95,5 +95,62 @@ services:
       timeout: 5s
       retries: 10
 
+  # TURN relay for 1:1 calls. Profile-gated like openbao, so the default
+  # `podman compose up -d` skips it and the four-command quick start stays four commands —
+  # bring it up with `podman compose --profile calls up -d`.
+  #
+  # The app is not in the media path. It relays SDP and ICE candidates over its own WebSocket;
+  # the audio and video go through here, and coturn forwards encrypted UDP without being able
+  # to read any of it. With ichat.calls.force-relay on (the default) every call comes this way,
+  # so no TURN server means no calls — which is why CallProperties.isConfigured() reports the
+  # feature as unavailable until ICHAT_TURN_URLS and ICHAT_TURN_SECRET are both set.
+  #
+  # To use it locally, in the shell that runs the app:
+  #   export ICHAT_TURN_URLS=turn:127.0.0.1:3478?transport=udp
+  #   export ICHAT_TURN_SECRET=dev-turn-secret
+  # Then sign in as alice and bob in two browsers on http://localhost:8080 and call one.
+  # It must be localhost: getUserMedia needs a secure context, and localhost is the only
+  # origin exempt from the HTTPS requirement — over a LAN IP the camera and microphone are
+  # blocked outright, with no prompt and no obvious error.
+  coturn:
+    image: docker.io/coturn/coturn:4.6
+    profiles: ["calls"]
+    # Host networking rather than published ports, because a relay needs a range of UDP ports
+    # and asking podman to map forty of them makes `up` take visibly longer for no benefit on a
+    # machine where the relay is only ever reached from the same host. A production deployment
+    # runs coturn on the host anyway — see QUICKSTART-MANUAL.md.
+    network_mode: host
+    command:
+      - "-n"                         # no config file; everything is on this line
+      - "--log-file=stdout"
+      - "--listening-port=3478"
+      - "--listening-ip=0.0.0.0"
+      # The address coturn hands out as the relay endpoint. Loopback is right for two browsers on
+      # this machine and wrong for anything else: a phone told to relay via 127.0.0.1 dials itself.
+      # Set ICHAT_TURN_RELAY_IP to the LAN address when testing from another device.
+      - "--relay-ip=${ICHAT_TURN_RELAY_IP:-127.0.0.1}"
+      - "--external-ip=${ICHAT_TURN_RELAY_IP:-127.0.0.1}"
+      - "--min-port=49160"
+      - "--max-port=49200"
+      - "--realm=intellistream.local"
+      - "--fingerprint"
+      # The REST-API credential scheme: no user database, no accounts to provision. The app mints
+      # `<expiry>:<username>` signed with this secret (TurnCredentialService) and coturn recomputes
+      # the same HMAC to check it. The two MUST match — a mismatch looks exactly like a network
+      # problem, because every candidate pair simply fails to authenticate.
+      - "--use-auth-secret"
+      - "--static-auth-secret=${ICHAT_TURN_SECRET:-dev-turn-secret}"
+      # Dev only. There are no certificates here, so this speaks plain TURN. Production wants
+      # TURNS on a TLS port — ideally 443, which is the one that survives a corporate firewall
+      # because on the wire it is indistinguishable from HTTPS.
+      - "--no-tls"
+      - "--no-dtls"
+      - "--no-cli"
+      # A relay on the public internet with no restrictions is a tool for reflecting traffic at
+      # third parties. These two are the standard minimum: refuse to relay to loopback ranges
+      # other than the one we relay from, and to link-local/multicast.
+      - "--no-multicast-peers"
+      - "--denied-peer-ip=169.254.0.0-169.254.255.255"
+
 volumes:
   intellistream-chat-pg:

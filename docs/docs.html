@@ -568,6 +568,7 @@
           <li><a href="#messages">Messages and Markdown</a></li>
           <li><a href="#threads">Threads</a></li>
           <li><a href="#dms">Direct and group messages</a></li>
+          <li><a href="#calls">Voice and video calls</a></li>
           <li><a href="#keeping">Pinning, saving, forwarding, quoting</a></li>
           <li><a href="#reactions">Reactions</a></li>
           <li><a href="#mentions">Mentions and the inbox</a></li>
@@ -592,6 +593,7 @@
           <li><a href="#config-identity">Identity and Keycloak</a></li>
           <li><a href="#config-storage">Storage and quotas</a></li>
           <li><a href="#config-search">Search</a></li>
+          <li><a href="#config-calls">Calls and TURN</a></li>
           <li><a href="#config-write">The write path</a></li>
           <li><a href="#config-ws">WebSocket tuning</a></li>
           <li><a href="#config-moderation">Moderation and retention</a></li>
@@ -793,7 +795,7 @@
   </p>
 
   <figure class="doc-shot">
-    <img src="data:image/webp;base64,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" alt="The sidebar: every channel you are in, favourites first, then your direct messages. Bold means unread; a number means someone used your name." loading="lazy"/>
+    <img src="data:image/webp;base64,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" alt="The sidebar: every channel you are in, favourites first, then your direct messages. Bold means unread; a number means someone used your name." loading="lazy"/>
     <figcaption>The sidebar: every channel you are in, favourites first, then your direct messages. Bold means unread; a number means someone used your name.</figcaption>
   </figure>
 </section>
@@ -985,8 +987,91 @@
   </p>
 
   <figure class="doc-shot">
-    <img src="data:image/webp;base64,UklGRsYIAABXRUJQVlA4ILoIAAAQOQCdASrhALkAPpVEnEolo68hqLObyeASiWNu3V6XVkO71JZ4PQbtv+d905vn3fZN/yuTc+XOzT/R4/np7tlIqWQ7xbTp+MVAH5b/Xu9S1RPBHLQeGx4x7AH8v/rv+39l3+f/Y3zs/VPsC/zn+09W/94faANxbyRfgHi+FMG1Txu/RNqW2EHqmRBAaasqQtAXyGXfLFMhl3lgx8kpCHTVnCzMTj/EqSrlqBLdkmIEz7Hd5stz4tW/o3ckipsGFEtpEMDEj8N+wOvn83x0/UkaeukwV9EcKtbZr8NVI9BnzZtiakNypKDZuTTYoTqPakqlNgocs/UUa8BqVWlFAvxut6tejpztfN08uxn+hBNhEDA+sI1HJnizGeQtCR43mMzA+sIyyGjhJ9IAhH1234SXccQeY50TSEBRvNoBKWFaGedEFWloRCepZiO3AVn3OgnyNixKSiVVDXMBkV77chDRwP8+ZgwUjHwdRj8q8wk8zSP4xokw6RArxDiir6gx6spZW9UV6YYASBkTsPSL9NIk38Oj0FmcOQiyhVN8//NHUG86c5C75kKTlDzxM6bDew/rrvGEBwHZ2yPZ7ZskZ+9/Grx4C2xqx2AtsiHCjKsR8AAA+r9i+QLvadv+xSCpufX71uJ3p17YAD1CrJU/71uG1368bf/CHcugyDD1H0uzOGBYo5f1XJyA/3w/GRUJvp90Y3fz7dQnf9GYUyaZAy+n62lBqbC5Pky52zMAZYGmC/8ZehdvwoeUHs00PyX4FyLiRgAilnf6/jiTzKuv7uDYQGmo+c29okJj+YTEwsb81c4/c5ddFU7rKadppqfrOvrp3ITPRjl9J85TQ+pQVNpTxY7acinLp2LSQZx+wjCpVKXuXeDDR9R0q4sPp79m76v9xCcU8wmSNq3iySPUCkzOiKZkmwe43HJzLe5PvHvIsjVZLKbaJ7Bv7ePfPyfeziR62a0PLc9Vd3RbGwF6tcUYGGYvrwUL8GvsaGxEKy4jVHBPKmWMP+/n+iftaTwrCT809Y6SdyMqJa26gGgonlh+ADgXuot5Uf7Feknvn68Y/5xSm9WPMBD2MrP5X00P5kuWeZgiSbiay4gL2EfwE05O0If1ZpDZvZ31+AoBuW3JlQW7/Fgp+3UrpbShYK8PQ9fTdz2tFaCyp3pTCR1FYOTQXwwAIsVEsVeGhYew0gOSeAePC+oEqdoyGntkyPqGd7/kHUeFulwdEVALC5aouQ/CkSMYmcRCda2faIy0AkkK2EZSicK08NgkpVHeO95F+HTk3oLLc96+Ef6+tcnkV7vvfqkRcNnKc2bunVZ6g1mgzwdE8zX8/xvGo3cfT8XRSBkcK6gblGsPrTctdNBWcLXSnviISxbYzADLQyeCGmD9ULatgoluwl1/grneo16kN5q79KBPnVOoaP2rfrwEVj/AJkFrJzb5ijAvmCoeQL6JSExG7oElw53rmbYL3WFwT2dWLeBMlOKhu1ybhPJ/0f2IJeonk/ZMnoOCRpRaqmCiwXBEjXrgATr2lJl4BYhErYyKpnLSHt/fa6GWklQKnmAAAASw0406JA0Q9Ttgsvi/OCHhqQI+WB51sNppfiAAMQqlnInB5MwDl6UbvGdG80MUvtSzbNrLbxuwDDWUh6DgNj7ahPPn/6gEdKaaNSH7ewKJ8lFnIzH94fusRTMl1jjRDE1d0GHYqf430ZVf1WnPkaSmNi5xUspKzalkWI1dXaFJKCXg74p0UMMXFGVwgUqlQZmheoorCKqhtqA3GQhide1j9idT1V2aUyCM0blqN0MagjXaFInE0sCU/5oa/QFi/1dZk1SV8Ge8KpqhB8WhaYf2BFcY636gAZi80UEHZhVHjEqjo/Hqj3LaeRV8wE/2GNWKeCciMpusrkkpNGiGMRQKcDBT/riZV1GZ8o0ot0rcy8tL6DPdTaJ77CW9e1Mq84Wadff9N4RXVi1r76aRE68h9zIO07Ty3jCPUpg5pDL8eXPSPQ57oUcaRjjaVeEUEA0fy65m5B4PbqTXrq6/iN6RooFW0RwqI8T3v4kG8dnajiLNbcINvGedNwnnPhKo9RobBSa605vu1WipE5hbXTgiSRu2J+gQACCDRh+pc7kYN1gylfArIm/btf9r2cwO6R15w0SPg/p9EYeLIkZ+AZhwKQRatk5FoR5mTs0qGBi59K4Sm3/72gdHrbucne0htDt2T9i98vIIgCYS0e0q2lk6xGEW+SI82SHE1gN0E5/S8OoyNuKwMFocdVJUWP3Mo6uqnZ+j/7Z/KuG7WZWjwjYHeS3ASDLHFiX+X0mklZ0651oet2/fhmMt/V+da3I3hOnjtxwqu/laqtS3YPswSmkmEXS4AEBjvBweYlM1hLy9bJER682RPw5x1o5jy/MvyZpB4IyuwGGhrQL83ANcTuCtDRrJleU4pzYdNVEZtZAmTCn8pT9brWzoaxU10rLV3MxbE87e5q+utg3GG7nSqT1Vj+YwZAx0PTXkauiOl3VB16o9iesaliPAhl/zl8CO8FHbCDJRe/qyrUbhLFIyeZ9Z5sX6kYdD76ryZ+bAKJw3YvkRgH2n7S0HkGp2QZpXVOCETN7SQSNo8QqYJAInpsnvM+2cyB5f3efRk9IvA3IL6JNGhxj9sVWV9WW2vLxNVXLV7vCJTmjiJm6UyovmtD/lMssMHEHl6K0qjzX50dfo/un0+GvdfefqNDyZZ596UnnZmprb5eN2PNPf44Gc2IOHfI+0W2Jv+pHgPv4gUqO5z9BvmZ8V3CmuXVLb5zE0qfexTIbC6BPTg/NFd9O4TsIiHiETppZuVmhnG3i9GyvSHm8SWp9OlQOfAyHCyRUCL985isrrVUgg8S9go3RBweNGuoZKwFeKPkMIB19cLpmV4zafkT4D9eEnN+lir3KfifhORnRculCNV1Oc6VPAO8UKduICa7YZuBVeenwUEAwVOWkwoURoCvVtBrM1GEqeQnyP4gfjSSkAAA==" alt="Starting a conversation: one name opens a direct message, more than one creates a group and asks for a name." loading="lazy"/>
+    <img src="data:image/webp;base64,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" alt="Starting a conversation: one name opens a direct message, more than one creates a group and asks for a name." loading="lazy"/>
     <figcaption>Starting a conversation: one name opens a direct message, more than one creates a group and asks for a name.</figcaption>
+  </figure>
+</section>
+
+<section class="doc" id="calls">
+  <h3><span class="marker"></span>Voice and video calls</h3>
+  <p>
+    Open a direct message and press the <b>handset</b> in the header for a voice call, or the
+    <b>camera</b> beside it for video. The other person's devices ring; they answer or decline.
+    That is the whole of it.
+  </p>
+  <p>
+    <b>Calls are one-to-one, and the buttons appear nowhere else.</b> Not in a channel, not in a
+    group DM, not in a note-to-self. This is a limit of how the media travels rather than a policy:
+    a call here is a single connection between two browsers, and a third participant has nowhere to
+    go. Group calls need a media server that receives one stream per person and forwards it to the
+    others, which is a service to operate rather than a feature to switch on. Offering a button
+    that could not work would be worse than not offering one.
+  </p>
+
+  <h4>Being called</h4>
+  <p>
+    A call rings <b>wherever you are in the app</b> — reading a channel, on your profile page,
+    anywhere. It also rings on <b>every tab and device</b> you have open, and the moment you answer
+    on one the others stop. If you are on another call already, the caller is told you are busy
+    rather than being left listening to a ring nobody will pick up.
+  </p>
+  <p>
+    An unanswered call stops ringing after <b>45 seconds</b>. If the person calling you closes
+    their laptop mid-ring, your phone stops immediately rather than waiting that out.
+  </p>
+  <p>
+    <b>Do Not Disturb silences the ring, not the call.</b> The panel still appears, so a call that
+    arrives while you are looking at the app can be answered — what DND removes is the noise. It is
+    the same rule the rest of the app follows: Do Not Disturb suppresses interruption, never
+    information.
+  </p>
+
+  <h4>During and after</h4>
+  <p>
+    While connected you get a timer, a <b>mute</b> button, and on a video call a <b>camera</b>
+    toggle. Hanging up takes a deliberate click — <kbd>Esc</kbd> declines a call that is ringing
+    and does nothing to one in progress, because the key people press to close things should not
+    end a conversation.
+  </p>
+  <p>
+    Every call leaves a line in the conversation: <em>Call · 4 min</em> for one that happened,
+    <em>Missed call</em> for one that did not. It is an ordinary message — searchable, exportable,
+    and still legible in five years without anything that knows what a call is.
+  </p>
+  <p>
+    <b>A declined call is archived as a missed call, and nothing more.</b> The person calling is
+    told in the moment that you declined, because that is useful to them right then. The permanent
+    record does not say it. Writing "declined" into someone's message history puts a verdict on
+    their behalf, and the fact of the call is the part worth keeping.
+  </p>
+
+  <h4>Where the audio and video actually go</h4>
+  <p>
+    <b>Not through the chat server.</b> It carries the ringing and the connection setup and nothing
+    else — it never receives a packet of audio or video, and could not read one if it did. The
+    media goes through a <b>TURN relay</b> you run yourself (see
+    <a href="#config-calls">Calls and TURN</a>), which forwards encrypted traffic without holding
+    the keys to it.
+  </p>
+  <p>
+    By default <b>every call is relayed</b>, including two people sitting in the same office. That
+    costs bandwidth and buys two things. Calls behave the same for everybody: the alternative is a
+    direct connection that works for most people and fails behind corporate firewalls and
+    symmetric NAT — late, after the ringing has already promised a call. And neither participant
+    learns the other's IP address, which a direct connection necessarily reveals.
+  </p>
+  <p class="note">
+    <b>Calls need HTTPS.</b> Browsers refuse access to a camera or microphone on an insecure
+    origin, and <code>localhost</code> is the only exception. Over plain <code>http://</code> on a
+    hostname or LAN address the buttons appear and pressing one reports that calls need HTTPS —
+    that is the browser, not the app. Put the site behind TLS; the
+    <a href="https://github.com/IntelliStream-DataHub/intellistream-chat/blob/main/frontend.md">proxy
+    guide</a> covers it.
+  </p>
+
+  <figure class="doc-shot">
+    <img src="data:image/webp;base64,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" alt="A call in progress. Mute and hang up are the whole of the in-call UI for an audio call; a video call adds the camera toggle and the picture." loading="lazy"/>
+    <figcaption>A call in progress. Mute and hang up are the whole of the in-call UI for an audio call; a video call adds the camera toggle and the picture.</figcaption>
   </figure>
 </section>
 
@@ -1844,6 +1929,104 @@ journalctl -u intellistream-chat -f     # Flyway migrations, then Tomcat on :808
     </tbody>
   </table>
   </div>
+</section>
+
+<section class="doc" id="config-calls">
+  <h3><span class="marker"></span>Calls and TURN</h3>
+  <p>
+    Calls are <b>off until you configure a TURN server</b>, and the buttons are not rendered until
+    you do. That is deliberate: relaying is on by default, so without a relay there is no path for
+    the media and a call button would be a control that cannot work.
+  </p>
+  <p>
+    The application is never in the media path. It relays the connection setup over the WebSocket
+    it already has, and the audio and video go through <b>coturn</b>, which forwards encrypted UDP
+    it has no way to read. The shared secret below is how the app mints short-lived credentials for
+    it — there is no user database on the TURN side and no accounts to provision.
+  </p>
+
+  <h4>Running coturn</h4>
+  <p>
+    The bundled compose file has a service for it, behind a profile so the default stack does not
+    start one:
+  </p>
+<pre><code>ICHAT_TURN_RELAY_IP=&lt;your public or LAN address&gt; podman compose --profile calls up -d</code></pre>
+  <p>
+    For a real deployment, run it on the host instead and configure <b>two</b> URLs. The UDP entry
+    on 3478 is the fast path. The <code>turns:</code> entry on a TLS port is the one that gets
+    through a corporate firewall, because on the wire it is indistinguishable from HTTPS — put it
+    on 443 if you can give coturn its own address or an SNI route from your proxy. A deployment
+    with only the UDP entry works in the office it was tested in and fails at a customer site.
+  </p>
+  <p class="note">
+    <b>The secret is a real secret.</b> <code>ichat.calls.turn-secret</code> must equal coturn's
+    <code>static-auth-secret</code>, and a TURN server with a guessable one is an open relay —
+    anyone who finds it can push traffic through your server, and the first sign is a bandwidth
+    bill. There is no default anywhere in the stack for exactly this reason.
+  </p>
+
+  <h4>Sizing</h4>
+  <p>
+    This is the one feature that does not fit the small box the rest of the application does. A
+    relayed voice call costs the relay about <b>128 kbit/s</b> and a video call about
+    <b>4 Mbit/s</b>, counting both directions. Bandwidth binds long after coturn's packet-rate CPU
+    does. A gigabit line carries more concurrent 1:1 video calls than a workspace of a few thousand
+    people will ever place at once.
+  </p>
+
+  <div class="tw">
+  <table class="nowrap-1 cfg">
+    <thead><tr><th>Key</th><th>Env</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>ichat.calls.enabled</code></td><td><code>ICHAT_CALLS_ENABLED</code></td><td><code>true</code></td>
+        <td>Master switch. Turning it off hides the buttons even where TURN is configured.</td>
+      </tr>
+      <tr>
+        <td><code>ichat.calls.turn-urls</code></td><td><code>ICHAT_TURN_URLS</code></td><td>&mdash;</td>
+        <td>
+          Comma-separated, handed to the browser as-is, e.g.
+          <code>turn:chat.example.com:3478?transport=udp,turns:chat.example.com:443?transport=tcp</code>.
+          Empty means calling is unavailable.
+        </td>
+      </tr>
+      <tr>
+        <td><code>ichat.calls.turn-secret</code></td><td><code>ICHAT_TURN_SECRET</code></td><td>&mdash;</td>
+        <td>Must match coturn's <code>static-auth-secret</code>. A mismatch is invisible: every candidate simply fails to authenticate and the call looks like a network problem.</td>
+      </tr>
+      <tr>
+        <td><code>ichat.calls.force-relay</code></td><td><code>ICHAT_CALLS_FORCE_RELAY</code></td><td><code>true</code></td>
+        <td>
+          Relay every call rather than letting the two browsers connect directly. Costs bandwidth,
+          and buys uniform behaviour plus neither participant learning the other's IP address. Set
+          it false to try direct first and fall back to the relay.
+        </td>
+      </tr>
+      <tr>
+        <td><code>ichat.calls.video</code></td><td><code>ICHAT_CALLS_VIDEO</code></td><td><code>true</code></td>
+        <td>Offer video calls as well as voice. Off drops the camera button and leaves the handset.</td>
+      </tr>
+      <tr>
+        <td><code>ichat.calls.ring-timeout</code></td><td><code>ICHAT_CALLS_RING_TIMEOUT</code></td><td><code>45s</code></td>
+        <td>How long an unanswered call rings before the caller is told nobody picked up.</td>
+      </tr>
+      <tr>
+        <td><code>ichat.calls.credential-ttl</code></td><td><code>ICHAT_TURN_CREDENTIAL_TTL</code></td><td><code>10m</code></td>
+        <td>How long a minted TURN credential stays valid. It only has to survive the start of one call; short bounds what a leaked one is worth.</td>
+      </tr>
+      <tr>
+        <td><code>ichat.calls.stun-urls</code></td><td><code>ICHAT_STUN_URLS</code></td><td>&mdash;</td>
+        <td>Unused while <code>force-relay</code> is on — a relay-only browser never asks a STUN server anything. Configure it if you turn relaying off.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+
+  <p class="note">
+    <b>Single instance.</b> Which calls are ringing is held in memory, like the rate limiter, so a
+    second application node would not know about a call started on the first. Calls work on one
+    node; running several needs the shared state that the rest of horizontal scaling does.
+  </p>
 </section>
 
 <section class="doc" id="config-write">

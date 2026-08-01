@@ -1,0 +1,65 @@
+<!--
+  The call surface: ringing, connecting and in-call, all in one panel driven by calls.js.
+
+  Included on every page that has a socket, not only the DM page, because a call you cannot
+  receive while you happen to be reading a channel is not a calling feature. Placing a call is
+  a different matter and stays where a call has a well-defined other end — the header of a 1:1
+  conversation. See the buttons in conversation.html.
+
+  Rendered hidden and left in the DOM rather than built on demand: an incoming call has to appear
+  within a ring or two, and this is a dozen elements.
+-->
+<div th:fragment="callPanel" id="call-panel" class="call-panel" hidden
+     role="dialog" aria-modal="true" aria-labelledby="call-peer-name">
+
+    <div class="call-card">
+
+        <!--/* Video surface. Hidden for an audio call and until media is flowing, so the panel is
+               an identity card while it rings and becomes a video stage only when there is video
+               to show. */-->
+        <div id="call-stage" class="call-stage" hidden>
+            <video id="call-remote-video" class="call-remote-video"
+                   autoplay playsinline></video>
+            <!--/* Muted is not a preference here, it is required: playing your own microphone back
+                   through your own speakers is a feedback loop. The remote audio element below is
+                   the only thing that ever makes sound. */-->
+            <video id="call-local-video" class="call-local-video"
+                   autoplay playsinline muted></video>
+        </div>
+
+        <div class="call-identity">
+            <span class="avatar call-avatar"><span id="call-avatar" class="avatar-letter">?</span></span>
+            <p id="call-peer-name" class="call-peer-name">…</p>
+            <p id="call-status" class="call-status">Calling…</p>
+            <p id="call-timer" class="call-timer" hidden>00:00</p>
+        </div>
+
+        <div class="call-actions">
+            <button type="button" id="call-mute" class="call-btn" hidden
+                    aria-pressed="false" title="Mute" aria-label="Mute">
+                <svg class="icon"><use href="#icon-mic"/></svg>
+            </button>
+            <button type="button" id="call-camera" class="call-btn" hidden
+                    aria-pressed="false" title="Turn camera off" aria-label="Turn camera off">
+                <svg class="icon"><use href="#icon-video"/></svg>
+            </button>
+            <button type="button" id="call-accept" class="call-btn call-btn-answer" hidden
+                    title="Answer" aria-label="Answer">
+                <svg class="icon"><use href="#icon-phone"/></svg>
+            </button>
+            <button type="button" id="call-decline" class="call-btn call-btn-end" hidden
+                    title="Decline" aria-label="Decline">
+                <svg class="icon"><use href="#icon-phone-end"/></svg>
+            </button>
+            <button type="button" id="call-hangup" class="call-btn call-btn-end" hidden
+                    title="Hang up" aria-label="Hang up">
+                <svg class="icon"><use href="#icon-phone-end"/></svg>
+            </button>
+        </div>
+    </div>
+
+    <!--/* The only element that produces sound. Kept outside the video stage so an audio call does
+           not depend on a hidden video element being laid out to be audible — that is a silent
+           failure one CSS change away, and the symptom is a connected call nobody can hear. */-->
+    <audio id="call-remote-audio" autoplay></audio>
+</div>
