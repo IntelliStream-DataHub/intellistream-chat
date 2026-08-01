@@ -22,3 +22,5 @@
 //= require mention-inbox.js
 //= require presence.js
 //= require idle-logout.js
+//= require call-transport.js
+//= require calls.js

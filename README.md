@@ -1,8 +1,8 @@
 # IntelliStream Chat — self-hosted team chat, built to last
 
 Slack/Mattermost-style workspace chat: channels, threads, direct and group messages, reactions,
-mentions, presence, polls, slash commands, full-text search, streamed file uploads and OIDC single
-sign-on. One JVM process, one Postgres database, one systemd unit.
+mentions, presence, polls, slash commands, full-text search, streamed file uploads, 1:1 voice and
+video calls, and OIDC single sign-on. One JVM process, one Postgres database, one systemd unit.
 
 **[intellistream-datahub.github.io/intellistream-chat](https://intellistream-datahub.github.io/intellistream-chat/)** — screenshots, feature tour and the full manual.
 
@@ -83,6 +83,11 @@ Measured, not estimated: the whole application boots and serves inside a hard
 threading and searching. One core, well under a gigabyte, and no second service to run because the
 search index is embedded and the message broker is in-process.
 
+Those numbers do not include calls. Media never touches this process — it goes through the TURN
+relay — but the relay is bandwidth the box has to have: about 128 kbit/s per voice call and 4 Mbit/s
+per video call, both directions counted. A workspace that calls as well as types needs to be sized
+for that separately.
+
 That is enough for a workspace of around a thousand people. The arithmetic is the measured
 per-connection cost from [`scalability.md`](scalability.md): 82 KB per WebSocket connection, so a
 thousand people connected at once is roughly 82 MB on top of the base footprint. The message rate
@@ -122,6 +127,13 @@ retroactively narrowed.
 The whole system is one JVM process and one database. There is no message broker to operate, no
 search cluster, no Redis, no sidecar, no npm build. That is the central design decision and
 everything else follows from it.
+
+The one deliberate exception is **calls**, and it is worth stating plainly rather than hiding in a
+config table. Voice and video need a TURN relay to get media past NAT, and a relay cannot live
+inside the JVM, so a deployment that wants calls runs **coturn** as a second unit. It is small — one
+binary, one config file, a few MB resident — and it is optional: leave it out and the call buttons
+are never rendered, while everything else works exactly as described. Nothing else in the stack has
+been allowed to grow a second process, and this one is a real cost, not a free feature.
 
 | Layer | Choice | Why                                                                                                                                                                                               |
 |---|---|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|

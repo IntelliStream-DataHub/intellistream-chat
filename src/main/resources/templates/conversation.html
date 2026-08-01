@@ -59,6 +59,26 @@
                     </h1>
                 </div>
                 <div class="channel-header-actions">
+                    <!--/* Calls are 1:1 only, so the buttons appear only where there is exactly one
+                           other person to call. `otherUsername` is null for a GROUP conversation
+                           and null again for a note-to-self, which is both cases in one condition
+                           rather than two that could drift apart. `callsAvailable` is false until
+                           an operator has configured a TURN server — a call button that cannot
+                           work is worse than no call button. */-->
+                    <th:block th:if="${callsAvailable and activeConversation.otherUsername != null}">
+                        <button type="button" class="icon-btn"
+                                data-call-start="audio"
+                                th:data-call-conversation="${activeConversationId}"
+                                title="Start a call" aria-label="Start a call">
+                            <svg class="icon"><use href="#icon-phone"/></svg>
+                        </button>
+                        <button type="button" class="icon-btn" th:if="${callsVideo}"
+                                data-call-start="video"
+                                th:data-call-conversation="${activeConversationId}"
+                                title="Start a video call" aria-label="Start a video call">
+                            <svg class="icon"><use href="#icon-video"/></svg>
+                        </button>
+                    </th:block>
                     <button type="button" id="group-members-toggle" class="icon-btn"
                             th:if="${activeConversation.type.name() == 'GROUP'}"
                             aria-haspopup="true" aria-expanded="false"
@@ -363,6 +383,13 @@
         </form>
     </aside>
 </div>
+
+<!--/* The condition has to be on an OUTER element. th:replace is processed before th:if
+       (precedence 100 vs 300), so the two on one tag means the fragment is included and the
+       condition is thrown away with the element it was written on. */-->
+<th:block th:if="${callsAvailable}">
+    <th:block th:replace="~{fragments/call-panel :: callPanel}"/>
+</th:block>
 
 <script th:src="@{/js/vendor/stomp.umd.min.js}"></script>
 <!-- Bundled page scripts (assets.gradle); dev serves the source files. See ASSETS.md. -->

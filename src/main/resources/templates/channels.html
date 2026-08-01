@@ -661,6 +661,15 @@
 <script th:src="@{/js/vendor/stomp.umd.min.js}"></script>
 <script th:src="@{/js/vendor/highlight.min.js}"></script>
 
+<!--/* Calls are placed from a DM, but they arrive wherever you are — so the panel is here too,
+       and the channel page rings just like the conversation page does. Nothing in it can start a
+       call; it only answers one. */-->
+<!--/* Condition on the outer block: th:replace runs before th:if, so both on one tag would
+       include the panel unconditionally. */-->
+<th:block th:if="${callsAvailable}">
+    <th:block th:replace="~{fragments/call-panel :: callPanel}"/>
+</th:block>
+
 <!-- All classic page scripts (theme-loader, emoji-data, chat-kit, hovercard, notifications,
      mention-inbox, presence, idle-logout) ship as one minified bundle; dev serves the source
      files instead. Declared in assets.gradle; see ASSETS.md. -->
