@@ -1947,10 +1947,16 @@ journalctl -u intellistream-chat -f     # Flyway migrations, then Tomcat on :808
 
   <h4>Running coturn</h4>
   <p>
-    The bundled compose file has a service for it, behind a profile so the default stack does not
-    start one:
+    The bundled compose file starts one with the rest of the stack, bound to loopback — which is
+    all two browsers on the same machine need, and the only safe default for a container that comes
+    up on its own with a shared secret published in the repository. Point it at a real address only
+    together with a real secret:
   </p>
-<pre><code>ICHAT_TURN_RELAY_IP=&lt;your public or LAN address&gt; podman compose --profile calls up -d</code></pre>
+<pre><code>podman compose up -d                       # loopback, for trying calls on this machine
+
+ICHAT_TURN_RELAY_IP=&lt;public or LAN address&gt; \
+ICHAT_TURN_SECRET=&lt;something unguessable&gt; \
+  podman compose up -d                     # reachable from elsewhere</code></pre>
   <p>
     For a real deployment, run it on the host instead and configure <b>two</b> URLs. The UDP entry
     on 3478 is the fast path. The <code>turns:</code> entry on a TLS port is the one that gets

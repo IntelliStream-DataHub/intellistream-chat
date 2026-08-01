@@ -22,7 +22,7 @@ WHAT IT ASSERTS
   5. Hanging up leaves exactly one archive line in the conversation.
 
 REQUIREMENTS
-  - the stack up:      podman compose --profile calls up -d
+  - the stack up:      podman compose up -d          (coturn is part of the default stack)
   - the app running with TURN configured (ICHAT_TURN_URLS / ICHAT_TURN_SECRET)
   - `pip install playwright && playwright install chromium`
 
