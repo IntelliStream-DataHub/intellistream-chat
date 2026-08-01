@@ -724,6 +724,9 @@
       } catch (e) { /* ignore malformed */ }
     });
     if (window.Presence) window.Presence.attachStomp(stomp);
+    // Incoming calls and the signalling for one already in progress. calls.js no-ops when the
+    // panel is absent, which is what a deployment with no TURN server configured looks like.
+    if (window.Calls) window.Calls.attachStomp(stomp);
   };
   // Surface failures so the user can spot a CSP / handshake / auth issue in devtools
   // instead of an opaque "Not connected" with no clue why.

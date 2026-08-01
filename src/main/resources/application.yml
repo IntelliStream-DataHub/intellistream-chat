@@ -105,6 +105,33 @@ ichat:
   branding:
     dir: ${ICHAT_BRANDING_DIR:./data/branding}
 
+  # 1:1 audio and video calls (WebRTC). OFF until turn-urls and turn-secret are both set — see
+  # CallProperties. The app is not in the media path at any point: it relays SDP and ICE candidates
+  # over the existing WebSocket and the audio/video itself goes through coturn, which forwards
+  # encrypted UDP without being able to read it.
+  #
+  # Sizing, since this is the one feature that does not fit the README's 900 MB / one-core box: a
+  # relayed 1:1 audio call costs the relay ~128 kbps and a video call ~4 Mbps, counting both
+  # directions. Bandwidth binds long after coturn's packet-rate CPU does.
+  calls:
+    enabled: ${ICHAT_CALLS_ENABLED:true}
+    # e.g. turn:chat.example.com:3478?transport=udp,turns:chat.example.com:5349?transport=tcp
+    # Configure BOTH. The UDP entry is the fast path; the TURNS entry on a TLS port is the one that
+    # survives a corporate firewall, because on the wire it is indistinguishable from HTTPS.
+    turn-urls: ${ICHAT_TURN_URLS:}
+    # Must equal coturn's `static-auth-secret`. No default: a guessable secret is an open relay,
+    # and the bandwidth it gives away is yours.
+    turn-secret: ${ICHAT_TURN_SECRET:}
+    stun-urls: ${ICHAT_STUN_URLS:}
+    credential-ttl: ${ICHAT_TURN_CREDENTIAL_TTL:10m}
+    # Relay every call rather than letting peers connect directly. Costs bandwidth and buys two
+    # things: uniform behaviour (calls do not work for most people and fail behind hostile NATs),
+    # and neither participant learning the other's IP address. Set false to allow direct
+    # connections where they work, with the relay as fallback.
+    force-relay: ${ICHAT_CALLS_FORCE_RELAY:true}
+    video: ${ICHAT_CALLS_VIDEO:true}
+    ring-timeout: ${ICHAT_CALLS_RING_TIMEOUT:45s}
+
   # Fallback timezone for users whose zone we don't know: no choice saved on the profile page and
   # no `zoneinfo` claim from the identity provider. It decides what "/remind me at 09:00" means,
   # so on a server in a different zone from its users this is worth setting to where the people

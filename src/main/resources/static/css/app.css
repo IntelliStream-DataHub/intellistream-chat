@@ -5547,3 +5547,171 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
   .search-scope-form { flex-direction: column; align-items: stretch; }
   .search-help-row { grid-template-columns: 1fr; gap: 0.15rem; }
 }
+
+/* ---------------------------------------------------------------------------
+   Calls (1:1 audio and video)
+
+   The panel is fixed and centred rather than docked into the conversation
+   column, because it appears on the channel page too — a call arrives wherever
+   you are, and a surface that only makes sense inside one layout would have to
+   be built twice. Bottom-right on desktop so it does not cover the message you
+   were reading; full-width along the bottom on a phone, where a floating card
+   with a 44px tap target in the corner is a mis-tap waiting to happen.
+   --------------------------------------------------------------------------- */
+
+.call-panel {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 120;
+  width: min(340px, calc(100vw - 2.5rem));
+}
+
+.call-panel[hidden] { display: none; }
+
+.call-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  padding: 1.1rem 1rem 0.9rem;
+  background: var(--surface, var(--bg));
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  /* The heaviest shadow in the set. This is the one element allowed to sit on
+     top of everything, and a ringing phone that reads as part of the page is a
+     ringing phone people miss. */
+  box-shadow: var(--shadow-3);
+}
+
+.call-stage {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: #10131a;
+}
+
+.call-stage[hidden] { display: none; }
+
+.call-remote-video {
+  width: 100%;
+  height: 100%;
+  /* Cover, not contain: a letterboxed remote camera wastes the little space a
+     panel this size has. The edges of a webcam frame are never the subject. */
+  object-fit: cover;
+  display: block;
+}
+
+.call-local-video {
+  position: absolute;
+  right: 0.5rem;
+  bottom: 0.5rem;
+  width: 30%;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  object-fit: cover;
+  /* Mirrored, because a self-view that does not match the mirror people have
+     looked into every morning of their lives reads as subtly wrong. Only the
+     self-view — mirroring the remote would flip their text and their room. */
+  transform: scaleX(-1);
+}
+
+.call-identity {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  text-align: center;
+}
+
+.call-avatar {
+  width: 48px;
+  height: 48px;
+  font-size: 1.25rem;
+  margin-bottom: 0.25rem;
+}
+
+.call-peer-name {
+  margin: 0;
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.call-status,
+.call-timer {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted, var(--text));
+  opacity: 0.75;
+}
+
+.call-timer {
+  /* Tabular figures so the seconds column does not shuffle the whole timer
+     sideways every tick. */
+  font-variant-numeric: tabular-nums;
+}
+
+.call-timer[hidden] { display: none; }
+
+.call-actions {
+  display: flex;
+  justify-content: center;
+  gap: 0.6rem;
+}
+
+.call-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 44px: the smallest thing a thumb hits reliably. These are pressed in a
+     hurry, sometimes one-handed, and a missed decline keeps ringing. */
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.call-btn[hidden] { display: none; }
+.call-btn:hover { background: var(--hover); }
+.call-btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+/* Mute and camera-off are states, not actions — they stay lit while they hold,
+   so the answer to "am I still muted" is on screen and not in memory. */
+.call-btn.is-active {
+  background: var(--accent-soft-2);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+
+.call-btn-answer {
+  background: #1f9d55;
+  border-color: #1f9d55;
+  color: #fff;
+}
+.call-btn-answer:hover { background: #197f45; border-color: #197f45; }
+
+.call-btn-end {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+.call-btn-end:hover { filter: brightness(0.92); }
+
+@media (max-width: 720px) {
+  .call-panel {
+    right: 0;
+    left: 0;
+    bottom: 0;
+    width: auto;
+  }
+  .call-card {
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    /* Clear of the home indicator on a notched phone, where the hang-up button
+       would otherwise sit under the system gesture area. */
+    padding-bottom: max(0.9rem, env(safe-area-inset-bottom));
+  }
+}

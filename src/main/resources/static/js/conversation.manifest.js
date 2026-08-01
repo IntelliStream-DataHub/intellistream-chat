@@ -21,4 +21,6 @@
 //= require presence.js
 //= require idle-logout.js
 //= require notifications.js
+//= require call-transport.js
+//= require calls.js
 //= require conversation.js

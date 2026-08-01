@@ -24,6 +24,12 @@ count at runtime, so nothing else has to be kept in step.
 
 Requirements: playwright (python), cwebp (libwebp-tools). Both are already present on the dev
 box; see .claude/skills/website-shots/SKILL.md for the full playbook.
+
+The call shots additionally need a **TURN server and calls configured** on the instance —
+`podman compose --profile calls up -d`, with ICHAT_TURN_URLS and ICHAT_TURN_SECRET set for the
+app. They place a real call between two browser contexts, because a screenshot of a call is the
+one picture that would be a lie if the feature did not work. Without TURN the run stops and says
+so rather than quietly publishing a carousel with a slide missing.
 """
 
 import asyncio
@@ -228,8 +234,10 @@ def seed(ctx):
                       "X-Upload-Filename": urllib.parse.quote(name),
                       "X-Upload-Caption": urllib.parse.quote(caption)})
 
-    # A direct conversation, so the sidebar and the DM shots are not empty.
-    _api(me, "/api/conversations/direct", "POST", body={"username": SECOND_USER})
+    # A direct conversation, so the sidebar and the DM shots are not empty. Its id is kept
+    # because the call shot needs somewhere with a call button, and calls are 1:1 only.
+    status, dm = _api(me, "/api/conversations/direct", "POST", body={"username": SECOND_USER})
+    ctx["dm"] = dm["id"] if status == 200 and isinstance(dm, dict) else None
 
     # A thread written for the manual. Without this the threads figure illustrates whatever
     # thread happens to exist, which on a working instance is somebody's half-finished test —
@@ -406,6 +414,117 @@ async def shot_channel_files(page, ctx):
     return None
 
 
+async def _answer_from_second_browser(page, ctx, media="audio"):
+    """
+    Place a call and have the other side pick it up, so the shot shows a call that is actually
+    connected rather than a mocked-up panel.
+
+    A call needs two people, so this opens a second browser context signed in as the other
+    account. It is the only recipe that does — everything else in this file is one page — and it
+    is worth the machinery: a screenshot of a call is the one picture that would be a lie if the
+    feature did not work, and this one cannot be produced unless it does.
+
+    Returns the peer's page so the caller can close it.
+    """
+    if ctx.get("dm") is None:
+        raise RuntimeError("no direct conversation to call in")
+
+    await page.goto(f"{BASE}/conversations/{ctx['dm']}", wait_until="domcontentloaded")
+    await page.wait_for_timeout(1600)
+    if not await page.query_selector(f'[data-call-start="{media}"]'):
+        # Say why rather than timing out on a missing selector: calls are hidden until an
+        # operator configures TURN, so this is a setup problem and not a broken recipe.
+        raise RuntimeError(
+            "no call button — the instance has no TURN server configured. Start one with "
+            "`podman compose --profile calls up -d` and run the app with ICHAT_TURN_URLS "
+            "and ICHAT_TURN_SECRET set.")
+
+    peer_ctx = await page.context.browser.new_context(
+        viewport=VIEWPORT, permissions=["microphone", "camera"])
+    peer = await peer_ctx.new_page()
+    await peer.goto(f"{BASE}/oauth2/authorization/keycloak", wait_until="domcontentloaded")
+    await peer.wait_for_timeout(700)
+    if "realms" in peer.url:
+        await peer.fill("#username", SECOND_USER)
+        await peer.fill("#password", SECOND_USER)
+        await peer.click("input[type=submit], button[type=submit]")
+        await peer.wait_for_load_state("domcontentloaded")
+    await peer.goto(f"{BASE}/conversations/{ctx['dm']}", wait_until="domcontentloaded")
+    try:
+        await peer.click("#tutorial-done", timeout=2000)
+    except Exception:
+        pass
+    await peer.wait_for_timeout(2200)  # let both STOMP sockets finish CONNECT
+
+    await page.click(f'[data-call-start="{media}"]')
+    await peer.wait_for_selector("#call-accept:visible", timeout=15000)
+    await peer.click("#call-accept")
+    # The timer only starts on the transport's `connected` state, so waiting for it waits for ICE
+    # to complete — the picture is of a call carrying media, not of a hopeful UI.
+    await page.wait_for_selector("#call-timer:visible", timeout=25000)
+    await page.wait_for_timeout(2500)  # a couple of seconds on the clock reads better than 00:00
+    return peer
+
+
+def _purge_call_lines(ctx):
+    """
+    Delete the archive lines the capture's own calls left behind.
+
+    A completed call writes "Call · 3 sec" into the conversation, which is the feature working
+    correctly and is still debris here: run the capture five times and the demo DM fills with
+    three-second calls that end up photographed behind the panel on the sixth. A script that
+    photographs an instance must not keep changing it.
+    """
+    if ctx.get("dm") is None:
+        return
+    me = _token(USER)
+    status, msgs = _api(me, f"/api/conversations/{ctx['dm']}/messages")
+    if status != 200 or not isinstance(msgs, list):
+        return
+    for m in msgs:
+        body = m.get("bodyMarkdown") or ""
+        if body.startswith("_Call ·") or body == "_Missed call_":
+            _api(me, f"/api/conversations/messages/{m['id']}", "DELETE")
+
+
+async def _end_call(page, peer, ctx):
+    """Hang up, close the peer's browser, and remove the line the call just wrote."""
+    try:
+        await page.click("#call-hangup")
+        await page.wait_for_timeout(800)
+    except Exception:
+        pass
+    # Closing without hanging up first leaves the peer in a call the server still believes in
+    # until the disconnect hook fires, and the next recipe finds the account busy.
+    await peer.context.close()
+    _purge_call_lines(ctx)
+
+
+# Teardown that must not run until the screenshot has been taken.
+#
+# A recipe cannot clean up after itself here. The picture is taken by the caller *after* the
+# recipe returns, and Python runs a `finally` before the caller resumes — so hanging up in one
+# photographs the panel reading "Call ended" instead of a call in progress. Anything that would
+# change the page goes on this list and is drained once the shutter has closed.
+_PENDING_TEARDOWN = []
+
+
+async def _drain_teardown():
+    while _PENDING_TEARDOWN:
+        fn = _PENDING_TEARDOWN.pop()
+        try:
+            await fn()
+        except Exception as e:
+            print(f"  ! call teardown failed: {e}", file=sys.stderr)
+
+
+async def shot_call(page, ctx):
+    """A connected 1:1 call, seen from the caller's side, over the conversation it started in."""
+    peer = await _answer_from_second_browser(page, ctx, "audio")
+    _PENDING_TEARDOWN.append(lambda: _end_call(page, peer, ctx))
+    return None
+
+
 SHOTS = [
     # (name, recipe, caption, theme). The theme is applied before the shot, so the strip shows
     # what the app looks like in more than one skin — twenty ship, and a carousel entirely in the
@@ -432,6 +551,9 @@ SHOTS = [
     ("new-conversation", shot_new_conversation,
      "Start a direct message or a group from the same place: one name is a DM, more than one is a group.",
      "teal"),
+    ("call", shot_call,
+     "Voice and video calls in any direct message. Media goes peer to peer through your own TURN relay — the chat server never sees it, and neither participant learns the other's IP address.",
+     "default"),
     ("files", shot_files,
      "Every file you have uploaded, in one place, searchable — and deleting one leaves the message that posted it standing.",
      "carbon"),
@@ -601,6 +723,13 @@ async def doc_composer(page, ctx):
     return await page.query_selector("#composer")
 
 
+async def doc_call(page, ctx):
+    """The in-call panel itself, cropped to the control rather than the whole page."""
+    peer = await _answer_from_second_browser(page, ctx, "audio")
+    _PENDING_TEARDOWN.append(lambda: _end_call(page, peer, ctx))
+    return await page.query_selector("#call-panel")
+
+
 async def doc_admin(page, ctx):
     await page.goto(f"{BASE}/admin", wait_until="domcontentloaded")
     await page.wait_for_timeout(1400)
@@ -630,6 +759,8 @@ DOC_SHOTS = [
      "Search spans every channel you are allowed to read — joined or not — and every conversation you are in. Each hit says where it came from."),
     ("polls", doc_poll_builder,
      "Polls are built in a dialog, or typed as a slash command — both produce the same poll."),
+    ("calls", doc_call,
+     "A call in progress. Mute and hang up are the whole of the in-call UI for an audio call; a video call adds the camera toggle and the picture."),
     ("files", doc_files,
      "Your files: everything you have uploaded, searchable by name, with the storage it accounts for."),
     ("notifications", doc_notifications,
@@ -671,10 +802,12 @@ async def capture_docs(page, ctx):
                 print(f"  ! doc shot {section_id}: nothing to capture", file=sys.stderr)
                 return None
             png = (await page.screenshot(clip=el)) if isinstance(el, dict) else (await el.screenshot())
+            await _drain_teardown()
             out.append((section_id, caption, to_webp_base64(png, DOC_QUALITY)))
             print(f"  doc figure {section_id:10} {len(png) // 1024:>5} KB png")
         except Exception as e:
             print(f"  ! doc shot {section_id} failed: {e}", file=sys.stderr)
+            await _drain_teardown()
             return None
     return out
 
@@ -689,8 +822,14 @@ async def main():
     ctx["channel"] = channel
     captured = []
     async with async_playwright() as pw:
-        browser = await pw.chromium.launch()
-        page = await browser.new_page(viewport=VIEWPORT)
+        # Fake camera and microphone, and no permission prompt to answer. Only the call shots use
+        # them, and without both flags that recipe hangs on a dialog no automated run can click.
+        browser = await pw.chromium.launch(args=[
+            "--use-fake-device-for-media-stream",
+            "--use-fake-ui-for-media-stream",
+        ])
+        page = await browser.new_page(viewport=VIEWPORT,
+                                      permissions=["microphone", "camera"])
         await page.goto(f"{BASE}/channels", wait_until="domcontentloaded")
         if "realms" in page.url:
             await page.fill("#username", USER)
@@ -717,6 +856,8 @@ async def main():
                 await page.evaluate("(t) => document.body.setAttribute('data-theme', t)", theme)
                 await page.wait_for_timeout(350)
                 png = await page.screenshot(clip=clip) if clip else await page.screenshot()
+                # Only now is it safe to hang up — see _PENDING_TEARDOWN.
+                await _drain_teardown()
                 captured.append((name, caption, to_webp_base64(png)))
                 print(f"  captured {name:17} {len(png) // 1024:>5} KB png")
             except Exception as e:

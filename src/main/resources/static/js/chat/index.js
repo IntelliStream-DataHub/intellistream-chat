@@ -1224,6 +1224,9 @@ presenceMenu.init();
         } catch (e) { /* ignore malformed */ }
       });
       if (window.Presence) window.Presence.attachStomp(stomp);
+      // Calls are placed from a DM, but they ring wherever you are. calls.js no-ops on a page
+      // without the panel, so this is safe even where the fragment was not included.
+      if (window.Calls) window.Calls.attachStomp(stomp);
     };
 
     // Catch-up read when the tab returns to the foreground: while backgrounded we deliberately
