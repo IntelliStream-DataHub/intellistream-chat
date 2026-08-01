@@ -25,11 +25,11 @@ count at runtime, so nothing else has to be kept in step.
 Requirements: playwright (python), cwebp (libwebp-tools). Both are already present on the dev
 box; see .claude/skills/website-shots/SKILL.md for the full playbook.
 
-The call shots additionally need a **TURN server and calls configured** on the instance —
-`podman compose --profile calls up -d`, with ICHAT_TURN_URLS and ICHAT_TURN_SECRET set for the
-app. They place a real call between two browser contexts, because a screenshot of a call is the
-one picture that would be a lie if the feature did not work. Without TURN the run stops and says
-so rather than quietly publishing a carousel with a slide missing.
+The call shots additionally need a **TURN server and calls configured** on the instance — the
+coturn in `podman compose up -d` is enough, with ICHAT_TURN_URLS and ICHAT_TURN_SECRET set for
+the app. They place a real call between two browser contexts, because a screenshot of a call is
+the one picture that would be a lie if the feature did not work. Without TURN the run stops and
+says so rather than quietly publishing a carousel with a slide missing.
 """
 
 import asyncio
@@ -435,8 +435,8 @@ async def _answer_from_second_browser(page, ctx, media="audio"):
         # Say why rather than timing out on a missing selector: calls are hidden until an
         # operator configures TURN, so this is a setup problem and not a broken recipe.
         raise RuntimeError(
-            "no call button — the instance has no TURN server configured. Start one with "
-            "`podman compose --profile calls up -d` and run the app with ICHAT_TURN_URLS "
+            "no call button — the instance has no TURN server configured. Start the stack with "
+            "`podman compose up -d` and run the app with ICHAT_TURN_URLS "
             "and ICHAT_TURN_SECRET set.")
 
     peer_ctx = await page.context.browser.new_context(
