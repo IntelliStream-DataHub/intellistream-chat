@@ -150,7 +150,7 @@ function avatarFor(item) {
 
 /**
  * Stand-in for the avatar on a broadcast row. From the SVG sprite, not an emoji: the sprite icons
- * inherit currentColor and so follow the theme, which a glyph cannot (see AGENT.md).
+ * inherit currentColor and so follow the theme, which a glyph cannot (see AGENTS.md).
  */
 function broadcastIcon() {
   const wrap = document.createElement('span');

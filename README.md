@@ -191,7 +191,7 @@ codebase is small, conventional and covered:
 - **981 tests across 101 classes** (47 integration, 54 unit), running in about six minutes.
   Integration tests run against a real PostgreSQL via Testcontainers — never H2, which silently
   accepts SQL that Postgres rejects.
-- **Conventions are written down.** [`AGENT.md`](AGENT.md) documents the decisions you cannot infer
+- **Conventions are written down.** [`AGENTS.md`](AGENTS.md) documents the decisions you cannot infer
   from the code: the two security filter chains, `requireMember` vs `requireWriteAccess`, why
   broadcast happens after commit, why there is no SockJS. Read it before your first change.
 - **Security posture is explicit.** A strict CSP with no inline script, two separate filter chains,
@@ -227,7 +227,7 @@ scratch. A feature typically touches one service, one controller, one migration 
    | `intellistream-chat` | Gradle artifact, systemd unit, `/opt` path |
 
    Then regenerate `V1__init.sql`.
-2. **Read `AGENT.md` and keep it current.** It is the conventions document for the project, and it
+2. **Read `AGENTS.md` and keep it current.** It is the conventions document for the project, and it
    is worth more to a new contributor than any amount of generated API documentation. Update it as
    your fork diverges.
 3. **Write the change down before writing it.** Acceptance criteria beat prose: *"polls auto-close

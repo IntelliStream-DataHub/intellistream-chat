@@ -34,7 +34,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p><b>Why this exists at all.</b> Two enforcement points cannot afford the database. The STOMP
  * inbound interceptor runs on the message send path, which is deliberately query-free (see
- * AGENT.md) — a {@code select} per frame would undo the work that made it fast. The servlet filter
+ * AGENTS.md) — a {@code select} per frame would undo the work that made it fast. The servlet filter
  * runs before the request reaches anything that resolves a domain {@code User}, so it has a token
  * and nothing else; resolving one there would double the user lookup every page load already pays.
  *
