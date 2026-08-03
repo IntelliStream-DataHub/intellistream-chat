@@ -289,7 +289,7 @@ class SearchIndexRebuildIT {
 
     @Test
     void aReconcileSweepLeavesAnUpToDateDocumentWithFilesAlone() throws java.io.IOException {
-        // The failure AGENT.md warns about, in its quietest form: a sweep that decided a document
+        // The failure AGENTS.md warns about, in its quietest form: a sweep that decided a document
         // it did not recognise was stale, or that rewrote a healthy one from a projection missing
         // half its fields. Either way the file is gone from search an hour after it was uploaded,
         // and nothing anywhere says so.

@@ -36,7 +36,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>State resets on app restart by design; the persisted custom status is the only thing that
  * survives. Single-instance only — multi-node would swap this for shared state (see the
- * horizontal-scaling notes / AGENT.md's RateLimiter migration path).
+ * horizontal-scaling notes / AGENTS.md's RateLimiter migration path).
  */
 @Component
 public class PresenceTracker {
