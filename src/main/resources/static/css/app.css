@@ -151,14 +151,11 @@ html, body {
   margin: 0;
   padding: 0;
   height: 100%;
-  /* Explicit cross-platform UI font stack. We avoid the `system-ui` and `-apple-system`
-     generic keywords because Firefox's resistFingerprinting probes their OS-specific
-     fallbacks (e.g. macOS "Hiragino Kaku Gothic ProN" for CJK) and logs each blocked
-     probe to the console. Listing real font names skips that path entirely. */
-  /* Figtree (self-hosted, above) leads; the explicit system fallbacks avoid the
-     `system-ui` keyword (Firefox resistFingerprinting probes its OS-specific fallbacks
-     and logs console noise), and the explicit emoji families keep emoji from walking
-     the platform fallback list for the same reason. */
+  /* Figtree (self-hosted, above) leads, then an explicit cross-platform stack. We avoid the
+     `system-ui` and `-apple-system` generic keywords because Firefox's resistFingerprinting
+     probes their OS-specific fallbacks (e.g. macOS "Hiragino Kaku Gothic ProN" for CJK) and
+     logs each blocked probe to the console; listing real font names skips that path entirely.
+     The explicit emoji families keep emoji off the platform fallback list for the same reason. */
   font-family: "Figtree", BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial,
                "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
   background: var(--bg);
@@ -348,14 +345,17 @@ input:focus, textarea:focus, select:focus {
   /* Let the wordmark shrink-and-ellipsize instead of overflowing the column. */
   min-width: 0;
 }
-.topbar-left .logo .logo-mark {
-  /* Height-only sizing: width follows the image's aspect ratio, so an uploaded
-     wide wordmark-style logo renders at its natural proportions. max-width guards
-     the bar against extreme banners; object-fit keeps a capped <img> undistorted. */
+/* Height-only sizing: width follows the image's aspect ratio, so an uploaded wide
+   wordmark-style logo renders at its natural proportions. max-width guards the bar against
+   extreme banners; object-fit keeps a capped <img> undistorted. Shared by the topbar mark and
+   the admin console's current/preview slots, so the preview matches what the bar will show. */
+.logo-mark {
   height: 32px;
   width: auto;
   max-width: 180px;
   object-fit: contain;
+}
+.topbar-left .logo .logo-mark {
   display: block;
   flex: 0 0 auto;
 }
@@ -735,12 +735,22 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
      it is still secondary to the channel name. */
   .channel-star { opacity: 0.55; }
 }
-.channel-list a:hover {
+/* ---------- Sidebar row skin ----------
+   Channels and direct messages are two lists of the same thing — a room you can be in, with the
+   same hover, the same active highlight and the same unread cues. They are styled together rather
+   than side by side so the two lists cannot drift into looking like two different controls. The
+   DM section further down adds only what is genuinely DM-specific (avatar, tags, empty state).
+   Order matters here and is load-bearing: :hover and .active are the same specificity, so .active
+   must come second to win on an active row you are pointing at, and the unread rule comes after
+   both because an unread active row should still read as unread. */
+.channel-list a:hover,
+.dm-list > li > a:hover {
   background: var(--sb-bg-2);
   color: var(--sb-text);
   text-decoration: none;
 }
-.channel-list a.active {
+.channel-list a.active,
+.dm-list > li > a.active {
   background: var(--sb-active);
   color: var(--sb-active-text);
   font-weight: 600;
@@ -750,7 +760,8 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   opacity: 0.7;
   font-weight: 400;
 }
-.channel-list .channel-name {
+.channel-list .channel-name,
+.dm-name {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
@@ -770,18 +781,24 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
    exists" — and someone who has learned to ignore all of them ignores the one that mattered.
    Both surfaces (Thymeleaf here, index.js live) set data-unread-cue from the same rule in
    ChannelSidebarDto.unreadCue, so a reload never changes what you were looking at. */
-.channel-list li[data-unread-cue="bold"] > a {
+.channel-list li[data-unread-cue="bold"] > a,
+.dm-list li.has-unread > a {
   color: var(--sb-text);
   font-weight: 600;
 }
-.channel-list li[data-unread-cue="bold"] > a .channel-name { font-weight: 700; }
+.channel-list li[data-unread-cue="bold"] > a .channel-name,
+.dm-list li.has-unread .dm-name { font-weight: 700; }
 
 /* Muted: dimmed, never bold, and marked. The unread is still counted behind this — muting means
    "stop telling me", not "pretend nothing happened" — it just does not interrupt. Hover restores
-   full strength so the row is still readable when you go looking for it. */
-.channel-list li[data-muted="true"] > a { opacity: 0.55; }
+   full strength so the row is still readable when you go looking for it. The unread badge is
+   deliberately left undimmed: the count is still true. */
+.channel-list li[data-muted="true"] > a,
+.dm-list li[data-muted="true"] > a { opacity: 0.55; }
 .channel-list li[data-muted="true"] > a:hover,
-.channel-list li[data-muted="true"] > a.active { opacity: 1; }
+.channel-list li[data-muted="true"] > a.active,
+.dm-list li[data-muted="true"] > a:hover,
+.dm-list li[data-muted="true"] > a.active { opacity: 1; }
 .channel-muted-marker { flex-shrink: 0; opacity: 0.8; }
 
 .unread-badge {
@@ -1032,9 +1049,22 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   color: var(--muted);
 }
 .channel-rename label + input { margin-bottom: 0.35rem; }
-.channel-rename input {
+/* Every field in the settings panel: full width, body-size text — a select and a text box that
+   disagree about either look like they belong to different forms. */
+.channel-rename input,
+.channel-notify select,
+.channel-destroy-confirm input {
   width: 100%;
   font-size: var(--fs-md);
+}
+/* Caption above a field. The rename block is a grid and spaces its own rows, so it only needs
+   the type; the other two are ordinary flow and have to make the line themselves. */
+.channel-notify label,
+.channel-destroy-confirm label {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: var(--fs-sm);
+  color: var(--muted);
 }
 .channel-rename-note {
   margin: 0.15rem 0 0;
@@ -1059,22 +1089,11 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   color: var(--muted);
 }
 .channel-rename-status[hidden] { display: none; }
-.channel-rename-status.is-error { color: var(--danger); }
 
 /* Notification level picker in the channel settings panel. It had no rule of its own, so the
    select sat flush against the invite form below it. */
 .channel-notify {
   margin-bottom: 10px;
-}
-.channel-notify label {
-  display: block;
-  margin-bottom: 0.25rem;
-  font-size: var(--fs-sm);
-  color: var(--muted);
-}
-.channel-notify select {
-  width: 100%;
-  font-size: var(--fs-md);
 }
 .channel-notify-status {
   margin: 0.35rem 0 0;
@@ -1082,19 +1101,34 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   color: var(--muted);
 }
 .channel-notify-status[hidden] { display: none; }
+/* Both inline save-status lines turn red on a refusal. */
+.channel-rename-status.is-error,
 .channel-notify-status.is-error { color: var(--danger); }
 
-/* ---------- Leave channel ----------
-   Bottom of the channel settings panel, below a rule: it is the destructive action in a panel of
-   ordinary ones, and putting it inside the same visual group as "invite a member" is how people
-   click it by accident. Quiet until hovered — red-by-default in a panel you open to change a
-   notification setting reads as an alarm about nothing. */
-.channel-leave {
+/* ---------- Archive / Leave / Delete forever ----------
+   The three closing blocks of the channel settings panel. Each is a rule, a quiet full-width
+   trigger and an inline confirm step, so they share one skin here and state below only what
+   legitimately differs: the trigger's hover colour and the confirm button.
+
+   Quiet until hovered, all three: a permanently red button in a panel people open to change a
+   notification setting is an alarm that stops being read. Each gets its own rule above it rather
+   than sharing one group, because archiving is a decision about the channel, leaving is a decision
+   about yourself, and deleting is the only one of the three with no undo — stacked into a single
+   visual group each reads as a milder version of the one above, which is how people click them by
+   accident. The markup order is archive, then leave, then delete forever, for the same reason.
+
+   (.channel-destroy's own extras — the confirm field and the disabled state — stay with the
+   "Delete forever" block below.) */
+.channel-leave,
+.channel-archive,
+.channel-destroy {
   margin-top: 0.9rem;
   padding-top: 0.75rem;
   border-top: 1px solid var(--border);
 }
-.channel-leave-trigger {
+.channel-leave-trigger,
+.channel-archive-trigger,
+.channel-destroy-trigger {
   display: flex;
   align-items: center;
   gap: 0.45rem;
@@ -1104,71 +1138,51 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   color: var(--muted);
   font-size: var(--fs-md);
 }
-.channel-leave-trigger:hover {
+/* Leaving and deleting hover red. Archiving is reversible, so it only firms up. */
+.channel-leave-trigger:hover,
+.channel-destroy-trigger:hover {
   background: var(--danger-soft);
   border-color: var(--danger);
   color: var(--danger);
-}
-.channel-leave-confirm[hidden] { display: none; }
-.channel-leave-confirm p {
-  margin: 0.6rem 0;
-  font-size: var(--fs-sm);
-  line-height: 1.45;
-  color: var(--muted);
-}
-.channel-leave-confirm strong { color: var(--text); }
-.channel-leave-actions {
-  display: flex;
-  gap: 0.5rem;
-  justify-content: flex-end;
-}
-.channel-leave-danger { background: var(--danger); }
-.channel-leave-danger:hover { background: var(--danger); filter: brightness(0.9); }
-/* ---------- Archive / unarchive ----------
-   Above the leave block and below a rule of its own: archiving is a decision about the channel,
-   leaving is a decision about yourself, and stacking them in one group makes the second look like a
-   milder version of the first. Quiet until hovered, like the leave trigger — a panel opened to
-   change a notification setting should not be shouting. */
-.channel-archive {
-  margin-top: 0.9rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--border);
-}
-.channel-archive-trigger {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  width: 100%;
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--muted);
-  font-size: var(--fs-md);
 }
 .channel-archive-trigger:hover {
   background: var(--hover);
   border-color: var(--border-strong);
   color: var(--text);
 }
-.channel-archive-confirm[hidden] { display: none; }
-.channel-archive-confirm p {
+.channel-leave-confirm[hidden],
+.channel-archive-confirm[hidden],
+.channel-destroy-confirm[hidden] { display: none; }
+.channel-leave-confirm p,
+.channel-archive-confirm p,
+.channel-destroy-confirm p {
   margin: 0.6rem 0;
   font-size: var(--fs-sm);
   line-height: 1.45;
   color: var(--muted);
 }
-.channel-archive-confirm strong { color: var(--text); }
-.channel-archive-actions {
+.channel-leave-confirm strong,
+.channel-archive-confirm strong,
+.channel-destroy-confirm strong { color: var(--text); }
+.channel-leave-actions,
+.channel-archive-actions,
+.channel-destroy-actions {
   display: flex;
   gap: 0.5rem;
   justify-content: flex-end;
 }
+/* The confirm buttons. Leave and delete restate their own background inside :hover because the
+   global `button:hover` is (0,1,1) and out-specifies a single class — without it the red button
+   repaints accent-blue under the pointer. */
+.channel-leave-danger { background: var(--danger); }
+.channel-leave-danger:hover { background: var(--danger); filter: brightness(0.9); }
 /* Amber rather than red. Archiving is reversible and deleting is not, and if both buttons are the
    same colour the one that matters stops standing out. */
 .channel-archive-danger {
   background: var(--warning);
   color: #fff;
 }
-.channel-archive-danger:hover { filter: brightness(0.92); }
+.channel-archive-danger:hover { background: var(--warning); filter: brightness(0.92); }
 
 /* The chip beside the channel name, and the notice where the composer would be. */
 .channel-archived-chip {
@@ -1219,59 +1233,16 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
 }
 
 /* ---------- Delete forever ----------
-   Last in the panel, below the leave block, because it is the only thing here with no undo. Quiet
-   until hovered like its neighbours — a permanently red button in a panel people open to change a
-   notification setting is an alarm that stops being read. */
-.channel-destroy {
-  margin-top: 0.9rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--border);
-}
-.channel-destroy-trigger {
-  display: flex;
-  align-items: center;
-  gap: 0.45rem;
-  width: 100%;
-  background: transparent;
-  border: 1px solid var(--border);
-  color: var(--muted);
-  font-size: var(--fs-md);
-}
-.channel-destroy-trigger:hover {
-  background: var(--danger-soft);
-  border-color: var(--danger);
-  color: var(--danger);
-}
-.channel-destroy-confirm[hidden] { display: none; }
-.channel-destroy-confirm p {
-  margin: 0.6rem 0;
-  font-size: var(--fs-sm);
-  line-height: 1.45;
-  color: var(--muted);
-}
-.channel-destroy-confirm strong { color: var(--text); }
-.channel-destroy-confirm label {
-  display: block;
-  margin-bottom: 0.25rem;
-  font-size: var(--fs-sm);
-  color: var(--muted);
-}
-.channel-destroy-confirm input {
-  width: 100%;
-  font-size: var(--fs-md);
-  margin-bottom: 0.5rem;
-}
+   Last in the panel because it is the only thing here with no undo. The rule, trigger, confirm
+   copy and action row come from the shared block above; what is specific to deleting is the
+   "type the channel name" field and the button that stays inert until it matches. */
+.channel-destroy-confirm input { margin-bottom: 0.5rem; }
 .channel-destroy-status {
   margin: 0 0 0.5rem;
   font-size: var(--fs-xs);
   color: var(--danger);
 }
 .channel-destroy-status[hidden] { display: none; }
-.channel-destroy-actions {
-  display: flex;
-  gap: 0.5rem;
-  justify-content: flex-end;
-}
 .channel-destroy-danger { background: var(--danger); }
 .channel-destroy-danger:hover:not(:disabled) { background: var(--danger); filter: brightness(0.9); }
 /* Disabled until the typed name matches. Visibly inert rather than merely unclickable — a button
@@ -1534,7 +1505,6 @@ button.icon-btn > .icon {
   background: var(--border);
 }
 .day-divider span {
-  padding: 0 0.8rem;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius-full);
@@ -1706,12 +1676,10 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
   border-radius: var(--radius-sm);
   color: inherit;
   font: inherit;
+  transition: background-color 0.1s;
 }
 /* Hover/focus tint — var(--hover), not var(--bg): in the light theme --bg equals the
    menu panel's white, which made the old hover invisible. */
-.presence-menu-item {
-  transition: background-color 0.1s;
-}
 .presence-menu-item:hover,
 .presence-menu-item:focus {
   background: var(--hover);
@@ -1769,7 +1737,6 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
   background: var(--danger-soft);
   border-radius: var(--radius-sm);
 }
-
 
 /* When the user has uploaded a profile picture the renderer adds an <img.avatar-image>
    inside the .avatar wrapper. The image covers the wrapper completely and obscures
@@ -2121,9 +2088,8 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
   font-weight: 700;
   margin-bottom: 0.25rem;
 }
-.composer-preview .message-body { line-height: 1.45; color: var(--text); }
-.composer-preview .message-body p:first-child { margin-top: 0; }
-.composer-preview .message-body p:last-child  { margin-bottom: 0; }
+/* The preview renders the same .message-body the sent message will, so it needs no type rules
+   of its own — see the "Messages" section. */
 
 .composer-toolbar {
   display: flex;
@@ -2167,11 +2133,6 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
   font-size: var(--fs-md);
   border-radius: var(--radius-sm);
 }
-.composer-toolbar .send-btn .send-icon {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-}
 /* Explicit hover: the 2-class background rule above out-specifies the global
    button:hover, so without this the send button had no hover feedback at all. */
 .composer-toolbar .send-btn:hover:not(:disabled) {
@@ -2183,8 +2144,11 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
   box-shadow: none;
 }
 /* Paper-plane micro-interaction: a small ready-for-takeoff tilt while hovering.
-   Shared with the hovercard's "Send DM" button, which uses the same icon. */
+   Shared with the hovercard's "Send DM" button, which uses the same icon at the same size. */
 .send-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
   transition: transform 0.15s ease-out;
 }
 .composer-toolbar .send-btn:hover:not(:disabled) .send-icon,
@@ -2340,18 +2304,51 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
   font-size: var(--fs-md);
 }
 .search-dropdown-channel { color: var(--accent-fg); }
+/* ---------- Shared by the dropdown and the /search results page ----------
+   A result is a result whether it arrives in the topbar popup or on the full page, so the parts
+   that carry meaning — the "not joined" pill, the highlighted term, the matched-filename chips —
+   are declared once for both. They were written twice and had already drifted apart once. */
+
 /* "not joined" on a result from a public channel the viewer has never opened. Same pill as the
    sidebar's channel-discovery results, because it is the same fact about the same thing. */
-.search-dropdown-tag {
+.search-dropdown-tag,
+.search-result-tag {
   font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.03em;
   color: var(--muted);
   border: 1px solid currentColor;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   padding: 0 0.35rem;
   white-space: nowrap;
 }
+/* Lucene's Highlighter wraps matched terms in <mark>. The browser default is a heavy yellow
+   background; tone it down so the text stays readable in both themes. The snippet's mark inherits
+   its colour because the snippet is already body-coloured; the filename chips are muted, so their
+   mark states --text to lift the matched part out of the chip. */
+.search-dropdown-snippet mark,
+.search-result-snippet mark,
+.search-dropdown-files mark,
+.search-result-file mark {
+  background: rgba(255, 193, 7, 0.35);
+  padding: 0 1px;
+  border-radius: 2px;
+  font-weight: 600;
+}
+.search-dropdown-snippet mark,
+.search-result-snippet mark { color: inherit; }
+.search-dropdown-files mark,
+.search-result-file mark { color: var(--text); }
+.search-dropdown-files .icon,
+.search-result-file .icon { flex: none; opacity: 0.7; }
+/* Markdown rendered into a one- or two-line excerpt: no block spacing, and code keeps its wrap. */
+.search-dropdown-snippet > :first-child,
+.search-result-snippet > :first-child { margin-top: 0; }
+.search-dropdown-snippet > :last-child,
+.search-result-snippet > :last-child { margin-bottom: 0; }
+.search-dropdown-snippet pre,
+.search-result-snippet pre { white-space: pre-wrap; }
+
 .search-dropdown-time { margin-left: auto; }
 .search-dropdown-snippet {
   margin-top: 0.15rem;
@@ -2364,24 +2361,12 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
   -webkit-box-orient: vertical;
   line-height: 1.35;
 }
-.search-dropdown-snippet > :first-child { margin-top: 0; }
-.search-dropdown-snippet > :last-child { margin-bottom: 0; }
 .search-dropdown-snippet p,
 .search-dropdown-snippet ul,
 .search-dropdown-snippet ol,
 .search-dropdown-snippet pre,
 .search-dropdown-snippet blockquote { margin: 0; padding: 0; }
-.search-dropdown-snippet pre { white-space: pre-wrap; }
 .search-dropdown-snippet code { font-size: var(--fs-sm); }
-/* Lucene Highlighter wraps matched terms in <mark>. The browser default is a heavy
-   yellow background; tone it down so the snippet stays readable in both themes. */
-.search-dropdown-snippet mark {
-  background: rgba(255, 193, 7, 0.35);
-  color: inherit;
-  padding: 0 1px;
-  border-radius: 2px;
-  font-weight: 600;
-}
 /* Matched filenames, same job as .search-result-files on the results page: a row whose snippet is
    empty (a file posted with no caption) needs to say why it is a match. One line, clipped. */
 .search-dropdown-files {
@@ -2395,17 +2380,9 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.search-dropdown-files .icon { flex: none; opacity: 0.7; }
 .search-dropdown-files span {
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.search-dropdown-files mark {
-  background: rgba(255, 193, 7, 0.35);
-  color: var(--text);
-  padding: 0 1px;
-  border-radius: 2px;
-  font-weight: 600;
 }
 
 /* ---------- Mention typeahead ----------
@@ -2810,7 +2787,11 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
 .profile-page .topbar-center,
 .profile-page .topbar-right { padding: 0 1rem; }
 
-.profile-content {
+/* The scrolling sheet under the topbar. Profile and the admin console are the same kind of page —
+   one full-height panel, no sidebar — so they share it; the phone override further down already
+   treated them as one. */
+.profile-content,
+.admin-content {
   flex: 1;
   overflow-y: auto;
   padding: 2rem 1.5rem;
@@ -2902,17 +2883,8 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
   flex: none;
 }
 
-/* ---------- Admin console ---------- */
-.admin-content {
-  flex: 1;
-  overflow-y: auto;
-  padding: 2rem 1.5rem;
-  background: var(--panel-2);
-  margin-top: var(--chrome-gap);
-  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
-  height: calc(100vh - var(--topbar-h) - var(--chrome-gap));
-  height: calc(100dvh - var(--topbar-h) - var(--chrome-gap));
-}
+/* ---------- Admin console ----------
+   .admin-content's sheet is declared with .profile-content in the profile section above. */
 .admin-wrap {
   max-width: 960px;
   margin: 0 auto;
@@ -2970,12 +2942,7 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
   color: var(--muted);
   font-size: var(--fs-md);
 }
-.admin-current-logo .logo-mark {
-  height: 32px;
-  width: auto;
-  max-width: 180px;
-  object-fit: contain;
-}
+/* Sizing comes from the shared .logo-mark rule in the topbar section. */
 .admin-logo-note { color: var(--muted); }
 .admin-logo-note.error { color: var(--danger); font-weight: 600; }
 /* Authored display beats the UA's [hidden] rule — restore it for the preview slot. */
@@ -2999,11 +2966,11 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
   border-collapse: collapse;
   font-size: var(--fs-md);
 }
-.admin-table th, .admin-table td { white-space: nowrap; }
 .admin-table th, .admin-table td {
   text-align: left;
   padding: 0.5rem 0.6rem;
   border-bottom: 1px solid var(--border);
+  white-space: nowrap;
 }
 .admin-table th { color: var(--muted); font-weight: 600; }
 .admin-table tbody tr:hover { background: var(--hover); }
@@ -3063,91 +3030,26 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
   overflow: hidden;
   border: 1px solid var(--border);
 }
+/* Each stripe reads the theme's own token, so a swatch is never a second copy of a palette.
+   The swatch element carries that theme's data-theme and the [data-theme] blocks above are
+   attribute-only selectors, so it already resolves the right values — this used to be 60
+   hardcoded hex codes, a full second copy of every palette, i.e. two places to change a colour
+   and one place to forget. A theme added to the picker now gets a correct swatch for free. */
 .theme-swatch .sw { flex: 1; height: 100%; }
-.theme-swatch .sw-sidebar { flex: 0 0 35%; }
-.theme-swatch .sw-content { flex: 0 0 50%; }
-.theme-swatch .sw-accent { flex: 0 0 15%; }
+.theme-swatch .sw-sidebar { flex: 0 0 35%; background: var(--sb-bg); }
+.theme-swatch .sw-content { flex: 0 0 50%; background: var(--panel); }
+.theme-swatch .sw-accent { flex: 0 0 15%; background: var(--sb-active); }
 
-/* Swatch palettes — mirror the data-theme variables */
-.theme-swatch[data-theme="default"] .sw-sidebar { background: #1e325c; }
-.theme-swatch[data-theme="default"] .sw-accent  { background: #1c58d9; }
-.theme-swatch[data-theme="default"] .sw-content { background: #ffffff; }
-
-.theme-swatch[data-theme="dark"] .sw-sidebar { background: #1f1f23; }
-.theme-swatch[data-theme="dark"] .sw-accent  { background: #5d8eff; }
-.theme-swatch[data-theme="dark"] .sw-content { background: #25262b; }
-
-.theme-swatch[data-theme="orange"] .sw-sidebar { background: #b8470b; }
-.theme-swatch[data-theme="orange"] .sw-accent  { background: #f4a623; }
-.theme-swatch[data-theme="orange"] .sw-content { background: #ffffff; }
-
-.theme-swatch[data-theme="pink"] .sw-sidebar { background: #b1316a; }
-.theme-swatch[data-theme="pink"] .sw-accent  { background: #ff7eb6; }
-.theme-swatch[data-theme="pink"] .sw-content { background: #ffffff; }
-
-.theme-swatch[data-theme="green"] .sw-sidebar { background: #176b3a; }
-.theme-swatch[data-theme="green"] .sw-accent  { background: #5fdd8f; }
-.theme-swatch[data-theme="green"] .sw-content { background: #ffffff; }
-
-.theme-swatch[data-theme="purple"] .sw-sidebar { background: #4f2c8a; }
-.theme-swatch[data-theme="purple"] .sw-accent  { background: #a78bef; }
-.theme-swatch[data-theme="purple"] .sw-content { background: #ffffff; }
-
-.theme-swatch[data-theme="red"] .sw-sidebar { background: #a31b1b; }
-.theme-swatch[data-theme="red"] .sw-accent  { background: #ff7676; }
-.theme-swatch[data-theme="red"] .sw-content { background: #ffffff; }
-
-.theme-swatch[data-theme="cyan"] .sw-sidebar { background: #0d6f7a; }
-.theme-swatch[data-theme="cyan"] .sw-accent  { background: #5fdde6; }
-.theme-swatch[data-theme="cyan"] .sw-content { background: #ffffff; }
-
-.theme-swatch[data-theme="indigo"] .sw-sidebar { background: #3730a3; }
-.theme-swatch[data-theme="indigo"] .sw-accent  { background: #a5b4fc; }
-.theme-swatch[data-theme="indigo"] .sw-content { background: #ffffff; }
-
-.theme-swatch[data-theme="teal"] .sw-sidebar { background: #0f766e; }
-.theme-swatch[data-theme="teal"] .sw-accent  { background: #5eead4; }
-.theme-swatch[data-theme="teal"] .sw-content { background: #ffffff; }
-
-.theme-swatch[data-theme="amber"] .sw-sidebar { background: #92620e; }
-.theme-swatch[data-theme="amber"] .sw-accent  { background: #fbbf24; }
-.theme-swatch[data-theme="amber"] .sw-content { background: #ffffff; }
-
-.theme-swatch[data-theme="slate"] .sw-sidebar { background: #334155; }
-.theme-swatch[data-theme="slate"] .sw-accent  { background: #94a3b8; }
-.theme-swatch[data-theme="slate"] .sw-content { background: #ffffff; }
-
-.theme-swatch[data-theme="mocha"] .sw-sidebar { background: #6b4423; }
-.theme-swatch[data-theme="mocha"] .sw-accent  { background: #d9a066; }
-.theme-swatch[data-theme="mocha"] .sw-content { background: #ffffff; }
-
-.theme-swatch[data-theme="ocean"] .sw-sidebar { background: #0c4a6e; }
-.theme-swatch[data-theme="ocean"] .sw-accent  { background: #7dd3fc; }
-.theme-swatch[data-theme="ocean"] .sw-content { background: #ffffff; }
-
-.theme-swatch[data-theme="plum"] .sw-sidebar { background: #6b2154; }
-.theme-swatch[data-theme="plum"] .sw-accent  { background: #f0abfc; }
-.theme-swatch[data-theme="plum"] .sw-content { background: #ffffff; }
-
-.theme-swatch[data-theme="lime"] .sw-sidebar { background: #3f6212; }
-.theme-swatch[data-theme="lime"] .sw-accent  { background: #bef264; }
-.theme-swatch[data-theme="lime"] .sw-content { background: #ffffff; }
-
-.theme-swatch[data-theme="midnight"] .sw-sidebar { background: #131a2b; }
-.theme-swatch[data-theme="midnight"] .sw-accent  { background: #5b8dff; }
-.theme-swatch[data-theme="midnight"] .sw-content { background: #1a2133; }
-
-.theme-swatch[data-theme="carbon"] .sw-sidebar { background: #161618; }
-.theme-swatch[data-theme="carbon"] .sw-accent  { background: #f0883e; }
-.theme-swatch[data-theme="carbon"] .sw-content { background: #202024; }
-
-.theme-swatch[data-theme="forest"] .sw-sidebar { background: #10201a; }
-.theme-swatch[data-theme="forest"] .sw-accent  { background: #4ade80; }
-.theme-swatch[data-theme="forest"] .sw-content { background: #18211b; }
-
-.theme-swatch[data-theme="dusk"] .sw-sidebar { background: #1d1630; }
-.theme-swatch[data-theme="dusk"] .sw-accent  { background: #c4a6ff; }
-.theme-swatch[data-theme="dusk"] .sw-content { background: #221c30; }
+/* Fallbacks for the tokens a swatch needs but its theme may not declare: the light themes set
+   only their sidebar and accent and inherit the white content surface, and "default" has no
+   [data-theme] block at all. :where() gives these zero specificity, so any real theme block
+   (0,1,0) beats them whatever the source order. Without them a light swatch would inherit
+   --panel from whichever theme the VIEWER is running and preview the wrong colour. */
+:where(.theme-swatch) {
+  --sb-bg: #1e325c;
+  --sb-active: #1c58d9;
+  --panel: #ffffff;
+}
 
 .theme-picker #theme-feedback { margin: 0.2rem 0 0; }
 
@@ -3492,7 +3394,11 @@ main.content.searching > :not(.channel-search-results) { display: none; }
   padding: 0.5rem 0.6rem;
   border-radius: 6px;
 }
-.channel-search-list li:hover { background: var(--hover-bg, rgba(127, 127, 127, 0.1)); }
+/* NOTE: this was written as var(--hover-bg, …) against a token that has never existed, so it has
+   always rendered the neutral grey fallback rather than the accent tint every other row hover in
+   the app uses. Kept as-is to preserve the current look — switch it to var(--hover) to bring it
+   in line with .search-result-link:hover, .admin-table tbody tr:hover and .search-dropdown-row. */
+.channel-search-list li:hover { background: rgba(127, 127, 127, 0.1); }
 .channel-search-name { font-weight: 600; text-decoration: none; color: inherit; }
 /* Ordinary unread, same convention as the sidebar: weight, not a number. */
 .channel-search-list li.has-unread .channel-search-name { font-weight: 800; }
@@ -3503,11 +3409,9 @@ main.content.searching > :not(.channel-search-results) { display: none; }
   letter-spacing: 0.03em;
   color: var(--muted);
   border: 1px solid currentColor;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   padding: 0.05rem 0.4rem;
 }
-
-.message { position: relative; }
 
 /* ---------- Optimistic send ----------
    A message the sender has submitted but the server hasn't confirmed yet. Broadcasts wait for the
@@ -3847,7 +3751,6 @@ main.content.searching > :not(.channel-search-results) { display: none; }
 .emoji-picker-tab:hover {
   opacity: 1;
   background: var(--panel-3);
-  cursor: pointer;
 }
 .emoji-picker-tab.active {
   opacity: 1;
@@ -3892,7 +3795,6 @@ main.content.searching > :not(.channel-search-results) { display: none; }
 }
 .emoji-picker-btn:hover {
   background: var(--panel-2);
-  cursor: pointer;
   transform: scale(1.18);
 }
 .emoji-picker-btn:active {
@@ -4340,7 +4242,8 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
     padding-bottom: calc(1rem + env(safe-area-inset-bottom));
   }
 
-  /* Content: full-bleed sheet on phones — no inset or rounding at this size. */
+  /* Content: full-bleed sheet on phones — no inset or rounding at this size. It already
+     carries min-width: 0, so it takes the full single column without further help. */
   .content {
     margin-top: 0;
     border-radius: 0;
@@ -4351,9 +4254,6 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
     pointer-events: auto;
   }
   body.sidebar-open .sidebar-toggle[aria-expanded="true"] { background: var(--sb-bg-2); }
-
-  /* Content takes the full width. */
-  .content { min-width: 0; }
 
   /* Channel header: tighten spacing, allow channel name + actions to wrap. */
   .channel-header {
@@ -4538,17 +4438,10 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The workspace-admin pill; its skin is shared with the member/DM lists' — see .dm-admin-tag
+   below. Only the inline-with-a-name placement is specific to the hovercard. */
 .user-hovercard-badge {
   display: inline-block;
-  margin-left: 0.4rem;
-  padding: 0.05rem 0.4rem;
-  border-radius: var(--radius-full);
-  background: var(--accent);
-  color: var(--accent-on);
-  font-size: var(--fs-xs);
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
   vertical-align: middle;
 }
 .user-hovercard-status {
@@ -4599,11 +4492,6 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
   cursor: pointer;
 }
 .user-hovercard-btn:hover { background: var(--accent-2); color: var(--accent-on); }
-.user-hovercard-btn .send-icon {
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-}
 
 /* ---------- Sidebar DM list ---------- */
 .dm-list {
@@ -4628,34 +4516,14 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
   text-decoration: none;
   font-size: var(--fs-md);
 }
-.dm-list > li > a:hover {
-  background: var(--sb-bg-2);
-  color: var(--sb-text);
-  text-decoration: none;
-}
-.dm-list > li > a.active {
-  background: var(--sb-active);
-  color: var(--sb-active-text);
-  font-weight: 600;
-}
+/* Hover, active, unread and muted states are shared with the channel list — see the
+   "Sidebar row skin" block up in the sidebar section. */
 .dm-list .avatar {
   width: 22px;
   height: 22px;
   flex: 0 0 22px;
   font-size: var(--fs-xs);
 }
-.dm-name {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.dm-list li.has-unread > a {
-  color: var(--sb-text);
-  font-weight: 600;
-}
-.dm-list li.has-unread .dm-name { font-weight: 700; }
 .dm-empty {
   padding: 0.4rem 0.5rem;
   color: var(--sb-muted);
@@ -4668,18 +4536,14 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
   font-size: 0.85em;
   font-weight: 600;
 }
-/* A muted DM row, dimmed exactly as a muted channel row is (see .channel-list[data-muted]) and
-   restored on hover and while active — you have to be able to read what you muted. The unread
-   badge is deliberately not dimmed with it: the count is still true. */
-.dm-list li[data-muted="true"] > a { opacity: 0.55; }
-.dm-list li[data-muted="true"] > a:hover,
-.dm-list li[data-muted="true"] > a.active { opacity: 1; }
 .dm-muted-tag {
   margin-left: 0.25rem;
   color: var(--sb-muted);
 }
+/* The role pill, wherever a name is shown: the DM list, the member lists, the hovercard. */
 .dm-admin-tag,
-.channel-role-tag {
+.channel-role-tag,
+.user-hovercard-badge {
   margin-left: 0.4rem;
   padding: 0.05rem 0.4rem;
   border-radius: var(--radius-full);
@@ -4807,7 +4671,10 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
 /* ---------- Poll builder modal ---------- */
 /* Deliberately the same shell as the About dialog — same backdrop, same panel, same header —
    so the app has one modal, not two that drifted. */
-.poll-modal-backdrop {
+/* One backdrop for every modal in the app. Two dialogs that dim the page differently read as two
+   applications, so the poll builder, the forward dialog and About all share this. */
+.poll-modal-backdrop,
+.about-backdrop {
   position: fixed;
   inset: 0;
   z-index: 60;
@@ -4835,7 +4702,8 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
   padding: 0.9rem 1rem;
   border-bottom: 1px solid var(--border);
 }
-.poll-modal-head h2 { margin: 0; font-size: var(--fs-lg); }
+.poll-modal-head h2,
+.about-head h2 { margin: 0; font-size: var(--fs-lg); }
 .poll-modal-body { display: grid; gap: 0.7rem; padding: 1rem; }
 .poll-field { display: grid; gap: 0.3rem; font-size: var(--fs-sm); color: var(--muted); }
 .poll-field input { font-size: var(--fs-md); }
@@ -4952,16 +4820,7 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
   resize: vertical;
 }
 
-.about-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 1.5rem;
-  background: rgba(0, 0, 0, 0.45);
-}
+/* .about-backdrop is declared with the poll modal's backdrop above. */
 .about-dialog {
   background: var(--panel);
   color: var(--text);
@@ -4981,7 +4840,6 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
   padding: 0.9rem 1.1rem;
   border-bottom: 1px solid var(--border);
 }
-.about-head h2 { margin: 0; font-size: var(--fs-lg); }
 .about-body { padding: 1.1rem; overflow-y: auto; }
 .about-body h3 {
   margin: 1.4rem 0 0.5rem;
@@ -5037,7 +4895,10 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
   border-color: var(--danger);
   color: #fff;
 }
-.admin-danger:hover { filter: brightness(1.08); }
+/* Restates its own background: the global `button:hover` is (0,1,1) and out-specifies this single
+   class, so without it Suspend and Clear messages repaint accent-blue under the pointer and the
+   filter below just lightens the blue. */
+.admin-danger:hover { background: var(--danger); filter: brightness(1.08); }
 .admin-badge {
   display: inline-block;
   padding: 1px 7px;
@@ -5304,7 +5165,7 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
 .saved-when { font-size: var(--fs-xs); }
 .saved-chip {
   padding: 1px 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   border: 1px solid var(--border);
   font-size: var(--fs-xs);
   font-weight: 500;
@@ -5414,33 +5275,13 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
 }
 .search-result-author { font-weight: 700; color: var(--text); font-size: var(--fs-md); }
 .search-result-where { color: var(--accent-fg); }
-/* Same pill as the dropdown's and the sidebar's, for the same fact. */
-.search-result-tag {
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-  border: 1px solid currentColor;
-  border-radius: 999px;
-  padding: 0 0.35rem;
-  white-space: nowrap;
-}
+/* .search-result-tag, the <mark> treatment and the snippet's block-spacing reset are declared
+   with the dropdown's, in the shared block up in the search-dropdown section. */
 .search-result-time { margin-left: auto; }
 .search-result-snippet {
   margin-top: 0.3rem;
   line-height: 1.45;
   color: var(--text);
-}
-.search-result-snippet > :first-child { margin-top: 0; }
-.search-result-snippet > :last-child { margin-bottom: 0; }
-.search-result-snippet pre { white-space: pre-wrap; }
-/* Matching the dropdown's treatment of Lucene's <mark>: the browser default yellow is loud enough
-   to fight the text it is meant to help you find. */
-.search-result-snippet mark {
-  background: rgba(255, 193, 7, 0.35);
-  color: inherit;
-  padding: 0 1px;
-  border-radius: 2px;
-  font-weight: 600;
 }
 
 /* The files a hit matched on. Drawn as chips rather than as another line of prose because they are
@@ -5461,20 +5302,11 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
   max-width: 100%;
   padding: 0.1rem 0.5rem 0.1rem 0.35rem;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--panel-2);
   font-size: var(--fs-sm);
   color: var(--muted);
   overflow-wrap: anywhere;
-}
-.search-result-file .icon { flex: none; opacity: 0.7; }
-/* Same tint as the snippet's, so "this is your search term" reads as one idea across the row. */
-.search-result-file mark {
-  background: rgba(255, 193, 7, 0.35);
-  color: var(--text);
-  padding: 0 1px;
-  border-radius: 2px;
-  font-weight: 600;
 }
 
 .search-pager {
@@ -5574,7 +5406,9 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
   flex-direction: column;
   gap: 0.85rem;
   padding: 1.1rem 1rem 0.9rem;
-  background: var(--surface, var(--bg));
+  /* --surface does not exist in this stylesheet; this always resolved to --bg. Stated directly so
+     the panel's real colour is readable. Use --panel if you want it to match the other popovers. */
+  background: var(--bg);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   /* The heaviest shadow in the set. This is the one element allowed to sit on
@@ -5641,7 +5475,9 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
 .call-timer {
   margin: 0;
   font-size: 0.85rem;
-  color: var(--text-muted, var(--text));
+  /* --text-muted does not exist in this stylesheet; this always resolved to --text, dimmed by the
+     opacity below. The app's token for secondary text is --muted (which would let the opacity go). */
+  color: var(--text);
   opacity: 0.75;
 }
 
@@ -5699,7 +5535,10 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
   border-color: var(--danger);
   color: #fff;
 }
-.call-btn-end:hover { filter: brightness(0.92); }
+/* Restates its own background, for the same reason .call-btn-answer:hover does: `.call-btn:hover`
+   is (0,2,0) and beats this single class, so decline and hang up would drop to the faint neutral
+   hover tint — the two buttons that must stay unmistakably red are the ones pressed in a hurry. */
+.call-btn-end:hover { background: var(--danger); filter: brightness(0.92); }
 
 @media (max-width: 720px) {
   .call-panel {
