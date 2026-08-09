@@ -65,8 +65,12 @@ import java.util.Map;
  * </ul>
  *
  * <p>Vault record fields it copies into the Spring environment:
- * {@code db.username}, {@code db.password}, {@code keycloak.client-id},
- * {@code keycloak.client-secret}, {@code keycloak.issuer-uri}.
+ * {@code db.url}, {@code db.username}, {@code db.password}, {@code db.replica-enabled},
+ * {@code db.replica-url}, {@code db.replica-username}, {@code db.replica-password},
+ * {@code keycloak.client-id}, {@code keycloak.client-secret}, {@code keycloak.issuer-uri}.
+ * The four {@code db.replica-*} keys configure the optional read replica
+ * ({@link ReadReplicaDataSourceConfig}); like everything else here they are optional, and a
+ * record that omits them leaves the env-var chain in charge.
  */
 public class VaultEnvironmentPostProcessor implements EnvironmentPostProcessor {
 
@@ -95,9 +99,10 @@ public class VaultEnvironmentPostProcessor implements EnvironmentPostProcessor {
         Map<String, Object> secrets = fetchKvV2(URI.create(uri), token, path);
         var mapped = mapToSpringProperties(secrets);
         if (mapped.isEmpty()) {
-            log.warn("Vault path {} contained no recognised keys (looked for: db.username, db.password, "
-                    + "keycloak.client-id, keycloak.client-secret, keycloak.issuer-uri); "
-                    + "leaving env-var defaults in place.", path);
+            log.warn("Vault path {} contained no recognised keys (looked for: db.url, db.username, "
+                    + "db.password, db.replica-enabled, db.replica-url, db.replica-username, "
+                    + "db.replica-password, keycloak.client-id, keycloak.client-secret, "
+                    + "keycloak.issuer-uri); leaving env-var defaults in place.", path);
             return;
         }
         // First in the chain → wins over command-line, env, and YAML for these specific keys.
@@ -152,8 +157,17 @@ public class VaultEnvironmentPostProcessor implements EnvironmentPostProcessor {
      */
     static Map<String, Object> mapToSpringProperties(Map<String, Object> secrets) {
         var out = new LinkedHashMap<String, Object>();
+        copyIfPresent(secrets, "db.url", out, "spring.datasource.url");
         copyIfPresent(secrets, "db.username", out, "spring.datasource.username");
         copyIfPresent(secrets, "db.password", out, "spring.datasource.password");
+        // Optional read replica (ReadReplicaDataSourceConfig). The whole record is mappable, the
+        // enabled flag included, so a deployment can be switched onto a replica by editing Vault
+        // and restarting — the alternative is a topology decision split across two places.
+        // The flag is read by @ConditionalOnProperty, which evaluates well after this runs.
+        copyIfPresent(secrets, "db.replica-enabled", out, "ichat.datasource.replica.enabled");
+        copyIfPresent(secrets, "db.replica-url", out, "ichat.datasource.replica.url");
+        copyIfPresent(secrets, "db.replica-username", out, "ichat.datasource.replica.username");
+        copyIfPresent(secrets, "db.replica-password", out, "ichat.datasource.replica.password");
         copyIfPresent(secrets, "keycloak.client-id",
                 out, "spring.security.oauth2.client.registration.keycloak.client-id");
         copyIfPresent(secrets, "keycloak.client-secret",

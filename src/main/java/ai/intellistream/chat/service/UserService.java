@@ -27,6 +27,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
@@ -77,30 +79,84 @@ public class UserService {
      */
     private static final String ADMIN_REALM_ROLE = KeycloakRolesConverter.ADMIN_REALM_ROLE;
 
-    @Transactional
-    public User provisionFromOidc(OidcUser oidc) {
+    /**
+     * What the identity provider says an account should look like, extracted from a token and
+     * carrying no database state. One shape for both token flavours so the provisioning path and
+     * the read-only fast path below cannot drift in how they read a claim — the failure that
+     * would produce is a fast path that thinks nothing changed while {@link #upsert} thinks
+     * something did, which is a write on every single request and no error anywhere.
+     */
+    public record ClaimView(String subject, String username, String email,
+                            String displayName, boolean admin) {}
+
+    public static ClaimView claimsOf(OidcUser oidc) {
         var subject = oidc.getSubject();
         var username = sanitizeUsername(firstNonBlank(
                 oidc.getPreferredUsername(),
                 oidc.getEmail(),
                 subject), subject);
-        var email = oidc.getEmail();
-        var displayName = firstNonBlank(oidc.getFullName(), username);
-        var admin = isAdminFromClaims(oidc.getClaimAsMap("realm_access"));
-        return upsert(subject, username, email, displayName, admin);
+        return new ClaimView(subject, username, oidc.getEmail(),
+                firstNonBlank(oidc.getFullName(), username),
+                isAdminFromClaims(oidc.getClaimAsMap("realm_access")));
     }
 
-    @Transactional
-    public User provisionFromJwt(Jwt jwt) {
+    public static ClaimView claimsOf(Jwt jwt) {
         var subject = jwt.getSubject();
         var username = sanitizeUsername(firstNonBlank(
                 jwt.getClaimAsString("preferred_username"),
                 jwt.getClaimAsString("email"),
                 subject), subject);
-        var email = jwt.getClaimAsString("email");
-        var displayName = firstNonBlank(jwt.getClaimAsString("name"), username);
-        var admin = isAdminFromClaims(jwt.getClaimAsMap("realm_access"));
-        return upsert(subject, username, email, displayName, admin);
+        return new ClaimView(subject, username, jwt.getClaimAsString("email"),
+                firstNonBlank(jwt.getClaimAsString("name"), username),
+                isAdminFromClaims(jwt.getClaimAsMap("realm_access")));
+    }
+
+    /**
+     * The row for these claims, if it already exists and already agrees with them — the common
+     * case on every request after the first.
+     *
+     * <p><b>Why this exists.</b> {@code CurrentUser} resolves a principal on every authenticated
+     * request, and {@link #upsert} answers it with a read-write transaction and two queries: one
+     * to find the row, one inside {@link #uniqueUsername} to check the handle is free. For an
+     * account whose claims have not changed since last request — which is essentially all of them,
+     * essentially always — both the second query and the writable transaction are pure overhead.
+     * This answers the same question with one {@code select} in a read-only transaction, which
+     * also makes it eligible for the read replica when one is configured.
+     *
+     * <p>Returns empty for anything that might need a write: no row yet, a renamed handle, a
+     * changed email or display name, a role change. The caller falls back to {@link #upsert},
+     * which is unchanged and still the only thing that writes. That fallback is stable rather than
+     * repeating: {@code upsert} settles the row to exactly the shape this method tests for, so an
+     * account takes the slow path once and the fast path afterwards.
+     *
+     * <p>The comparison is deliberately exact, not case-insensitive. A row holding {@code Alice}
+     * for a claim of {@code alice} is a rename that {@code upsert} should perform once, not a
+     * match to be tolerated forever.
+     */
+    @Transactional(readOnly = true)
+    public Optional<User> findUnchanged(ClaimView claims) {
+        return userRepository.findBySubject(claims.subject()).filter(u -> agreesWith(u, claims));
+    }
+
+    private static boolean agreesWith(User user, ClaimView claims) {
+        return Objects.equals(user.getUsername(), claims.username())
+                && Objects.equals(user.getEmail(), claims.email())
+                && Objects.equals(user.getDisplayName(), claims.displayName())
+                && user.isAdmin() == claims.admin();
+    }
+
+    @Transactional
+    public User provisionFromOidc(OidcUser oidc) {
+        var claims = claimsOf(oidc);
+        return upsert(claims.subject(), claims.username(), claims.email(),
+                claims.displayName(), claims.admin());
+    }
+
+    @Transactional
+    public User provisionFromJwt(Jwt jwt) {
+        var claims = claimsOf(jwt);
+        return upsert(claims.subject(), claims.username(), claims.email(),
+                claims.displayName(), claims.admin());
     }
 
     @SuppressWarnings("unchecked")
@@ -141,6 +197,26 @@ public class UserService {
      * username-keyed private notices / mentions / presence).
      */
     private String uniqueUsername(String desired, String subject) {
+        return uniqueUsername(desired, subject, null);
+    }
+
+    /**
+     * As above, but skipping the collision query when {@code held} — the row already owned by
+     * {@code subject} — is itself the holder of {@code desired}.
+     *
+     * <p>{@code uk_users_username_lower} (V2) makes at most one row match a handle
+     * case-insensitively, so if this subject's own row already holds it, the query can only come
+     * back with that same row and return {@code desired} unchanged. Skipping it is the second of
+     * the two per-request queries {@code CurrentUser} used to pay, and it is what keeps the
+     * fall-through path cheap for the accounts that never reach the fast path — a handle that had
+     * to be suffixed for a collision never equals its own claim, so those requests land here every
+     * time.
+     */
+    private String uniqueUsername(String desired, String subject, User held) {
+        if (held != null && held.getUsername() != null
+                && held.getUsername().equalsIgnoreCase(desired)) {
+            return desired;
+        }
         var holder = userRepository.findByUsernameIgnoreCase(desired);
         if (holder.isEmpty() || java.util.Objects.equals(holder.get().getSubject(), subject)) {
             return desired;
@@ -168,7 +244,7 @@ public class UserService {
         if (existing.isPresent()) {
             var u = existing.get();
             var oldUsername = u.getUsername();
-            var newUsername = uniqueUsername(username, subject);
+            var newUsername = uniqueUsername(username, subject, u);
             u.setUsername(newUsername);
             u.setEmail(email);
             u.setDisplayName(displayName);

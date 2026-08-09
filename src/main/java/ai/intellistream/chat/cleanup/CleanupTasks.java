@@ -142,7 +142,13 @@ public class CleanupTasks {
     /** CLEAN-3: reconcile the Lucene index with the messages table — index the missing, drop the stale. */
     @Scheduled(fixedDelayString = "${ichat.cleanup.reconcile-ms:3600000}",
                initialDelayString = "${ichat.cleanup.initial-delay-ms:300000}")
-    @Transactional(readOnly = true)
+    // Deliberately NOT readOnly = true. This method reads nothing but it deletes on what it read,
+    // and readOnly is what routes a transaction to the read replica when one is configured
+    // (ReadReplicaDataSourceConfig). A replica lags; a message committed a moment ago is in the
+    // index and not yet in the replica's copy of `messages`, which reads here as "stale" — and
+    // the sweep would delete the search document for a message that exists. The read ordering
+    // below (N3) closes the same window for the primary; only a primary read closes it at all.
+    @Transactional
     public void reconcileSearchIndex() {
         if (!props.isEnabled()) return;
         // Snapshot the INDEX first, then the DB (N3). A message posted+indexed between the two reads
@@ -202,7 +208,9 @@ public class CleanupTasks {
      */
     @Scheduled(fixedDelayString = "${ichat.cleanup.reconcile-ms:3600000}",
                initialDelayString = "${ichat.cleanup.initial-delay-ms:300000}")
-    @Transactional(readOnly = true)
+    // Not readOnly = true, for the reason spelled out on reconcileSearchIndex above: this one
+    // deletes too, so it has to read the primary.
+    @Transactional
     public void reconcileConversationSearchIndex() {
         if (!props.isEnabled()) return;
         // Index first, then the DB — see reconcileSearchIndex above (N3).

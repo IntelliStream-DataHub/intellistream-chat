@@ -10,6 +10,7 @@ spring:
     url: ${ICHAT_DB_URL:jdbc:postgresql://localhost:5432/intellistream_chat}
     username: ${ICHAT_DB_USERNAME:ichat_role}
     password: ${ICHAT_DB_PASSWORD:ichat_role}
+    # Optional read replica: see ichat.datasource.replica below.
 
   jpa:
     hibernate:
@@ -80,6 +81,35 @@ ichat:
   # the original source files — edit + refresh, no rebuild.
   assets:
     unbundled: ${ICHAT_ASSETS_UNBUNDLED:false}
+
+  # Optional second connection pool against a Postgres read replica (ReadReplicaDataSourceConfig).
+  # Off by default, and off means genuinely absent — no proxy, no second pool, nothing to go wrong.
+  #
+  # When enabled, a transaction annotated @Transactional(readOnly = true) is served from the
+  # replica; writes, migrations and raw JDBC access stay on the primary. That is the whole routing
+  # rule, and there is no per-query annotation. Note that a Spring Data repository call made
+  # outside a transaction counts as read-only — SimpleJpaRepository declares it — so it goes to
+  # the replica too.
+  #
+  # What it buys and what it costs: the primary stops serving the channel history, search result
+  # hydration and sidebar reads that make up most of the query volume, which is the relief worth
+  # having on a busy instance. The cost is that a replica lags, so a read-only transaction can see
+  # a slightly older world than the write that just returned. That is fine for reading history and
+  # wrong for a read that decides to delete something — the Lucene reconcile sweeps use a plain
+  # @Transactional for exactly that reason. Keep new code on the same rule.
+  #
+  # username/password are optional: blank inherits spring.datasource.*, which is what a streaming
+  # replica normally wants. Size the pool with ichat.datasource.replica.hikari.* (Boot's usual
+  # Hikari keys) — the read pool is generally the one that wants to be larger.
+  #
+  # All four keys can equally come from Vault as db.replica-enabled / db.replica-url /
+  # db.replica-username / db.replica-password.
+  datasource:
+    replica:
+      enabled: ${ICHAT_DB_REPLICA_ENABLED:false}
+      url: ${ICHAT_DB_REPLICA_URL:}
+      username: ${ICHAT_DB_REPLICA_USERNAME:}
+      password: ${ICHAT_DB_REPLICA_PASSWORD:}
 
   attachments:
     dir: ${ICHAT_ATTACHMENTS_DIR:./data/attachments}

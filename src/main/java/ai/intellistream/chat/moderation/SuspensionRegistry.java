@@ -44,7 +44,9 @@ import java.util.concurrent.ConcurrentHashMap;
  * {@code false} only <em>after</em> the unsuspend commits. Nothing else in the application writes
  * {@code suspended_at}. And it is not the last word — {@code CurrentUser.resolve} re-checks the row
  * it just loaded, so a request that reaches a controller is judged on database state regardless of
- * what this says.
+ * what this says. (With a read replica configured that row may be up to the replication lag old;
+ * this set is not, which is why the two together are stronger than either. See the note at the
+ * suspension check in {@code CurrentUser.resolve}.)
  *
  * <p><b>Single-process state</b>, like {@code RateLimiter} and {@code PresenceTracker}. A second
  * instance would not learn about a ban issued on the first until it restarted; that is one more

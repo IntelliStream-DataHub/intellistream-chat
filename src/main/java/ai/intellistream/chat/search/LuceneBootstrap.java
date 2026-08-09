@@ -56,7 +56,12 @@ public class LuceneBootstrap {
     private static final int PAGE_SIZE = 5000;
 
     @EventListener(ApplicationReadyEvent.class)
-    @Transactional(readOnly = true)
+    // Deliberately NOT readOnly = true: that flag routes the transaction to the read replica when
+    // one is configured (ReadReplicaDataSourceConfig), and a lagging replica makes a
+    // just-committed message look absent from Postgres — which reconcileTail() classifies as
+    // "stale" and deletes from the index. The server is already accepting messages when this
+    // runs, so the window is real. Same reasoning as CleanupTasks' reconcile sweeps.
+    @Transactional
     public void rebuildOrReconcile() {
         // An index written by an older build has documents missing a field the current queries
         // read (see MessageIndexService.SCHEMA_VERSION). Reconciling wouldn't touch them — every

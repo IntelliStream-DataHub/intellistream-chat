@@ -108,7 +108,19 @@ against anything: there is no released version for something to have been fixed 
 - Runs a workspace of a thousand people in **under a gigabyte of memory on a single core**.
 - **Flyway migrations**, **health endpoints**, and configuration through environment variables —
   every tunable listed in `.env.example` — with an optional **Vault/OpenBao** backend for the
-  five credentials.
+  database and Keycloak credentials.
+- **An optional read replica.** Point `ICHAT_DB_REPLICA_URL` at a standby and every
+  `@Transactional(readOnly = true)` is served from it, while writes and migrations stay on the
+  primary — 90–95% of queries on a read-heavy mix, and all of them on an endpoint that only reads.
+  Off by default, and off means the second pool does not exist rather than sitting idle — a
+  deployment that never asks for one gains no proxy and no new way to fail. The replica can be
+  configured entirely from Vault alongside the primary's credentials.
+- **Identifying the caller costs one read instead of three.** Resolving a logged-in principal used
+  to run two queries inside a writable transaction on every single request, to re-derive a row that
+  had not changed since the request before. It now takes a read-only single-`select` fast path and
+  only falls back to the full upsert when the token actually disagrees with the stored row. This is
+  a saving on its own and the thing that makes the replica worthwhile, since the old cost fell on
+  every request regardless of how little work it did.
 - **An AlmaLinux installer** and a separate **SELinux hardening script**, both verified end to
   end on AlmaLinux 10.2 with SELinux enforcing.
 - **Container quick start** with `podman compose up -d`.
