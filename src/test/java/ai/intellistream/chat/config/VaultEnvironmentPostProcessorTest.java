@@ -56,6 +56,40 @@ class VaultEnvironmentPostProcessorTest {
     }
 
     @Test
+    void theOptionalReadReplicaCanBeConfiguredEntirelyFromTheVaultRecord() {
+        var vaultRecord = Map.<String, Object>of(
+                "db.url", "jdbc:postgresql://primary.internal:5432/chat",
+                "db.replica-enabled", "true",
+                "db.replica-url", "jdbc:postgresql://replica.internal:5432/chat",
+                "db.replica-username", "chat_ro",
+                "db.replica-password", "ro-secret"
+        );
+
+        var mapped = VaultEnvironmentPostProcessor.mapToSpringPropertiesForTesting(vaultRecord);
+
+        // The enabled flag included: it is read by @ConditionalOnProperty, which evaluates long
+        // after an EnvironmentPostProcessor runs. Leaving it out would split one topology decision
+        // across Vault and the env file.
+        assertThat(mapped)
+                .containsEntry("spring.datasource.url", "jdbc:postgresql://primary.internal:5432/chat")
+                .containsEntry("ichat.datasource.replica.enabled", "true")
+                .containsEntry("ichat.datasource.replica.url", "jdbc:postgresql://replica.internal:5432/chat")
+                .containsEntry("ichat.datasource.replica.username", "chat_ro")
+                .containsEntry("ichat.datasource.replica.password", "ro-secret");
+    }
+
+    @Test
+    void aRecordWithoutReplicaKeysLeavesTheReplicaAloneEntirely() {
+        var record = Map.<String, Object>of("db.username", "rad", "db.password", "s3cret");
+
+        var mapped = VaultEnvironmentPostProcessor.mapToSpringPropertiesForTesting(record);
+
+        // Nothing under ichat.datasource.replica, not even enabled=false — an existing Vault
+        // record must keep meaning what it meant before the replica existed.
+        assertThat(mapped.keySet()).noneMatch(key -> key.startsWith("ichat.datasource.replica"));
+    }
+
+    @Test
     void unknownVaultKeysAreDroppedRatherThanLeakingIntoTheEnvironment() {
         var record = new LinkedHashMap<String, Object>();
         record.put("db.username", "rad");

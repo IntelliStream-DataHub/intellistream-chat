@@ -73,23 +73,34 @@ public class CurrentUser {
         var principal = auth.getPrincipal();
         User user;
         if (principal instanceof OidcUser oidc) {
-            user = userService.provisionFromOidc(oidc);
+            user = userService.findUnchanged(UserService.claimsOf(oidc))
+                    .orElseGet(() -> userService.provisionFromOidc(oidc));
         } else if (auth instanceof JwtAuthenticationToken jwtAuth) {
-            user = userService.provisionFromJwt(jwtAuth.getToken());
+            var token = jwtAuth.getToken();
+            user = userService.findUnchanged(UserService.claimsOf(token))
+                    .orElseGet(() -> userService.provisionFromJwt(token));
         } else if (principal instanceof Jwt jwt) {
-            user = userService.provisionFromJwt(jwt);
+            user = userService.findUnchanged(UserService.claimsOf(jwt))
+                    .orElseGet(() -> userService.provisionFromJwt(jwt));
         } else {
             // Don't echo the principal class name in the response — log it server-side and
             // reply with a generic message so we don't leak internal types to API clients.
             log.warn("Unsupported principal type: {}", principal == null ? "null" : principal.getClass().getName());
             throw new AccessDeniedException("Unsupported principal type");
         }
-        // Suspension is judged on the row we have just loaded, which makes this the one check that
-        // cannot be stale: every controller, every page, and the STOMP CONNECT frame come through
-        // here, and none of them pays an extra query for it. SuspensionEnforcementFilter answers
-        // the same question earlier and from memory so it can return a useful body; this is the
-        // backstop that holds when that in-memory view is wrong, and the reason a hand-edited
-        // suspended_at takes effect without a restart.
+        // Suspension is judged on the row we have just loaded: every controller, every page, and
+        // the STOMP CONNECT frame come through here, and none of them pays an extra query for it.
+        // SuspensionEnforcementFilter answers the same question earlier and from memory so it can
+        // return a useful body; this is the backstop that holds when that in-memory view is wrong,
+        // and the reason a hand-edited suspended_at takes effect without a restart.
+        //
+        // With a read replica configured, "without a restart" becomes "within replication lag":
+        // the fast path above is a read-only transaction, so the row may be a moment old. That
+        // costs nothing in the case this backstop mostly exists for — a ban issued through
+        // BanService updates SuspensionRegistry before it writes the row, so the filter refuses
+        // the request before it ever reaches here. What lags is the case the registry cannot see:
+        // a suspended_at edited straight in psql, or a ban issued by another node. Both are
+        // delayed by the lag, neither is missed.
         if (user.isSuspended()) {
             throw new AccountSuspendedException(user.getUsername());
         }
