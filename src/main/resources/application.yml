@@ -189,20 +189,29 @@ ichat:
 
   # Optional Vault / OpenBao secret backend. Off by default — the env-var → application.yml
   # default chain handles credentials. When enabled=true, VaultEnvironmentPostProcessor reads
-  # secret/data/${path} and overrides spring.datasource.{username,password} +
-  # spring.security.oauth2.* before the auto-configurations consume them.
+  # the KV-v2 record at ${path} (<mount>/<key>, or a bare key under secret/) and overrides
+  # spring.datasource.* + spring.security.oauth2.* before the auto-configurations consume them.
   #
-  # Vault record shape (KV-v2 fields):
-  #   db.username             - Postgres role
-  #   db.password             - Postgres password
-  #   keycloak.client-id      - OIDC client id
-  #   keycloak.client-secret  - OIDC client secret
-  #   keycloak.issuer-uri     - Keycloak realm URL (used by both client + resource server)
+  # Vault record shape (KV-v2 fields, each optional):
+  #   db.url / db.username / db.password              - Postgres connection
+  #   db.replica-enabled / -url / -username / -password - optional read replica
+  #   keycloak.client-id / keycloak.client-secret       - OIDC client
+  #   keycloak.issuer-uri                              - realm URL (client + resource server)
+  #
+  # Exactly one credential: a token, or an AppRole (role-id + secret-id; either half may come from
+  # a file via the -file variant, which is how systemd LoadCredential= hands a secret over). With
+  # AppRole the token is minted at boot, used for the single read and revoked; it never appears in
+  # the environment.
   vault:
     enabled: ${ICHAT_VAULT_ENABLED:false}
     uri: ${ICHAT_VAULT_URI:}
-    token: ${ICHAT_VAULT_TOKEN:}
     path: ${ICHAT_VAULT_PATH:intellistream-chat}
+    token: ${ICHAT_VAULT_TOKEN:}
+    role-id: ${ICHAT_VAULT_ROLE_ID:}
+    role-id-file: ${ICHAT_VAULT_ROLE_ID_FILE:}
+    secret-id: ${ICHAT_VAULT_SECRET_ID:}
+    secret-id-file: ${ICHAT_VAULT_SECRET_ID_FILE:}
+    approle-path: ${ICHAT_VAULT_APPROLE_PATH:approle}
 
 logging:
   level:
