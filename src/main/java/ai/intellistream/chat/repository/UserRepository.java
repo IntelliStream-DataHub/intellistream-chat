@@ -43,6 +43,15 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Query("select u from User u where lower(u.username) in :usernames")
     List<User> findAllByUsernameLowerIn(@Param("usernames") Collection<String> lowercaseUsernames);
 
+    /**
+     * Every account with this email, case-insensitively. Used once per never-seen subject at login,
+     * to find the account it may be the new key for — see {@code UserService.upsert}. Returns a list
+     * rather than an Optional because two rows sharing an email is exactly the state that linking
+     * exists to prevent, and if it has already happened the caller must not guess between them.
+     */
+    @Query("select u from User u where u.email is not null and lower(u.email) = lower(:email)")
+    List<User> findAllByEmailIgnoreCase(@Param("email") String email);
+
     /** Every non-null avatar storage key — the live set for the orphan-avatar sweep (CLEAN-2). */
     @org.springframework.data.jpa.repository.Query("select u.avatarStorageKey from User u where u.avatarStorageKey is not null")
     java.util.List<String> findAllAvatarStorageKeys();

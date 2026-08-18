@@ -169,6 +169,17 @@ ichat:
   # per-user zones.
   default-zone: ${ICHAT_DEFAULT_ZONE:}
 
+  # Identity. Accounts are keyed on the OIDC subject, which the identity provider promises not to
+  # change for a person — per realm. Move the app to a dedicated Keycloak realm with the old one
+  # brokered in as an identity provider, and everyone arrives with a new subject and their old
+  # email. With this on (the default) a never-seen subject whose email is VERIFIED and matches
+  # exactly one existing account re-keys that account instead of creating a second one; the
+  # history stays where it was. Unverified emails never link, and neither does an email two
+  # accounts already share. Turn it off where an address can be reassigned to a different person
+  # and must not inherit the previous holder's account.
+  identity:
+    link-by-verified-email: ${ICHAT_IDENTITY_LINK_BY_VERIFIED_EMAIL:true}
+
   # Moderation. An admin removing messages is a SOFT delete: the rows stay, drop out of every
   # read path, and stay recoverable until the retention window passes — the first ban is
   # sometimes the wrong ban. RetentionPurgeScheduler then hard-deletes them for good.

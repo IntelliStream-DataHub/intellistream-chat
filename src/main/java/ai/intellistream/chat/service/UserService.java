@@ -60,15 +60,29 @@ public class UserService {
     private final ai.intellistream.chat.search.MessageIndexService messageIndex;
     /** In-memory throttle: userId -> instant of the most recent persisted bump. */
     private final ConcurrentHashMap<Long, Instant> lastBumpByUser = new ConcurrentHashMap<>();
+    /** See {@link #upsert(String, String, String, String, boolean, boolean)}. */
+    private final boolean linkByVerifiedEmail;
 
+    @org.springframework.beans.factory.annotation.Autowired
     public UserService(UserRepository userRepository,
                        ai.intellistream.chat.repository.MessageRepository messageRepository,
                        ai.intellistream.chat.repository.ConversationMessageRepository conversationMessageRepository,
-                       ai.intellistream.chat.search.MessageIndexService messageIndex) {
+                       ai.intellistream.chat.search.MessageIndexService messageIndex,
+                       @org.springframework.beans.factory.annotation.Value("${ichat.identity.link-by-verified-email:true}")
+                       boolean linkByVerifiedEmail) {
         this.userRepository = userRepository;
         this.messageRepository = messageRepository;
         this.conversationMessageRepository = conversationMessageRepository;
         this.messageIndex = messageIndex;
+        this.linkByVerifiedEmail = linkByVerifiedEmail;
+    }
+
+    /** Linking on, which is the shipped default; the tests and the integration test app use this one. */
+    public UserService(UserRepository userRepository,
+                       ai.intellistream.chat.repository.MessageRepository messageRepository,
+                       ai.intellistream.chat.repository.ConversationMessageRepository conversationMessageRepository,
+                       ai.intellistream.chat.search.MessageIndexService messageIndex) {
+        this(userRepository, messageRepository, conversationMessageRepository, messageIndex, true);
     }
 
     /**
@@ -87,7 +101,12 @@ public class UserService {
      * something did, which is a write on every single request and no error anywhere.
      */
     public record ClaimView(String subject, String username, String email,
-                            String displayName, boolean admin) {}
+                            String displayName, boolean admin, boolean emailVerified) {
+        /** No {@code email_verified} claim, which the write path treats as "not verified". */
+        public ClaimView(String subject, String username, String email, String displayName, boolean admin) {
+            this(subject, username, email, displayName, admin, false);
+        }
+    }
 
     public static ClaimView claimsOf(OidcUser oidc) {
         var subject = oidc.getSubject();
@@ -97,7 +116,8 @@ public class UserService {
                 subject), subject);
         return new ClaimView(subject, username, oidc.getEmail(),
                 firstNonBlank(oidc.getFullName(), username),
-                isAdminFromClaims(oidc.getClaimAsMap("realm_access")));
+                isAdminFromClaims(oidc.getClaimAsMap("realm_access")),
+                Boolean.TRUE.equals(oidc.getEmailVerified()));
     }
 
     public static ClaimView claimsOf(Jwt jwt) {
@@ -108,7 +128,8 @@ public class UserService {
                 subject), subject);
         return new ClaimView(subject, username, jwt.getClaimAsString("email"),
                 firstNonBlank(jwt.getClaimAsString("name"), username),
-                isAdminFromClaims(jwt.getClaimAsMap("realm_access")));
+                isAdminFromClaims(jwt.getClaimAsMap("realm_access")),
+                Boolean.TRUE.equals(jwt.getClaimAsBoolean("email_verified")));
     }
 
     /**
@@ -149,14 +170,14 @@ public class UserService {
     public User provisionFromOidc(OidcUser oidc) {
         var claims = claimsOf(oidc);
         return upsert(claims.subject(), claims.username(), claims.email(),
-                claims.displayName(), claims.admin());
+                claims.displayName(), claims.admin(), claims.emailVerified());
     }
 
     @Transactional
     public User provisionFromJwt(Jwt jwt) {
         var claims = claimsOf(jwt);
         return upsert(claims.subject(), claims.username(), claims.email(),
-                claims.displayName(), claims.admin());
+                claims.displayName(), claims.admin(), claims.emailVerified());
     }
 
     @SuppressWarnings("unchecked")
@@ -238,9 +259,41 @@ public class UserService {
                 .isPresent();
     }
 
+    /** {@link #upsert(String, String, String, String, boolean, boolean)} with the email treated as unverified. */
     @Transactional
     public User upsert(String subject, String username, String email, String displayName, boolean admin) {
+        return upsert(subject, username, email, displayName, admin, false);
+    }
+
+    /**
+     * Settle the row for {@code subject} to what the token says, creating it if needed.
+     *
+     * <p><b>A subject the app has never seen may be an account it already has.</b> The subject is
+     * the key because it is the one claim the identity provider promises not to change — but the
+     * promise is per realm. Move the app to a dedicated Keycloak realm and broker the old realm in
+     * as an identity provider, and every existing person arrives with a brand-new subject and their
+     * old email; keying blindly on the subject then creates a second account per person, with the
+     * history stranded on the first. So before inserting, if the token says the email is
+     * <em>verified</em> and exactly one existing account carries it, that account is re-keyed to the
+     * new subject ({@link User#relink}) and refreshed as usual. Everything referencing the user does
+     * so by id, so this is the whole merge.
+     *
+     * <p>Verified is the bar because it is what makes "same email" mean "same person": Keycloak only
+     * sets {@code email_verified} after its own verification, an admin's say-so, or a brokered
+     * identity provider marked <em>Trust Email</em>. An unverified claim — an open self-registration
+     * typing someone else's address — is never linked. Two existing accounts with the email are
+     * never linked either; that is the state linking exists to prevent, and if it has already
+     * happened the fix is an operator's decision, not a guess at login. Off with
+     * {@code ichat.identity.link-by-verified-email=false}, for deployments where an address can be
+     * reassigned to a different person and must not inherit the previous holder's account.
+     */
+    @Transactional
+    public User upsert(String subject, String username, String email, String displayName,
+                       boolean admin, boolean emailVerified) {
         var existing = userRepository.findBySubject(subject);
+        if (existing.isEmpty()) {
+            existing = linkableByVerifiedEmail(subject, email, emailVerified);
+        }
         if (existing.isPresent()) {
             var u = existing.get();
             var oldUsername = u.getUsername();
@@ -269,6 +322,32 @@ public class UserService {
         u.setDisplayName(displayName);
         u.setAdmin(admin);
         return u;
+    }
+
+    /**
+     * The one existing account {@code subject} is the new key for, if there is exactly one and the
+     * token vouches for the email; empty otherwise. Re-keys it before returning, so the caller's
+     * ordinary refresh — including {@link #uniqueUsername}, which excludes the row by its subject —
+     * sees the row already under the new subject.
+     */
+    private Optional<User> linkableByVerifiedEmail(String subject, String email, boolean emailVerified) {
+        if (!linkByVerifiedEmail || !emailVerified || email == null || email.isBlank()) {
+            return Optional.empty();
+        }
+        var candidates = userRepository.findAllByEmailIgnoreCase(email);
+        if (candidates.size() != 1) {
+            if (candidates.size() > 1) {
+                log.warn("Not linking new subject to any account: {} accounts share the verified email of "
+                        + "the arriving token (ids {}); resolve the duplicates by hand",
+                        candidates.size(), candidates.stream().map(User::getId).toList());
+            }
+            return Optional.empty();
+        }
+        var u = candidates.get(0);
+        log.info("Linking account #{} ({}) to new subject {} by verified email; previous subject {}",
+                u.getId(), u.getUsername(), subject, u.getSubject());
+        u.relink(subject);
+        return Optional.of(u);
     }
 
     /** After the rename commits, rebuild this author's Lucene docs (which cache the username) so

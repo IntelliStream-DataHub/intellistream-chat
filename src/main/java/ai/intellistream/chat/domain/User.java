@@ -158,6 +158,17 @@ public class User {
         this.displayName = displayName;
     }
 
+    /**
+     * Re-key this account to a new OIDC subject. The subject is otherwise immutable — it is the one
+     * thing the identity provider promises never to change for a person — and the single caller is
+     * {@code UserService.upsert} linking an account that moved realms (a subject the app has never
+     * seen, arriving with the verified email of an account it has). Every row that references this
+     * user does so by id, so this <em>is</em> the merge: nothing else moves.
+     */
+    public void relink(String newSubject) {
+        this.subject = newSubject;
+    }
+
     public boolean hasAvatar() {
         return avatarStorageKey != null;
     }

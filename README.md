@@ -834,6 +834,7 @@ Two things worth knowing before you rely on this:
 
 - The bundled `intellistream` login theme deliberately keeps its override surface to one empty `footer.ftl` (see `keycloak/themes/intellistream/login/theme.properties`) so that features like this keep working without a theme change — it inherits every other template, including the organization-aware identity-first login page, from the base `keycloak` theme.
 - New members who arrive through an org's IdP go through Keycloak's ordinary first-broker-login flow, which grants the realm's default roles (`default-roles-ichat-realm`) the same way self-registration does (see [Enabling user registration](#enabling-user-registration) above) — `ichat-user` needs to be in that default set either way, and `ichat-admin` should still only ever be granted by hand.
+- Turn on **Trust Email** on each linked identity provider (Identity providers → the provider → *Trust Email*). It marks brokered accounts' emails verified, which is what lets the app recognise a person who already has an account under a previous subject — moving an existing user base into a new realm this way otherwise creates a second account per person (`ICHAT_IDENTITY_LINK_BY_VERIFIED_EMAIL`, on by default).
 
 ### Hardening registration before you expose an instance
 
@@ -871,6 +872,7 @@ Every override is plain Spring Boot env-var substitution against `application.ym
 | `KEYCLOAK_ISSUER_URI` | `http://localhost:8081/realms/ichat-realm` | Keycloak realm issuer (used by both OIDC client and resource server). Must match the OIDC issuer in `keycloak/realm.json`'s redirect-URI list — change one and the other will reject the redirect with `400 invalid_redirect_uri`. |
 | `KEYCLOAK_CLIENT_ID` | `ichat-client` | OIDC client id |
 | `KEYCLOAK_CLIENT_SECRET` | `(generated; rotate in production)` | OIDC client secret — **set this in production** |
+| `ICHAT_IDENTITY_LINK_BY_VERIFIED_EMAIL` | `true` | A never-seen OIDC subject whose email is **verified** and matches exactly one existing account re-keys that account instead of creating a second — the realm-migration case (old realm brokered into a new dedicated one gives everyone a new subject). Unverified emails and emails two accounts already share never link. Off where an address can be reassigned to a different person. Brokered accounts count as verified only with **Trust Email** on the identity provider in Keycloak. |
 | `SERVER_PORT` | `8080` | HTTP port the Boot app binds to |
 | `SERVER_ADDRESS` | `127.0.0.1` | Network interface to bind. The dev profile overrides this to a LAN IP for cross-device testing; prod typically keeps `127.0.0.1` and fronts the JVM with nginx. |
 | `ICHAT_ATTACHMENTS_DIR` | `./data/attachments` | Where uploaded message attachments are stored |

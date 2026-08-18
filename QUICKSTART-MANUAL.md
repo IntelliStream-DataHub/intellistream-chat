@@ -101,8 +101,13 @@ Then, once per organisation:
    one of the named ones), give it an alias you will recognise in a list (`acme-entra`), and fill
    in what the organisation's IdP admin gives you: discovery URL or metadata, client id and secret.
    Copy the *Redirect URI* Keycloak shows on that page back to them — it is what they must
-   register on their side. Keep **Hide on login page** in mind for step 3; it is fine to leave off
-   here.
+   register on their side; its shape is
+   `https://<keycloak-host>/realms/ichat-realm/broker/<alias>/endpoint`, so the alias is baked in
+   and the host is the one browsers reach Keycloak at. Turn on **Trust Email**: it marks brokered
+   accounts' emails verified, which is what lets the app match a person to the account they
+   already had under a previous subject (README, `ICHAT_IDENTITY_LINK_BY_VERIFIED_EMAIL`) — without
+   it, moving an existing user base into this realm gives everyone a second account. Keep **Hide
+   on login page** in mind for step 3; it is fine to leave off here.
 2. **Organizations → Create organization** — Name `Acme`, Alias `acme`, and under **Domains** every
    email domain the organisation signs in with (`acme.com`, `acme.co.uk`). Save.
 3. Open the organisation → **Identity providers** tab → **Link identity provider**. Choose the
