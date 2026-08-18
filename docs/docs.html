@@ -656,6 +656,15 @@
     the OIDC subject.
   </p>
   <p>
+    On an instance shared by several companies, the login page asks for your email first. If your
+    company has connected its own sign-in (Entra ID, Okta, Google Workspace and the like), typing
+    a work address sends you there and you never see a Keycloak password field; if it has not, or
+    your address matches nothing, the password field appears as usual. Which is which is decided by
+    whoever runs the instance, in Keycloak, and is invisible from the chat itself: however you got
+    in, you are the same user with the same channels. See
+    <a href="#config-keycloak">The Keycloak realm</a> for the operator's side of it.
+  </p>
+  <p>
     Sessions last <b>8 hours</b> and the two clocks are kept in step deliberately: Keycloak's SSO
     session idle timeout and the servlet session timeout are both 8h. The browser also watches for
     mouse, key, scroll, touch and focus events, and after 8 hours of genuine inactivity it posts to
@@ -2365,6 +2374,7 @@ keycloak.issuer-uri      -&gt; both the OIDC client and the resource server issu
       <tr><td>Web origins</td><td><code>http://localhost:8080</code>, <code>http://127.0.0.1:8080</code></td></tr>
       <tr><td>Session idle and max</td><td>8 hours, matching the servlet session</td></tr>
       <tr><td>Brute-force protection</td><td>On. Temporary lockout after 10 failures, backing off to a 15 minute cap, counter decaying after 12 hours.</td></tr>
+      <tr><td>Organizations</td><td>Feature on, no organisations defined. See <a href="#config-keycloak-orgs">below</a>.</td></tr>
       <tr><td>Test users</td><td><code>alice</code> / <code>alice</code> (admin), <code>bob</code> / <code>bob</code></td></tr>
     </tbody>
   </table>
@@ -2406,6 +2416,49 @@ keycloak.issuer-uri      -&gt; both the OIDC client and the resource server issu
     Promote a person by assigning <code>ichat-admin</code> to them individually. It should never be
     in the default role set.
   </p>
+
+  <h4 id="config-keycloak-orgs">Organisations: each company signs in with its own IdP</h4>
+  <p>
+    The bundled realm has Keycloak's <b>Organizations</b> feature switched on. It lets an instance
+    shared by several companies send each of them to the identity provider they already have
+    &mdash; Entra ID, Okta, Google Workspace, any SAML or OIDC IdP &mdash; while the application
+    keeps talking to one realm. A person types their work email on the login page; Keycloak matches
+    the domain to an organisation and, if that organisation has a linked provider with redirect
+    enabled, sends them straight to it. An address that matches nothing gets the ordinary
+    username/password form. Nothing changes in the application or its configuration: it still sees
+    a single OIDC issuer, the same <code>KEYCLOAK_*</code> variables, and a brokered account is
+    just another user. Belonging to no organisation is a normal state, not an error.
+  </p>
+  <p>
+    Organisations are added in the admin console, once each, and never live in
+    <code>realm.json</code>. The shape is three objects and one link:
+  </p>
+  <ol>
+    <li><b>Identity providers &rarr; Add provider.</b> The company's IdP, with an alias you will
+      recognise later (<code>acme-entra</code>) and whatever their IdP admin gives you. Hand them
+      back the redirect URI Keycloak shows on that page.</li>
+    <li><b>Organizations &rarr; Create organization.</b> Name, alias, and every email domain the
+      company signs in with.</li>
+    <li>On the organisation, <b>Identity providers &rarr; Link identity provider</b>: pick the
+      provider, set the domain, turn on <b>Redirect when email domain matches</b>. Turn on
+      <b>Hide on login page</b> too unless you want the company's button shown to everyone.</li>
+    <li>Sign out and try an address in that domain. If it does not redirect, the org, the domain and
+      the link are three separate things and the redirect needs all three &mdash; check step 3
+      first.</li>
+  </ol>
+  <p>
+    Past the redirect it is Keycloak's ordinary first-broker-login: the account is created in
+    <code>ichat-realm</code>, added to the organisation, and given the realm's default roles &mdash;
+    so <code>ichat-user</code> belongs in that set and <code>ichat-admin</code> still never does.
+    Turning the feature on also makes the login page <i>identity-first</i>, email on one screen and
+    password on the next, which is what lets the domain lookup happen before the password field is
+    the right one. The bundled login theme handles that without changes because it inherits every
+    template from the base theme (<a href="#config-login-theme">next section</a>); a
+    <b>custom browser flow</b>, if you have one, needs the <i>Organization</i> step added by hand or
+    the lookup never runs. The step-by-step, and a recipe to rehearse it against a second realm
+    standing in for a corporate IdP, is in <code>QUICKSTART-MANUAL.md</code>.
+  </p>
+
   <div class="warn">
     <span class="tag">Before exposing an instance</span>
     <p>
