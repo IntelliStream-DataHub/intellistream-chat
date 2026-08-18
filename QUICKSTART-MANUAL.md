@@ -107,6 +107,17 @@ The bundled `realm.json` already has the feature on. On a hand-built realm, turn
 **Realm settings → General → Organizations** → ON → Save. An **Organizations** entry appears in
 the left menu.
 
+Before the first organisation, two things on the realm itself, both of which an imported
+`realm.json` already has and a hand-built realm may not:
+
+- **Realm roles must be in the ID token** — step 4 of *Or build it by hand* above. Brokered
+  accounts are ordinary realm users, and their `ichat-admin` reaches the app the same way
+  everyone else's does: through `realm_access.roles` on the ID token. Without that mapper the
+  role is granted in Keycloak and never seen. Check with Clients → `ichat-client` → Client scopes
+  → **Evaluate** → *Generated ID token*.
+- **`ichat-user` in `default-roles-ichat-realm`** (README, *Enabling user registration*), so a
+  brokered account gets it at first login like a self-registered one.
+
 Then, once per organisation:
 
 1. **Identity providers → Add provider** — pick the type (*OpenID Connect v1.0*, *SAML v2.0*, or
@@ -115,28 +126,44 @@ Then, once per organisation:
    Copy the *Redirect URI* Keycloak shows on that page back to them — it is what they must
    register on their side; its shape is
    `https://<keycloak-host>/realms/ichat-realm/broker/<alias>/endpoint`, so the alias is baked in
-   and the host is the one browsers reach Keycloak at. Turn on **Trust Email**: it marks brokered
-   accounts' emails verified, which is what lets the app match a person to the account they
-   already had under a previous subject (README, `ICHAT_IDENTITY_LINK_BY_VERIFIED_EMAIL`) — without
-   it, moving an existing user base into this realm gives everyone a second account. Keep **Hide
-   on login page** in mind for step 3; it is fine to leave off here.
-2. **Organizations → Create organization** — Name `Acme`, Alias `acme`, and under **Domains** every
+   and the host is the one browsers reach Keycloak at. Keep **Hide on login page** in mind for
+   step 4; it is fine to leave off here.
+2. On that provider, **Trust Email** → ON. It marks brokered accounts' emails verified, which is
+   what lets the app match a person to the account they already had under a previous subject
+   (README, `ICHAT_IDENTITY_LINK_BY_VERIFIED_EMAIL`) — without it, moving an existing user base
+   into this realm gives everyone a second account, and the first symptom is a handle with a
+   numeric suffix. While there, **Advanced settings → Pass login_hint** → ON, so the email typed
+   on the first screen is prefilled at the IdP instead of asked for again.
+3. **Organizations → Create organization** — Name `Acme`, Alias `acme`, and under **Domains** every
    email domain the organisation signs in with (`acme.com`, `acme.co.uk`). Save.
-3. Open the organisation → **Identity providers** tab → **Link identity provider**. Choose the
-   provider from step 1, set **Domain** to one of the domains from step 2, and turn on **Redirect
+4. Open the organisation → **Identity providers** tab → **Link identity provider**. Choose the
+   provider from step 1, set **Domain** to one of the domains from step 3, and turn on **Redirect
    when email domain matches**. Turn on **Hide on login page** as well unless you want an "Acme"
    button on the shared login page for everyone to see.
-4. Test with an address in that domain. The login page asks for the email first, then either
-   redirects to the IdP or shows the password field. If the redirect does not happen, check step 3
+5. Test with an address in that domain. The login page asks for the email first, then either
+   redirects to the IdP or shows the password field. If the redirect does not happen, check step 4
    before anything else — the org, the domain and the link are three separate things and the
    redirect needs all three.
 
 What happens on the far side of that redirect is Keycloak's normal *first broker login*: the
 account is created in `ichat-realm`, added as a member of the organisation, and given whatever is
-in **default-roles-ichat-realm** — so keep `ichat-user` in that set (README, *Enabling user
-registration*), and never `ichat-admin`. From the app's point of view a brokered account is just
-another user; `ichat-admin` is still granted by hand, one person at a time, under **Users → Role
-mappings**.
+in **default-roles-ichat-realm** — so keep `ichat-user` in that set, and never `ichat-admin`. From
+the app's point of view a brokered account is just another user.
+
+**Roles for brokered accounts.** Membership of an organisation grants nothing — Keycloak
+Organizations has no per-organisation roles — and the IdP's own roles and groups do not cross the
+broker on their own. So `ichat-admin` is either granted by hand as before (**Users → Role
+mappings**), or delegated to the organisation's directory with a mapper on the provider:
+Identity providers → the provider → **Mappers → Add mapper**, type **Advanced Claim to Role**
+(SAML: *Advanced Attribute to Role*), the claim and value the IdP sends for its admins (an Entra
+group id in `groups`, an Okta group name — or, when the upstream is another Keycloak realm that
+already carries `ichat-admin`, claim `realm_access.roles` value `ichat-admin`), role `ichat-admin`,
+and **Sync mode override → Force**. Force is the part that matters: the default *import* runs a
+mapper once, at first login, and never again, so a person removed from the group upstream would
+stay an administrator here forever; Force re-evaluates on every login and takes the role away when
+the claim no longer matches. Never put `ichat-admin` in a *Hardcoded Role* mapper — that makes
+the whole company administrators. A *Hardcoded Role* mapper is fine for `ichat-user`, or a marker
+role of your own, if you would rather not rely on the realm's default set.
 
 Two things worth knowing:
 

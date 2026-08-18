@@ -2470,6 +2470,19 @@ keycloak.issuer-uri      -&gt; both the OIDC client and the resource server issu
     Past the redirect it is Keycloak's ordinary first-broker-login: the account is created in
     <code>ichat-realm</code>, added to the organisation, and given the realm's default roles &mdash;
     so <code>ichat-user</code> belongs in that set and <code>ichat-admin</code> still never does.
+    Two settings decide whether that account is a first-class one. <b>Trust Email</b> on the
+    provider marks the email verified, which is what lets the app recognise a person who already
+    had an account under a previous subject instead of minting a second (see
+    <code>ichat.identity.link-by-verified-email</code> in <a href="#config-identity">Identity and
+    Keycloak</a>). And the realm's <b>realm-roles-in-ID-token</b> mapper on <code>ichat-client</code>
+    is what carries <code>ichat-admin</code> to the app for brokered accounts exactly as for local
+    ones &mdash; the bundled realm has it, a hand-built one has to add it. Membership of an
+    organisation grants no role by itself and the IdP's groups do not cross the broker on their own:
+    to let the organisation's directory decide who is admin, add an <i>Advanced Claim to Role</i>
+    mapper on the provider (their admin group's claim &rarr; <code>ichat-admin</code>) with sync
+    mode <b>Force</b>, so a person removed from the group upstream loses the role at their next
+    login rather than keeping it forever. Never a <i>Hardcoded Role</i> mapper for
+    <code>ichat-admin</code>.
     Once the first organisation exists the login page becomes <i>identity-first</i>, email on one
     screen and password on the next — the feature alone, with no organisation defined, leaves the
     classic form in place — which is what lets the domain lookup happen before the password field
