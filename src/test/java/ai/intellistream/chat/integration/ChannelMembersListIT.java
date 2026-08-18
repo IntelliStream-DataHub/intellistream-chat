@@ -104,7 +104,8 @@ class ChannelMembersListIT {
                 reads, userService, pollService, markdown, currentUser, new RateLimiter(),
                 mock(org.springframework.messaging.simp.SimpMessagingTemplate.class),
                 mock(ai.intellistream.chat.repository.MessageMentionRepository.class),
-                mock(ai.intellistream.chat.service.SidebarService.class));
+                mock(ai.intellistream.chat.service.SidebarService.class),
+                mock(ai.intellistream.chat.web.ChannelDestruction.class));
     }
 
     private User newUser(String prefix) {

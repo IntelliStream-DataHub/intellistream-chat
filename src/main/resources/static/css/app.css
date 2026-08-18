@@ -4902,6 +4902,11 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
    class, so without it Suspend and Clear messages repaint accent-blue under the pointer and the
    filter below just lightens the blue. */
 .admin-danger:hover { background: var(--danger); filter: brightness(1.08); }
+/* The channel table's Delete: disabled until the typed name matches, and it should look it — a
+   red button that does nothing reads as broken, a dimmed one reads as "not yet". The input is wider
+   than the other inline forms' because its placeholder carries the channel name. */
+.admin-danger:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
+.admin-channel-delete input[type="text"] { width: 13rem; }
 .admin-badge {
   display: inline-block;
   padding: 1px 7px;

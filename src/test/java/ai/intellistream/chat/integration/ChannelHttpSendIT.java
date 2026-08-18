@@ -113,7 +113,8 @@ class ChannelHttpSendIT {
         broker = mock(SimpMessagingTemplate.class);
         controller = new ChannelRestController(channels, messages, slashCommands, attachments, reactions,
                 reads, userService, pollService, markdown, currentUser, new RateLimiter(),
-                broker, mentionRepo, sidebarService);
+                broker, mentionRepo, sidebarService,
+                new ai.intellistream.chat.web.ChannelDestruction(channels, broker));
     }
 
     private User newUser(String prefix) {

@@ -716,14 +716,6 @@
     only admins. There is no bulk invite and no invite link.
   </p>
 
-  <div class="note">
-    <span class="tag">Not available</span>
-    <p>
-      There is <b>no leave, rename, archive or delete</b> for a channel in the interface. A delete
-      exists in the service layer and is admin-gated, but no endpoint or button reaches it, so
-      removing a channel today is a database operation. Plan channel names accordingly.
-    </p>
-  </div>
   <h4>Renaming, archiving, deleting</h4>
   <p>
     A channel admin can rename a channel and edit its description from the cog in the channel
@@ -742,6 +734,13 @@
     the saves and the memberships, and credits every uploader's storage back. It cannot be undone. A
     channel admin — who is often just whoever happened to create the room — gets archive instead,
     which is the reversible answer to the same problem.
+  </p>
+  <p>
+    The Delete control lives in the channel's settings panel, which only members see. A workspace
+    admin who is not in a <b>private</b> channel therefore cannot delete it from the channel page —
+    it cannot be joined, and its page shows only "ask an admin for an invitation". The
+    <a href="#admin">admin console</a>'s channel table has the same Delete, with the same typed-name
+    confirmation, for exactly that case.
   </p>
 
   <h4>Leaving</h4>
@@ -1613,7 +1612,14 @@
       top bar, on the landing page and as the favicon. SVG is rejected on purpose, an uploaded SVG
       is a script-execution surface. A reset button appears once a custom logo is set.
     </li>
-    <li><b>Channels.</b> A read-only table of every channel with type, member count, message count and creation date.</li>
+    <li>
+      <b>Channels.</b> Every channel there is — including archived ones, which are out of the sidebar
+      and out of channel search, so this is the one place they are listed — with type, member count,
+      message count, creation date and status. Two actions per row: <b>Unarchive</b>, and
+      <b>Delete</b> behind a type-the-name field. Both exist for the private channel a workspace admin
+      is not a member of, whose page offers nothing; delete is the same irreversible action as the
+      channel page's, and the name is checked server-side too.
+    </li>
     <li>
       <b>Privacy.</b> One checkbox controlling whether the user table below shows full email
       addresses or masks them to <code>al…@example.com</code>. Default is to show them. The database

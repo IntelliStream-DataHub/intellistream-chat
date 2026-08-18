@@ -89,7 +89,7 @@
             <table class="admin-table">
                 <thead>
                 <tr><th>Name</th><th>Type</th><th>Members</th><th>Messages</th><th>Created</th>
-                    <th>Status</th></tr>
+                    <th>Status</th><th>Actions</th></tr>
                 </thead>
                 <tbody>
                 <tr th:each="c : ${channelRows}" th:classappend="${c.archived} ? 'is-archived' : ''">
@@ -117,9 +117,25 @@
                             </form>
                         </th:block>
                     </td>
+                    <td class="admin-actions">
+                        <!--/* Delete is workspace-admin only and irreversible, and this is the one
+                               place a workspace admin can reach it for a PRIVATE channel they are
+                               not in — the channel page's own Delete lives in the members-only
+                               settings panel. The typed name is enforced server-side; admin.js only
+                               keeps the button disabled until it matches, so nobody deletes #ops
+                               while aiming at #ops-archive. */-->
+                        <form th:action="@{'/admin/channels/' + ${c.id} + '/delete'}" method="post"
+                              class="admin-inline-form admin-channel-delete"
+                              th:data-channel-name="${c.name}">
+                            <input type="text" name="name" autocomplete="off" spellcheck="false"
+                                   th:placeholder="|type ${c.name} to delete|"
+                                   th:aria-label="|Type ${c.name} to confirm deletion|"/>
+                            <button type="submit" class="admin-danger">Delete</button>
+                        </form>
+                    </td>
                 </tr>
                 <tr th:if="${#lists.isEmpty(channelRows)}">
-                    <td colspan="6" class="admin-empty">No channels yet.</td>
+                    <td colspan="7" class="admin-empty">No channels yet.</td>
                 </tr>
                 </tbody>
             </table>
