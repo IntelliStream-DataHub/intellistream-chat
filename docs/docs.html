@@ -1663,7 +1663,7 @@
     <li><code>application.yml</code>, the defaults compiled into the jar.</li>
     <li>The active Spring profile's <code>application-&lt;profile&gt;.properties</code>.</li>
     <li>Environment variables and <code>-D</code> system properties.</li>
-    <li>Vault or OpenBao, if enabled, which is layered on top of everything for the five keys it owns.</li>
+    <li>Vault or OpenBao, if enabled, which is layered on top of everything for the ten keys it owns.</li>
   </ol>
   <div class="note">
     <span class="tag">Worth knowing</span>
@@ -2300,10 +2300,15 @@ ICHAT_TURN_SECRET=&lt;something unguessable&gt; \
   <p>
     It runs before Spring builds any beans, fetches one KV v2 record, and layers it above everything
     else, so what Vault says wins over the environment, the profile and <code>application.yml</code>
-    alike. It reads five fields and ignores anything else in the record:
+    alike. It reads ten fields, each optional, and ignores anything else in the record:
   </p>
-<pre><code>db.username              -&gt; spring.datasource.username
+<pre><code>db.url                   -&gt; spring.datasource.url
+db.username              -&gt; spring.datasource.username
 db.password              -&gt; spring.datasource.password
+db.replica-enabled       -&gt; ichat.datasource.replica.enabled
+db.replica-url           -&gt; ichat.datasource.replica.url
+db.replica-username      -&gt; ichat.datasource.replica.username
+db.replica-password      -&gt; ichat.datasource.replica.password
 keycloak.client-id       -&gt; OIDC client id
 keycloak.client-secret   -&gt; OIDC client secret
 keycloak.issuer-uri      -&gt; both the OIDC client and the resource server issuer</code></pre>
@@ -2313,8 +2318,12 @@ keycloak.issuer-uri      -&gt; both the OIDC client and the resource server issu
     <tbody>
       <tr><td><code>ichat.vault.enabled</code></td><td><code>ICHAT_VAULT_ENABLED</code></td><td><code>false</code></td></tr>
       <tr><td><code>ichat.vault.uri</code></td><td><code>ICHAT_VAULT_URI</code></td><td>empty, required when enabled</td></tr>
-      <tr><td><code>ichat.vault.token</code></td><td><code>ICHAT_VAULT_TOKEN</code></td><td>empty, required when enabled</td></tr>
       <tr><td><code>ichat.vault.path</code></td><td><code>ICHAT_VAULT_PATH</code></td><td><code>intellistream-chat</code></td></tr>
+      <tr><td><code>ichat.vault.token</code></td><td><code>ICHAT_VAULT_TOKEN</code></td><td>empty; a token credential</td></tr>
+      <tr><td><code>ichat.vault.role-id</code></td><td><code>ICHAT_VAULT_ROLE_ID</code></td><td>empty; AppRole, with a secret-id</td></tr>
+      <tr><td><code>ichat.vault.secret-id</code></td><td><code>ICHAT_VAULT_SECRET_ID</code></td><td>empty</td></tr>
+      <tr><td><code>ichat.vault.role-id-file</code>, <code>…secret-id-file</code></td><td><code>ICHAT_VAULT_ROLE_ID_FILE</code>, <code>ICHAT_VAULT_SECRET_ID_FILE</code></td><td>empty; either half read from a file (systemd <code>LoadCredential=</code>)</td></tr>
+      <tr><td><code>ichat.vault.approle-path</code></td><td><code>ICHAT_VAULT_APPROLE_PATH</code></td><td><code>approle</code></td></tr>
     </tbody>
   </table>
   </div>
@@ -2324,17 +2333,23 @@ keycloak.issuer-uri      -&gt; both the OIDC client and the resource server issu
     <code>mymount/myapp/secrets</code>, uses the part before the first slash as the mount.
   </p>
   <p>
-    Failure behaviour is deliberately loud. Enabled with a missing URI or token is a startup crash,
-    not a fallback, because a silent fallback is how a production instance ends up running on a
-    development password. A transport error or a malformed record is likewise fatal. The one soft
-    case is a record that fetched cleanly but contained none of the five field names: that logs a
+    Exactly one credential: a token, or an AppRole. With an AppRole the application logs in at
+    boot, reads the record with the token it was given, and revokes that token again, so it never
+    exists outside that one method. Failure behaviour is deliberately loud. Enabled with no URI, no
+    credential, or both kinds of credential is a startup crash, not a fallback, because a silent
+    fallback is how a production instance ends up running on a development password. A transport
+    error, a refused login or a malformed record is likewise fatal. The one soft
+    case is a record that fetched cleanly but contained none of the ten field names: that logs a
     warning listing what it expected and carries on with the environment, since it is far more
     likely to be a typo in the path than an attack.
   </p>
   <p>
     Locally, a profile-gated OpenBao container and a seeding script are in the repository. That
     container runs in memory with a single root token, so it is for testing the integration, not for
-    running it.
+    running it. The manual-install guide's
+    <a href="https://github.com/IntelliStream-DataHub/intellistream-chat/blob/main/QUICKSTART-MANUAL.md#optional-secrets-from-openbao">OpenBao
+    section</a> has the production recipe, written for <code>bao</code>: a dedicated KV v2 mount,
+    the read-only policy, the AppRole, and the env-file lines that use it.
   </p>
 </section>
 

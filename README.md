@@ -350,7 +350,7 @@ To pull `ICHAT_DB_PASSWORD` and `KEYCLOAK_CLIENT_SECRET` from a Vault / OpenBao 
 
 ```bash
 export ICHAT_VAULT_ENABLED=true
-export ICHAT_VAULT_URI=https://vault.example.com:8200
+export ICHAT_VAULT_URI=https://vault.example.org:8200
 export ICHAT_VAULT_TOKEN=...
 export ICHAT_VAULT_PATH=intellistream-chat     # default; maps to secret/data/intellistream-chat
 ./gradlew bootRun
@@ -879,17 +879,25 @@ When enabled, a `VaultEnvironmentPostProcessor` runs before Spring autoconfigura
 |---|---|---|
 | `ICHAT_VAULT_ENABLED` | `false` | Master switch. |
 | `ICHAT_VAULT_URI` | _(empty)_ | Base URL (e.g. `http://127.0.0.1:8200`). Required when enabled. |
-| `ICHAT_VAULT_TOKEN` | _(empty)_ | Token credential. Required when enabled. |
-| `ICHAT_VAULT_PATH` | `intellistream-chat` | KV-v2 path; default maps to `secret/data/intellistream-chat`. |
+| `ICHAT_VAULT_PATH` | `intellistream-chat` | KV-v2 path, `<mount>/<key>`; a bare key means the `secret/` mount, so the default maps to `secret/data/intellistream-chat`. |
+| `ICHAT_VAULT_TOKEN` | _(empty)_ | Token credential. |
+| `ICHAT_VAULT_ROLE_ID` / `ICHAT_VAULT_SECRET_ID` | _(empty)_ | AppRole credential — the alternative to a token. The app logs in at boot, reads the record with the minted token, then revokes it. |
+| `ICHAT_VAULT_ROLE_ID_FILE` / `ICHAT_VAULT_SECRET_ID_FILE` | _(empty)_ | Read either half from a file instead (systemd `LoadCredential=`); each is mutually exclusive with its value form. |
+| `ICHAT_VAULT_APPROLE_PATH` | `approle` | Auth mount of the AppRole backend, if enabled under another name. |
 
-If enabled but URI or token is missing, the app **fails fast at boot** with `IllegalStateException` — silently falling back to env-var defaults in a "vault-enabled" deploy would be a security bug.
+Exactly one credential: a token, **or** an AppRole. If enabled with no URI, no credential, or both kinds of credential, the app **fails fast at boot** with `IllegalStateException` — silently falling back to env-var defaults in a "vault-enabled" deploy would be a security bug.
 
-**Vault record schema** (five keys, anything else ignored):
+**Vault record schema** (ten keys, every one optional, anything else ignored):
 
 | Vault key | Spring property |
 |---|---|
+| `db.url` | `spring.datasource.url` |
 | `db.username` | `spring.datasource.username` |
 | `db.password` | `spring.datasource.password` |
+| `db.replica-enabled` | `ichat.datasource.replica.enabled` |
+| `db.replica-url` | `ichat.datasource.replica.url` |
+| `db.replica-username` | `ichat.datasource.replica.username` |
+| `db.replica-password` | `ichat.datasource.replica.password` |
 | `keycloak.client-id` | `spring.security.oauth2.client.registration.keycloak.client-id` |
 | `keycloak.client-secret` | `spring.security.oauth2.client.registration.keycloak.client-secret` |
 | `keycloak.issuer-uri` | mirrored into both `spring.security.oauth2.client.provider.keycloak.issuer-uri` and `spring.security.oauth2.resourceserver.jwt.issuer-uri` (the OIDC client and the resource server read different slots) |
@@ -903,7 +911,7 @@ ICHAT_VAULT_ENABLED=true ICHAT_VAULT_URI=http://127.0.0.1:8200 \
   ICHAT_VAULT_TOKEN=intellistream-dev-token ./gradlew bootRun
 ```
 
-Hit `/actuator/env` to verify the `intellistream-vault` property source appeared. The OpenBao dev container uses in-memory storage and a root token — for production, switch to sealed deployment + auto-unseal + AppRole or Kubernetes auth.
+Hit `/actuator/env` to verify the `intellistream-vault` property source appeared. The OpenBao dev container uses in-memory storage and a root token — for production, switch to sealed deployment + auto-unseal + AppRole or Kubernetes auth. The production recipe for OpenBao — a dedicated KV-v2 mount, a read-only policy, an AppRole, and the two env-file lines that use it — is in [`QUICKSTART-MANUAL.md`](QUICKSTART-MANUAL.md#optional-secrets-from-openbao).
 
 ### Upload size cap
 

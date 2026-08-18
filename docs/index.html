@@ -1112,11 +1112,17 @@ podman compose down -v   # also wipe the Postgres volume, for a fresh database</
     <p>
       At startup, before Spring builds any beans, the app fetches one KV v2 record and layers it
       over everything else, so what Vault says wins over the environment and over
-      <code>application.yml</code>. It reads five keys, and ignores anything else in the record:
+      <code>application.yml</code>. It reads ten keys, each optional, and ignores anything else in
+      the record:
     </p>
 
-<pre><code>db.username              -&gt; spring.datasource.username
+<pre><code>db.url                   -&gt; spring.datasource.url
+db.username              -&gt; spring.datasource.username
 db.password              -&gt; spring.datasource.password
+db.replica-enabled       -&gt; ichat.datasource.replica.enabled
+db.replica-url           -&gt; ichat.datasource.replica.url
+db.replica-username      -&gt; ichat.datasource.replica.username
+db.replica-password      -&gt; ichat.datasource.replica.password
 keycloak.client-id       -&gt; OIDC client id
 keycloak.client-secret   -&gt; OIDC client secret
 keycloak.issuer-uri      -&gt; OIDC issuer</code></pre>
@@ -1124,16 +1130,21 @@ keycloak.issuer-uri      -&gt; OIDC issuer</code></pre>
     <div class="qs-step">
       <h3><span class="num">1</span>Point the app at your Vault</h3>
 <pre><code>ICHAT_VAULT_ENABLED=true
-ICHAT_VAULT_URI=https://vault.example.com:8200
-ICHAT_VAULT_TOKEN=&lt;token&gt;
-ICHAT_VAULT_PATH=intellistream-chat     # optional, this is the default</code></pre>
+ICHAT_VAULT_URI=https://vault.example.org:8200
+ICHAT_VAULT_PATH=intellistream-chat     # optional, this is the default
+# one credential — an AppRole:
+ICHAT_VAULT_ROLE_ID=&lt;role_id&gt;
+ICHAT_VAULT_SECRET_ID=&lt;secret_id&gt;
+# …or a token you already hold:
+# ICHAT_VAULT_TOKEN=&lt;token&gt;</code></pre>
       <p class="qs-note">
         <code>ICHAT_VAULT_PATH</code> is a KV v2 path. The default resolves to
         <code>secret/data/intellistream-chat</code>; pass something like
-        <code>mymount/myapp/secrets</code> to use a different mount. If you enable this and leave
-        the URI or token unset, startup fails immediately rather than quietly falling back to the
-        environment, because a silent fallback is how a production instance ends up running on a
-        development password.
+        <code>mymount/myapp/secrets</code> to use a different mount. With an AppRole the app logs
+        in at boot, reads the record with the token it was given, and revokes it again. If you
+        enable this and leave the URI or the credential unset — or set both a token and an AppRole
+        — startup fails immediately rather than quietly falling back to the environment, because a
+        silent fallback is how a production instance ends up running on a development password.
       </p>
     </div>
 
@@ -1152,9 +1163,10 @@ ICHAT_VAULT_PATH=intellistream-chat     # optional, this is the default</code></
       <strong>The dev container is not a deployment.</strong> It runs in memory with a single root
       token, so everything vanishes on restart and the token is in the compose file. For production
       use a sealed deployment with auto unseal, and authenticate with AppRole or Kubernetes auth
-      rather than a long lived token. Token auth is what the app implements today; if you need
-      AppRole, <code>VaultEnvironmentPostProcessor</code> is about sixty lines and is the only
-      place that talks to Vault.
+      rather than a long lived token. The
+      <a href="https://github.com/IntelliStream-DataHub/intellistream-chat/blob/main/QUICKSTART-MANUAL.md#optional-secrets-from-openbao">manual-install
+      guide</a> has the recipe, written for <code>bao</code>: a dedicated KV v2 mount, a read-only
+      policy, an AppRole, and the env-file lines that use it.
     </p>
   </div>
 </section>
