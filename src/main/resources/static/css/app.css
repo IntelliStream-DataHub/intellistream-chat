@@ -185,7 +185,10 @@ button, .btn {
   font-weight: 600;
   transition: background-color 0.12s, color 0.12s, border-color 0.12s;
 }
-button:hover, .btn:hover { background: var(--accent-2); }
+/* .btn is used on <a> too, and the global `a:hover { color: var(--accent-2) }` outranks this
+   rule's own color unless we restate it here — otherwise the label goes accent-2-on-accent-2
+   and disappears the moment the pointer arrives. */
+button:hover, .btn:hover { background: var(--accent-2); color: var(--accent-on); }
 /* Keyboard-visible focus for every interactive element; mouse clicks stay clean. */
 button:focus-visible, .btn:focus-visible, a:focus-visible, summary:focus-visible {
   outline: 2px solid var(--accent);
