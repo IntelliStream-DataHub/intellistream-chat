@@ -2470,9 +2470,10 @@ keycloak.issuer-uri      -&gt; both the OIDC client and the resource server issu
     Past the redirect it is Keycloak's ordinary first-broker-login: the account is created in
     <code>ichat-realm</code>, added to the organisation, and given the realm's default roles &mdash;
     so <code>ichat-user</code> belongs in that set and <code>ichat-admin</code> still never does.
-    Turning the feature on also makes the login page <i>identity-first</i>, email on one screen and
-    password on the next, which is what lets the domain lookup happen before the password field is
-    the right one. The bundled login theme handles that without changes because it inherits every
+    Once the first organisation exists the login page becomes <i>identity-first</i>, email on one
+    screen and password on the next — the feature alone, with no organisation defined, leaves the
+    classic form in place — which is what lets the domain lookup happen before the password field
+    is the right one. The bundled login theme handles that without changes because it inherits every
     template from the base theme (<a href="#config-login-theme">next section</a>); a
     <b>custom browser flow</b>, if you have one, needs the <i>Organization</i> step added by hand or
     the lookup never runs. The step-by-step, and a recipe to rehearse it against a second realm

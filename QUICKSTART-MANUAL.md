@@ -45,7 +45,19 @@ demo users `alice` and `bob` too.
 
    Not a role named `admin` — Keycloak has its own by that name and the app ignores it deliberately.
    Only `ichat-admin` grants the admin console.
-4. **Users**: create accounts, give everyone `ichat-user`, and `ichat-admin` to at least one, or
+4. **Put realm roles in the ID token.** Clients → `ichat-client` → Client scopes →
+   `ichat-client-dedicated` → Add mapper → *By configuration* → **User Realm Role**: name anything,
+   Token Claim Name `realm_access.roles`, Multivalued ON, *Add to ID token* ON, *Add to access token*
+   ON, *Add to userinfo* ON. Save.
+
+   This is the step that is easy to skip and impossible to notice: Keycloak's default `roles`
+   scope puts `realm_access` in the *access* token only, and the browser login reads the *ID*
+   token, so without this mapper `ichat-admin` is granted in Keycloak and never seen by the app.
+   Nobody is admin, no error anywhere. The bundled `realm.json` ships the mapper (it is the
+   `realm roles in id token` entry); a hand-built realm has to add it. To check a realm, Clients →
+   `ichat-client` → Client scopes → **Evaluate** → pick a user → *Generated ID token* and look for
+   `realm_access.roles`.
+5. **Users**: create accounts, give everyone `ichat-user`, and `ichat-admin` to at least one, or
    nobody can reach `/admin`.
 
 ### Brand the login page
@@ -128,17 +140,24 @@ mappings**.
 
 Two things worth knowing:
 
-- Enabling Organizations changes the login page to *identity-first*: email on one screen, password
-  on the next. That is by design — the domain has to be known before the password field can be
-  the right one — and the bundled theme handles it without changes because it inherits every
-  template from the base theme (see the theme note above). If you have replaced the realm's
+- Once the first organisation exists, the login page becomes *identity-first*: email on one
+  screen, password on the next (with the feature on but no organisation yet, the classic form
+  stays). That is by design — the domain has to be known before the password field can be the
+  right one — and the bundled theme handles it without changes because it inherits every template
+  from the base theme (see the theme note above). If you have replaced the realm's
   **browser** authentication flow with a custom one, add the *Organization* step to it, or the
   domain lookup never runs; the built-in flow gets it automatically.
 - To rehearse this without a real corporate IdP, make a second realm in the same Keycloak
-  (`acme-idp`, one client `ichat-broker`, one user with an `@acme.com` email) and add it to
-  `ichat-realm` as an *OpenID Connect v1.0* provider with discovery URL
-  `https://your-keycloak/realms/acme-idp/.well-known/openid-configuration`. It behaves exactly like
-  an external IdP for the purpose of steps 2–4, and you can delete the realm afterwards.
+  (`acme-idp`, one client `ichat-broker` with *Client authentication* ON and Valid redirect URI
+  `https://your-keycloak/realms/ichat-realm/broker/acme-idp/endpoint`, one user with an
+  `@acme.com` email) and add it to `ichat-realm` as an *OpenID Connect v1.0* provider with
+  discovery URL `https://your-keycloak/realms/acme-idp/.well-known/openid-configuration`, that
+  client id and its secret. It behaves exactly like an external IdP for the purpose of steps 2–4,
+  and you can delete the realm afterwards. If sign-out then errors with *invalid redirect uri* on
+  the `acme-idp` side, that client also needs
+  `…/realms/ichat-realm/broker/acme-idp/endpoint/logout_response` in its Valid post logout
+  redirect URIs — Keycloak logs the person out of the IdP they came in through and needs a way
+  back — or clear the provider's *Logout URL* in `ichat-realm` to keep sign-out local.
 
 ## 3. Install the app
 
