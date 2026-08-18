@@ -64,6 +64,8 @@ public class ChannelRestController {
     private final MessageMentionRepository mentionRepository;
     private final ai.intellistream.chat.service.SidebarService sidebarService;
     private final ai.intellistream.chat.slash.SlashCommandService slashCommands;
+    private final ChannelDestruction channelDestruction;
+    private final LinkPreviews linkPreviews;
 
     public ChannelRestController(ChannelService channelService,
                                  MessageService messageService,
@@ -78,8 +80,12 @@ public class ChannelRestController {
                                  RateLimiter rateLimiter,
                                  SimpMessagingTemplate broker,
                                  MessageMentionRepository mentionRepository,
-                                 ai.intellistream.chat.service.SidebarService sidebarService) {
+                                 ai.intellistream.chat.service.SidebarService sidebarService,
+                                 ChannelDestruction channelDestruction,
+                                 LinkPreviews linkPreviews) {
         this.sidebarService = sidebarService;
+        this.channelDestruction = channelDestruction;
+        this.linkPreviews = linkPreviews;
         this.slashCommands = slashCommands;
         this.channelService = channelService;
         this.messageService = messageService;
@@ -212,36 +218,16 @@ public class ChannelRestController {
     /**
      * Destroy a channel: its messages, its files, its search documents and every row that referenced
      * it. Irreversible, and workspace-admin only — see {@code ChannelService.destroy} for why that is
-     * the line rather than the channel role.
-     *
-     * <p>{@code ?name=} is the typed-confirmation check, and it is enforced here as well as in the UI.
-     * Not because a caller with a bearer token needs protecting from themselves, but because this is
-     * the one endpoint in the application where a mistaken {@code id} cannot be walked back: an
-     * off-by-one in a script deletes the wrong room and there is nothing to restore it from. Requiring
-     * the name means the request has to agree with itself about which channel it means. Compared
-     * case-insensitively and after trimming — the confirmation is a statement of intent, not a typing
-     * test.
-     *
-     * <p>The order of the three steps is deliberate. Destroy first, so nothing is announced that did
-     * not happen. Then broadcast, so open clients learn about it. Then revoke, because the frame that
-     * tells them travels on the subscription being revoked — the reverse order silently cuts a client
-     * off and leaves it showing a channel that no longer exists.
+     * the line rather than the channel role. {@code ?name=} is the typed confirmation; the check, the
+     * broadcast and the subscription revocation — and the order they happen in — live in
+     * {@link ChannelDestruction}, which the admin console's delete form shares.
      */
     @DeleteMapping("/{id}")
     public ResponseEntity<Void> destroy(@PathVariable Long id,
                                         @RequestParam("name") String confirmName,
                                         Principal principal) {
         var me = currentUser.resolve(principal);
-        var channel = channelService.requireById(id);
-        if (confirmName == null
-                || !confirmName.trim().equalsIgnoreCase(channel.getName().trim())) {
-            throw new ai.intellistream.chat.security.PublicBadRequestException(
-                    "Type the channel's name exactly to confirm deletion.");
-        }
-        channelService.destroy(channel, me);
-        broker.convertAndSend("/topic/channels/" + id,
-                ai.intellistream.chat.web.dto.ChannelEvent.deleted(id));
-        channelService.revokeAllSubscriptions(id);
+        channelDestruction.destroy(channelService.requireById(id), me, confirmName);
         return ResponseEntity.noContent().build();
     }
 
@@ -381,14 +367,14 @@ public class ChannelRestController {
         var replyCounts = messageService.threadReplyCounts(rows);
         // Batch-load polls so /poll-host messages render their vote widget on first paint.
         var polls = pollService.pollsForMessages(rows, me);
-        return rows.stream()
+        return linkPreviews.decorate(rows.stream()
                 .map(m -> MessageDto.from(m, markdown.render(m.getBodyMarkdown()),
                         attachments.getOrDefault(m.getId(), List.of()),
                         reactions.getOrDefault(m.getId(), List.of()),
                         replyCounts.getOrDefault(m.getId(), 0L),
                         java.util.List.of(),
                         polls.get(m.getId())))
-                .toList();
+                .toList());
     }
 
     /**
@@ -414,14 +400,14 @@ public class ChannelRestController {
         var reactions = reactionService.groupingsFor(rows, me);
         var replyCounts = messageService.threadReplyCounts(rows);
         var polls = pollService.pollsForMessages(rows, me);
-        return rows.stream()
+        return linkPreviews.decorate(rows.stream()
                 .map(m -> MessageDto.from(m, markdown.render(m.getBodyMarkdown()),
                         attachments.getOrDefault(m.getId(), List.of()),
                         reactions.getOrDefault(m.getId(), List.of()),
                         replyCounts.getOrDefault(m.getId(), 0L),
                         java.util.List.of(),
                         polls.get(m.getId())))
-                .toList();
+                .toList());
     }
 
     /**
@@ -490,6 +476,7 @@ public class ChannelRestController {
         // @mention notifications — mirroring the WS send path (N6). Without this, a message posted
         // via HTTP was invisible until reload.
         broker.convertAndSend("/topic/channels/" + id, MessageEvent.created(dto));
+        linkPreviews.unfurl(dto);
         return dto;
     }
 

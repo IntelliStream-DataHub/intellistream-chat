@@ -49,8 +49,16 @@ public record ConversationMessageDto(
         long replyCount,
         List<String> threadParticipants,
         List<ConversationAttachmentDto> attachments,
-        List<ReactionGroupDto> reactions
+        List<ReactionGroupDto> reactions,
+        /** The card for the first link in the body, or null — see {@link MessageDto#linkPreview()}. */
+        LinkPreviewDto linkPreview
 ) {
+    public ConversationMessageDto withLinkPreview(LinkPreviewDto preview) {
+        return new ConversationMessageDto(id, conversationId, parentId, authorUsername, authorDisplayName,
+                authorHasAvatar, authorAvatarVersion, bodyMarkdown, bodyHtml, createdAt, editedAt,
+                replyCount, threadParticipants, attachments, reactions, preview);
+    }
+
     public static ConversationMessageDto from(ConversationMessage m, String html) {
         return from(m, html, List.of(), List.of());
     }
@@ -91,7 +99,8 @@ public record ConversationMessageDto(
                 replyCount,
                 threadParticipants,
                 attachments.stream().map(ConversationAttachmentDto::from).toList(),
-                reactions
+                reactions,
+                null
         );
     }
 }

@@ -135,6 +135,10 @@
       right.appendChild(body);
     }
 
+    // The link card, if the DTO carries one; a live message's arrives as a `link-preview` frame.
+    const preview = window.ChatKit.buildLinkPreviewEl(msg.linkPreview);
+    if (preview) right.appendChild(preview);
+
     if (msg.reactions && msg.reactions.length) {
       right.appendChild(renderReactionTray(msg.reactions));
     }
@@ -308,13 +312,15 @@
       return;
     }
     li.dataset.bodyMarkdown = msg.bodyMarkdown || '';
-    right.querySelectorAll('.message-body, .message-reactions, .message-attachments, .message-edit, .edited-tag, .thread-indicator').forEach(n => n.remove());
+    right.querySelectorAll('.message-body, .link-preview, .message-reactions, .message-attachments, .message-edit, .edited-tag, .thread-indicator').forEach(n => n.remove());
     const meta = right.querySelector('.message-meta');
     if (msg.bodyMarkdown) {
       const body = document.createElement('div');
       body.className = 'message-body';
       body.innerHTML = msg.bodyHtml || '';
       meta.after(body);
+      const preview = window.ChatKit.buildLinkPreviewEl(msg.linkPreview);
+      if (preview) body.after(preview);
     }
     if (msg.editedAt && meta && !meta.querySelector('.edited-tag')) {
       const tag = document.createElement('span');
@@ -497,6 +503,8 @@
       body.innerHTML = msg.bodyHtml || '';
       right.appendChild(body);
     }
+    const preview = window.ChatKit.buildLinkPreviewEl(msg.linkPreview);
+    if (preview) right.appendChild(preview);
     if (msg.reactions && msg.reactions.length) right.appendChild(renderReactionTray(msg.reactions));
     if (msg.attachments && msg.attachments.length) {
       right.appendChild(renderAttachmentTray(msg.attachments));
@@ -593,8 +601,8 @@
   });
 
   // The conversation topic carries ConversationMessageDto (new message) and lightweight
-  // ConversationEvent envelopes (member-added, message-updated, message-deleted). Discriminate
-  // by the `type` field that only ConversationEvent carries.
+  // ConversationEvent envelopes (member-added, message-updated, message-deleted, link-preview).
+  // Discriminate by the `type` field that only ConversationEvent carries.
   // ---------- Read state ----------
   // The marker advances on live traffic, but only while the tab is actually in the foreground. A
   // conversation left open in a background tab must NOT silently mark incoming messages read: that
@@ -628,6 +636,13 @@
     }
     if (payload && payload.type === 'message-updated') {
       if (payload.message) replaceMessageDom(payload.message);
+      return;
+    }
+    if (payload && payload.type === 'link-preview') {
+      // The card for a message that contained a link, a moment after the message. Every copy on
+      // screen — the feed's and, if it is open on that message, the thread panel's.
+      const sel = 'li.message[data-id="' + CSS.escape(payload.messageId) + '"]';
+      document.querySelectorAll(sel).forEach((li) => window.ChatKit.applyLinkPreview(li, payload.linkPreview));
       return;
     }
     if (payload && payload.type === 'message-deleted') {

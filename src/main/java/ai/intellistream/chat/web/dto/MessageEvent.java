@@ -45,25 +45,36 @@ public record MessageEvent(
          * a client-generated nonce carrying no information, so broadcasting it to the whole channel
          * costs nothing; only the originating client has anything to match it against.
          */
-        String clientId
+        String clientId,
+        /**
+         * The card for message {@code id}, on a {@code link-preview} event — the one field that
+         * event carries, the same narrow shape as {@code poll-vote}. It arrives a moment after the
+         * {@code created} frame, because the page has to be fetched first; the client finds the
+         * message and slots the card in.
+         */
+        LinkPreviewDto linkPreview
 ) {
     public static MessageEvent created(MessageDto m) {
         return created(m, null);
     }
 
     public static MessageEvent created(MessageDto m, String clientId) {
-        return new MessageEvent("created", m.id(), m.channelId(), m.parentId(), m, null, clientId);
+        return new MessageEvent("created", m.id(), m.channelId(), m.parentId(), m, null, clientId, null);
     }
 
     public static MessageEvent updated(MessageDto m) {
-        return new MessageEvent("updated", m.id(), m.channelId(), m.parentId(), m, null, null);
+        return new MessageEvent("updated", m.id(), m.channelId(), m.parentId(), m, null, null, null);
     }
 
     public static MessageEvent deleted(Long id, Long channelId, Long parentId) {
-        return new MessageEvent("deleted", id, channelId, parentId, null, null, null);
+        return new MessageEvent("deleted", id, channelId, parentId, null, null, null, null);
     }
 
     public static MessageEvent pollVote(Long messageId, Long channelId, PollDto poll) {
-        return new MessageEvent("poll-vote", messageId, channelId, null, null, poll, null);
+        return new MessageEvent("poll-vote", messageId, channelId, null, null, poll, null, null);
+    }
+
+    public static MessageEvent linkPreview(Long messageId, Long channelId, LinkPreviewDto preview) {
+        return new MessageEvent("link-preview", messageId, channelId, null, null, null, null, preview);
     }
 }

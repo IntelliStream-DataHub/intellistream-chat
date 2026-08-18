@@ -45,7 +45,19 @@ demo users `alice` and `bob` too.
 
    Not a role named `admin` — Keycloak has its own by that name and the app ignores it deliberately.
    Only `ichat-admin` grants the admin console.
-4. **Users**: create accounts, give everyone `ichat-user`, and `ichat-admin` to at least one, or
+4. **Put realm roles in the ID token.** Clients → `ichat-client` → Client scopes →
+   `ichat-client-dedicated` → Add mapper → *By configuration* → **User Realm Role**: name anything,
+   Token Claim Name `realm_access.roles`, Multivalued ON, *Add to ID token* ON, *Add to access token*
+   ON, *Add to userinfo* ON. Save.
+
+   This is the step that is easy to skip and impossible to notice: Keycloak's default `roles`
+   scope puts `realm_access` in the *access* token only, and the browser login reads the *ID*
+   token, so without this mapper `ichat-admin` is granted in Keycloak and never seen by the app.
+   Nobody is admin, no error anywhere. The bundled `realm.json` ships the mapper (it is the
+   `realm roles in id token` entry); a hand-built realm has to add it. To check a realm, Clients →
+   `ichat-client` → Client scopes → **Evaluate** → pick a user → *Generated ID token* and look for
+   `realm_access.roles`.
+5. **Users**: create accounts, give everyone `ichat-user`, and `ichat-admin` to at least one, or
    nobody can reach `/admin`.
 
 ### Brand the login page
@@ -95,45 +107,84 @@ The bundled `realm.json` already has the feature on. On a hand-built realm, turn
 **Realm settings → General → Organizations** → ON → Save. An **Organizations** entry appears in
 the left menu.
 
+Before the first organisation, two things on the realm itself, both of which an imported
+`realm.json` already has and a hand-built realm may not:
+
+- **Realm roles must be in the ID token** — step 4 of *Or build it by hand* above. Brokered
+  accounts are ordinary realm users, and their `ichat-admin` reaches the app the same way
+  everyone else's does: through `realm_access.roles` on the ID token. Without that mapper the
+  role is granted in Keycloak and never seen. Check with Clients → `ichat-client` → Client scopes
+  → **Evaluate** → *Generated ID token*.
+- **`ichat-user` in `default-roles-ichat-realm`** (README, *Enabling user registration*), so a
+  brokered account gets it at first login like a self-registered one.
+
 Then, once per organisation:
 
 1. **Identity providers → Add provider** — pick the type (*OpenID Connect v1.0*, *SAML v2.0*, or
    one of the named ones), give it an alias you will recognise in a list (`acme-entra`), and fill
    in what the organisation's IdP admin gives you: discovery URL or metadata, client id and secret.
    Copy the *Redirect URI* Keycloak shows on that page back to them — it is what they must
-   register on their side. Keep **Hide on login page** in mind for step 3; it is fine to leave off
-   here.
-2. **Organizations → Create organization** — Name `Acme`, Alias `acme`, and under **Domains** every
+   register on their side; its shape is
+   `https://<keycloak-host>/realms/ichat-realm/broker/<alias>/endpoint`, so the alias is baked in
+   and the host is the one browsers reach Keycloak at. Keep **Hide on login page** in mind for
+   step 4; it is fine to leave off here.
+2. On that provider, **Trust Email** → ON. It marks brokered accounts' emails verified, which is
+   what lets the app match a person to the account they already had under a previous subject
+   (README, `ICHAT_IDENTITY_LINK_BY_VERIFIED_EMAIL`) — without it, moving an existing user base
+   into this realm gives everyone a second account, and the first symptom is a handle with a
+   numeric suffix. While there, **Advanced settings → Pass login_hint** → ON, so the email typed
+   on the first screen is prefilled at the IdP instead of asked for again.
+3. **Organizations → Create organization** — Name `Acme`, Alias `acme`, and under **Domains** every
    email domain the organisation signs in with (`acme.com`, `acme.co.uk`). Save.
-3. Open the organisation → **Identity providers** tab → **Link identity provider**. Choose the
-   provider from step 1, set **Domain** to one of the domains from step 2, and turn on **Redirect
+4. Open the organisation → **Identity providers** tab → **Link identity provider**. Choose the
+   provider from step 1, set **Domain** to one of the domains from step 3, and turn on **Redirect
    when email domain matches**. Turn on **Hide on login page** as well unless you want an "Acme"
    button on the shared login page for everyone to see.
-4. Test with an address in that domain. The login page asks for the email first, then either
-   redirects to the IdP or shows the password field. If the redirect does not happen, check step 3
+5. Test with an address in that domain. The login page asks for the email first, then either
+   redirects to the IdP or shows the password field. If the redirect does not happen, check step 4
    before anything else — the org, the domain and the link are three separate things and the
    redirect needs all three.
 
 What happens on the far side of that redirect is Keycloak's normal *first broker login*: the
 account is created in `ichat-realm`, added as a member of the organisation, and given whatever is
-in **default-roles-ichat-realm** — so keep `ichat-user` in that set (README, *Enabling user
-registration*), and never `ichat-admin`. From the app's point of view a brokered account is just
-another user; `ichat-admin` is still granted by hand, one person at a time, under **Users → Role
-mappings**.
+in **default-roles-ichat-realm** — so keep `ichat-user` in that set, and never `ichat-admin`. From
+the app's point of view a brokered account is just another user.
+
+**Roles for brokered accounts.** Membership of an organisation grants nothing — Keycloak
+Organizations has no per-organisation roles — and the IdP's own roles and groups do not cross the
+broker on their own. So `ichat-admin` is either granted by hand as before (**Users → Role
+mappings**), or delegated to the organisation's directory with a mapper on the provider:
+Identity providers → the provider → **Mappers → Add mapper**, type **Advanced Claim to Role**
+(SAML: *Advanced Attribute to Role*), the claim and value the IdP sends for its admins (an Entra
+group id in `groups`, an Okta group name — or, when the upstream is another Keycloak realm that
+already carries `ichat-admin`, claim `realm_access.roles` value `ichat-admin`), role `ichat-admin`,
+and **Sync mode override → Force**. Force is the part that matters: the default *import* runs a
+mapper once, at first login, and never again, so a person removed from the group upstream would
+stay an administrator here forever; Force re-evaluates on every login and takes the role away when
+the claim no longer matches. Never put `ichat-admin` in a *Hardcoded Role* mapper — that makes
+the whole company administrators. A *Hardcoded Role* mapper is fine for `ichat-user`, or a marker
+role of your own, if you would rather not rely on the realm's default set.
 
 Two things worth knowing:
 
-- Enabling Organizations changes the login page to *identity-first*: email on one screen, password
-  on the next. That is by design — the domain has to be known before the password field can be
-  the right one — and the bundled theme handles it without changes because it inherits every
-  template from the base theme (see the theme note above). If you have replaced the realm's
+- Once the first organisation exists, the login page becomes *identity-first*: email on one
+  screen, password on the next (with the feature on but no organisation yet, the classic form
+  stays). That is by design — the domain has to be known before the password field can be the
+  right one — and the bundled theme handles it without changes because it inherits every template
+  from the base theme (see the theme note above). If you have replaced the realm's
   **browser** authentication flow with a custom one, add the *Organization* step to it, or the
   domain lookup never runs; the built-in flow gets it automatically.
 - To rehearse this without a real corporate IdP, make a second realm in the same Keycloak
-  (`acme-idp`, one client `ichat-broker`, one user with an `@acme.com` email) and add it to
-  `ichat-realm` as an *OpenID Connect v1.0* provider with discovery URL
-  `https://your-keycloak/realms/acme-idp/.well-known/openid-configuration`. It behaves exactly like
-  an external IdP for the purpose of steps 2–4, and you can delete the realm afterwards.
+  (`acme-idp`, one client `ichat-broker` with *Client authentication* ON and Valid redirect URI
+  `https://your-keycloak/realms/ichat-realm/broker/acme-idp/endpoint`, one user with an
+  `@acme.com` email) and add it to `ichat-realm` as an *OpenID Connect v1.0* provider with
+  discovery URL `https://your-keycloak/realms/acme-idp/.well-known/openid-configuration`, that
+  client id and its secret. It behaves exactly like an external IdP for the purpose of steps 2–4,
+  and you can delete the realm afterwards. If sign-out then errors with *invalid redirect uri* on
+  the `acme-idp` side, that client also needs
+  `…/realms/ichat-realm/broker/acme-idp/endpoint/logout_response` in its Valid post logout
+  redirect URIs — Keycloak logs the person out of the IdP they came in through and needs a way
+  back — or clear the provider's *Logout URL* in `ichat-realm` to keep sign-out local.
 
 ## 3. Install the app
 
@@ -151,13 +202,14 @@ sudo useradd --system --gid intellistream-chat --home-dir /opt/intellistream-cha
 sudo install -d -o root -g intellistream-chat -m 0750 /etc/intellistream-chat
 sudo install -d -o intellistream-chat -g intellistream-chat -m 0750 \
      /opt/intellistream-chat /opt/intellistream-chat/data \
-     /opt/intellistream-chat/data/{attachments,avatars,branding,lucene,heapdumps}
+     /opt/intellistream-chat/data/{attachments,avatars,branding,link-previews,lucene,heapdumps}
 ```
 
 A system account with no shell and no password: nothing can log in as it. `useradd --system`
 does not create the home directory, which is why `install -d` follows.
-`/opt/intellistream-chat/data` is the **only** writable path — attachments, avatars, branding, the
-Lucene index and heap dumps all live under it, and it must match the unit's `ReadWritePaths=`.
+`/opt/intellistream-chat/data` is the **only** writable path — attachments, avatars, branding,
+link-preview pictures, the Lucene index and heap dumps all live under it, and it must match the
+unit's `ReadWritePaths=`.
 The app creates its own subdirectories on first use; `heapdumps` is the one it never touches, and
 the JVM will not create it either, so make it now.
 
@@ -209,6 +261,7 @@ SERVER_PORT=8080
 ICHAT_ATTACHMENTS_DIR=/opt/intellistream-chat/data/attachments
 ICHAT_AVATARS_DIR=/opt/intellistream-chat/data/avatars
 ICHAT_BRANDING_DIR=/opt/intellistream-chat/data/branding
+ICHAT_LINK_PREVIEWS_DIR=/opt/intellistream-chat/data/link-previews
 ICHAT_SEARCH_LUCENE_DIR=/opt/intellistream-chat/data/lucene
 
 JAVA_OPTS=-Xms512m -Xmx1g -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/opt/intellistream-chat/data/heapdumps -XX:+UseStringDeduplication -Duser.timezone=UTC --enable-native-access=ALL-UNNAMED

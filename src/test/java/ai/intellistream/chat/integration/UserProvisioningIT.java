@@ -132,4 +132,32 @@ class UserProvisioningIT {
         provision(lower);
         assertThat(users.findUnchanged(lower)).isPresent();
     }
+
+    /**
+     * The realm-migration case: the same person arrives from a new realm with a new subject and
+     * their old, verified email. The account is re-keyed rather than duplicated — same id, new
+     * subject — and the old subject is no longer anyone.
+     */
+    @Test
+    void aVerifiedEmailArrivingUnderANewSubjectReKeysTheAccountRatherThanCreatingASecond() {
+        var original = users.upsert("kc-old-realm", "mover", "mover@example.com", "Mover", false, true);
+
+        var linked = users.upsert("kc-new-realm", "mover", "mover@example.com", "Mover", false, true);
+
+        assertThat(linked.getId()).isEqualTo(original.getId());
+        assertThat(users.findUnchanged(claims("kc-new-realm", "mover", "mover@example.com", "Mover", false)))
+                .as("settled under the new subject").isPresent();
+        assertThat(users.findUnchanged(claims("kc-old-realm", "mover", "mover@example.com", "Mover", false)))
+                .as("the old subject no longer resolves").isEmpty();
+    }
+
+    @Test
+    void anUnverifiedEmailUnderANewSubjectIsANewAccount() {
+        var original = users.upsert("kc-old-unverified", "stayer", "stayer@example.com", "Stayer", false, true);
+
+        var second = users.upsert("kc-new-unverified", "stayer", "stayer@example.com", "Stayer", false, false);
+
+        assertThat(second.getId()).isNotEqualTo(original.getId());
+        assertThat(second.getUsername()).as("the handle collided and was suffixed").isNotEqualTo("stayer");
+    }
 }

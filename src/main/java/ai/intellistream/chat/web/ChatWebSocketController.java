@@ -52,6 +52,7 @@ public class ChatWebSocketController {
     private final SlashCommandService slashCommands;
     private final PollService pollService;
     private final WritePathMetrics metrics;
+    private final LinkPreviews linkPreviews;
 
     public ChatWebSocketController(ChannelService channelService,
                                    MessageService messageService,
@@ -62,8 +63,10 @@ public class ChatWebSocketController {
                                    MessageMentionRepository mentionRepository,
                                    SlashCommandService slashCommands,
                                    PollService pollService,
-                                   WritePathMetrics metrics) {
+                                   WritePathMetrics metrics,
+                                   LinkPreviews linkPreviews) {
         this.metrics = metrics;
+        this.linkPreviews = linkPreviews;
         this.channelService = channelService;
         this.messageService = messageService;
         this.markdown = markdown;
@@ -143,8 +146,13 @@ public class ChatWebSocketController {
         // Only tell the channel about it once it is durably stored — a message shown to everyone
         // and then lost to a failed INSERT is worse than a message that appears a few milliseconds
         // later. Whichever thread completes the durability handle does the send.
-        durability.whenDurable(() -> broker.convertAndSend("/topic/channels/" + channelId,
-                MessageEvent.created(dto, payload.clientId())));
+        // The link card, if the body has a link, follows as its own event; it is asked for here,
+        // inside the same durability action, because a card for a message the room has not seen
+        // is a card nobody can attach — and Durability holds one action, not a list.
+        durability.whenDurable(() -> {
+            broker.convertAndSend("/topic/channels/" + channelId, MessageEvent.created(dto, payload.clientId()));
+            linkPreviews.unfurl(dto);
+        });
         lap.mark(metrics.broadcast);
         lap.finish(metrics.total);
     }

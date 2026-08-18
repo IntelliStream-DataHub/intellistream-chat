@@ -1432,7 +1432,15 @@ presenceMenu.init();
       } else if (event.type === 'deleted') {
         removeMessageDom(event.id);
         if (event.parentId) bumpThreadIndicator(event.parentId, -1);
-      } else if (event.type === 'poll-vote') {
+      } else if (event.type === 'link-preview') {
+      // The card for a message that contained a link, a moment after the message itself. Same
+      // narrow shape as poll-vote: id + one field, no MessageDto. Falls silently through if the
+      // message is not on screen (older than the loaded window, or in a thread panel that is
+      // closed) — the next load carries it on the DTO.
+      // Both copies, when the thread panel shows the same message as the feed.
+      const sel = 'li.message[data-id="' + CSS.escape(event.id) + '"]';
+      document.querySelectorAll(sel).forEach((li) => ChatKit.applyLinkPreview(li, event.linkPreview));
+    } else if (event.type === 'poll-vote') {
         applyPollUpdate(event.id, event.poll);
       }
     };
@@ -1756,6 +1764,11 @@ presenceMenu.init();
       highlightCode(body);
       right.append(body);
     }
+
+    // The link card sits right under the body it belongs to; a create broadcast carries none
+    // and the `link-preview` event slots it in a moment later (see handleMessageEvent).
+    const preview = ChatKit.buildLinkPreviewEl(msg.linkPreview);
+    if (preview) right.append(preview);
 
     if (msg.poll) {
       right.append(renderPollWidget(msg.poll));
@@ -2792,7 +2805,7 @@ presenceMenu.init();
       return;
     }
     li.dataset.bodyMarkdown = newBody;
-    right.querySelectorAll('.message-body, .message-attachments, .message-reactions, .message-edit, .edited-tag, .poll-widget').forEach(n => n.remove());
+    right.querySelectorAll('.message-body, .link-preview, .message-attachments, .message-reactions, .message-edit, .edited-tag, .poll-widget').forEach(n => n.remove());
     const meta = right.querySelector('.message-meta');
     if (msg.bodyMarkdown) {
       const body = document.createElement('div');
@@ -2801,6 +2814,10 @@ presenceMenu.init();
       highlightCode(body);
       meta.after(body);
       if (isEdit) flashEdited(body);
+      // The update frame carries the card the message already has (the server decorates it);
+      // a link the edit just introduced arrives as its own event afterwards.
+      const preview = ChatKit.buildLinkPreviewEl(msg.linkPreview);
+      if (preview) body.after(preview);
     }
     if (msg.editedAt && meta && !meta.querySelector('.edited-tag')) {
       const tag = document.createElement('span');
@@ -3127,6 +3144,8 @@ presenceMenu.init();
       highlightCode(body);
       right.appendChild(body);
     }
+    const preview = ChatKit.buildLinkPreviewEl(msg.linkPreview);
+    if (preview) right.appendChild(preview);
     if (msg.reactions && msg.reactions.length) {
       right.appendChild(renderReactionTray(msg.reactions));
     }

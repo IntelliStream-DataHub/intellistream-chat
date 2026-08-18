@@ -716,14 +716,6 @@
     only admins. There is no bulk invite and no invite link.
   </p>
 
-  <div class="note">
-    <span class="tag">Not available</span>
-    <p>
-      There is <b>no leave, rename, archive or delete</b> for a channel in the interface. A delete
-      exists in the service layer and is admin-gated, but no endpoint or button reaches it, so
-      removing a channel today is a database operation. Plan channel names accordingly.
-    </p>
-  </div>
   <h4>Renaming, archiving, deleting</h4>
   <p>
     A channel admin can rename a channel and edit its description from the cog in the channel
@@ -742,6 +734,13 @@
     the saves and the memberships, and credits every uploader's storage back. It cannot be undone. A
     channel admin — who is often just whoever happened to create the room — gets archive instead,
     which is the reversible answer to the same problem.
+  </p>
+  <p>
+    The Delete control lives in the channel's settings panel, which only members see. A workspace
+    admin who is not in a <b>private</b> channel therefore cannot delete it from the channel page —
+    it cannot be joined, and its page shows only "ask an admin for an invitation". The
+    <a href="#admin">admin console</a>'s channel table has the same Delete, with the same typed-name
+    confirmation, for exactly that case.
   </p>
 
   <h4>Leaving</h4>
@@ -847,6 +846,26 @@
     Vimeo gets a responsive player appended after it, using the privacy-preserving
     <code>youtube-nocookie</code> host, and those three origins are the only ones the CSP allows in
     a frame.
+  </p>
+  <h4>Link previews</h4>
+  <p>
+    A message that contains a link gets a card under it a moment after it is sent: the site's
+    name, the page's title and description, and its picture when the page offers one. The
+    <b>first</b> link in the message, one card per message &mdash; a message that is a list of ten
+    links is a list, and ten cards would bury it. Links inside code are being quoted, not shared,
+    and get no card; a YouTube or Vimeo link gets the player above and not a card as well. If the
+    page cannot be reached, is not a web page, or has nothing to say about itself, there is no card
+    and the link is just a link. Editing a message re-evaluates it: swap the link and the card
+    follows.
+  </p>
+  <p>
+    The server does the fetching, once per URL, and copies the picture &mdash; the card's image is
+    served from the chat itself, so reading a channel never sends your address to the sites people
+    linked in it. The server refuses to fetch anything on a private network, on the machine it runs
+    on, or at a cloud metadata address, and it re-checks on every redirect; that guard is what
+    makes "paste a link" safe to have. Operators can turn the whole thing off with
+    <code>ichat.link-previews.enabled=false</code>, and tune it under
+    <a href="#config-storage">Storage and quotas</a>.
   </p>
   <div class="warn">
     <span class="tag">Does not work</span>
@@ -1613,7 +1632,14 @@
       top bar, on the landing page and as the favicon. SVG is rejected on purpose, an uploaded SVG
       is a script-execution surface. A reset button appears once a custom logo is set.
     </li>
-    <li><b>Channels.</b> A read-only table of every channel with type, member count, message count and creation date.</li>
+    <li>
+      <b>Channels.</b> Every channel there is — including archived ones, which are out of the sidebar
+      and out of channel search, so this is the one place they are listed — with type, member count,
+      message count, creation date and status. Two actions per row: <b>Unarchive</b>, and
+      <b>Delete</b> behind a type-the-name field. Both exist for the private channel a workspace admin
+      is not a member of, whose page offers nothing; delete is the same irreversible action as the
+      channel page's, and the name is checked server-side too.
+    </li>
     <li>
       <b>Privacy.</b> One checkbox controlling whether the user table below shows full email
       addresses or masks them to <code>al…@example.com</code>. Default is to show them. The database
@@ -1847,6 +1873,20 @@ journalctl -u intellistream-chat -f     # Flyway migrations, then Tomcat on :808
         </td>
       </tr>
       <tr>
+        <td><code>ichat.identity.link-by-verified-email</code></td><td><code>ICHAT_IDENTITY_LINK_BY_VERIFIED_EMAIL</code></td><td><code>true</code></td>
+        <td>
+          Accounts are keyed on the OIDC subject, which an identity provider promises not to change
+          for a person &mdash; per realm. Move the app to a dedicated realm with the old one brokered
+          in, and everyone arrives with a new subject and their old email. With this on, a never-seen
+          subject whose email is <b>verified</b> and matches exactly one existing account re-keys that
+          account instead of creating a second; the history stays put. Unverified emails never link
+          (an open self-registration typing someone else's address must not inherit their account),
+          and neither does an email two accounts already share. Turn it off where an address can be
+          reassigned to a different person. Brokered accounts count as verified only if the identity
+          provider in Keycloak has <b>Trust Email</b> on, or the realm verifies email itself.
+        </td>
+      </tr>
+      <tr>
         <td><code>ichat.moderation.keycloak-writethrough.enabled</code></td><td>&mdash;</td><td><code>false</code></td>
         <td>
           When on, suspending an account in the chat also disables it in Keycloak. Requires the
@@ -1880,6 +1920,26 @@ journalctl -u intellistream-chat -f     # Flyway migrations, then Tomcat on :808
       <tr><td><code>ichat.attachments.dir</code></td><td><code>ICHAT_ATTACHMENTS_DIR</code></td><td><code>./data/attachments</code></td><td>Where uploaded files land.</td></tr>
       <tr><td><code>ichat.avatars.dir</code></td><td><code>ICHAT_AVATARS_DIR</code></td><td><code>./data/avatars</code></td><td></td></tr>
       <tr><td><code>ichat.branding.dir</code></td><td><code>ICHAT_BRANDING_DIR</code></td><td><code>./data/branding</code></td><td>The admin-uploaded logo.</td></tr>
+      <tr>
+        <td><code>ichat.link-previews.enabled</code></td><td><code>ICHAT_LINK_PREVIEWS_ENABLED</code></td><td><code>true</code></td>
+        <td>
+          The card under a message that contains a link (see <a href="#messages">Messages and
+          Markdown</a>). Off means no fetching, no cards, and links stay links. The rest of the
+          group: <code>dir</code> (<code>./data/link-previews</code>, the copied pictures);
+          <code>max-html-bytes</code> (512 KiB, a page is cut there, not refused);
+          <code>max-image-bytes</code> (3 MiB, a bigger picture means a card without one);
+          <code>timeout</code> (6s, over the whole exchange); <code>refresh-after</code> (7d, a
+          good card is re-fetched when a new message posts the URL after this);
+          <code>retry-failed-after</code> (1h, a page that failed or had nothing is not tried again
+          before this); <code>retention</code> (180d, rows nobody has posted in this long are
+          purged with their pictures &mdash; an old message then shows the bare link);
+          <code>threads</code> / <code>queue-capacity</code> (2 / 500, the entire outbound budget;
+          past the queue a card is dropped, the message never is). Every fetch, page or picture or
+          redirect hop, is refused for loopback, private, link-local, carrier-NAT and the IPv6
+          forms that smuggle those &mdash; <code>OutboundUrlGuard</code>, the reason the feature
+          exists at all.
+        </td>
+      </tr>
       <tr>
         <td><code>ichat.attachments.user-quota-bytes</code></td><td><code>ICHAT_USER_QUOTA_BYTES</code></td><td><code>2147483648</code> (2 GiB)</td>
         <td>
@@ -2450,9 +2510,23 @@ keycloak.issuer-uri      -&gt; both the OIDC client and the resource server issu
     Past the redirect it is Keycloak's ordinary first-broker-login: the account is created in
     <code>ichat-realm</code>, added to the organisation, and given the realm's default roles &mdash;
     so <code>ichat-user</code> belongs in that set and <code>ichat-admin</code> still never does.
-    Turning the feature on also makes the login page <i>identity-first</i>, email on one screen and
-    password on the next, which is what lets the domain lookup happen before the password field is
-    the right one. The bundled login theme handles that without changes because it inherits every
+    Two settings decide whether that account is a first-class one. <b>Trust Email</b> on the
+    provider marks the email verified, which is what lets the app recognise a person who already
+    had an account under a previous subject instead of minting a second (see
+    <code>ichat.identity.link-by-verified-email</code> in <a href="#config-identity">Identity and
+    Keycloak</a>). And the realm's <b>realm-roles-in-ID-token</b> mapper on <code>ichat-client</code>
+    is what carries <code>ichat-admin</code> to the app for brokered accounts exactly as for local
+    ones &mdash; the bundled realm has it, a hand-built one has to add it. Membership of an
+    organisation grants no role by itself and the IdP's groups do not cross the broker on their own:
+    to let the organisation's directory decide who is admin, add an <i>Advanced Claim to Role</i>
+    mapper on the provider (their admin group's claim &rarr; <code>ichat-admin</code>) with sync
+    mode <b>Force</b>, so a person removed from the group upstream loses the role at their next
+    login rather than keeping it forever. Never a <i>Hardcoded Role</i> mapper for
+    <code>ichat-admin</code>.
+    Once the first organisation exists the login page becomes <i>identity-first</i>, email on one
+    screen and password on the next — the feature alone, with no organisation defined, leaves the
+    classic form in place — which is what lets the domain lookup happen before the password field
+    is the right one. The bundled login theme handles that without changes because it inherits every
     template from the base theme (<a href="#config-login-theme">next section</a>); a
     <b>custom browser flow</b>, if you have one, needs the <i>Organization</i> step added by hand or
     the lookup never runs. The step-by-step, and a recipe to rehearse it against a second realm

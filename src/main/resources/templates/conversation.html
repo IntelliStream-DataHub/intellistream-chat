@@ -229,6 +229,7 @@
                                 </div>
                                 <div th:if="${!#strings.isEmpty(msg.bodyMarkdown)}"
                                      class="message-body" th:utext="${msg.bodyHtml}">html</div>
+                                <a th:replace="~{fragments/link-preview :: card(${msg.linkPreview})}"></a>
                                 <!--/* Attachments were missing from this loop entirely, so a file
                                        posted in a DM rendered as nothing at all on page load and
                                        only appeared if it arrived live over the WebSocket. Same
