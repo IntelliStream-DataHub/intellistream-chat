@@ -824,6 +824,17 @@ Then make sure new self-registered accounts get the `user` realm role automatica
 
 `ichat-admin` is deliberately **not** in the default role set and should never be — promote people one at a time, after you've vetted them.
 
+### Organizations: per-org SSO via email-domain routing (optional)
+
+`"organizationsEnabled": true` in the bundled realm turns on Keycloak's **Organizations** feature, which lets each customer/tenant organization federate through its own upstream identity provider (their corporate Okta/Azure AD/Google Workspace/SAML IdP) while the app keeps seeing exactly one OIDC provider — its own `ichat-realm`. Keycloak does all the brokering, so **the chat app needs no code changes for this**: the same `KEYCLOAK_ISSUER_URI` / `KEYCLOAK_CLIENT_ID` / `KEYCLOAK_CLIENT_SECRET` env vars and the same "Sign in with Keycloak" link keep working unchanged. A user who doesn't belong to any organization is unaffected — they just see Keycloak's normal login/registration form, exactly as today.
+
+Adding an organization is an admin-console task, not something that lives in `realm.json` — the bundled file only flips the feature on. In short: create the org's identity provider under **Identity providers**, create the organization with its email domain(s) under **Organizations**, then link the two on the organization's **Identity providers** tab with **Redirect when email domain matches** on. The step-by-step, including how to rehearse it with a second realm standing in for a corporate IdP, is in [`QUICKSTART-MANUAL.md`](QUICKSTART-MANUAL.md#optional-sign-in-through-each-organisations-own-idp).
+
+Two things worth knowing before you rely on this:
+
+- The bundled `intellistream` login theme deliberately keeps its override surface to one empty `footer.ftl` (see `keycloak/themes/intellistream/login/theme.properties`) so that features like this keep working without a theme change — it inherits every other template, including the organization-aware identity-first login page, from the base `keycloak` theme.
+- New members who arrive through an org's IdP go through Keycloak's ordinary first-broker-login flow, which grants the realm's default roles (`default-roles-ichat-realm`) the same way self-registration does (see [Enabling user registration](#enabling-user-registration) above) — `ichat-user` needs to be in that default set either way, and `ichat-admin` should still only ever be granted by hand.
+
 ### Hardening registration before you expose an instance
 
 Open registration is convenient for evaluation and is the single biggest abuse surface in

@@ -81,6 +81,60 @@ Forking the theme? It overrides one FreeMarker template (`footer.ftl`) and does 
 `template.ftl` keeps rendering its stale copy after an upgrade, and new required actions silently
 stop appearing.
 
+### Optional: sign-in through each organisation's own IdP
+
+If more than one company uses your instance, each of them can sign in with the identity provider
+they already have (Entra ID, Okta, Google Workspace, a SAML IdP…) while the app keeps talking to
+one realm. Keycloak's **Organizations** feature does the routing: a person types their work email
+on the login page, Keycloak matches the domain to an organisation, and if that organisation has a
+linked IdP with redirect enabled, sends them straight to it. Everyone else — anyone whose domain
+matches nothing — gets the ordinary username/password form, exactly as before. Nothing changes in
+the app or its env file; the app only ever sees `ichat-realm`.
+
+The bundled `realm.json` already has the feature on. On a hand-built realm, turn it on first:
+**Realm settings → General → Organizations** → ON → Save. An **Organizations** entry appears in
+the left menu.
+
+Then, once per organisation:
+
+1. **Identity providers → Add provider** — pick the type (*OpenID Connect v1.0*, *SAML v2.0*, or
+   one of the named ones), give it an alias you will recognise in a list (`acme-entra`), and fill
+   in what the organisation's IdP admin gives you: discovery URL or metadata, client id and secret.
+   Copy the *Redirect URI* Keycloak shows on that page back to them — it is what they must
+   register on their side. Keep **Hide on login page** in mind for step 3; it is fine to leave off
+   here.
+2. **Organizations → Create organization** — Name `Acme`, Alias `acme`, and under **Domains** every
+   email domain the organisation signs in with (`acme.com`, `acme.co.uk`). Save.
+3. Open the organisation → **Identity providers** tab → **Link identity provider**. Choose the
+   provider from step 1, set **Domain** to one of the domains from step 2, and turn on **Redirect
+   when email domain matches**. Turn on **Hide on login page** as well unless you want an "Acme"
+   button on the shared login page for everyone to see.
+4. Test with an address in that domain. The login page asks for the email first, then either
+   redirects to the IdP or shows the password field. If the redirect does not happen, check step 3
+   before anything else — the org, the domain and the link are three separate things and the
+   redirect needs all three.
+
+What happens on the far side of that redirect is Keycloak's normal *first broker login*: the
+account is created in `ichat-realm`, added as a member of the organisation, and given whatever is
+in **default-roles-ichat-realm** — so keep `ichat-user` in that set (README, *Enabling user
+registration*), and never `ichat-admin`. From the app's point of view a brokered account is just
+another user; `ichat-admin` is still granted by hand, one person at a time, under **Users → Role
+mappings**.
+
+Two things worth knowing:
+
+- Enabling Organizations changes the login page to *identity-first*: email on one screen, password
+  on the next. That is by design — the domain has to be known before the password field can be
+  the right one — and the bundled theme handles it without changes because it inherits every
+  template from the base theme (see the theme note above). If you have replaced the realm's
+  **browser** authentication flow with a custom one, add the *Organization* step to it, or the
+  domain lookup never runs; the built-in flow gets it automatically.
+- To rehearse this without a real corporate IdP, make a second realm in the same Keycloak
+  (`acme-idp`, one client `ichat-broker`, one user with an `@acme.com` email) and add it to
+  `ichat-realm` as an *OpenID Connect v1.0* provider with discovery URL
+  `https://your-keycloak/realms/acme-idp/.well-known/openid-configuration`. It behaves exactly like
+  an external IdP for the purpose of steps 2–4, and you can delete the realm afterwards.
+
 ## 3. Install the app
 
 ### Service account and directories
