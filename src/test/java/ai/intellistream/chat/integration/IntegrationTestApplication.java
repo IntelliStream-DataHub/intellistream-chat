@@ -52,7 +52,11 @@ import static org.mockito.Mockito.mock;
                 // class deliberately excludes so tests need no live Keycloak. Adding another
                 // service package is the rule being followed, not bent.
                 "ai.intellistream.chat.moderation",
-                "ai.intellistream.chat.slash"
+                "ai.intellistream.chat.slash",
+                // Link previews: LinkPreviewService, its properties and the URL/SSRF helpers.
+                // Service-layer; the fetch pool never runs in an IT unless a test posts a URL and
+                // the guard refuses anything a Testcontainers box could reach anyway.
+                "ai.intellistream.chat.linkpreview"
         },
         exclude = {
                 SecurityAutoConfiguration.class,

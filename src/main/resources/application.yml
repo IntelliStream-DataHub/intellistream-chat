@@ -180,6 +180,30 @@ ichat:
   identity:
     link-by-verified-email: ${ICHAT_IDENTITY_LINK_BY_VERIFIED_EMAIL:true}
 
+  # Link previews: the card (title, description, site, picture) under a message that contains a
+  # URL. The server fetches the page once the message is durable, on a small pool of its own, and
+  # keeps one row per URL so the tenth person to paste an article costs no fetch. Every fetch —
+  # page, redirect hop, image — is refused for private, loopback, link-local and similar addresses
+  # (OutboundUrlGuard); this is what makes "paste a link" safe to have. The picture is copied to
+  # `dir` and served from this origin, never hotlinked (the CSP forbids it, and it would leak every
+  # reader's address to every linked site).
+  #   refresh-after       a good card is re-fetched when a new message posts the URL after this long
+  #   retry-failed-after  a page that failed or had nothing is not tried again before this
+  #   retention           rows nobody has posted in this long are purged, images included
+  #   threads / queue-capacity   the whole outbound budget; past the queue a card is dropped, the
+  #                              message is not
+  link-previews:
+    enabled: ${ICHAT_LINK_PREVIEWS_ENABLED:true}
+    dir: ${ICHAT_LINK_PREVIEWS_DIR:./data/link-previews}
+    max-html-bytes: ${ICHAT_LINK_PREVIEWS_MAX_HTML_BYTES:524288}
+    max-image-bytes: ${ICHAT_LINK_PREVIEWS_MAX_IMAGE_BYTES:3145728}
+    timeout: ${ICHAT_LINK_PREVIEWS_TIMEOUT:6s}
+    refresh-after: ${ICHAT_LINK_PREVIEWS_REFRESH_AFTER:7d}
+    retry-failed-after: ${ICHAT_LINK_PREVIEWS_RETRY_FAILED_AFTER:1h}
+    retention: ${ICHAT_LINK_PREVIEWS_RETENTION:180d}
+    threads: ${ICHAT_LINK_PREVIEWS_THREADS:2}
+    queue-capacity: ${ICHAT_LINK_PREVIEWS_QUEUE_CAPACITY:500}
+
   # Moderation. An admin removing messages is a SOFT delete: the rows stay, drop out of every
   # read path, and stay recoverable until the retention window passes — the first ban is
   # sometimes the wrong ban. RetentionPurgeScheduler then hard-deletes them for good.

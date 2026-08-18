@@ -62,9 +62,11 @@ src/main/java/ai/intellistream/chat/
 │                  RegistrationAuthorizationRequestResolver
 ├── domain/        JPA entities — User, Channel, Message, Conversation,
 │                  Attachment / ConversationAttachment, MessageReaction / ConversationReaction,
-│                  Poll / PollOption / PollVote, Reminder, MessageMention,
+│                  Poll / PollOption / PollVote, Reminder, MessageMention, LinkPreview,
 │                  AppSettings, UserPresence, ChannelRead, ChannelType / ChannelRole
 ├── repository/    Spring Data JPA repos (one per entity)
+├── linkpreview/   LinkPreviewService (cache + bounded fetch pool), LinkPreviewFetcher,
+│                  OutboundUrlGuard (the SSRF guard), LinkUrls, LinkPreviewProperties
 ├── search/        MessageIndexService (embedded Lucene), LuceneBootstrap, LuceneConfig
 ├── service/       ChannelService, MessageService, ConversationService, SearchService,
 │                  SidebarService, MarkdownRenderer, UserService, AvatarService,
@@ -81,7 +83,7 @@ src/main/java/ai/intellistream/chat/
 
 src/main/resources/
 ├── application.yml
-├── db/migration/V1__init.sql             Flyway — consolidated initial schema; through V12 today, add the next number
+├── db/migration/V1__init.sql             Flyway — consolidated initial schema; through V14 today, add the next number
 ├── META-INF/spring.factories             registers VaultEnvironmentPostProcessor
 ├── templates/                            landing, channels, conversation, profile, admin
 └── static/{css/app.css, js/, img/}       chat/{index,shared,chrome,presence-menu}.js (ES modules),
@@ -123,6 +125,11 @@ Several autoconfigurations that lived inside `spring-boot-autoconfigure` in 3.x 
   re-captures every slide from a running instance and rewrites the carousel, and adding a feature
   means adding a `SHOTS` entry rather than editing HTML. Check the pictures, not just the exit
   code: a caption that promises more than its screenshot shows is worse than an old screenshot.
+- **Link previews are derived at read time and fetched behind an SSRF guard.** Nothing is stored on a message: `LinkUrls.firstPreviewable(body)` picks the URL (first http(s) link, not in code, not a video link that already gets a player), `LinkPreviewService.previewsFor` looks it up in `link_previews` — one row per URL, keyed by SHA-256 — and `web/LinkPreviews.decorate` puts the card on the DTO. So `messages` and the write-behind INSERT are untouched, and an edit that swaps the link is looked up under the new one. Writes go the other way: after a message is durable *and* broadcast, `LinkPreviews.unfurl` hands the body to `LinkPreviewService.request`, which fetches on a small bounded pool and publishes a narrow `link-preview` event (`MessageEvent.linkPreview` / `ConversationEvent.linkPreview`, the `poll-vote` shape) when a card exists. Three rules that are easy to break:
+  - **Every outbound request goes through `OutboundUrlGuard`** — page, image, and every redirect hop, which is why `LinkPreviewFetcher` follows redirects by hand. It refuses loopback, RFC 1918, link-local (the cloud metadata endpoint), carrier-NAT, multicast, and the IPv6 forms that smuggle those. That class is the reason the feature can exist; `OutboundUrlGuardTest` names each range. Never let a `HttpClient` follow a redirect on its own here.
+  - **The picture is a copy, never a hotlink.** Fetched once, Tika-sniffed to png/jpeg/gif/webp, stored under `ichat.link-previews.dir` by a random key that is all the client gets, served by `LinkPreviewImageController`. The CSP's `img-src 'self'` forbids hotlinking and it would leak every reader's address to every linked site. `CleanupTasks` sweeps the directory against `LinkPreviewRepository.findAllImageKeys()`.
+  - **A create broadcast is not decorated** — the hot path stays query-free — and `Durability` holds one action, so in `ChatWebSocketController.send` the unfurl is chained inside the same `whenDurable` runnable as the broadcast, not registered as a second one. `updated` frames *are* decorated (`MessageRestController.broadcastUpdate`), because clients re-render the whole message from them and a reaction must not take the card away.
+  Renderers: `ChatKit.buildLinkPreviewEl` / `applyLinkPreview` in `chat-kit.js` are the one builder for both pages' feeds, update paths and thread panels; `fragments/link-preview.html` is the same markup for server-rendered messages. Add a message renderer, add the card there.
 - **Search runs against an embedded Lucene index** at `./data/lucene` (`MessageIndexService`). Writes are pushed by `MessageService` (channels) and `ConversationService` (DMs/groups) after the surrounding JPA transaction commits, so the index never holds rolled-back data — and `AttachmentService`, `ConversationAttachmentService` and `UserFileService` push *through* those two when an attachment appears or is tombstoned, because a document carries its message's filenames. On startup, `LuceneBootstrap` rebuilds from `messages` if the directory is empty and then reconciles `conversation_messages` in both directions; `CleanupTasks` runs the same two reconciles periodically (CLEAN-3). Queries shorter than 2 chars are treated as empty. The configurable property is `ichat.search.lucene-dir`.
 - **One index, two document kinds.** Channel documents keep the bare numeric message id as their key; conversation documents are keyed `conv:<id>` and carry `conversationId` plus a constant `kind:conversation` marker. The two tables have independent id sequences, so the namespaced key is what stops message 42 of a channel and message 42 of a DM overwriting each other — and the one-sided `kind` field means an index written by an older build needs no migration. If you add a third document kind, follow the same shape and update `allIndexedIds`/`allIndexedConversationIds`, or a reconcile sweep will delete the new documents as "stale". Fields today: `body`, `author`, `mentions`, `filename`.
 - **Adding or changing a field means bumping `MessageIndexService.SCHEMA_VERSION`.** A derived field only exists on documents written after the deploy, and the reconcile sweeps will not notice — nothing is missing and nothing is stale, so an old index serves quietly incomplete results forever. The version is stamped into Lucene's commit user data; `LuceneBootstrap` treats an older stamp like an empty directory and rebuilds from Postgres, stamping only after the rebuild finishes so a crash repeats it rather than recording a lie.

@@ -202,13 +202,14 @@ sudo useradd --system --gid intellistream-chat --home-dir /opt/intellistream-cha
 sudo install -d -o root -g intellistream-chat -m 0750 /etc/intellistream-chat
 sudo install -d -o intellistream-chat -g intellistream-chat -m 0750 \
      /opt/intellistream-chat /opt/intellistream-chat/data \
-     /opt/intellistream-chat/data/{attachments,avatars,branding,lucene,heapdumps}
+     /opt/intellistream-chat/data/{attachments,avatars,branding,link-previews,lucene,heapdumps}
 ```
 
 A system account with no shell and no password: nothing can log in as it. `useradd --system`
 does not create the home directory, which is why `install -d` follows.
-`/opt/intellistream-chat/data` is the **only** writable path — attachments, avatars, branding, the
-Lucene index and heap dumps all live under it, and it must match the unit's `ReadWritePaths=`.
+`/opt/intellistream-chat/data` is the **only** writable path — attachments, avatars, branding,
+link-preview pictures, the Lucene index and heap dumps all live under it, and it must match the
+unit's `ReadWritePaths=`.
 The app creates its own subdirectories on first use; `heapdumps` is the one it never touches, and
 the JVM will not create it either, so make it now.
 
@@ -260,6 +261,7 @@ SERVER_PORT=8080
 ICHAT_ATTACHMENTS_DIR=/opt/intellistream-chat/data/attachments
 ICHAT_AVATARS_DIR=/opt/intellistream-chat/data/avatars
 ICHAT_BRANDING_DIR=/opt/intellistream-chat/data/branding
+ICHAT_LINK_PREVIEWS_DIR=/opt/intellistream-chat/data/link-previews
 ICHAT_SEARCH_LUCENE_DIR=/opt/intellistream-chat/data/lucene
 
 JAVA_OPTS=-Xms512m -Xmx1g -XX:+ExitOnOutOfMemoryError -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/opt/intellistream-chat/data/heapdumps -XX:+UseStringDeduplication -Duser.timezone=UTC --enable-native-access=ALL-UNNAMED

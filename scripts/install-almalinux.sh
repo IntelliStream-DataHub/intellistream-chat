@@ -316,7 +316,7 @@ fi
 # data/ is the single writable tree; the unit's ReadWritePaths matches it exactly.
 run install -d -o root        -g "$APP_GROUP" -m 0750 "$ETC_DIR"
 run install -d -o "$APP_USER" -g "$APP_GROUP" -m 0750 "$APP_HOME"
-for sub in data data/attachments data/avatars data/branding data/lucene data/heapdumps; do
+for sub in data data/attachments data/avatars data/branding data/link-previews data/lucene data/heapdumps; do
   run install -d -o "$APP_USER" -g "$APP_GROUP" -m 0750 "${APP_HOME}/${sub}"
 done
 info "layout: ${APP_HOME} (data/ writable), ${ETC_DIR} (config)"
@@ -372,6 +372,7 @@ SERVER_PORT=${BIND_PORT}
 ICHAT_ATTACHMENTS_DIR=${APP_HOME}/data/attachments
 ICHAT_AVATARS_DIR=${APP_HOME}/data/avatars
 ICHAT_BRANDING_DIR=${APP_HOME}/data/branding
+ICHAT_LINK_PREVIEWS_DIR=${APP_HOME}/data/link-previews
 ICHAT_SEARCH_LUCENE_DIR=${APP_HOME}/data/lucene
 
 # --- JVM ---

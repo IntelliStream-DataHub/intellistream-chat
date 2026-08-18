@@ -65,6 +65,7 @@ public class ChannelRestController {
     private final ai.intellistream.chat.service.SidebarService sidebarService;
     private final ai.intellistream.chat.slash.SlashCommandService slashCommands;
     private final ChannelDestruction channelDestruction;
+    private final LinkPreviews linkPreviews;
 
     public ChannelRestController(ChannelService channelService,
                                  MessageService messageService,
@@ -80,9 +81,11 @@ public class ChannelRestController {
                                  SimpMessagingTemplate broker,
                                  MessageMentionRepository mentionRepository,
                                  ai.intellistream.chat.service.SidebarService sidebarService,
-                                 ChannelDestruction channelDestruction) {
+                                 ChannelDestruction channelDestruction,
+                                 LinkPreviews linkPreviews) {
         this.sidebarService = sidebarService;
         this.channelDestruction = channelDestruction;
+        this.linkPreviews = linkPreviews;
         this.slashCommands = slashCommands;
         this.channelService = channelService;
         this.messageService = messageService;
@@ -364,14 +367,14 @@ public class ChannelRestController {
         var replyCounts = messageService.threadReplyCounts(rows);
         // Batch-load polls so /poll-host messages render their vote widget on first paint.
         var polls = pollService.pollsForMessages(rows, me);
-        return rows.stream()
+        return linkPreviews.decorate(rows.stream()
                 .map(m -> MessageDto.from(m, markdown.render(m.getBodyMarkdown()),
                         attachments.getOrDefault(m.getId(), List.of()),
                         reactions.getOrDefault(m.getId(), List.of()),
                         replyCounts.getOrDefault(m.getId(), 0L),
                         java.util.List.of(),
                         polls.get(m.getId())))
-                .toList();
+                .toList());
     }
 
     /**
@@ -397,14 +400,14 @@ public class ChannelRestController {
         var reactions = reactionService.groupingsFor(rows, me);
         var replyCounts = messageService.threadReplyCounts(rows);
         var polls = pollService.pollsForMessages(rows, me);
-        return rows.stream()
+        return linkPreviews.decorate(rows.stream()
                 .map(m -> MessageDto.from(m, markdown.render(m.getBodyMarkdown()),
                         attachments.getOrDefault(m.getId(), List.of()),
                         reactions.getOrDefault(m.getId(), List.of()),
                         replyCounts.getOrDefault(m.getId(), 0L),
                         java.util.List.of(),
                         polls.get(m.getId())))
-                .toList();
+                .toList());
     }
 
     /**
@@ -473,6 +476,7 @@ public class ChannelRestController {
         // @mention notifications — mirroring the WS send path (N6). Without this, a message posted
         // via HTTP was invisible until reload.
         broker.convertAndSend("/topic/channels/" + id, MessageEvent.created(dto));
+        linkPreviews.unfurl(dto);
         return dto;
     }
 

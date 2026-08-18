@@ -82,6 +82,7 @@ public class ConversationRestController {
     private final RateLimiter rateLimiter;
     private final StorageQuotaService quotas;
     private final ConversationAlertPublisher alerts;
+    private final LinkPreviews linkPreviews;
 
     public ConversationRestController(ConversationService conversations,
                                       UserService userService,
@@ -92,7 +93,9 @@ public class ConversationRestController {
                                       SimpMessagingTemplate broker,
                                       RateLimiter rateLimiter,
                                       StorageQuotaService quotas,
-                                      ConversationAlertPublisher alerts) {
+                                      ConversationAlertPublisher alerts,
+                                      LinkPreviews linkPreviews) {
+        this.linkPreviews = linkPreviews;
         this.quotas = quotas;
         this.alerts = alerts;
         this.conversations = conversations;
@@ -273,6 +276,7 @@ public class ConversationRestController {
         // replies would mean two subscriptions per conversation and a whole class of "the reply
         // arrived but the panel was on the other socket" bugs.
         broker.convertAndSend("/topic/conversations/" + dto.conversationId(), dto);
+        linkPreviews.unfurl(dto);
         alerts.alert(saved.getConversation(), saved, participants);
         return dto;
     }
@@ -284,14 +288,14 @@ public class ConversationRestController {
         var attachmentMap = attachments.findForMessages(rows);
         var reactionMap = reactions.groupingsFor(rows, viewer);
         var replyCounts = conversations.threadReplyCounts(rows);
-        return rows.stream()
+        return linkPreviews.decorateConversation(rows.stream()
                 .map(m -> ConversationMessageDto.from(m,
                         markdown.renderInConversation(m.getBodyMarkdown()),
                         attachmentMap.getOrDefault(m.getId(), List.of()),
                         reactionMap.getOrDefault(m.getId(), List.of()),
                         replyCounts.getOrDefault(m.getId(), 0L),
                         List.of()))
-                .toList();
+                .toList());
     }
 
     /** A thread as the panel wants it: the parent, then the replies. */
@@ -323,7 +327,9 @@ public class ConversationRestController {
         var me = currentUser.resolve(principal);
         requireRate(me, "dm-msg-edit", 30);
         var updated = conversations.editMessage(messageId, me, body.body());
-        return broadcastUpdate(updated, me);
+        var dto = broadcastUpdate(updated, me);
+        if (dto.linkPreview() == null) linkPreviews.unfurl(dto);
+        return dto;
     }
 
     @DeleteMapping("/messages/{messageId}")
@@ -392,9 +398,9 @@ public class ConversationRestController {
         // The reply count rides along, because the client repaints the whole message from this DTO
         // and a "3 replies" indicator that vanished when somebody reacted would look like the
         // replies had.
-        var dto = ConversationMessageDto.from(message,
+        var dto = linkPreviews.decorate(ConversationMessageDto.from(message,
                 markdown.renderInConversation(message.getBodyMarkdown()), atts, rs,
-                conversations.threadReplyCount(message), List.of());
+                conversations.threadReplyCount(message), List.of()));
         broker.convertAndSend("/topic/conversations/" + dto.conversationId(),
                 ConversationEvent.messageUpdated(dto));
         return dto;
@@ -423,6 +429,7 @@ public class ConversationRestController {
         var saved = conversations.post(conv, me, body.body());
         var dto = ConversationMessageDto.from(saved, markdown.renderInConversation(saved.getBodyMarkdown()));
         broker.convertAndSend("/topic/conversations/" + id, dto);
+        linkPreviews.unfurl(dto);
         alerts.alert(conv, saved);
         return dto;
     }
@@ -449,6 +456,7 @@ public class ConversationRestController {
                 markdown.renderInConversation(message.getBodyMarkdown()),
                 List.of(savedAttachment));
         broker.convertAndSend("/topic/conversations/" + conversationId, dto);
+        linkPreviews.unfurl(dto);
         return dto;
     }
 

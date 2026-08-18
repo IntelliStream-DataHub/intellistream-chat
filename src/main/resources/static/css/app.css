@@ -3271,6 +3271,80 @@ body.lightbox-open { overflow: hidden; }
 /* A deleted attachment keeps the shape of the thing it replaced, so the eye reads "a file was
    here" rather than "something is broken", but it is visibly inert: muted, dashed, no pointer,
    no download affordance. */
+/* ---------- Link preview card ----------
+   The card under a message that contains a link — the same recipe as the poll widget and the
+   attachment tray (panel-2, 1px border, radius-md, 480px cap) so the three read as one family.
+   The whole card is the <a>: it must not pick up the global link colour on its text, and it must
+   not underline on hover, so it restates both. The picture sits above the text on every width;
+   a side-by-side thumbnail looks better at 480px and worse everywhere narrower, and the messages
+   column is narrower more often than not. */
+.link-preview {
+  display: flex;
+  flex-direction: column;
+  max-width: 480px;
+  margin-top: 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--panel-2);
+  overflow: hidden;
+  color: var(--text);
+  text-decoration: none;
+  transition: border-color 0.1s, background-color 0.1s;
+}
+.link-preview:hover {
+  border-color: var(--border-strong);
+  background: var(--panel-3);
+  color: var(--text);
+}
+.link-preview-image {
+  display: block;
+  width: 100%;
+  max-height: 260px;
+  object-fit: cover;
+  background: var(--panel-3);
+}
+.link-preview-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0.55rem 0.7rem 0.6rem;
+  min-width: 0;
+}
+.link-preview-site {
+  font-size: var(--fs-xs);
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.link-preview-title {
+  font-weight: 600;
+  font-size: var(--fs-md);
+  line-height: 1.3;
+  color: var(--text);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.link-preview:hover .link-preview-title { color: var(--accent-fg); }
+.link-preview-desc {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+/* Inside the thread panel and on narrow screens the column is tight; the card yields to it. */
+.thread-message .link-preview { max-width: 100%; }
+@media (max-width: 480px) {
+  .link-preview-image { max-height: 180px; }
+}
+
 .attachment.attachment-removed {
   border-style: dashed;
   color: var(--muted);

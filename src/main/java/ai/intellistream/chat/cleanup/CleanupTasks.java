@@ -61,6 +61,7 @@ public class CleanupTasks {
     private final MessageRepository messageRepo;
     private final ConversationMessageRepository conversationMessageRepo;
     private final MessageIndexService messageIndex;
+    private final ai.intellistream.chat.linkpreview.LinkPreviewService linkPreviews;
 
     public CleanupTasks(CleanupProperties props,
                         AttachmentService attachmentService,
@@ -70,7 +71,9 @@ public class CleanupTasks {
                         UserRepository userRepo,
                         MessageRepository messageRepo,
                         ConversationMessageRepository conversationMessageRepo,
-                        MessageIndexService messageIndex) {
+                        MessageIndexService messageIndex,
+                        ai.intellistream.chat.linkpreview.LinkPreviewService linkPreviews) {
+        this.linkPreviews = linkPreviews;
         this.props = props;
         this.attachmentService = attachmentService;
         this.avatarService = avatarService;
@@ -94,6 +97,11 @@ public class CleanupTasks {
         });
         sweepDir("avatars", avatarService.storageRoot(),
                 () -> new HashSet<>(userRepo.findAllAvatarStorageKeys()));
+        // Link-preview images: written by a background fetch and referenced by image_key; a crash
+        // between the write and the row, or a lost race on the URL's unique constraint, leaves a
+        // file no row names.
+        sweepDir("link-previews", linkPreviews.storageRoot(),
+                () -> new HashSet<>(linkPreviews.liveImageKeys()));
     }
 
     private void sweepDir(String label, Path root, Supplier<Set<String>> liveKeys) {

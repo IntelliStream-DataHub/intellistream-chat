@@ -114,7 +114,7 @@ class ChannelHttpSendIT {
         controller = new ChannelRestController(channels, messages, slashCommands, attachments, reactions,
                 reads, userService, pollService, markdown, currentUser, new RateLimiter(),
                 broker, mentionRepo, sidebarService,
-                new ai.intellistream.chat.web.ChannelDestruction(channels, broker));
+                new ai.intellistream.chat.web.ChannelDestruction(channels, broker), linkPreviews());
     }
 
     private User newUser(String prefix) {
@@ -200,4 +200,12 @@ class ChannelHttpSendIT {
                 new InviteRequest("ghost-does-not-exist"), mock(Principal.class)))
                 .isInstanceOf(AccessDeniedException.class);
     }
+
+    /** Real decoration against this context's LinkPreviewService; the broker is the test's mock. */
+    private ai.intellistream.chat.web.LinkPreviews linkPreviews() {
+        return new ai.intellistream.chat.web.LinkPreviews(linkPreviewService,
+                org.mockito.Mockito.mock(org.springframework.messaging.simp.SimpMessagingTemplate.class));
+    }
+    @org.springframework.beans.factory.annotation.Autowired
+    ai.intellistream.chat.linkpreview.LinkPreviewService linkPreviewService;
 }

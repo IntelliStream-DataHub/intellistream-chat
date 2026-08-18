@@ -635,6 +635,72 @@
     return el;
   };
 
+  // ---------- Link preview card ----------
+  // The card under a message that contains a link: site, title, description, and the server's
+  // copy of the page's picture. One builder for every renderer on both pages — the channel feed,
+  // its update path and thread panel, the conversation feed and its thread panel — because a
+  // card built in five places is five cards that drift. Server-rendered messages get the same
+  // markup from templates/fragments/link-preview.html; keep the two in step.
+  //
+  // The whole card is one <a>: it opens the page in a new tab exactly like the link in the body
+  // does, with the same rel. The image is NOT class="attachment-image", on purpose — that class
+  // is what the lightbox delegate catches, and a preview picture is a link to a page, not a
+  // picture to zoom.
+  const buildLinkPreviewEl = (p) => {
+    if (!p || !p.url || !p.title) return null;
+    const a = document.createElement('a');
+    a.className = 'link-preview';
+    a.href = p.url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer nofollow';
+    if (p.imageUrl) {
+      const img = document.createElement('img');
+      img.className = 'link-preview-image';
+      img.src = p.imageUrl;
+      img.alt = '';
+      img.loading = 'lazy';
+      a.appendChild(img);
+    }
+    const text = document.createElement('span');
+    text.className = 'link-preview-text';
+    if (p.siteName) {
+      const site = document.createElement('span');
+      site.className = 'link-preview-site';
+      site.textContent = p.siteName;
+      text.appendChild(site);
+    }
+    const title = document.createElement('span');
+    title.className = 'link-preview-title';
+    title.textContent = p.title;
+    text.appendChild(title);
+    if (p.description) {
+      const desc = document.createElement('span');
+      desc.className = 'link-preview-desc';
+      desc.textContent = p.description;
+      text.appendChild(desc);
+    }
+    a.appendChild(text);
+    return a;
+  };
+
+  // Put the card on a message <li>, replacing one it already has; a null card removes it. Used
+  // by the `link-preview` event handlers on both pages and by the builders, so "where in the
+  // message does the card go" is decided once: right after the body, before attachments and
+  // reactions, which is where the link it belongs to is.
+  const applyLinkPreview = (li, preview) => {
+    if (!li) return;
+    const col = li.querySelector(':scope > div') || li;
+    const existing = col.querySelector(':scope > .link-preview');
+    const el = buildLinkPreviewEl(preview);
+    if (existing) {
+      if (el) existing.replaceWith(el); else existing.remove();
+      return;
+    }
+    if (!el) return;
+    const body = col.querySelector(':scope > .message-body');
+    if (body) body.after(el); else col.appendChild(el);
+  };
+
   // ---------- Image lightbox ----------
   // Clicking an image attachment opens it in place, with download / open-in-tab / close, rather
   // than navigating away. Shared because both pages have image attachments and only one of them
@@ -1211,6 +1277,8 @@
     applyUnreadDivider,
     wireImageLightbox,
     buildRemovedAttachmentEl,
+    buildLinkPreviewEl,
+    applyLinkPreview,
     hashCode,
     avatarColor,
     backfillAvatarColors,

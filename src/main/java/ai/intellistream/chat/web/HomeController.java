@@ -55,6 +55,7 @@ public class HomeController {
     private final ai.intellistream.chat.service.NotificationPreferenceService notificationPreferences;
     private final MarkdownRenderer markdown;
     private final CurrentUser currentUser;
+    private final LinkPreviews linkPreviews;
 
     public HomeController(SidebarService sidebarService,
                           ChannelService channelService,
@@ -68,7 +69,9 @@ public class HomeController {
                           ai.intellistream.chat.service.PollService pollService,
                           ai.intellistream.chat.service.NotificationPreferenceService notificationPreferences,
                           MarkdownRenderer markdown,
-                          CurrentUser currentUser) {
+                          CurrentUser currentUser,
+                          LinkPreviews linkPreviews) {
+        this.linkPreviews = linkPreviews;
         this.sidebarService = sidebarService;
         this.channelService = channelService;
         this.messageService = messageService;
@@ -133,14 +136,14 @@ public class HomeController {
                 var reactions = reactionService.groupingsFor(rows, me);
                 var replyCounts = messageService.threadReplyCounts(rows);
                 var polls = pollService.pollsForMessages(rows, me);
-                messages = rows.stream()
+                messages = linkPreviews.decorate(rows.stream()
                         .map(m -> MessageDto.from(m, markdown.render(m.getBodyMarkdown()),
                                 attachments.getOrDefault(m.getId(), List.of()),
                                 reactions.getOrDefault(m.getId(), List.of()),
                                 replyCounts.getOrDefault(m.getId(), 0L),
                                 List.of(),
                                 polls.get(m.getId())))
-                        .toList();
+                        .toList());
             } catch (AccessDeniedException ignored) {
                 // private channel, not a member -> render join screen
             }
@@ -209,14 +212,14 @@ public class HomeController {
         var attachmentMap = conversationAttachmentService.findForMessages(rows);
         var reactionMap = conversationReactionService.groupingsFor(rows, me);
         var replyCounts = conversationService.threadReplyCounts(rows);
-        var messages = rows.stream()
+        var messages = linkPreviews.decorateConversation(rows.stream()
                 .map(m -> ConversationMessageDto.from(m,
                         markdown.renderInConversation(m.getBodyMarkdown()),
                         attachmentMap.getOrDefault(m.getId(), List.of()),
                         reactionMap.getOrDefault(m.getId(), List.of()),
                         replyCounts.getOrDefault(m.getId(), 0L),
                         List.of()))
-                .toList();
+                .toList());
 
         var other = conversation.getType() == ConversationType.DIRECT
                 ? conversationService.members(conversation).stream()

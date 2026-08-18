@@ -33,9 +33,11 @@ public record ConversationEvent(String type,
                                 String username,
                                 Long messageId,
                                 Long parentId,
-                                ConversationMessageDto message) {
+                                ConversationMessageDto message,
+                                /** The card for {@code messageId}, on a {@code link-preview} event only. */
+                                LinkPreviewDto linkPreview) {
     public static ConversationEvent memberAdded(Long conversationId, String username) {
-        return new ConversationEvent("member-added", conversationId, username, null, null, null);
+        return new ConversationEvent("member-added", conversationId, username, null, null, null, null);
     }
 
     /**
@@ -44,15 +46,20 @@ public record ConversationEvent(String type,
      * reload is wrong for exactly as long as nobody reloads.
      */
     public static ConversationEvent memberLeft(Long conversationId, String username) {
-        return new ConversationEvent("member-left", conversationId, username, null, null, null);
+        return new ConversationEvent("member-left", conversationId, username, null, null, null, null);
     }
 
     public static ConversationEvent messageUpdated(ConversationMessageDto dto) {
         return new ConversationEvent("message-updated", dto.conversationId(), null, dto.id(),
-                dto.parentId(), dto);
+                dto.parentId(), dto, null);
     }
 
     public static ConversationEvent messageDeleted(Long conversationId, Long messageId, Long parentId) {
-        return new ConversationEvent("message-deleted", conversationId, null, messageId, parentId, null);
+        return new ConversationEvent("message-deleted", conversationId, null, messageId, parentId, null, null);
+    }
+
+    /** The card for a message that contained a link, a moment after the message itself. */
+    public static ConversationEvent linkPreview(Long conversationId, Long messageId, LinkPreviewDto preview) {
+        return new ConversationEvent("link-preview", conversationId, null, messageId, null, null, preview);
     }
 }

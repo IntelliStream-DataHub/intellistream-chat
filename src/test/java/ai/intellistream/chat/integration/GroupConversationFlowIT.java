@@ -110,10 +110,10 @@ class GroupConversationFlowIT {
         broker = mock(SimpMessagingTemplate.class);
         controller = new ConversationRestController(conversations, userService, currentUser,
                 markdown, convAttachments, convReactions, broker, new RateLimiter(), quotas,
-                mock(ai.intellistream.chat.web.ConversationAlertPublisher.class));
+                mock(ai.intellistream.chat.web.ConversationAlertPublisher.class), linkPreviews());
         ws = new ConversationWebSocketController(conversations, markdown, currentUser,
                 broker, new RateLimiter(),
-                mock(ai.intellistream.chat.web.ConversationAlertPublisher.class));
+                mock(ai.intellistream.chat.web.ConversationAlertPublisher.class), linkPreviews());
     }
 
     private User newUser(String label) {
@@ -351,4 +351,12 @@ class GroupConversationFlowIT {
                 new SendMessageRequest("intruding"), mock(Principal.class)))
                 .isInstanceOf(AccessDeniedException.class);
     }
+
+    /** Real decoration against this context's LinkPreviewService; the broker is the test's mock. */
+    private ai.intellistream.chat.web.LinkPreviews linkPreviews() {
+        return new ai.intellistream.chat.web.LinkPreviews(linkPreviewService,
+                org.mockito.Mockito.mock(org.springframework.messaging.simp.SimpMessagingTemplate.class));
+    }
+    @org.springframework.beans.factory.annotation.Autowired
+    ai.intellistream.chat.linkpreview.LinkPreviewService linkPreviewService;
 }
