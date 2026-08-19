@@ -168,6 +168,10 @@ Several autoconfigurations that lived inside `spring-boot-autoconfigure` in 3.x 
 - **No H2.** Tests must use the real Postgres via Testcontainers; H2 won't accept the production schema. The Lucene index in tests is wired via a `@Bean MessageIndexService` in `IntegrationTestApplication` that points at a fresh `Files.createTempDirectory(...)` per Spring context.
 - **Testcontainers + Podman.** Before running `./gradlew test`, expose the Podman socket: `systemctl --user enable --now podman.socket`, then `export DOCKER_HOST=unix:///run/user/$UID/podman/podman.sock`. If Ryuk misbehaves, fall back to `TESTCONTAINERS_RYUK_DISABLED=true`.
 - When adding a feature, default to: a unit test for any pure-logic branch + a new IT under `integration/` (or an addition to a sibling IT) for anything DB-shaped.
+- **981 tests across 101 classes** (47 integration, 54 unit), roughly six minutes end to end. The first run pulls `postgres:18-alpine` (~80 MB); later runs reuse the cached image, so the time is dominated by starting one Postgres container per IT class (34 transient containers for the full suite), not by the tests themselves. Reports: `build/reports/tests/test/index.html` (HTML), `build/test-results/test/TEST-*.xml` (JUnit XML for CI).
+- **Controller-shaped ITs** (`AvatarBroadcastIT`, `HovercardAndDmFlowIT`, `MentionBroadcastIT`) wire a controller manually with mocked `CurrentUser` / `SimpMessagingTemplate` to assert broadcast wiring without a full web layer.
+- **Gradle's daemon caches `DOCKER_HOST`** from when it started — `./gradlew --stop` if you change the export after the daemon is already up.
+- **"Failed to open Lucene index at …"** during tests usually means a stale lock from a killed run — clear `build/test-lucene/` and rerun. Each IT class registers its own `ichat.search.lucene-dir` via `TestLuceneDirs.register(...)` so cached Spring contexts don't fight over the lock.
 
 ## When you're tempted to…
 

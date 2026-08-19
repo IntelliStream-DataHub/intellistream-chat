@@ -21,11 +21,12 @@ import ai.intellistream.chat.domain.User;
 import java.time.Instant;
 
 /**
- * Wire format for a row in the channel settings "Find user" browser
- * ({@code GET /api/channels/{id}/invite-candidates}). Deliberately narrower than
+ * Wire format for a row in the "Find user" browsers — the channel settings one
+ * ({@code GET /api/channels/{id}/invite-candidates}) and the new-conversation one
+ * ({@code GET /api/users/directory}). Deliberately narrower than
  * {@link ChannelMemberDto}: no {@code role}/{@code admin} (the person isn't a member yet, so
- * neither applies) and no email — a viewer can filter by email domain, but the endpoint never
- * hands back an address they didn't already know.
+ * neither applies) and no email — a viewer can filter by email domain, but the endpoints never
+ * hand back an address they didn't already know.
  */
 public record UserSearchResultDto(
         String username,

@@ -147,6 +147,123 @@ server {
 On AlmaLinux / Rocky / RHEL with SELinux enforcing, nginx cannot reach the JVM until you allow it:
 `sudo setsebool -P httpd_can_network_connect on`.
 
+## Calls through the same port 443 (SNI routing for TURN)
+
+Skip this unless your users are on a network that allows nothing outbound but port 443 — the
+plain coturn setup in `QUICKSTART-MANUAL.md` § *Calls* (3478 UDP + 5349 TURNS) is simpler and
+works everywhere else.
+
+TURN over TLS (`turns:`) also wants port 443, because on the wire it is indistinguishable from
+ordinary HTTPS — that indistinguishability is the entire reason a restrictive firewall lets it
+through. But nginx already owns `chat.example.com:443` (and `auth.example.com:443`), and two
+TLS-terminating services can't bind the same IP:port. The fix is to stop terminating TLS at the
+edge for the *outer* connection at all: split it by **SNI**, the hostname a browser sends in the
+clear inside the TLS ClientHello, before anything is decrypted. Path-based routing (an nginx
+`location`) cannot do this — a path only exists once HTTP has been parsed, which requires TLS to
+already be terminated by whoever holds the key for that connection, and TURN isn't HTTP in the
+first place. SNI is the one thing available before any of that.
+
+This needs one more DNS name under the same domain — a wildcard cert already covers it — pointing
+at the same IP `chat.example.com` already uses:
+
+```
+turn.example.com   IN   A   <same IP as chat.example.com>
+```
+
+And nginx's `stream` module, which most distro packages ship separately from core nginx:
+
+```bash
+# Debian/Ubuntu
+sudo apt install libnginx-mod-stream
+# AlmaLinux/RHEL — confirm it's already in before assuming you need the package:
+nginx -V 2>&1 | grep -o with-stream_ssl_preread_module || sudo dnf install nginx-mod-stream
+```
+
+### The shape of the change
+
+The existing `chat.example.com` and `auth.example.com` server blocks above move off the literal
+port `443` onto an internal one, and a new `stream {}` block becomes the *only* thing bound to the
+real `443`. It reads the SNI and forwards each connection's raw, still-encrypted bytes to whichever
+backend owns that hostname — coturn does its own TLS termination with its own certificate from
+there; nginx never decrypts TURN traffic at all.
+
+```nginx
+# Near the top of nginx.conf itself (not conf.d) — most packages ship this as a dynamic module.
+load_module modules/ngx_stream_module.so;
+
+stream {
+    map $ssl_preread_server_name $calls_upstream {
+        turn.example.com  127.0.0.1:5349;   # coturn's own TLS listener — untouched, no proxy protocol
+        default           127.0.0.1:9443;   # everything else: chat + auth, see below
+    }
+
+    server {                        # the only thing bound to the real 443
+        listen      443;
+        listen      [::]:443;
+        proxy_pass  $calls_upstream;
+        ssl_preread on;
+    }
+
+    # A second, loopback-only hop purely so chat/auth traffic arrives at nginx's http {} block
+    # with the real client IP attached via the PROXY protocol. Deliberately NOT applied to the
+    # coturn branch above: coturn only speaks the HAProxy protocol on a separate, dedicated
+    # `tcp-proxy-port` listener, not on its ordinary TLS port — mixing the two is a well-documented
+    # source of "proxy protocol violated" failures. Skip this second server if you don't need real
+    # client IPs preserved while this routing is active; chat/auth then just see 127.0.0.1, which
+    # is fine for a low-traffic self-hosted instance but wrong for Keycloak's per-IP brute-force
+    # protection at any real scale.
+    server {
+        listen         127.0.0.1:9443;
+        proxy_pass     127.0.0.1:8443;
+        proxy_protocol on;
+    }
+}
+```
+
+Then, in the `http {}` block, both existing `chat.example.com` and `auth.example.com` server
+blocks change their `listen` line and pick the real client IP back up from the PROXY protocol
+header the loopback hop just attached — nothing else in either block changes:
+
+```nginx
+server {
+    listen      8443 ssl proxy_protocol;      # was: listen 443 ssl;
+    listen      [::]:8443 ssl proxy_protocol; # was: listen [::]:443 ssl;
+    http2       on;
+    server_name chat.example.com;
+
+    set_real_ip_from 127.0.0.1;
+    real_ip_header   proxy_protocol;
+
+    # ...unchanged below: ssl_certificate, /ws, the asset locations, everything else.
+}
+```
+
+(Do the same two-line `listen` swap plus the `set_real_ip_from`/`real_ip_header` pair on the
+`auth.example.com` block.)
+
+### coturn and the app
+
+coturn's TLS listener now only needs to be reached from this host itself:
+
+```
+tls-listening-port=5349
+listening-ip=127.0.0.1        # reached only via the stream block above — never expose 5349 directly
+```
+
+And `ICHAT_TURN_URLS` drops the plain `turn:` entry entirely — a client that can't reach anything
+but 443 will just fail that candidate and add latency for no benefit:
+
+```bash
+ICHAT_TURN_URLS=turns:turn.example.com:443?transport=tcp
+```
+
+**The UDP relay port range (`min-port`–`max-port`) still needs no firewall hole**, and that isn't
+obvious given everything else here is about squeezing through one port. `ichat.calls.force-relay`
+defaults on, so every call — both participants — goes through this one coturn instance; the actual
+media hop between the two callers' relay allocations is coturn forwarding between two sockets on
+its own host. Neither caller's network is ever involved in that hop, no matter how restrictive
+either one is.
+
 ## haproxy
 
 Same behaviour. `/etc/haproxy/haproxy.cfg`, then

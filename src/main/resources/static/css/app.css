@@ -1317,6 +1317,14 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   cursor: pointer;
 }
 .find-user-trigger:hover { background: var(--bg); }
+/* Inside the sidebar's new-conversation popover the form's own grid gap does the spacing, and
+   the dark sidebar palette needs its own colors — the dashed default reads as invisible there. */
+.create-channel-form .find-user-trigger {
+  margin-bottom: 0;
+  border-color: rgba(255, 255, 255, 0.25);
+  color: var(--sb-text);
+}
+.create-channel-form .find-user-trigger:hover { background: rgba(255, 255, 255, 0.08); }
 .channel-admin-dropdown h4 {
   margin: 0 0 0.4rem;
   font-size: var(--fs-xs);
@@ -4953,6 +4961,10 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
 }
 .find-user-row:hover { background: var(--panel-2); }
 .find-user-row.is-added { opacity: 0.65; }
+/* Pick mode (new-conversation form): selected, and still clickable to unselect — a tint rather
+   than the is-added dimming, which reads as "done". */
+.find-user-row.is-picked { background: var(--panel-2); }
+.find-user-row.is-picked .find-user-add { color: var(--accent-fg); }
 .find-user-name { flex: none; }
 .find-user-handle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .find-user-created {

@@ -691,6 +691,8 @@
 <!-- @-mention typeahead for the composer and the thread reply box. Separate module rather than
      part of index.js because the DM page needs the same behaviour and never loads index.js. -->
 <script type="module" th:src="@{/js/chat/mention-autocomplete-boot.js}" defer></script>
+<!-- Find user browser for the sidebar's new-conversation form — same both-pages reasoning. -->
+<script type="module" th:src="@{/js/chat/new-conversation-picker-boot.js}" defer></script>
 <!-- In-browser smoke runner — only loaded when ichat.dev-tools.enabled=true (auto in
      the dev profile, off in prod). Type runTests() in the devtools console. -->
 <script th:if="${devToolsEnabled}" type="module" th:src="@{/js/test/index.js}" defer></script>

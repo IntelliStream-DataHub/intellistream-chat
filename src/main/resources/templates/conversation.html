@@ -404,6 +404,9 @@
 <!-- @-mention typeahead. Same module the channel page loads; scoped to this conversation's
      participants, which it reads from .composer-wrap[data-conversation-id]. -->
 <script type="module" th:src="@{/js/chat/mention-autocomplete-boot.js}" defer></script>
+<!-- Find user browser for the sidebar's new-conversation form. Same module the channel page
+     loads; this page wires it itself because it doesn't load chat/index.js. -->
+<script type="module" th:src="@{/js/chat/new-conversation-picker-boot.js}" defer></script>
 
 </body>
 </html>
