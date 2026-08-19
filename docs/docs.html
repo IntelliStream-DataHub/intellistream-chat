@@ -1642,8 +1642,15 @@
     </li>
     <li>
       <b>Privacy.</b> One checkbox controlling whether the user table below shows full email
-      addresses or masks them to <code>al…@example.com</code>. Default is to show them. The database
-      keeps the real value either way, so turning it off and on again loses nothing.
+      addresses or masks them to <code>al…@example.com</code> (first two letters of the local part,
+      then the full domain). Default is to show them, which preserves the behaviour installs had
+      before the toggle existed. Worth turning off for a workspace under privacy-sensitive policies
+      &mdash; HIPAA, GDPR-strict, customer-facing forums &mdash; where a screenshot of this page or a
+      stolen browser session would otherwise expose every user's email at once. The database keeps
+      the real value either way (the setting lives in <code>app_settings.expose_user_emails</code>
+      and only changes rendering), so turning it off and on again loses nothing, and it never
+      affects mention rendering, hovercards or the profile API &mdash; none of those expose email at
+      all.
     </li>
     <li><b>Users.</b> A read-only table: username, display name, email, last active, joined.</li>
   </ul>
@@ -1666,7 +1673,10 @@
   <p>
     One consequence is visible to users: a suspended account (a <code>users.suspended_at</code>
     that is set) gets a plain <em>Account suspended</em> page, and API calls get a JSON error, from a
-    filter that runs before anything else.
+    filter that runs before anything else. Note that this is the application's own suspension, not
+    Keycloak's: disabling an account in Keycloak stops it minting new tokens, but does not close a
+    WebSocket connection that is already open — suspend the account here too if you need the
+    session cut immediately.
   </p>
 
   <figure class="doc-shot">
@@ -1771,6 +1781,108 @@ journalctl -u intellistream-chat -f     # Flyway migrations, then Tomcat on :808
     <code>WorkingDirectory</code>, <code>ReadWritePaths</code>, wherever the jar is installed, and
     the SELinux file context for the data directory (<code>selinux-harden.sh --data-dir</code>).
   </p>
+
+  <h4 id="config-service-selinux">SELinux on AlmaLinux / RHEL</h4>
+  <p>
+    AlmaLinux 10 (and Rocky / RHEL 10) ships SELinux in <b>enforcing</b> mode by default. The unit
+    above runs the JVM in the <code>unconfined_service_t</code> domain, so the JIT (writable +
+    executable pages) and the outbound OIDC / JDBC connections work without a custom policy. What
+    still needs setting up is the <b>file label on the data directory</b> and <b>one nginx
+    boolean</b> so the reverse proxy can reach the JVM on <code>127.0.0.1:8080</code>:
+  </p>
+<pre><code># 1. Policy tools (not always pulled in on minimal images).
+sudo dnf install -y policycoreutils-python-utils setools-console
+
+# 2. Label the data directory so writes survive a relabel.
+sudo semanage fcontext -a -t var_lib_t '/opt/intellistream-chat/data(/.*)?'
+sudo restorecon -Rv /opt/intellistream-chat
+
+# 3. Let nginx (httpd_t) reach the JVM.
+sudo setsebool -P httpd_can_network_connect on</code></pre>
+  <p>
+    Stock <code>http_port_t</code> on AlmaLinux 10 covers ports 80, 81, 443, 488, 8008, 8009, 8443
+    and 9000 &mdash; 8080 is <b>not</b> among them. Check yours (<code>semanage port -l | awk
+    '$1=="http_port_t"'</code>) rather than assume; this only bites if you later confine the JVM to
+    a domain that enforces port labels; <code>unconfined_service_t</code> does not.
+  </p>
+  <div class="warn">
+    <span class="tag">When something gets denied</span>
+    <p>
+      The JVM fails to start, attachments fail to upload, or nginx returns <code>502</code>, and
+      there is <b>nothing useful</b> in <code>journalctl -u intellistream-chat</code> &mdash;
+      SELinux denials land in the audit log, not the service log:
+    </p>
+<pre><code>sudo ausearch -m AVC,USER_AVC -ts recent
+sudo journalctl -u intellistream-chat -p err --since "10 min ago"</code></pre>
+    <div class="tw">
+    <table class="nowrap-1">
+      <thead><tr><th>Symptom</th><th>Fix</th></tr></thead>
+      <tbody>
+        <tr><td><code>denied { write } ... path="/opt/intellistream-chat/data/..."</code></td><td>The <code>restorecon</code> step was skipped, or the directory was created <b>after</b> <code>semanage fcontext</code>. Re-run <code>restorecon -Rv /opt/intellistream-chat</code>.</td></tr>
+        <tr><td><code>denied { name_connect } ... port=8080</code> from <code>httpd_t</code></td><td>nginx can't reach the upstream &mdash; <code>setsebool -P httpd_can_network_connect on</code>.</td></tr>
+        <tr><td><code>denied { name_bind } ... port=NNNN</code> from the JVM</td><td>Bound to a port the policy doesn't recognise as HTTP &mdash; <code>semanage port -a -t http_port_t -p tcp NNNN</code>.</td></tr>
+        <tr><td><code>denied { read } ... path="/etc/intellistream-chat/env"</code></td><td>Custom env file location with the wrong label. Keep it under <code>/etc/</code> (already <code>etc_t</code>) or label it explicitly.</td></tr>
+      </tbody>
+    </table>
+    </div>
+    <p>
+      If something breaks, capture the denial and write a targeted local module &mdash; don't
+      disable enforcement:
+    </p>
+<pre><code>sudo ausearch -m AVC -ts recent | audit2allow -a -M intellistream-chat-local
+less intellistream-chat-local.te                  # review before loading
+sudo semodule -i intellistream-chat-local.pp</code></pre>
+    <p>
+      <code>sudo setenforce 0</code> is fine as a single-session debug hatch (<code>setenforce
+      1</code> puts it back), but never persist permissive across reboots and never edit
+      <code>/etc/selinux/config</code> to <code>SELINUX=disabled</code> &mdash; re-enabling later
+      forces a full relabel. Co-locating Postgres on the host? Keep <code>PGDATA</code> under the
+      default <code>/var/lib/pgsql/</code>; moving it needs its own <code>semanage fcontext</code>
+      rule for <code>postgresql_db_t</code>.
+    </p>
+  </div>
+
+  <h4 id="config-service-jvm">JVM tuning</h4>
+  <div class="tw">
+  <table class="nowrap-1">
+    <thead><tr><th>Flag</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td><code>-Xms512m -Xmx1g</code></td><td>A modest floor and ceiling &mdash; what the installer writes. Self-hosted on hardware it cannot predict: a five-person workspace shouldn't reserve memory it never touches, and a thousand-person one shouldn't be capped. 1 GiB comfortably handles low-thousands of concurrent WebSocket sessions; raise the ceiling past ~5k users or a large Lucene index. On a machine with memory to spare, set <code>-Xms</code> equal to <code>-Xmx</code> instead &mdash; G1 sizes the young generation from the <i>current</i> heap, so a 512 MiB floor starts with a ~26 MiB eden and collects more often until the heap grows into its steady state, worst during startup when the index is loading and sockets are attaching.</td></tr>
+      <tr><td><code>-XX:+UseG1GC</code></td><td>Not needed &mdash; G1 is already the JVM default and the right collector at this heap size.</td></tr>
+      <tr><td><code>-XX:+ExitOnOutOfMemoryError</code></td><td>Don't limp along with a half-broken VM &mdash; let systemd restart instead.</td></tr>
+      <tr><td><code>-XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=&hellip;</code></td><td>A 1 GiB heap dump is small. You'll want it the next time OOM hits.</td></tr>
+      <tr><td><code>-XX:+UseStringDeduplication</code></td><td>G1-only. Collapses duplicate <code>String</code> byte arrays &mdash; a free win where the same usernames/channel names appear in every message DTO.</td></tr>
+      <tr><td><code>-Duser.timezone=UTC</code></td><td>Container hosts often default to local TZ; pin to UTC so log timestamps line up with your dashboards.</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>
+    Not needed: <code>-XX:MaxRAMPercentage</code> (only useful in a cgroup with no fixed
+    <code>-Xmx</code>), <code>-XX:+UseCompressedOops</code> (already on below 32 GiB), or
+    <code>--enable-preview</code> (Spring Boot 4 uses no preview language features here). Virtual
+    threads are already on via <code>spring.threads.virtual.enabled=true</code>, so servlet and
+    WebSocket handlers run on Project Loom green threads &mdash; the OS thread count stays flat
+    regardless of WebSocket fan-out, and the bottleneck shifts from thread-pool exhaustion to GC
+    throughput.
+  </p>
+  <div class="note">
+    <span class="tag">G1 vs. ZGC</span>
+    <p>
+      Stay on G1 unless pauses are actually hurting you. The deciding question isn't heap size, it's
+      whether anyone can tell when a collection happens. G1 is a large-heap collector &mdash; it runs
+      30&ndash;64 GiB heaps routinely, and its young pauses scale with <i>live young data</i>, not
+      heap size. At a 100 ms tolerance, which a WebSocket fan-out server has, G1 at 30 GiB is the
+      better choice, not a compromise. ZGC and Shenandoah trade ~15% RAM and ~10% throughput for
+      sub-millisecond pauses &mdash; a bill for nothing if nobody would have noticed the pause.
+      <b>Do not cross 32 GiB</b>: compressed object pointers switch off there, and every heap
+      reference doubles in width, so a 32 GiB heap holds <i>less</i> usable data than a 31 GiB one.
+      Switch to ZGC when a pause is visible to users and you've confirmed it's the pause, not the
+      database or the network &mdash; a real case above ~4 GiB with strict latency goals (the
+      <code>scalability.md</code> benchmarks use it at 100,000 connections / 11.2 GiB). Drop
+      <code>+UseStringDeduplication</code> under ZGC, it's G1-only, and fix <code>-Xms</code> to
+      <code>-Xmx</code> at that size so the heap isn't resized while 100,000 sockets are attached.
+    </p>
+  </div>
 </section>
 
 <section class="doc" id="config-http">
@@ -1803,8 +1915,12 @@ journalctl -u intellistream-chat -f     # Flyway migrations, then Tomcat on :808
         <td><code>server.servlet.session.timeout</code></td><td>&mdash;</td><td><code>8h</code></td>
         <td>
           Matches Keycloak's SSO session idle timeout. Keycloak is the authority; change it there
-          first, then bump this to agree, or the servlet session will expire underneath a valid SSO
-          session.
+          first (Realm settings &rarr; Sessions &rarr; <b>SSO Session Idle</b>), then bump this to
+          agree, or the servlet session will expire underneath a valid SSO session. The browser also
+          watches for activity (<code>mousemove</code>/<code>keydown</code>/<code>scroll</code>/
+          <code>touchstart</code>/<code>focus</code>) and proactively signs out at the
+          <code>IDLE_TIMEOUT_MS</code> constant in <code>static/js/idle-logout.js</code> &mdash;
+          update that too if you change the duration, so all three layers agree.
         </td>
       </tr>
     </tbody>
@@ -1966,7 +2082,16 @@ journalctl -u intellistream-chat -f     # Flyway migrations, then Tomcat on :808
   <p>
     There is no per-upload cap to configure. If you want one for a particular account, set the
     Keycloak user attribute <code>chat_max_upload_bytes</code> — mapped into the token by the
-    bundled realm — to a byte count. Workspace admins bypass it, and bypass the storage quota too.
+    bundled realm — to a byte count (<code>-1</code> for unlimited), under that user's
+    <b>Attributes</b> tab; it takes effect on their next login. Workspace admins bypass it, and
+    bypass the storage quota too. Uploads are raw request bodies, not <code>multipart/form-data</code>
+    &mdash; the file is the body and its filename/caption ride percent-encoded in
+    <code>X-Upload-*</code> headers, so the server copies socket &rarr; disk without scanning for a
+    multipart boundary (~380 MB/s on a loopback benchmark, versus multipart's boundary scan capping
+    well below line rate). A rejected upload comes back <code>413</code> with
+    <code>{ code: "upload_too_large", maxBytes }</code> for the per-account cap above, or
+    <code>{ code: "insufficient_storage" }</code> for the quota &mdash; two different reasons with two
+    different codes, since only one of them is something an admin can raise on request.
   </p>
   <p>
     Back up <code>./data/</code> and the Postgres database and you have the whole product:
@@ -2542,6 +2667,18 @@ keycloak.issuer-uri      -&gt; both the OIDC client and the resource server issu
       email verification (which needs SMTP configured), add a captcha to the registration flow, and
       set a password policy. None of that is enforced by the application, because none of it belongs
       there. Also rotate the client secret, the one in the repository is public.
+    </p>
+  </div>
+  <div class="note">
+    <span class="tag">Worth knowing</span>
+    <p>
+      If you turn email verification on, also raise <b>User-initiated action lifespan</b> (Realm
+      settings &rarr; Tokens) past its default of 5 minutes, or add a per-action override for
+      <b>Verify Email</b> specifically. Five minutes is short enough that an ordinary delay reading
+      the email &mdash; or a corporate mail gateway that prefetches links to scan them, silently
+      burning the single-use token before the recipient ever opens the message &mdash; turns the
+      link into &ldquo;We are sorry&hellip; Action expired&rdquo; by the time anyone clicks it, with
+      nginx, Keycloak and the application all otherwise configured correctly. An hour is plenty.
     </p>
   </div>
 </section>

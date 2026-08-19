@@ -5,7 +5,24 @@ development use [`QUICKSTART-COMPOSE.md`](QUICKSTART-COMPOSE.md) instead.
 
 ## 1. PostgreSQL
 
-Install PostgreSQL 16+ (18 recommended), then:
+Install PostgreSQL 16+ (18 recommended):
+
+```bash
+# RHEL / Fedora / Rocky
+sudo dnf install -y postgresql18-server postgresql18
+sudo /usr/pgsql-18/bin/postgresql-18-setup initdb
+sudo systemctl enable --now postgresql-18
+
+# Debian / Ubuntu
+sudo apt install -y postgresql-18
+sudo systemctl enable --now postgresql
+
+# macOS (Homebrew)
+brew install postgresql@18
+brew services start postgresql@18
+```
+
+Then create the role and database:
 
 ```bash
 sudo -u postgres psql <<'SQL'
@@ -20,8 +37,16 @@ Flyway creates the schema on first start. No manual DDL.
 
 ## 2. Keycloak
 
-Install Keycloak 26 under `/opt/keycloak`. Then either import the bundled realm, or build it by
-hand.
+Install Keycloak 26 under `/opt/keycloak` — Keycloak needs Java 21+, so the Java 25 install this
+guide already assumes is fine:
+
+```bash
+KC_VERSION=26.0.5
+curl -L https://github.com/keycloak/keycloak/releases/download/${KC_VERSION}/keycloak-${KC_VERSION}.tar.gz \
+  | tar -xz -C /opt --transform 's|^keycloak-'"${KC_VERSION}"'|keycloak|'
+```
+
+Then either import the bundled realm, or build it by hand.
 
 ### Import the bundled realm
 
@@ -525,7 +550,8 @@ WantedBy=multi-user.target
 ```
 
 `JAVA_OPTS` lives in the env file from step 4; see
-[JVM options](README.md#jvm-options) in the README for what each flag buys. Every tunable the
+[JVM tuning](https://intellistream-datahub.github.io/intellistream-chat/docs.html#config-service-jvm)
+in the full manual for what each flag buys, including the G1-vs-ZGC tradeoff. Every tunable the
 application reads is listed in [`.env.example`](.env.example).
 
 ```bash
@@ -538,7 +564,106 @@ journalctl -u intellistream-chat -f     # Flyway migrations, then Tomcat on :808
 Relocating from `/opt/intellistream-chat`? Four things move together: `WorkingDirectory`,
 `ReadWritePaths`, the jar, and the SELinux fcontext rule (`selinux-harden.sh --data-dir`).
 
-## 6. Reverse proxy + smoke test
+## 6. Calls (TURN relay)
+
+Optional — skip this and the call buttons in a direct message simply don't render.
+`CallProperties.isConfigured()` requires `ICHAT_TURN_URLS` and `ICHAT_TURN_SECRET` both set, so an
+unconfigured deployment fails closed rather than offering a control with no media path behind it.
+
+The app is never in the media path: it relays SDP and ICE candidates over its own WebSocket, and
+the audio/video goes through [coturn](https://github.com/coturn/coturn), which forwards encrypted
+UDP without being able to read it.
+
+### Install and configure coturn
+
+```bash
+# AlmaLinux/RHEL (needs EPEL)
+sudo dnf install -y epel-release && sudo dnf install -y coturn
+# Debian/Ubuntu
+sudo apt install -y coturn
+```
+
+Generate a secret — this is a real, durable credential, not something to regenerate per boot.
+Treat it like `ICHAT_DB_PASSWORD` above: generate once, store it, rotate deliberately.
+
+```bash
+openssl rand -base64 32
+```
+
+`/etc/coturn/turnserver.conf` (RHEL family) or `/etc/turnserver.conf` (Debian/Ubuntu):
+
+```ini
+listening-port=3478
+tls-listening-port=5349
+listening-ip=0.0.0.0
+external-ip=YOUR.PUBLIC.IP          # the address browsers will reach this host at
+relay-ip=YOUR.PUBLIC.IP
+min-port=49160
+max-port=49200                       # widen this if you expect many concurrent calls
+
+realm=chat.example.com               # your actual domain
+
+fingerprint
+use-auth-secret
+static-auth-secret=PASTE_THE_SECRET_FROM_ABOVE
+
+# Real TLS — reuse the same cert your reverse proxy uses, or issue a dedicated one.
+cert=/etc/letsencrypt/live/chat.example.com/fullchain.pem
+pkey=/etc/letsencrypt/live/chat.example.com/privkey.pem
+
+no-cli
+no-multicast-peers
+denied-peer-ip=169.254.0.0-169.254.255.255
+```
+
+Two things worth knowing before you enable it:
+
+- **The TLS key needs to be readable by whatever user runs coturn** — most distro packages run it
+  as root by default, but if yours doesn't, Let's Encrypt's `privkey.pem` is `0600 root` and needs
+  a deploy hook to copy+chown a readable copy.
+- **Open the firewall.** Nothing here does that for you (`install-almalinux.sh` doesn't touch
+  firewalld, and neither does this):
+  ```bash
+  sudo firewall-cmd --permanent --add-port=3478/udp --add-port=3478/tcp \
+                     --add-port=5349/tcp --add-port=49160-49200/udp
+  sudo firewall-cmd --reload
+  ```
+
+```bash
+# Debian/Ubuntu only — the package ships disabled by default
+sudo sed -i 's/^#\?TURNSERVER_ENABLED=.*/TURNSERVER_ENABLED=1/' /etc/default/coturn
+
+sudo systemctl enable --now coturn
+```
+
+### Point the app at it
+
+In `/etc/intellistream-chat/env`, add the matching pair — the UDP entry is the fast path, the
+TURNS entry is what survives a firewall that only allows outbound HTTPS:
+
+```bash
+ICHAT_TURN_URLS=turn:chat.example.com:3478?transport=udp,turns:chat.example.com:5349?transport=tcp
+ICHAT_TURN_SECRET=PASTE_THE_SAME_SECRET_FROM_ABOVE
+```
+
+`ICHAT_CALLS_VIDEO` and `ICHAT_CALLS_ENABLED` both already default to `true` — nothing else to add.
+
+```bash
+sudo systemctl restart intellistream-chat
+```
+
+Sign in as two different users, open a direct message, press the call button. If it rings but
+never connects, the app and coturn disagree about the secret, or coturn isn't reachable on the
+port(s) above — every failure here looks like a network problem, because that's exactly what a
+mismatched TURN credential produces from the browser's side.
+
+**If your users are behind a network that allows nothing but outbound port 443** — a common
+corporate-firewall policy — 3478 and 5349 above won't be reachable at all, and TURN needs to share
+port 443 with your reverse proxy instead. See
+[`frontend.md`](frontend.md#calls-through-the-same-port-443-sni-routing-for-turn) for the SNI
+routing that makes that work without a second IP address.
+
+## 7. Reverse proxy + smoke test
 
 Put nginx or haproxy in front for TLS — [`frontend.md`](frontend.md) has a complete config for
 each, including the WebSocket upgrade, the upload settings and the same-domain Keycloak rule.
