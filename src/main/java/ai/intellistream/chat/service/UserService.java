@@ -438,6 +438,32 @@ public class UserService {
                 emailDomainPattern(emailDomainQuery), page);
     }
 
+    /**
+     * The whole directory, for the new-conversation form's "Find user" browser — the same bounded
+     * exception {@link #searchInviteCandidates} is, at the bar of the action it feeds: starting a
+     * direct message, which any authenticated user may do with any other user, so there is no
+     * channel to scope by and no membership to require. What keeps it a browser rather than a
+     * harvester is the same three limits as the channel one: capped at
+     * {@link #MAX_INVITE_CANDIDATES}, rate-limited by the caller (the {@code user-search} bucket),
+     * and never returning an email address — only what a caller filtered by.
+     *
+     * <p>The caller themself is included on purpose: a conversation with yourself is real
+     * ({@code Conversation.isSelfDirect()}), and it is where {@code /remind me} delivers.
+     *
+     * <p>Filter semantics are identical to {@link #searchInviteCandidates} — same
+     * {@code *}/{@code ?} wildcards, same anchored email-domain prefix, same two sort orders.
+     */
+    @Transactional(readOnly = true)
+    public List<User> searchDirectory(String usernameQuery, String emailDomainQuery,
+                                      boolean recentFirst, int limit) {
+        var sort = recentFirst
+                ? Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by(Sort.Direction.DESC, "id"))
+                : Sort.by(Sort.Direction.ASC, "username").and(Sort.by(Sort.Direction.ASC, "id"));
+        var page = PageRequest.of(0, Math.clamp(limit, 1, MAX_INVITE_CANDIDATES), sort);
+        return userRepository.searchDirectory(usernamePattern(usernameQuery),
+                emailDomainPattern(emailDomainQuery), page);
+    }
+
     /** Escapes {@code %}/{@code _}/{@code !} with {@code !} so a literal one in the input can't
      *  be mistaken for a SQL wildcard — mirrors {@code UserFileService.likePattern}. */
     private static String escapeLikeLiteral(String s) {

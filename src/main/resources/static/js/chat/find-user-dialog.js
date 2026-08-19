@@ -15,18 +15,23 @@
  */
 
 /*
- * "Find user" — browse up to 100 accounts not already in the channel and add them, for when
- * you know roughly who you're looking for but not their exact handle. The invite form next to
- * this button stays for the case you do.
+ * "Find user" — browse up to 100 accounts and act on one, for when you know roughly who you're
+ * looking for but not their exact handle. Two callers, one dialog:
+ *
+ *   - Channel settings (opts.channelId): candidates not already in the channel, and the row
+ *     action POSTs to the existing invite endpoint — a find-then-add and a type-the-handle
+ *     invite are the same write underneath. Closing reloads the page if anything was added.
+ *   - The new-conversation form (opts.onToggle): the whole directory, and the row action only
+ *     toggles the person in and out of the caller's selection — nothing is written until the
+ *     form itself submits, so browsing costs nothing and backing out costs nothing.
  *
  * Shaped like poll-modal.js / forward-dialog.js so the app's dialogs keep behaving the same way:
  * same backdrop, same close-on-Escape/click-outside, no inline handlers (strict CSP). Bigger than
  * either, on purpose — it's the one dialog in the app meant to hold a scrollable result list.
  *
- * Filtering and sorting happen server-side (GET /api/channels/{id}/invite-candidates) and are
- * debounced client-side; nothing here re-implements the wildcard/domain matching, it just builds
- * the query string and renders what comes back. Adding someone posts straight to the existing
- * invite endpoint, so a find-then-add and a type-the-handle invite are the same write underneath.
+ * Filtering and sorting happen server-side (invite-candidates / users/directory share the same
+ * parameters) and are debounced client-side; nothing here re-implements the wildcard/domain
+ * matching, it just builds the query string and renders what comes back.
  */
 
 const SEARCH_DEBOUNCE_MS = 300;
@@ -42,15 +47,21 @@ let addedAny = false;
 
 export function closeFindUserModal() {
   if (!modalEl) return;
-  document.removeEventListener('keydown', onKeydown);
+  document.removeEventListener('keydown', onKeydown, true);
   clearTimeout(debounceHandle);
   modalEl.remove();
   modalEl = null;
   if (addedAny) window.location.reload();
 }
 
+// Capture phase + stopPropagation, so one Escape closes one layer: the page's other
+// document-level Escape handlers (the sidebar popover's, the settings panel's) never see the
+// press that dismissed this dialog. Without it, closing the dialog also swept away whatever it
+// was opened from — which in pick mode holds the selection just made.
 function onKeydown(e) {
-  if (e.key === 'Escape') closeFindUserModal();
+  if (e.key !== 'Escape') return;
+  e.stopPropagation();
+  closeFindUserModal();
 }
 
 function formatRelative(iso) {
@@ -70,12 +81,20 @@ function formatRelative(iso) {
 }
 
 /**
- * @param opts.channelId the channel to add people to
+ * Channel-invite mode:
+ * @param opts.channelId  the channel to add people to
  * @param opts.headers    () => fetch headers, including CSRF
+ *
+ * Pick mode (new-conversation form):
+ * @param opts.onToggle   (user) => boolean — flip the user in/out of the caller's selection,
+ *                        returning whether they are selected now
+ * @param opts.isSelected (username) => boolean — how rows render their initial state
+ * @param opts.title      dialog heading (defaults to "Find user")
  */
 export function openFindUserModal(opts) {
   closeFindUserModal();
   addedAny = false;
+  const pickMode = !opts.channelId;
 
   modalEl = document.createElement('div');
   modalEl.className = 'poll-modal-backdrop find-user-modal-backdrop';
@@ -83,7 +102,7 @@ export function openFindUserModal(opts) {
       '<div class="poll-modal find-user-modal" role="dialog" aria-modal="true"' +
            ' aria-labelledby="find-user-modal-title">' +
         '<header class="poll-modal-head">' +
-          '<h2 id="find-user-modal-title">Find user</h2>' +
+          '<h2 id="find-user-modal-title"></h2>' +
           '<button type="button" class="icon-btn find-user-modal-close" aria-label="Close">' +
             '<svg class="icon"><use href="#icon-close"/></svg>' +
           '</button>' +
@@ -110,6 +129,7 @@ export function openFindUserModal(opts) {
         '</div>' +
       '</div>';
   document.body.appendChild(modalEl);
+  modalEl.querySelector('#find-user-modal-title').textContent = opts.title || 'Find user';
 
   const usernameInput = modalEl.querySelector('.find-user-username');
   const domainInput = modalEl.querySelector('.find-user-domain');
@@ -150,28 +170,39 @@ export function openFindUserModal(opts) {
     const addBtn = document.createElement('button');
     addBtn.type = 'button';
     addBtn.className = 'find-user-add';
-    addBtn.title = 'Add ' + name + ' to this channel';
-    addBtn.innerHTML = '<svg class="icon icon-sm" aria-hidden="true"><use href="#icon-user-plus"/></svg>';
-    addBtn.addEventListener('click', async () => {
-      addBtn.disabled = true;
-      try {
-        const res = await fetch(`/api/channels/${opts.channelId}/invite`, {
-          method: 'POST',
-          headers: opts.headers(),
-          body: JSON.stringify({ username: u.username }),
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.message || err.error || res.statusText);
+    const setPicked = (picked) => {
+      li.classList.toggle('is-picked', picked);
+      addBtn.title = picked ? 'Remove ' + name : 'Add ' + name;
+      addBtn.innerHTML = '<svg class="icon icon-sm" aria-hidden="true"><use href="#icon-'
+          + (picked ? 'check' : 'user-plus') + '"/></svg>';
+    };
+    if (pickMode) {
+      setPicked(!!(opts.isSelected && opts.isSelected(u.username)));
+      addBtn.addEventListener('click', () => setPicked(opts.onToggle(u)));
+    } else {
+      addBtn.title = 'Add ' + name + ' to this channel';
+      addBtn.innerHTML = '<svg class="icon icon-sm" aria-hidden="true"><use href="#icon-user-plus"/></svg>';
+      addBtn.addEventListener('click', async () => {
+        addBtn.disabled = true;
+        try {
+          const res = await fetch(`/api/channels/${opts.channelId}/invite`, {
+            method: 'POST',
+            headers: opts.headers(),
+            body: JSON.stringify({ username: u.username }),
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.message || err.error || res.statusText);
+          }
+          li.classList.add('is-added');
+          addBtn.replaceWith(iconCheck());
+          addedAny = true;
+        } catch (e) {
+          addBtn.disabled = false;
+          statusEl.textContent = 'Could not add ' + name + ': ' + e.message;
         }
-        li.classList.add('is-added');
-        addBtn.replaceWith(iconCheck());
-        addedAny = true;
-      } catch (e) {
-        addBtn.disabled = false;
-        statusEl.textContent = 'Could not add ' + name + ': ' + e.message;
-      }
-    });
+      });
+    }
     li.append(label, handle, created, addBtn);
     return li;
   };
@@ -192,8 +223,11 @@ export function openFindUserModal(opts) {
       emailDomain: domainInput.value.trim(),
       recent: sortSelect.value === 'recent' ? 'true' : 'false',
     });
+    const url = pickMode
+        ? `/api/users/directory?${params}`
+        : `/api/channels/${opts.channelId}/invite-candidates?${params}`;
     try {
-      const res = await fetch(`/api/channels/${opts.channelId}/invite-candidates?${params}`,
+      const res = await fetch(url,
           { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' });
       if (mySeq !== requestSeq) return;   // superseded by a newer keystroke
       if (!res.ok) throw new Error('search failed: ' + res.status);
@@ -223,8 +257,14 @@ export function openFindUserModal(opts) {
   sortSelect.addEventListener('change', search);
 
   modalEl.querySelector('.find-user-modal-close').addEventListener('click', closeFindUserModal);
-  modalEl.addEventListener('click', (e) => { if (e.target === modalEl) closeFindUserModal(); });
-  document.addEventListener('keydown', onKeydown);
+  // stopPropagation for the same layering reason as Escape: the document-level outside-click
+  // handlers that close the popover / settings panel this dialog was opened from must not treat
+  // a click inside the dialog (or on its backdrop) as "outside".
+  modalEl.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (e.target === modalEl) closeFindUserModal();
+  });
+  document.addEventListener('keydown', onKeydown, true);
 
   search();
   usernameInput.focus();

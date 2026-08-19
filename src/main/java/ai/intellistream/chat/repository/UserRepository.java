@@ -78,6 +78,21 @@ public interface UserRepository extends JpaRepository<User, Long> {
                                    @Param("emailDomainPattern") String emailDomainPattern,
                                    Pageable pageable);
 
+    /**
+     * The whole-directory sibling of {@link #searchNotInChannel}: same wildcard username pattern
+     * and email-domain-prefix pattern, no channel exclusion. Backs the "Find user" browser on the
+     * new-conversation form (see {@code UserService.searchDirectory}) — a DM has no channel to
+     * scope against, which is the whole point of starting one.
+     */
+    @Query("""
+            select u from User u
+            where lower(u.username) like lower(:usernamePattern) escape '!'
+              and (:emailDomainPattern = '' or lower(u.email) like lower(:emailDomainPattern) escape '!')
+            """)
+    List<User> searchDirectory(@Param("usernamePattern") String usernamePattern,
+                               @Param("emailDomainPattern") String emailDomainPattern,
+                               Pageable pageable);
+
     /** Every non-null avatar storage key — the live set for the orphan-avatar sweep (CLEAN-2). */
     @org.springframework.data.jpa.repository.Query("select u.avatarStorageKey from User u where u.avatarStorageKey is not null")
     java.util.List<String> findAllAvatarStorageKeys();
