@@ -1299,6 +1299,24 @@ a.me:hover { text-decoration: none; background: var(--sb-bg-2); }
   width: 18px;
   height: 18px;
 }
+/* Below the invite form rather than beside it: this opens a whole second dialog, and sitting
+   flush against the input it would read as part of the same one-line action. */
+.find-user-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  width: 100%;
+  margin-bottom: 1rem;
+  padding: 0.45rem 0.6rem;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--accent-fg);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.find-user-trigger:hover { background: var(--bg); }
 .channel-admin-dropdown h4 {
   margin: 0 0 0.4rem;
   font-size: var(--fs-xs);
@@ -4895,6 +4913,71 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
   font: inherit;
   font-size: var(--fs-md);
   resize: vertical;
+}
+
+/* ---------- Find user dialog ----------
+   Shares the poll modal's backdrop/panel/header chrome on purpose, same as the forward dialog —
+   only what's genuinely different is styled here. Deliberately the widest and tallest of the
+   three: it's the one dialog in the app built to hold a scrollable result list rather than a
+   short form. */
+.find-user-modal { width: min(38rem, 100%); max-height: 80vh; }
+.find-user-modal-body { display: grid; gap: 0.7rem; padding: 1rem; min-height: 0; }
+.find-user-filters {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 0.6rem;
+  align-items: end;
+}
+.find-user-sort-field select { font-size: var(--fs-md); }
+.find-user-status {
+  margin: 0;
+  min-height: 1.2em;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+.find-user-results {
+  list-style: none;
+  margin: 0;
+  padding: 0.2rem;
+  max-height: min(28rem, 55vh);
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.find-user-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: var(--radius-sm);
+}
+.find-user-row:hover { background: var(--panel-2); }
+.find-user-row.is-added { opacity: 0.65; }
+.find-user-name { flex: none; }
+.find-user-handle { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.find-user-created {
+  flex: none;
+  color: var(--muted);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+}
+.find-user-add {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border-radius: var(--radius-sm);
+}
+.find-user-add:disabled { opacity: 0.6; cursor: progress; }
+.find-user-added-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  color: var(--accent-fg);
 }
 
 /* .about-backdrop is declared with the poll modal's backdrop above. */

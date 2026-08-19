@@ -29,6 +29,7 @@ import * as chrome from './chrome.js';
 import { initSearchBox } from './search-box.js';
 import { openPollModal } from './poll-modal.js';
 import { openForwardDialog } from './forward-dialog.js';
+import { openFindUserModal } from './find-user-dialog.js';
 import * as presenceMenu from './presence-menu.js';
 
 chrome.init();
@@ -104,7 +105,9 @@ presenceMenu.init();
     const open = () => {
       adminDropdown.hidden = false;
       adminCog.setAttribute('aria-expanded', 'true');
-      adminDropdown.querySelector('input[name="username"]')?.focus();
+      // Deliberately no autofocus into the invite field: this panel is "Channel settings" as a
+      // whole (rename, notifications, archive, delete...), and jumping the caret straight into
+      // "invite user" on every open assumed that was the one thing anyone opened it for.
     };
     const close = () => {
       adminDropdown.hidden = true;
@@ -526,6 +529,14 @@ presenceMenu.init();
       }
     });
   }
+
+  // ---------- Find user (browse + add) ----------
+  document.getElementById('find-user-btn')?.addEventListener('click', () => {
+    openFindUserModal({
+      channelId: document.getElementById('find-user-btn').dataset.channelId,
+      headers,
+    });
+  });
 
   // ---------- Poll builder ----------
   // The button fills the composer with the command and submits it, rather than posting by

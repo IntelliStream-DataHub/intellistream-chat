@@ -19,6 +19,8 @@ package ai.intellistream.chat.service;
 import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.repository.UserRepository;
 import ai.intellistream.chat.security.KeycloakRolesConverter;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.security.oauth2.core.oidc.user.OidcUser;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.stereotype.Service;
@@ -26,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -51,6 +54,10 @@ public class UserService {
 
     /** Cap last_active_at writes to once per minute per user — admin overview doesn't need finer. */
     static final Duration ACTIVE_BUMP_INTERVAL = Duration.ofMinutes(1);
+
+    /** Hard cap on {@link #searchInviteCandidates}, regardless of what the caller asks for — the
+     *  channel settings "Find user" browser is a bounded browse, not a paged directory. */
+    public static final int MAX_INVITE_CANDIDATES = 100;
 
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(UserService.class);
 
@@ -403,6 +410,76 @@ public class UserService {
     public User requireByUsername(String username) {
         return userRepository.findByUsernameIgnoreCase(username)
                 .orElseThrow(() -> new IllegalArgumentException("Unknown user: " + username));
+    }
+
+    /**
+     * Accounts not already in {@code channelId}, for the channel settings "Find user" browser —
+     * a deliberate, bounded exception to the "no unscoped user directory" stance documented on
+     * {@code UserRestController.mentionCandidates}: it exists at the same authorization bar as
+     * inviting itself ({@code requireWriteAccess}, checked by the caller before this runs), is
+     * capped at {@link #MAX_INVITE_CANDIDATES} regardless of {@code limit}, and never returns an
+     * email address — only what a caller filtered by, never what they'd otherwise have no reason
+     * to see.
+     *
+     * <p>{@code usernameQuery} accepts {@code *}/{@code ?} wildcards; with neither present it is
+     * a plain substring match. {@code emailDomainQuery} matches accounts whose email's domain
+     * <em>starts with</em> the given text (an optional leading {@code @} is ignored), so
+     * {@code "example"} also finds {@code example.org} — not just {@code example.com}. Sorted
+     * newest-created first when {@code recentFirst}, else by username.
+     */
+    @Transactional(readOnly = true)
+    public List<User> searchInviteCandidates(Long channelId, String usernameQuery, String emailDomainQuery,
+                                              boolean recentFirst, int limit) {
+        var sort = recentFirst
+                ? Sort.by(Sort.Direction.DESC, "createdAt").and(Sort.by(Sort.Direction.DESC, "id"))
+                : Sort.by(Sort.Direction.ASC, "username").and(Sort.by(Sort.Direction.ASC, "id"));
+        var page = PageRequest.of(0, Math.clamp(limit, 1, MAX_INVITE_CANDIDATES), sort);
+        return userRepository.searchNotInChannel(channelId, usernamePattern(usernameQuery),
+                emailDomainPattern(emailDomainQuery), page);
+    }
+
+    /** Escapes {@code %}/{@code _}/{@code !} with {@code !} so a literal one in the input can't
+     *  be mistaken for a SQL wildcard — mirrors {@code UserFileService.likePattern}. */
+    private static String escapeLikeLiteral(String s) {
+        var sb = new StringBuilder(s.length() + 8);
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '%' || c == '_' || c == '!') sb.append('!');
+            sb.append(c);
+        }
+        return sb.toString();
+    }
+
+    /** {@code *}/{@code ?} become SQL {@code %}/{@code _}; with neither present, wraps in
+     *  {@code %...%} for a substring match. Blank input matches everything. */
+    static String usernamePattern(String query) {
+        if (query == null || query.isBlank()) return "%";
+        var trimmed = query.trim();
+        if (trimmed.indexOf('*') < 0 && trimmed.indexOf('?') < 0) {
+            return "%" + escapeLikeLiteral(trimmed) + "%";
+        }
+        var sb = new StringBuilder(trimmed.length());
+        for (int i = 0; i < trimmed.length(); i++) {
+            char c = trimmed.charAt(i);
+            switch (c) {
+                case '%', '_', '!' -> sb.append('!').append(c);
+                case '*' -> sb.append('%');
+                case '?' -> sb.append('_');
+                default -> sb.append(c);
+            }
+        }
+        return sb.toString();
+    }
+
+    /** Blank input disables the filter ({@code ""}, which {@code searchNotInChannel} treats as
+     *  "skip this predicate"); otherwise a domain-starts-with pattern, an optional leading
+     *  {@code @} stripped so "example.com" and "@example.com" behave the same. */
+    static String emailDomainPattern(String query) {
+        if (query == null || query.isBlank()) return "";
+        var trimmed = query.trim();
+        if (trimmed.startsWith("@")) trimmed = trimmed.substring(1);
+        if (trimmed.isEmpty()) return "";
+        return "%@" + escapeLikeLiteral(trimmed) + "%";
     }
 
     /**
