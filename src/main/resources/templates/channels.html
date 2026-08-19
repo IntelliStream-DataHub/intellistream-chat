@@ -264,6 +264,18 @@
                             <svg class="icon" aria-hidden="true"><use href="#icon-user-plus"/></svg>
                         </button>
                     </form>
+                    <!--/* Browsing rather than typing an exact handle — for when you know roughly
+                           who you want ("someone on the eng team", "whoever signed up this week")
+                           but not their username. Own dialog rather than another dropdown: it
+                           needs room for a result list, so it follows the poll-builder/forward
+                           shell instead of squeezing into this anchored panel.
+
+                           Wired from find-user-dialog.js: the CSP forbids inline handlers. */-->
+                    <button type="button" id="find-user-btn" class="find-user-trigger"
+                            th:data-channel-id="${activeChannel.id}">
+                        <svg class="icon icon-sm" aria-hidden="true"><use href="#icon-users"/></svg>
+                        Find user…
+                    </button>
                     <h4>Members</h4>
                     <ul class="members">
                         <li th:each="m : ${members}">

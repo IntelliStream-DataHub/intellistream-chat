@@ -34,6 +34,7 @@ import ai.intellistream.chat.web.dto.InviteRequest;
 import ai.intellistream.chat.repository.MessageMentionRepository;
 import ai.intellistream.chat.web.dto.MessageDto;
 import ai.intellistream.chat.web.dto.MessageEvent;
+import ai.intellistream.chat.web.dto.UserSearchResultDto;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import ai.intellistream.chat.web.dto.SendMessageRequest;
 import ai.intellistream.chat.web.dto.SetMemberRoleRequest;
@@ -254,6 +255,38 @@ public class ChannelRestController {
         var invitee = userService.requireByUsername(body.username());
         channelService.invite(channel, invitee, me);
         return ResponseEntity.noContent().build();
+    }
+
+    /**
+     * "Find user" browser for the channel settings panel: up to
+     * {@link UserService#MAX_INVITE_CANDIDATES} accounts not already in this channel, optionally
+     * narrowed by a username wildcard and/or an email-domain prefix, newest-created first by
+     * default (pass {@code recent=false} for username A–Z instead).
+     *
+     * <p>Same authorization bar as {@link #invite} — any channel member, via
+     * {@code requireWriteAccess} — because this answers the same question invite does ("who can I
+     * add"), just by browsing instead of already knowing an exact handle. Its own rate-limit
+     * bucket rather than {@code user-lookup}: that budget is 20/min, sized for a deliberate
+     * one-shot invite, and a filter box typed into would exhaust it in a few keystrokes.
+     */
+    @GetMapping("/{id}/invite-candidates")
+    public List<UserSearchResultDto> inviteCandidates(
+            @PathVariable Long id,
+            @RequestParam(required = false, defaultValue = "") String username,
+            @RequestParam(required = false, defaultValue = "") String emailDomain,
+            @RequestParam(required = false, defaultValue = "true") boolean recent,
+            Principal principal) {
+        var me = currentUser.resolve(principal);
+        if (!rateLimiter.tryAcquire(me.getUsername(), "user-search", 60, Duration.ofMinutes(1))) {
+            throw new RateLimitExceededException("search rate exceeded");
+        }
+        var channel = channelService.requireById(id);
+        channelService.requireWriteAccess(channel, me);
+        return userService.searchInviteCandidates(id, username, emailDomain, recent,
+                        UserService.MAX_INVITE_CANDIDATES)
+                .stream()
+                .map(UserSearchResultDto::from)
+                .toList();
     }
 
     /**
