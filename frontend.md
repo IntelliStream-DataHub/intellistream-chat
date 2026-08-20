@@ -111,10 +111,15 @@ server {
         proxy_send_timeout 3600s;
     }
 
-    # Content-versioned bundles (?v=<hash>) — safe to cache hard.
+    # Static assets. Deliberately no `add_header Cache-Control` here — the application sets it
+    # per URL, and it is the only party that can. Only the nine declared bundles are
+    # content-versioned (`/js/chat.bundle.min.js?v=<hash>`); the `js/chat/` ES-module graph and
+    # `js/vendor/` are some 420 KB served at fixed paths that do not change across a deploy. A rule
+    # matching the directory cannot tell those apart, and this one used to answer `immutable` for
+    # all of it — so a deploy that changed `chat/index.js` kept serving the old copy against the new
+    # server for up to thirty days, silently. See StaticAssetCacheConfig.
     location ~* ^/(css|js|img|fonts)/ {
         proxy_pass http://127.0.0.1:8080;
-        add_header Cache-Control "public, max-age=2592000, immutable";
     }
 
     location / { proxy_pass http://127.0.0.1:8080; }
