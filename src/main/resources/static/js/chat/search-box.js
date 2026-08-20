@@ -166,7 +166,7 @@ export function initSearchBox(inputId) {
         // no composer, no membership, and until now nothing that explained either.
         row.querySelector('.search-dropdown-tag').hidden = m.channelJoined !== false;
         row.querySelector('.search-dropdown-time').textContent =
-            new Date(m.createdAt).toLocaleString();
+            ChatTime.formatDateTime(m.createdAt);
         // bodySnippet is the Lucene-highlighted excerpt with <mark>-wrapped match terms
         // (HTML-escaped before highlighting, so innerHTML is safe). Falls back to bodyHtml —
         // the server-rendered, jsoup-sanitized body — when there is no snippet.

@@ -1046,6 +1046,13 @@ presenceMenu.init();
     // participants; putting either in the bell would turn "things addressed to me" into
     // "everything", which is the one thing it is for.
     if (mentioned && window.MentionInbox) window.MentionInbox.notifyMention();
+    // The tab icon, before the DND gate inside MentionNotifications.show — a pulsing favicon is an
+    // unread marker rather than an interruption, and DND leaves those alone (see notifications.js).
+    // Skipped when they are looking straight at the channel it happened in, which is the same
+    // condition the toast is skipped on and for the same reason: they have already seen it.
+    const watchingIt = isActiveChannel
+        && document.visibilityState === 'visible' && document.hasFocus();
+    if (mentioned && !watchingIt) window.FaviconAlert?.pulse();
     if (!window.MentionNotifications) return;
     if (isActiveChannel && document.visibilityState === 'visible' && document.hasFocus()) {
       // An ordinary message in a channel set to ALL makes no sound: you are looking straight at it.
@@ -1717,8 +1724,10 @@ presenceMenu.init();
 
   // formatDay is page-local (channel-feed day-divider label); other date helpers come from ChatKit.
   // fuzzyMatch / levenshtein moved to ./shared.js so chat/chrome.js (sidebar filter) can use them.
-  const formatDay = (d) =>
-      d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+  // The label itself comes from ChatTime so it lands in the same zone as the timestamps it sits
+  // above — a divider drawn in the browser's zone over messages stamped in another one puts
+  // "Tuesday" partway through Monday evening.
+  const formatDay = (d) => ChatTime.formatDay(d);
 
   const lastMessageEl = () => {
     const items = messagesEl.querySelectorAll('li.message');
@@ -1886,11 +1895,13 @@ presenceMenu.init();
     positionDayDividers();
   };
 
-  // Server-rendered messages carry data-day and <time> formatted in the SERVER's timezone, but
-  // live-appended messages use the BROWSER's zone (dayKey/formatTime). For a viewer in a different
-  // zone that mismatch gives wrong day dividers/grouping at boundaries and timestamps that disagree
-  // between old and new messages. Re-key every server-rendered message from its data-created-at in
-  // the browser zone once on load, then rebuild dividers so everything is consistently client-zone.
+  // The server now renders data-day and <time> in the viewer's own zone (TimeView), so this is no
+  // longer papering over a server/client split — <time> text is already handled generically by
+  // ChatTime.rewriteAll(). What still has to happen here is the *keys*: when the browser's detected
+  // zone overrules the zone the server had (a fresh account whose zone was only guessed from
+  // Accept-Language, or somebody who has travelled), data-day was computed for the old zone, and a
+  // stale key puts the divider and the run-grouping on the wrong message. Re-key from
+  // data-created-at and rebuild.
   const hydrateServerTimestamps = () => {
     if (!messagesEl) return;
     messagesEl.querySelectorAll('li.message').forEach((li) => {

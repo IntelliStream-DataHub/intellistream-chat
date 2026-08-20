@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+<!--/*
+  The viewer's resolved timestamp conventions, handed to the client.
+
+  time-format.js builds Intl formatters from exactly these four values, and TimeView built the
+  server-side DateTimeFormatters from the same four. That is the whole point of the fragment: the
+  message feed is rendered by two different formatters — Thymeleaf for the history you land on,
+  JavaScript for everything that arrives after — and before this existed they disagreed. The server
+  half formatted Instants in the *server's* zone with a hard-coded 'h:mm a', so a UTC container put
+  US 12-hour UTC timestamps directly above local 24-hour ones in the same list.
+
+  me-zone-source is not decoration. It says which rung of the resolution ladder answered, and the
+  client branches on it: an unconfirmed zone (a guess from Accept-Language, or no guess at all)
+  means run browser detection, re-render what is on screen, and report the answer back. A chosen
+  zone means leave it alone — the user has already said.
+
+  Include inside <head> on every page that renders a timestamp:
+      <th:block th:replace="~{fragments/time-prefs :: metas}"/>
+*/-->
+<th:block th:fragment="metas">
+    <meta name="me-zone" th:content="${fmt.zoneId()}"/>
+    <meta name="me-locale" th:content="${fmt.localeTag()}"/>
+    <!--/* AUTO resolved against the locale, so the client passes a concrete hour12 to Intl rather
+           than reimplementing the CLDR lookup that decided it. */-->
+    <meta name="me-hour-cycle" th:content="${fmt.hourCycleToken()}"/>
+    <meta name="me-twelve-hour" th:content="${fmt.twelveHour() ? 'true' : 'false'}"/>
+    <meta name="me-date-style" th:content="${fmt.dateStyleToken()}"/>
+    <meta name="me-zone-source" th:content="${fmt.sourceToken()}"/>
+</th:block>
+</head>
+</html>

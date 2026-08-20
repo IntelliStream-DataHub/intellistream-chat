@@ -9,6 +9,7 @@
     <th:block th:replace="~{fragments/assets :: css('app')}"/>
     <meta name="_csrf" th:content="${_csrf != null ? _csrf.token : ''}"/>
     <meta name="_csrf_header" th:content="${_csrf != null ? _csrf.headerName : ''}"/>
+    <th:block th:replace="~{fragments/time-prefs :: metas}"/>
     <!-- Workspace-admin flag (realm role ichat-admin -> ROLE_ADMIN); read by the avatar
          dropdown to decide whether to offer the Admin console item. Distinct from the
          channel-scoped me-is-admin meta on the chat pages. -->
@@ -176,26 +177,30 @@
             </dl>
         </section>
 
-        <!--/* The zone is what wall-clock times you type are resolved in — "/remind me at 14:00"
-               above all. It used to be the server's, so anyone elsewhere got their reminder at the
-               wrong hour with a confirmation that agreed with itself. The current effective zone is
-               shown whether or not it was chosen here, because a guess you cannot see is a guess
-               you cannot correct. */-->
+        <!--/* The zone does two jobs and the help text used to admit only one of them. It is what
+               wall-clock times you *type* are resolved in — "/remind me at 14:00" above all — and
+               it is now also the zone every timestamp you *read* is rendered in, on the server as
+               well as in the browser. Before, the server rendered message times in its own zone
+               with a US 12-hour pattern while the browser rendered live ones locally, so the same
+               feed carried two clocks. The effective zone is shown whether or not it was chosen
+               here, because a guess you cannot see is a guess you cannot correct. */-->
         <section class="profile-section" id="timezone-section">
             <h2>Time zone</h2>
             <p class="profile-help">
-                Times you type are read in this zone — <code>/remind me at 14:00</code> means 14:00
-                here. It does not change how timestamps are displayed; those already follow the
-                device you are reading on.
+                Message times are shown in this zone, and times you type are read in it —
+                <code>/remind me at 14:00</code> means 14:00 here.
             </p>
             <form th:action="@{/profile/timezone}" method="post" id="timezone-form">
                 <label class="timezone-picker" for="timezone-select">
                     Time zone
                     <select id="timezone-select" name="zone">
+                        <!--/* "Automatic" is a real setting, not the absence of one: it keeps
+                               following the browser, so it stays right when you travel. The label
+                               names what it currently resolves to, so the option is not a leap of
+                               faith. */-->
                         <option value="" th:selected="${!zoneIsChosen}"
-                                th:text="${accountZone != null
-                                            ? 'Automatic — from your account (' + accountZone + ')'
-                                            : 'Automatic — the server default (' + effectiveZone + ')'}">
+                                th:text="${'Automatic — follow this device'
+                                            + (zoneIsChosen ? '' : ' (' + effectiveZone + ')')}">
                             Automatic
                         </option>
                         <option th:each="z : ${zones}" th:value="${z}" th:text="${z}"
@@ -204,11 +209,57 @@
                 </label>
                 <p class="profile-help">
                     Currently using <strong th:text="${effectiveZone}">UTC</strong><span
-                        th:text="${zoneIsChosen ? ' — your choice.'
-                                   : (accountZone != null ? ' — reported by your account.'
-                                                          : ' — this server’s default.')}">.</span>
+                        th:text="${zoneSource == 'chosen' ? ' — your choice.'
+                                   : (zoneSource == 'detected' ? ' — detected from this browser.'
+                                   : (zoneSource == 'account' ? ' — reported by your account.'
+                                   : (zoneSource == 'locale' ? ' — guessed from your browser’s language.'
+                                                             : ' — this server’s default; we could not tell.')))}">.</span>
                 </p>
                 <p id="timezone-feedback" class="profile-help" hidden></p>
+            </form>
+        </section>
+
+        <!--/* Clock and date order. Separate from the zone because they are separate questions:
+               knowing somebody is in Oslo does not tell you they want a 24-hour clock, and a great
+               many people read the interface in English from somewhere that has never used a
+               12-hour one. "Automatic" follows the browser's language, which is right often enough
+               to be the default and wrong often enough to need this. Samples under each control,
+               because a format is far easier to recognise than to read off a name. */-->
+        <section class="profile-section" id="time-format-section">
+            <h2>Date and time format</h2>
+            <p class="profile-help">
+                How times and dates are written. Automatic follows your browser’s language.
+            </p>
+            <form th:action="@{/profile/time-format}" method="post" id="time-format-form">
+                <label class="timezone-picker" for="hour-cycle-select">
+                    Clock
+                    <select id="hour-cycle-select" name="hourCycle">
+                        <option th:each="h : ${hourCycles}" th:value="${h}"
+                                th:selected="${h == me.hourCycle}"
+                                th:text="${h.name() == 'AUTO' ? 'Automatic'
+                                           : (h.name() == 'H24' ? '24-hour (14:05)' : '12-hour (2:05 PM)')}">
+                            Automatic
+                        </option>
+                    </select>
+                </label>
+                <label class="timezone-picker" for="date-style-select">
+                    Date
+                    <select id="date-style-select" name="dateStyle">
+                        <option th:each="d : ${dateStyles}" th:value="${d}"
+                                th:selected="${d == me.dateStyle}"
+                                th:text="${d.name() == 'AUTO' ? 'Automatic'
+                                           : (d.name() == 'DMY' ? 'Day first (3 Feb 2026)'
+                                           : (d.name() == 'MDY' ? 'Month first (Feb 3, 2026)'
+                                                                : 'ISO (2026-02-03)'))}">
+                            Automatic
+                        </option>
+                    </select>
+                </label>
+                <p class="profile-help">
+                    Right now that reads
+                    <strong th:text="${fmt.dateTime(sampleNow)}">3 Feb 2026, 14:05</strong>.
+                </p>
+                <p id="time-format-feedback" class="profile-help" hidden></p>
             </form>
         </section>
 

@@ -77,7 +77,7 @@ function formatRelative(iso) {
   if (hr < 24) return hr + ' h ago';
   const day = Math.round(hr / 24);
   if (day < 30) return day + ' d ago';
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  return ChatTime.formatDate(d);
 }
 
 /**

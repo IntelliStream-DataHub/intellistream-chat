@@ -137,8 +137,58 @@
     }
   }
 
+  /*
+   * ---------- "I am still here" ----------
+   *
+   * Auto-AWAY used to be derived from users.last_active_at, which records the last authenticated
+   * HTTP request. That is not a person. Reading a channel makes no HTTP requests, and neither does
+   * sending a message — that goes over STOMP, and the send path is query-free by design, so it
+   * never touched the column. So the person doing the most talking in a room went yellow while
+   * they were talking, and a forgotten background tab stayed green because its polls kept the
+   * column warm. This reports the real thing instead.
+   *
+   * Throttled to one frame per PING_MS, which bounds both the cost (four frames a minute for
+   * somebody typing continuously) and the error: the server sees an activity stamp at most PING_MS
+   * older than the truth, so it can call somebody AWAY at most that early.
+   *
+   * Only while the tab is visible. A hidden tab is not a person looking at the screen, and treating
+   * it as one is exactly the bug this replaces — in the other direction.
+   */
+  const PING_MS = 15_000;
+  let stompRef = null;
+  let lastPingAt = 0;
+
+  function pingActivity(force) {
+    if (!stompRef || typeof stompRef.publish !== 'function') return;
+    if (document.visibilityState !== 'visible') return;
+    const now = Date.now();
+    if (!force && now - lastPingAt < PING_MS) return;
+    lastPingAt = now;
+    try {
+      stompRef.publish({ destination: '/app/presence/activity', body: '{}' });
+    } catch (notConnected) {
+      // The socket is down, which the server already reads as OFFLINE — a louder state than
+      // anything this could report.
+    }
+  }
+
+  // Capture phase, passive: the same event set idle-logout.js watches, for the same reason — it is
+  // the cheapest available definition of "a person is doing something".
+  ['mousemove', 'keydown', 'scroll', 'touchstart', 'pointerdown', 'wheel'].forEach((evt) => {
+    window.addEventListener(evt, () => pingActivity(false), { passive: true, capture: true });
+  });
+
+  // Coming back to a tab is activity, and it is the moment the yellow dot is most conspicuously
+  // wrong — so this one skips the throttle rather than waiting for a mouse to move.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') pingActivity(true);
+  });
+
   function attachStomp(stompClient) {
     if (!stompClient || typeof stompClient.subscribe !== 'function') return;
+    stompRef = stompClient;
+    // Connecting is itself activity — the server stamps it on CONNECT — so there is nothing to
+    // send here; the first real input will do it.
     stompClient.subscribe('/topic/presence', (frame) => {
       try {
         const dto = JSON.parse(frame.body);
@@ -213,11 +263,11 @@
   // page), we still want the dots painted from the latest server snapshot.
   refreshAll();
 
-  // Auto-AWAY tick: a user goes AWAY when their last_active_at on the server is older
-  // than the configured threshold (ichat.presence.away-after-minutes, default 10 min).
-  // Server has no scheduled scanner; we poll periodically so the yellow dot appears
-  // client-side a minute or so after the user actually goes idle. setStatus / setKind
-  // events still fire instantly via /topic/presence — this is just the lazy-transition
-  // backstop.
+  // Backstop poll. The transitions themselves now arrive as /topic/presence broadcasts —
+  // connect and disconnect from PresenceEventListener, going idle from PresenceAwaySweeper,
+  // coming back from PresenceWebSocketController — so this is no longer how the yellow dot
+  // appears. It stays because a broadcast published between the STOMP CONNECT and this page's
+  // subscription landing is simply lost (Spring's in-memory broker has no replay), and because
+  // a page with no socket at all still wants its dots painted.
   setInterval(refreshAll, 60_000);
 })();

@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="IntelliStream Chat — you were mentioned">
+  <title>IntelliStream Chat — you were mentioned</title>
+  <!-- The alert half of the tab-icon pulse (static/js/favicon-alert.js swaps between this and
+       favicon.svg). Same mark, dimmed to grey, with a red dot filling the corner the amber bead
+       normally occupies.
+
+       Grey rather than "the same but with a dot": at 16 pixels a badge added *alongside* an
+       unchanged icon is a few pixels of colour nobody notices in a strip of twenty tabs. Draining
+       the colour out of the rest is what makes the swap read as a change at all — the eye catches
+       the whole icon flipping, not the dot.
+
+       Deliberately not animated in SVG. SMIL and CSS animation inside a favicon work in Firefox
+       and Safari and are ignored by Chrome, so the pulse has to be a JS-driven href swap, and an
+       icon that also animated itself would fight it in two browsers out of three. -->
+  <path d="M 32 55 A 23 23 0 1 1 55 32" fill="none" stroke="#9aa3af"
+        stroke-width="8" stroke-linecap="round"/>
+  <circle cx="32" cy="32" r="11.5" fill="#9aa3af"/>
+  <circle cx="52" cy="32" r="11" fill="#e5484d"/>
+</svg>

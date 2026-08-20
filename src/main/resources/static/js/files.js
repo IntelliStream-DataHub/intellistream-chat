@@ -133,10 +133,9 @@
 
     const whenCell = document.createElement('td');
     whenCell.className = 'files-when';
-    const when = new Date(file.createdAt);
-    whenCell.textContent = when.toLocaleDateString(undefined,
-        { year: 'numeric', month: 'short', day: 'numeric' });
-    whenCell.title = when.toLocaleString();
+    whenCell.textContent = ChatTime.formatDate(file.createdAt);
+    // The cell is short by design; the tooltip is where the clock time lives.
+    whenCell.title = ChatTime.formatDateTime(file.createdAt);
 
     const actionCell = document.createElement('td');
     actionCell.className = 'files-actions';

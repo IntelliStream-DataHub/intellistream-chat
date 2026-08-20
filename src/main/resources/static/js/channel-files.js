@@ -150,10 +150,9 @@
 
     const whenCell = document.createElement('td');
     whenCell.className = 'files-when';
-    const when = new Date(file.createdAt);
-    whenCell.textContent = when.toLocaleDateString(undefined,
-        { year: 'numeric', month: 'short', day: 'numeric' });
-    whenCell.title = when.toLocaleString();
+    whenCell.textContent = ChatTime.formatDate(file.createdAt);
+    // The cell is short by design; the tooltip is where the clock time lives.
+    whenCell.title = ChatTime.formatDateTime(file.createdAt);
 
     // The link back to the message. A file on its own answers "what"; the message answers "why",
     // and that is usually the thing somebody is actually looking for.

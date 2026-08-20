@@ -16,6 +16,8 @@
 
 package ai.intellistream.chat.service;
 
+import ai.intellistream.chat.domain.DateStyle;
+import ai.intellistream.chat.domain.HourCycle;
 import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.repository.UserRepository;
 import ai.intellistream.chat.security.KeycloakRolesConverter;
@@ -514,6 +516,13 @@ public class UserService {
      * authenticated request without hammering the DB. Persists to the entity inside a fresh
      * transaction; the in-memory map prevents repeated writes between server restarts only —
      * after a restart the first request from each user pays one bump.
+     *
+     * <p>This column is a <b>"last seen" record for the admin console and the profile card</b>, and
+     * nothing else. It used to drive auto-AWAY as well, which was wrong in both directions —
+     * reading a channel makes no HTTP request, and sending a message goes over STOMP on a path that
+     * deliberately never touches the database — so presence now reads
+     * {@link ai.intellistream.chat.service.PresenceTracker}'s in-memory activity stamp instead. Do
+     * not reconnect the two.
      */
     @Transactional
     public void touchActiveThrottled(User user) {
@@ -532,6 +541,47 @@ public class UserService {
         var managed = userRepository.findById(user.getId())
                 .orElseThrow(() -> new IllegalStateException("User missing: " + user.getId()));
         managed.setTutorialDismissed(true);
+        return managed;
+    }
+
+    /**
+     * Store the zone the browser reported, if it is new.
+     *
+     * <p>The write is skipped when nothing changed, which is the answer on all but the first page
+     * load after somebody travels — {@code noteDetectedZone} does the comparison in memory, so the
+     * steady state is one {@code findById} and no UPDATE. It deliberately does not touch the user's
+     * explicit choice; a detection is evidence, not an instruction.
+     *
+     * @return true when the row was updated
+     */
+    @Transactional
+    public boolean recordDetectedZone(User user, String ianaName) {
+        var managed = userRepository.findById(user.getId())
+                .orElseThrow(() -> new IllegalStateException("User missing: " + user.getId()));
+        if (!managed.noteDetectedZone(ianaName)) {
+            return false;
+        }
+        // A zone we can now name is a question that no longer needs asking.
+        managed.setZonePromptDismissed(true);
+        return true;
+    }
+
+    /** Set the clock and date-order preferences together — they share one form on the profile. */
+    @Transactional
+    public User updateTimeFormat(User user, HourCycle hourCycle, DateStyle dateStyle) {
+        var managed = userRepository.findById(user.getId())
+                .orElseThrow(() -> new IllegalStateException("User missing: " + user.getId()));
+        managed.chooseHourCycle(hourCycle);
+        managed.chooseDateStyle(dateStyle);
+        return managed;
+    }
+
+    /** Retire the "we could not work out your time zone" banner without choosing a zone. */
+    @Transactional
+    public User dismissZonePrompt(User user) {
+        var managed = userRepository.findById(user.getId())
+                .orElseThrow(() -> new IllegalStateException("User missing: " + user.getId()));
+        managed.setZonePromptDismissed(true);
         return managed;
     }
 

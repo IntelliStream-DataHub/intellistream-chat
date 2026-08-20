@@ -168,6 +168,29 @@
     }
   };
 
+  // ---------- Server-rendered timestamps ----------
+  /*
+   * Re-key the day of each server-rendered message from its instant.
+   *
+   * The <time> text itself is already handled generically by ChatTime.rewriteAll(), and the server
+   * rendered it in the viewer's zone to begin with. What can still be stale is data-day: the server
+   * computed it from the best zone it had, and when the browser's detected zone overrules that one
+   * (a first sign-in whose zone was only inferred from Accept-Language, or somebody who has since
+   * travelled) the key describes a different calendar day than the one the reader is in. It is read
+   * as prevDay when the next live message decides whether to group under the message above it, so a
+   * stale key silently breaks grouping at exactly the boundary a reader is watching.
+   *
+   * Cheap and idempotent: when the zones agree — the common case — every key is rewritten to the
+   * value it already had.
+   */
+  const rekeyServerDays = () => {
+    if (!messagesEl) return;
+    messagesEl.querySelectorAll('li.message[data-created-at]').forEach((li) => {
+      li.dataset.day = dayKey(new Date(li.dataset.createdAt));
+    });
+  };
+  rekeyServerDays();
+
   // ---------- Reactions / actions toolbar (mirrors chat.js patterns) ----------
   const renderReactionTray = (groups) => {
     const tray = document.createElement('div');

@@ -17,6 +17,8 @@
 // File manager page. chat-kit.js is here for window.ChatKit.formatBytes — reused rather than
 // re-implemented so a size reads identically on this page and on a message's attachment chip.
 // Its own initialisers key off .message elements, of which this page has none.
+//= require time-format.js
+//= require session-watch.js
 //= require chat-kit.js
 //= require presence.js
 //= require idle-logout.js
