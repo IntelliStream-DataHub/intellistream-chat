@@ -24,6 +24,7 @@
     <th:block th:replace="~{fragments/assets :: css('app')}"/>
     <meta name="_csrf" th:content="${_csrf != null ? _csrf.token : ''}"/>
     <meta name="_csrf_header" th:content="${_csrf != null ? _csrf.headerName : ''}"/>
+    <th:block th:replace="~{fragments/time-prefs :: metas}"/>
     <meta name="me-is-workspace-admin" sec:authorize="hasRole('ADMIN')" content="true"/>
     <meta name="me-username" th:content="${me.username}"/>
     <meta name="me-display" th:content="${me.displayName}"/>
@@ -137,9 +138,9 @@
                            composer until they join, and that flow already exists — this tag is what
                            turns it from a surprise into an expectation. */-->
                     <span class="search-result-tag" th:unless="${hit.channelJoined}">not joined</span>
-                    <time class="search-result-time"
+                    <time class="search-result-time" data-time-format="datetime"
                           th:datetime="${hit.createdAt}"
-                          th:text="${#temporals.format(hit.createdAt, 'd MMM yyyy, HH:mm')}">date</time>
+                          th:text="${fmt.dateTime(hit.createdAt)}">date</time>
                 </div>
                 <!--/* bodySnippet is the Lucene-highlighted excerpt: the body is HTML-escaped before
                        the matched terms are wrapped in <mark>, so utext is safe here. Falls back to

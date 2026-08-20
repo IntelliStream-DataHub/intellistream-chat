@@ -106,7 +106,7 @@ class MentionBroadcastIT {
         controller = new ChatWebSocketController(channels, messages, markdown, currentUser,
                 broker, new RateLimiter(), mentionRepository, slashCommands, pollService,
                 new ai.intellistream.chat.metrics.WritePathMetrics(
-                        new io.micrometer.core.instrument.simple.SimpleMeterRegistry()));
+                        new io.micrometer.core.instrument.simple.SimpleMeterRegistry()), linkPreviews());
     }
 
     @Test
@@ -217,4 +217,12 @@ class MentionBroadcastIT {
         return users.save(new User("kc-mb-" + prefix + i, prefix + "-" + i,
                 prefix + i + "@example.com", prefix + " " + i));
     }
+
+    /** Real decoration against this context's LinkPreviewService; the broker is the test's mock. */
+    private ai.intellistream.chat.web.LinkPreviews linkPreviews() {
+        return new ai.intellistream.chat.web.LinkPreviews(linkPreviewService,
+                org.mockito.Mockito.mock(org.springframework.messaging.simp.SimpMessagingTemplate.class));
+    }
+    @org.springframework.beans.factory.annotation.Autowired
+    ai.intellistream.chat.linkpreview.LinkPreviewService linkPreviewService;
 }

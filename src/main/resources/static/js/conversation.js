@@ -135,6 +135,10 @@
       right.appendChild(body);
     }
 
+    // The link card, if the DTO carries one; a live message's arrives as a `link-preview` frame.
+    const preview = window.ChatKit.buildLinkPreviewEl(msg.linkPreview);
+    if (preview) right.appendChild(preview);
+
     if (msg.reactions && msg.reactions.length) {
       right.appendChild(renderReactionTray(msg.reactions));
     }
@@ -163,6 +167,29 @@
       });
     }
   };
+
+  // ---------- Server-rendered timestamps ----------
+  /*
+   * Re-key the day of each server-rendered message from its instant.
+   *
+   * The <time> text itself is already handled generically by ChatTime.rewriteAll(), and the server
+   * rendered it in the viewer's zone to begin with. What can still be stale is data-day: the server
+   * computed it from the best zone it had, and when the browser's detected zone overrules that one
+   * (a first sign-in whose zone was only inferred from Accept-Language, or somebody who has since
+   * travelled) the key describes a different calendar day than the one the reader is in. It is read
+   * as prevDay when the next live message decides whether to group under the message above it, so a
+   * stale key silently breaks grouping at exactly the boundary a reader is watching.
+   *
+   * Cheap and idempotent: when the zones agree — the common case — every key is rewritten to the
+   * value it already had.
+   */
+  const rekeyServerDays = () => {
+    if (!messagesEl) return;
+    messagesEl.querySelectorAll('li.message[data-created-at]').forEach((li) => {
+      li.dataset.day = dayKey(new Date(li.dataset.createdAt));
+    });
+  };
+  rekeyServerDays();
 
   // ---------- Reactions / actions toolbar (mirrors chat.js patterns) ----------
   const renderReactionTray = (groups) => {
@@ -308,13 +335,15 @@
       return;
     }
     li.dataset.bodyMarkdown = msg.bodyMarkdown || '';
-    right.querySelectorAll('.message-body, .message-reactions, .message-attachments, .message-edit, .edited-tag, .thread-indicator').forEach(n => n.remove());
+    right.querySelectorAll('.message-body, .link-preview, .message-reactions, .message-attachments, .message-edit, .edited-tag, .thread-indicator').forEach(n => n.remove());
     const meta = right.querySelector('.message-meta');
     if (msg.bodyMarkdown) {
       const body = document.createElement('div');
       body.className = 'message-body';
       body.innerHTML = msg.bodyHtml || '';
       meta.after(body);
+      const preview = window.ChatKit.buildLinkPreviewEl(msg.linkPreview);
+      if (preview) body.after(preview);
     }
     if (msg.editedAt && meta && !meta.querySelector('.edited-tag')) {
       const tag = document.createElement('span');
@@ -497,6 +526,8 @@
       body.innerHTML = msg.bodyHtml || '';
       right.appendChild(body);
     }
+    const preview = window.ChatKit.buildLinkPreviewEl(msg.linkPreview);
+    if (preview) right.appendChild(preview);
     if (msg.reactions && msg.reactions.length) right.appendChild(renderReactionTray(msg.reactions));
     if (msg.attachments && msg.attachments.length) {
       right.appendChild(renderAttachmentTray(msg.attachments));
@@ -587,14 +618,17 @@
 
   // ---------- STOMP connection ----------
   const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
-  const stomp = new StompJs.Client({
+  // Presence.stompOptions() is not optional: it is the worker-driven heartbeat that keeps this
+  // socket alive in a background tab, and the idle-ms header that keeps a reconnect from reading
+  // as activity. Same shape as chat/index.js; keep the two identical.
+  const stomp = new StompJs.Client(Object.assign({
     brokerURL: wsUrl,
     reconnectDelay: 4000,
-  });
+  }, window.Presence ? window.Presence.stompOptions() : {}));
 
   // The conversation topic carries ConversationMessageDto (new message) and lightweight
-  // ConversationEvent envelopes (member-added, message-updated, message-deleted). Discriminate
-  // by the `type` field that only ConversationEvent carries.
+  // ConversationEvent envelopes (member-added, message-updated, message-deleted, link-preview).
+  // Discriminate by the `type` field that only ConversationEvent carries.
   // ---------- Read state ----------
   // The marker advances on live traffic, but only while the tab is actually in the foreground. A
   // conversation left open in a background tab must NOT silently mark incoming messages read: that
@@ -628,6 +662,13 @@
     }
     if (payload && payload.type === 'message-updated') {
       if (payload.message) replaceMessageDom(payload.message);
+      return;
+    }
+    if (payload && payload.type === 'link-preview') {
+      // The card for a message that contained a link, a moment after the message. Every copy on
+      // screen — the feed's and, if it is open on that message, the thread panel's.
+      const sel = 'li.message[data-id="' + CSS.escape(payload.messageId) + '"]';
+      document.querySelectorAll(sel).forEach((li) => window.ChatKit.applyLinkPreview(li, payload.linkPreview));
       return;
     }
     if (payload && payload.type === 'message-deleted') {

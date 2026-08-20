@@ -10,6 +10,7 @@ spring:
     url: ${ICHAT_DB_URL:jdbc:postgresql://localhost:5432/intellistream_chat}
     username: ${ICHAT_DB_USERNAME:ichat_role}
     password: ${ICHAT_DB_PASSWORD:ichat_role}
+    # Optional read replica: see ichat.datasource.replica below.
 
   jpa:
     hibernate:
@@ -81,6 +82,35 @@ ichat:
   assets:
     unbundled: ${ICHAT_ASSETS_UNBUNDLED:false}
 
+  # Optional second connection pool against a Postgres read replica (ReadReplicaDataSourceConfig).
+  # Off by default, and off means genuinely absent — no proxy, no second pool, nothing to go wrong.
+  #
+  # When enabled, a transaction annotated @Transactional(readOnly = true) is served from the
+  # replica; writes, migrations and raw JDBC access stay on the primary. That is the whole routing
+  # rule, and there is no per-query annotation. Note that a Spring Data repository call made
+  # outside a transaction counts as read-only — SimpleJpaRepository declares it — so it goes to
+  # the replica too.
+  #
+  # What it buys and what it costs: the primary stops serving the channel history, search result
+  # hydration and sidebar reads that make up most of the query volume, which is the relief worth
+  # having on a busy instance. The cost is that a replica lags, so a read-only transaction can see
+  # a slightly older world than the write that just returned. That is fine for reading history and
+  # wrong for a read that decides to delete something — the Lucene reconcile sweeps use a plain
+  # @Transactional for exactly that reason. Keep new code on the same rule.
+  #
+  # username/password are optional: blank inherits spring.datasource.*, which is what a streaming
+  # replica normally wants. Size the pool with ichat.datasource.replica.hikari.* (Boot's usual
+  # Hikari keys) — the read pool is generally the one that wants to be larger.
+  #
+  # All four keys can equally come from Vault as db.replica-enabled / db.replica-url /
+  # db.replica-username / db.replica-password.
+  datasource:
+    replica:
+      enabled: ${ICHAT_DB_REPLICA_ENABLED:false}
+      url: ${ICHAT_DB_REPLICA_URL:}
+      username: ${ICHAT_DB_REPLICA_USERNAME:}
+      password: ${ICHAT_DB_REPLICA_PASSWORD:}
+
   attachments:
     dir: ${ICHAT_ATTACHMENTS_DIR:./data/attachments}
     # Default total an account may store, in bytes (2 GiB). A per-account override lives in
@@ -139,6 +169,41 @@ ichat:
   # per-user zones.
   default-zone: ${ICHAT_DEFAULT_ZONE:}
 
+  # Identity. Accounts are keyed on the OIDC subject, which the identity provider promises not to
+  # change for a person — per realm. Move the app to a dedicated Keycloak realm with the old one
+  # brokered in as an identity provider, and everyone arrives with a new subject and their old
+  # email. With this on (the default) a never-seen subject whose email is VERIFIED and matches
+  # exactly one existing account re-keys that account instead of creating a second one; the
+  # history stays where it was. Unverified emails never link, and neither does an email two
+  # accounts already share. Turn it off where an address can be reassigned to a different person
+  # and must not inherit the previous holder's account.
+  identity:
+    link-by-verified-email: ${ICHAT_IDENTITY_LINK_BY_VERIFIED_EMAIL:true}
+
+  # Link previews: the card (title, description, site, picture) under a message that contains a
+  # URL. The server fetches the page once the message is durable, on a small pool of its own, and
+  # keeps one row per URL so the tenth person to paste an article costs no fetch. Every fetch —
+  # page, redirect hop, image — is refused for private, loopback, link-local and similar addresses
+  # (OutboundUrlGuard); this is what makes "paste a link" safe to have. The picture is copied to
+  # `dir` and served from this origin, never hotlinked (the CSP forbids it, and it would leak every
+  # reader's address to every linked site).
+  #   refresh-after       a good card is re-fetched when a new message posts the URL after this long
+  #   retry-failed-after  a page that failed or had nothing is not tried again before this
+  #   retention           rows nobody has posted in this long are purged, images included
+  #   threads / queue-capacity   the whole outbound budget; past the queue a card is dropped, the
+  #                              message is not
+  link-previews:
+    enabled: ${ICHAT_LINK_PREVIEWS_ENABLED:true}
+    dir: ${ICHAT_LINK_PREVIEWS_DIR:./data/link-previews}
+    max-html-bytes: ${ICHAT_LINK_PREVIEWS_MAX_HTML_BYTES:524288}
+    max-image-bytes: ${ICHAT_LINK_PREVIEWS_MAX_IMAGE_BYTES:3145728}
+    timeout: ${ICHAT_LINK_PREVIEWS_TIMEOUT:6s}
+    refresh-after: ${ICHAT_LINK_PREVIEWS_REFRESH_AFTER:7d}
+    retry-failed-after: ${ICHAT_LINK_PREVIEWS_RETRY_FAILED_AFTER:1h}
+    retention: ${ICHAT_LINK_PREVIEWS_RETENTION:180d}
+    threads: ${ICHAT_LINK_PREVIEWS_THREADS:2}
+    queue-capacity: ${ICHAT_LINK_PREVIEWS_QUEUE_CAPACITY:500}
+
   # Moderation. An admin removing messages is a SOFT delete: the rows stay, drop out of every
   # read path, and stay recoverable until the retention window passes — the first ban is
   # sometimes the wrong ban. RetentionPurgeScheduler then hard-deletes them for good.
@@ -159,20 +224,29 @@ ichat:
 
   # Optional Vault / OpenBao secret backend. Off by default — the env-var → application.yml
   # default chain handles credentials. When enabled=true, VaultEnvironmentPostProcessor reads
-  # secret/data/${path} and overrides spring.datasource.{username,password} +
-  # spring.security.oauth2.* before the auto-configurations consume them.
+  # the KV-v2 record at ${path} (<mount>/<key>, or a bare key under secret/) and overrides
+  # spring.datasource.* + spring.security.oauth2.* before the auto-configurations consume them.
   #
-  # Vault record shape (KV-v2 fields):
-  #   db.username             - Postgres role
-  #   db.password             - Postgres password
-  #   keycloak.client-id      - OIDC client id
-  #   keycloak.client-secret  - OIDC client secret
-  #   keycloak.issuer-uri     - Keycloak realm URL (used by both client + resource server)
+  # Vault record shape (KV-v2 fields, each optional):
+  #   db.url / db.username / db.password              - Postgres connection
+  #   db.replica-enabled / -url / -username / -password - optional read replica
+  #   keycloak.client-id / keycloak.client-secret       - OIDC client
+  #   keycloak.issuer-uri                              - realm URL (client + resource server)
+  #
+  # Exactly one credential: a token, or an AppRole (role-id + secret-id; either half may come from
+  # a file via the -file variant, which is how systemd LoadCredential= hands a secret over). With
+  # AppRole the token is minted at boot, used for the single read and revoked; it never appears in
+  # the environment.
   vault:
     enabled: ${ICHAT_VAULT_ENABLED:false}
     uri: ${ICHAT_VAULT_URI:}
-    token: ${ICHAT_VAULT_TOKEN:}
     path: ${ICHAT_VAULT_PATH:intellistream-chat}
+    token: ${ICHAT_VAULT_TOKEN:}
+    role-id: ${ICHAT_VAULT_ROLE_ID:}
+    role-id-file: ${ICHAT_VAULT_ROLE_ID_FILE:}
+    secret-id: ${ICHAT_VAULT_SECRET_ID:}
+    secret-id-file: ${ICHAT_VAULT_SECRET_ID_FILE:}
+    approle-path: ${ICHAT_VAULT_APPROLE_PATH:approle}
 
 logging:
   level:

@@ -18,6 +18,8 @@ package ai.intellistream.chat.service;
 
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -34,17 +36,60 @@ import java.util.concurrent.ConcurrentHashMap;
  * {@link #isOnline}/{@link #onlineUsernames} can read it without locking. The map never holds an
  * empty set (compute returns {@code null} to drop it), so its key set is exactly the online users.
  *
+ * <p>It also holds <b>when each online user last did something</b>, which is what auto-AWAY is
+ * derived from. That used to be {@code users.last_active_at}, and that column is a record of the
+ * last authenticated <em>HTTP request</em> — which is a poor proxy for a person and was wrong in
+ * both directions here. Someone reading a busy channel makes no HTTP requests at all, and neither
+ * does someone chatting: a send goes over STOMP, and the send path is deliberately query-free, so
+ * it never touches the column. Ten minutes of active conversation turned the sender yellow. Going
+ * the other way, background polls kept the column fresh for a tab nobody was looking at.
+ *
+ * <p>So the browser reports it instead — {@code presence.js} pings over the socket when there is
+ * real input — and it is kept here rather than written to the database because it changes every
+ * few seconds, is worthless after a restart, and is only ever read together with the session set
+ * next to it. Held only for users who are online; the entry is dropped with their last session.
+ *
  * <p>State resets on app restart by design; the persisted custom status is the only thing that
  * survives. Single-instance only — multi-node would swap this for shared state (see the
- * horizontal-scaling notes / AGENT.md's RateLimiter migration path).
+ * horizontal-scaling notes / AGENTS.md's RateLimiter migration path).
  */
 @Component
 public class PresenceTracker {
 
     private final ConcurrentHashMap<String, Set<String>> sessions = new ConcurrentHashMap<>();
 
-    /** Returns true when this is the first session for {@code username} (i.e. they just came online). */
+    /**
+     * Last time each online user was observed doing something. Only ever holds keys that are also
+     * in {@link #sessions}: an offline user has no activity to be stale, and leaving the entry
+     * behind would make a returning user's first moments look idle.
+     */
+    private final ConcurrentHashMap<String, Instant> lastActivity = new ConcurrentHashMap<>();
+
+    /**
+     * Returns true when this is the first session for {@code username} (i.e. they just came online).
+     *
+     * <p>Counts the connect as activity happening now. Right for a page load; for a reconnect use
+     * {@link #connect(String, String, Instant)} with what the client reported.
+     */
     public boolean connect(String username, String sessionId) {
+        return connect(username, sessionId, Instant.now());
+    }
+
+    /**
+     * As {@link #connect(String, String)}, with the moment the person behind this session last did
+     * something — which the browser knows and the server does not.
+     *
+     * <p>A fresh page load reports "just now", and that is the activity it always was: a second
+     * window is a person doing something, and treating it as nothing would leave them AWAY while
+     * they were plainly there. A <em>reconnect</em> reports how long the tab has been untouched,
+     * and is stamped accordingly — so a background tab whose socket was dropped and redialled comes
+     * back as the AWAY it was, not as a burst of green that nobody caused. See
+     * {@code ClientIdleHeader} for why that used to happen.
+     *
+     * <p>The stamp never moves backwards: with a second tab already open and active, a stale claim
+     * from a reconnecting first tab must not undo what the live one has said.
+     */
+    public boolean connect(String username, String sessionId, Instant lastInputAt) {
         if (username == null || username.isBlank() || sessionId == null) return false;
         boolean[] cameOnline = {false};
         sessions.compute(username, (k, set) -> {
@@ -54,6 +99,8 @@ public class PresenceTracker {
             cameOnline[0] = wasEmpty && !set.isEmpty();
             return set;
         });
+        var at = lastInputAt == null ? Instant.now() : lastInputAt;
+        lastActivity.merge(username, at, (known, claimed) -> known.isAfter(claimed) ? known : claimed);
         return cameOnline[0];
     }
 
@@ -70,6 +117,9 @@ public class PresenceTracker {
             }
             return set;
         });
+        if (!isOnline(username)) {
+            lastActivity.remove(username);
+        }
         return wentOffline[0];
     }
 
@@ -83,8 +133,45 @@ public class PresenceTracker {
         return Set.copyOf(sessions.keySet());
     }
 
+    /**
+     * Record that {@code username} just did something in their browser.
+     *
+     * <p>Ignored for a user with no live session: activity without a socket is not a state this
+     * can represent, and storing it would leak an entry that nothing ever removes.
+     */
+    public void noteActivity(String username) {
+        noteActivity(username, Instant.now());
+    }
+
+    /** As {@link #noteActivity(String)}, with an explicit instant — for tests and for backdating. */
+    public void noteActivity(String username, Instant at) {
+        if (username == null || at == null || !isOnline(username)) return;
+        lastActivity.put(username, at);
+    }
+
+    /** When this user was last seen doing something, or null if they are not online. */
+    public Instant lastActivityAt(String username) {
+        return username == null ? null : lastActivity.get(username);
+    }
+
+    /**
+     * True when this user has a live socket but has not done anything for {@code threshold}.
+     *
+     * <p>False for a user who is not online at all — being offline is a different state, and
+     * conflating the two is what would let "no socket" render as the same colour as "at lunch".
+     */
+    public boolean isIdle(String username, Duration threshold, Instant now) {
+        if (!isOnline(username)) return false;
+        var last = lastActivity.get(username);
+        // A connected user we have never heard from counts as active rather than idle: connect
+        // stamps an activity, so this only happens in the window before that lands.
+        if (last == null) return false;
+        return Duration.between(last, now).compareTo(threshold) >= 0;
+    }
+
     /** Test hook — wipes all sessions. */
     public void resetForTests() {
         sessions.clear();
+        lastActivity.clear();
     }
 }

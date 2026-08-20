@@ -47,13 +47,16 @@ public class ConversationWebSocketController {
     private final SimpMessagingTemplate broker;
     private final RateLimiter rateLimiter;
     private final ConversationAlertPublisher alerts;
+    private final LinkPreviews linkPreviews;
 
     public ConversationWebSocketController(ConversationService conversations,
                                            MarkdownRenderer markdown,
                                            CurrentUser currentUser,
                                            SimpMessagingTemplate broker,
                                            RateLimiter rateLimiter,
-                                           ConversationAlertPublisher alerts) {
+                                           ConversationAlertPublisher alerts,
+                                           LinkPreviews linkPreviews) {
+        this.linkPreviews = linkPreviews;
         this.conversations = conversations;
         this.markdown = markdown;
         this.currentUser = currentUser;
@@ -74,6 +77,7 @@ public class ConversationWebSocketController {
         var saved = conversations.post(conversation, user, payload.body());
         var dto = ConversationMessageDto.from(saved, markdown.renderInConversation(saved.getBodyMarkdown()));
         broker.convertAndSend("/topic/conversations/" + conversationId, dto);
+        linkPreviews.unfurl(dto);
         // Separately, tell members who aren't subscribed to this conversation right now — the
         // topic above only reaches the page they'd have to already be looking at.
         alerts.alert(conversation, saved);

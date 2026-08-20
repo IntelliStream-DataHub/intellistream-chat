@@ -324,6 +324,40 @@ pool of 10 — worth knowing before you copy a number from here into production.
 acquire time at 13,000 posts/second is 0.03 ms with zero pending — the pool is not a constraint at
 this rate, and raising it would not help. Postgres itself sat at ~10% CPU.
 
+### Read replica
+
+`ichat.datasource.replica.enabled=true` plus a URL adds a second Hikari pool against a standby, and
+every `@Transactional(readOnly = true)` is served from it. Writes, Flyway and raw JDBC access stay
+on the primary. Sized separately through `ichat.datasource.replica.hikari.*`.
+
+Most of the read volume moves. A `GET /channels/{id}` runs about fourteen read-only transactions
+(the `CurrentUser` lookup, sidebar, conversations, the message page and its attachments, reactions,
+reply counts and polls, membership, notification level) against a single primary read — the one
+inside `markRead`'s write. An endpoint that only reads puts nothing on the primary at all. Call it
+**90–95% of `SELECT`s on a read-heavy mix**, and 100% for the pure-read endpoints.
+
+That depends on `CurrentUser` resolving a settled principal through `UserService.findUnchanged`
+rather than `upsert` — see the `CurrentUser` bullet in AGENTS.md. Before that fast path existed,
+every authenticated request spent two `SELECT`s inside a writable transaction just to identify the
+caller, which pinned the figure nearer 80% and made small API calls a roughly even split. It is
+the single change that decides whether a replica is worth having: it is a fixed per-request cost,
+so it dominates exactly the light endpoints a replica is otherwise best at absorbing.
+
+WebSocket sends contribute almost no read volume either way — the send path is deliberately
+query-free, and the user is resolved once at CONNECT rather than per frame. Both pools are named
+(`ichat-writer`, `ichat-reader`), so measure the real split per pool rather than trusting this
+paragraph.
+
+Note what the numbers above say about when this is worth doing: at 17,000 messages/second Postgres
+is at ~10% CPU, so the write path is nowhere near needing relief. **The case for a replica here is
+read volume and availability, not write throughput** — a workspace whose history, search hydration
+and sidebar reads dominate the query mix, or a deployment that wants the primary reserved for
+writes. Adding one to chase message throughput will not move the number this document reports.
+
+The cost is that a replica lags, so a read-only transaction may see a slightly older world than the
+write that just returned. Reads that decide to *delete* something must therefore stay on the
+primary; the Lucene reconcile sweeps do, deliberately. See the read-replica bullet in AGENTS.md.
+
 ### Kernel
 
 The stock kernel is provisioned for a workstation, not 10⁵ sockets. Persist these in

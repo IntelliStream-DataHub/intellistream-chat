@@ -16,12 +16,14 @@
 
 package ai.intellistream.chat.web;
 
+import ai.intellistream.chat.config.ClientIdleHeader;
 import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.repository.UserRepository;
 import ai.intellistream.chat.service.PresenceService;
 import ai.intellistream.chat.service.PresenceTracker;
 import ai.intellistream.chat.web.dto.PresenceDto;
 import org.springframework.context.event.EventListener;
+import org.springframework.messaging.simp.SimpAttributesContextHolder;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.messaging.simp.stomp.StompHeaderAccessor;
@@ -29,6 +31,7 @@ import org.springframework.web.socket.messaging.SessionConnectedEvent;
 import org.springframework.web.socket.messaging.SessionDisconnectEvent;
 
 import java.security.Principal;
+import java.time.Instant;
 import java.util.Optional;
 
 /**
@@ -58,11 +61,32 @@ public class PresenceEventListener {
     @EventListener
     public void onConnect(SessionConnectedEvent event) {
         var sessionId = StompHeaderAccessor.wrap(event.getMessage()).getSessionId();
+        var lastInputAt = lastInputAt();
         resolveUser(event.getUser()).ifPresent(user -> {
-            if (!tracker.connect(user.getUsername(), sessionId)) return;
+            if (!tracker.connect(user.getUsername(), sessionId, lastInputAt)) return;
             // First session for this user — load their persisted status (if any) and announce.
+            // presenceFor derives the kind from the backdated stamp, so a reconnecting background
+            // tab announces itself as AWAY rather than ACTIVE.
             broker.convertAndSend("/topic/presence", presenceService.presenceFor(user));
         });
+    }
+
+    /**
+     * When the connecting client says its person last did something, or now if it did not say.
+     *
+     * <p>{@code StompAuthorizationConfig} parsed the {@code idle-ms} CONNECT header onto the session
+     * attributes; Spring publishes {@code SessionConnectedEvent} with those attributes bound to
+     * {@link SimpAttributesContextHolder}, which is the only handle this listener has on them —
+     * the CONNECTED frame it receives is built fresh and carries none of the client's headers.
+     * No attributes (a test harness, a future transport) means "now", the pre-header behaviour.
+     */
+    private static Instant lastInputAt() {
+        var attributes = SimpAttributesContextHolder.getAttributes();
+        if (attributes != null
+                && attributes.getAttribute(ClientIdleHeader.SESSION_KEY) instanceof Instant at) {
+            return at;
+        }
+        return Instant.now();
     }
 
     @EventListener

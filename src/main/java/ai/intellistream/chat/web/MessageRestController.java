@@ -60,6 +60,7 @@ public class MessageRestController {
     private final SimpMessagingTemplate broker;
     private final RateLimiter rateLimiter;
     private final PollService pollService;
+    private final LinkPreviews linkPreviews;
 
     public MessageRestController(MessageService messageService,
                                  AttachmentService attachmentService,
@@ -69,7 +70,9 @@ public class MessageRestController {
                                  CurrentUser currentUser,
                                  SimpMessagingTemplate broker,
                                  RateLimiter rateLimiter,
-                                 PollService pollService) {
+                                 PollService pollService,
+                                 LinkPreviews linkPreviews) {
+        this.linkPreviews = linkPreviews;
         this.messageService = messageService;
         this.attachmentService = attachmentService;
         this.channelService = channelService;
@@ -112,8 +115,10 @@ public class MessageRestController {
         // The poll has to be in here. Without it the update event carries poll=null and every
         // client re-renders the message without its widget — reacting to a poll made the poll
         // disappear for everyone until they reloaded.
-        var dto = MessageDto.from(message, markdown.render(message.getBodyMarkdown()), attachments,
-                reactions, 0, java.util.List.of(), pollService.pollFor(message, viewer));
+        // And the link card, for the same reason: clients re-render the whole message from this
+        // frame, so a reaction on a message with a card would otherwise take the card away.
+        var dto = linkPreviews.decorate(MessageDto.from(message, markdown.render(message.getBodyMarkdown()),
+                attachments, reactions, 0, java.util.List.of(), pollService.pollFor(message, viewer)));
         broker.convertAndSend("/topic/channels/" + dto.channelId(), MessageEvent.updated(dto));
         return dto;
     }
@@ -173,7 +178,11 @@ public class MessageRestController {
             return broadcastUpdate(updated, me);
         }
         var updated = messageService.edit(id, me, body.body());
-        return broadcastUpdate(updated, me);
+        var dto = broadcastUpdate(updated, me);
+        // The edit may have introduced or swapped the link; a card it already had rode on the
+        // update frame above, a new one arrives as its own event.
+        if (dto.linkPreview() == null) linkPreviews.unfurl(dto);
+        return dto;
     }
 
     @DeleteMapping("/{id}")
@@ -207,7 +216,9 @@ public class MessageRestController {
                         attachmentMap.getOrDefault(r.getId(), List.of()),
                         reactionMap.getOrDefault(r.getId(), List.of())))
                 .toList();
-        return new ThreadDto(parentDto, replyDtos);
+        var decorated = linkPreviews.decorate(
+                java.util.stream.Stream.concat(java.util.stream.Stream.of(parentDto), replyDtos.stream()).toList());
+        return new ThreadDto(decorated.getFirst(), decorated.subList(1, decorated.size()));
     }
 
     @PostMapping("/{id}/replies")
@@ -228,6 +239,7 @@ public class MessageRestController {
         var dto = MessageDto.from(saved, markdown.render(saved.getBodyMarkdown()))
                 .withThreadParticipants(participants);
         broker.convertAndSend("/topic/channels/" + dto.channelId(), MessageEvent.created(dto));
+        linkPreviews.unfurl(dto);
         // The sender's own copy has no use for the list, and it names other people; strip it.
         return dto.withThreadParticipants(List.of());
     }

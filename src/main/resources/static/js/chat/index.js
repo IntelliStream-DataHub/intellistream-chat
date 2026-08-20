@@ -29,6 +29,7 @@ import * as chrome from './chrome.js';
 import { initSearchBox } from './search-box.js';
 import { openPollModal } from './poll-modal.js';
 import { openForwardDialog } from './forward-dialog.js';
+import { openFindUserModal } from './find-user-dialog.js';
 import * as presenceMenu from './presence-menu.js';
 
 chrome.init();
@@ -104,7 +105,9 @@ presenceMenu.init();
     const open = () => {
       adminDropdown.hidden = false;
       adminCog.setAttribute('aria-expanded', 'true');
-      adminDropdown.querySelector('input[name="username"]')?.focus();
+      // Deliberately no autofocus into the invite field: this panel is "Channel settings" as a
+      // whole (rename, notifications, archive, delete...), and jumping the caret straight into
+      // "invite user" on every open assumed that was the one thing anyone opened it for.
     };
     const close = () => {
       adminDropdown.hidden = true;
@@ -526,6 +529,14 @@ presenceMenu.init();
       }
     });
   }
+
+  // ---------- Find user (browse + add) ----------
+  document.getElementById('find-user-btn')?.addEventListener('click', () => {
+    openFindUserModal({
+      channelId: document.getElementById('find-user-btn').dataset.channelId,
+      headers,
+    });
+  });
 
   // ---------- Poll builder ----------
   // The button fills the composer with the command and submits it, rather than posting by
@@ -1035,6 +1046,13 @@ presenceMenu.init();
     // participants; putting either in the bell would turn "things addressed to me" into
     // "everything", which is the one thing it is for.
     if (mentioned && window.MentionInbox) window.MentionInbox.notifyMention();
+    // The tab icon, before the DND gate inside MentionNotifications.show — a pulsing favicon is an
+    // unread marker rather than an interruption, and DND leaves those alone (see notifications.js).
+    // Skipped when they are looking straight at the channel it happened in, which is the same
+    // condition the toast is skipped on and for the same reason: they have already seen it.
+    const watchingIt = isActiveChannel
+        && document.visibilityState === 'visible' && document.hasFocus();
+    if (mentioned && !watchingIt) window.FaviconAlert?.pulse();
     if (!window.MentionNotifications) return;
     if (isActiveChannel && document.visibilityState === 'visible' && document.hasFocus()) {
       // An ordinary message in a channel set to ALL makes no sound: you are looking straight at it.
@@ -1072,10 +1090,13 @@ presenceMenu.init();
     // inject inline <script> tags and break our strict CSP (script-src 'self'). Modern browsers
     // all support WebSocket directly.
     const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
-    const stomp = new StompJs.Client({
+    // Presence.stompOptions() is not optional: it is the worker-driven heartbeat that keeps this
+    // socket alive in a background tab, and the idle-ms header that keeps a reconnect from reading
+    // as activity. Same shape as conversation.js; keep the two identical.
+    const stomp = new StompJs.Client(Object.assign({
       brokerURL: wsUrl,
       reconnectDelay: 4000,
-    });
+    }, window.Presence ? window.Presence.stompOptions() : {}));
 
     const myUsername = meta('me-username');
     let stompConnectedBefore = false;
@@ -1432,7 +1453,15 @@ presenceMenu.init();
       } else if (event.type === 'deleted') {
         removeMessageDom(event.id);
         if (event.parentId) bumpThreadIndicator(event.parentId, -1);
-      } else if (event.type === 'poll-vote') {
+      } else if (event.type === 'link-preview') {
+      // The card for a message that contained a link, a moment after the message itself. Same
+      // narrow shape as poll-vote: id + one field, no MessageDto. Falls silently through if the
+      // message is not on screen (older than the loaded window, or in a thread panel that is
+      // closed) — the next load carries it on the DTO.
+      // Both copies, when the thread panel shows the same message as the feed.
+      const sel = 'li.message[data-id="' + CSS.escape(event.id) + '"]';
+      document.querySelectorAll(sel).forEach((li) => ChatKit.applyLinkPreview(li, event.linkPreview));
+    } else if (event.type === 'poll-vote') {
         applyPollUpdate(event.id, event.poll);
       }
     };
@@ -1698,8 +1727,10 @@ presenceMenu.init();
 
   // formatDay is page-local (channel-feed day-divider label); other date helpers come from ChatKit.
   // fuzzyMatch / levenshtein moved to ./shared.js so chat/chrome.js (sidebar filter) can use them.
-  const formatDay = (d) =>
-      d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+  // The label itself comes from ChatTime so it lands in the same zone as the timestamps it sits
+  // above — a divider drawn in the browser's zone over messages stamped in another one puts
+  // "Tuesday" partway through Monday evening.
+  const formatDay = (d) => ChatTime.formatDay(d);
 
   const lastMessageEl = () => {
     const items = messagesEl.querySelectorAll('li.message');
@@ -1756,6 +1787,11 @@ presenceMenu.init();
       highlightCode(body);
       right.append(body);
     }
+
+    // The link card sits right under the body it belongs to; a create broadcast carries none
+    // and the `link-preview` event slots it in a moment later (see handleMessageEvent).
+    const preview = ChatKit.buildLinkPreviewEl(msg.linkPreview);
+    if (preview) right.append(preview);
 
     if (msg.poll) {
       right.append(renderPollWidget(msg.poll));
@@ -1862,11 +1898,13 @@ presenceMenu.init();
     positionDayDividers();
   };
 
-  // Server-rendered messages carry data-day and <time> formatted in the SERVER's timezone, but
-  // live-appended messages use the BROWSER's zone (dayKey/formatTime). For a viewer in a different
-  // zone that mismatch gives wrong day dividers/grouping at boundaries and timestamps that disagree
-  // between old and new messages. Re-key every server-rendered message from its data-created-at in
-  // the browser zone once on load, then rebuild dividers so everything is consistently client-zone.
+  // The server now renders data-day and <time> in the viewer's own zone (TimeView), so this is no
+  // longer papering over a server/client split — <time> text is already handled generically by
+  // ChatTime.rewriteAll(). What still has to happen here is the *keys*: when the browser's detected
+  // zone overrules the zone the server had (a fresh account whose zone was only guessed from
+  // Accept-Language, or somebody who has travelled), data-day was computed for the old zone, and a
+  // stale key puts the divider and the run-grouping on the wrong message. Re-key from
+  // data-created-at and rebuild.
   const hydrateServerTimestamps = () => {
     if (!messagesEl) return;
     messagesEl.querySelectorAll('li.message').forEach((li) => {
@@ -2792,7 +2830,7 @@ presenceMenu.init();
       return;
     }
     li.dataset.bodyMarkdown = newBody;
-    right.querySelectorAll('.message-body, .message-attachments, .message-reactions, .message-edit, .edited-tag, .poll-widget').forEach(n => n.remove());
+    right.querySelectorAll('.message-body, .link-preview, .message-attachments, .message-reactions, .message-edit, .edited-tag, .poll-widget').forEach(n => n.remove());
     const meta = right.querySelector('.message-meta');
     if (msg.bodyMarkdown) {
       const body = document.createElement('div');
@@ -2801,6 +2839,10 @@ presenceMenu.init();
       highlightCode(body);
       meta.after(body);
       if (isEdit) flashEdited(body);
+      // The update frame carries the card the message already has (the server decorates it);
+      // a link the edit just introduced arrives as its own event afterwards.
+      const preview = ChatKit.buildLinkPreviewEl(msg.linkPreview);
+      if (preview) body.after(preview);
     }
     if (msg.editedAt && meta && !meta.querySelector('.edited-tag')) {
       const tag = document.createElement('span');
@@ -3127,6 +3169,8 @@ presenceMenu.init();
       highlightCode(body);
       right.appendChild(body);
     }
+    const preview = ChatKit.buildLinkPreviewEl(msg.linkPreview);
+    if (preview) right.appendChild(preview);
     if (msg.reactions && msg.reactions.length) {
       right.appendChild(renderReactionTray(msg.reactions));
     }

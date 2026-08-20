@@ -21,6 +21,8 @@
  * would ship it the whole composer to draw a list of links.
  */
 //= require theme-loader.js
+//= require time-format.js
+//= require session-watch.js
 //= require hovercard.js
 //= require mention-inbox.js
 //= require presence.js

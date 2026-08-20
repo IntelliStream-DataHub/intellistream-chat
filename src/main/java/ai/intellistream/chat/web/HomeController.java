@@ -26,6 +26,7 @@ import ai.intellistream.chat.service.MessageService;
 import ai.intellistream.chat.service.ConversationReactionService;
 import ai.intellistream.chat.service.ReactionService;
 import ai.intellistream.chat.service.ReadStateService;
+import ai.intellistream.chat.i18n.TimeFormats;
 import ai.intellistream.chat.service.SidebarService;
 import ai.intellistream.chat.web.dto.ConversationDto;
 import ai.intellistream.chat.web.dto.ConversationMessageDto;
@@ -38,6 +39,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 
 import java.security.Principal;
 import java.util.List;
+import java.util.Locale;
 
 @Controller
 public class HomeController {
@@ -55,6 +57,9 @@ public class HomeController {
     private final ai.intellistream.chat.service.NotificationPreferenceService notificationPreferences;
     private final MarkdownRenderer markdown;
     private final CurrentUser currentUser;
+    private final LinkPreviews linkPreviews;
+    /** Resolves the viewer's zone and clock conventions for every timestamp on the page. */
+    private final TimeFormats timeFormats;
 
     public HomeController(SidebarService sidebarService,
                           ChannelService channelService,
@@ -68,7 +73,11 @@ public class HomeController {
                           ai.intellistream.chat.service.PollService pollService,
                           ai.intellistream.chat.service.NotificationPreferenceService notificationPreferences,
                           MarkdownRenderer markdown,
-                          CurrentUser currentUser) {
+                          CurrentUser currentUser,
+                          LinkPreviews linkPreviews,
+                          TimeFormats timeFormats) {
+        this.timeFormats = timeFormats;
+        this.linkPreviews = linkPreviews;
         this.sidebarService = sidebarService;
         this.channelService = channelService;
         this.messageService = messageService;
@@ -90,9 +99,10 @@ public class HomeController {
     }
 
     @GetMapping("/channels")
-    public String channels(Principal principal, Model model) {
+    public String channels(Principal principal, Locale locale, Model model) {
         var me = currentUser.resolve(principal);
         model.addAttribute("me", me);
+        timeFormats.into(model, me, locale);
         model.addAttribute("sidebar", sidebarService.joinedFor(me));
         model.addAttribute("conversations", listDirectConversations(me));
         model.addAttribute("activeChannelId", null);
@@ -107,8 +117,9 @@ public class HomeController {
     @GetMapping("/channels/{id}")
     public String channel(@PathVariable Long id,
                           @org.springframework.web.bind.annotation.RequestParam(name = "m", required = false) Long anchorMessageId,
-                          Principal principal, Model model) {
+                          Principal principal, Locale locale, Model model) {
         var me = currentUser.resolve(principal);
+        timeFormats.into(model, me, locale);
         var channel = channelService.requireById(id);
         var member = channelService.isMember(channel, me);
         var admin = channelService.isAdmin(channel, me);
@@ -133,14 +144,14 @@ public class HomeController {
                 var reactions = reactionService.groupingsFor(rows, me);
                 var replyCounts = messageService.threadReplyCounts(rows);
                 var polls = pollService.pollsForMessages(rows, me);
-                messages = rows.stream()
+                messages = linkPreviews.decorate(rows.stream()
                         .map(m -> MessageDto.from(m, markdown.render(m.getBodyMarkdown()),
                                 attachments.getOrDefault(m.getId(), List.of()),
                                 reactions.getOrDefault(m.getId(), List.of()),
                                 replyCounts.getOrDefault(m.getId(), 0L),
                                 List.of(),
                                 polls.get(m.getId())))
-                        .toList();
+                        .toList());
             } catch (AccessDeniedException ignored) {
                 // private channel, not a member -> render join screen
             }
@@ -200,8 +211,9 @@ public class HomeController {
     }
 
     @GetMapping("/conversations/{id}")
-    public String conversation(@PathVariable Long id, Principal principal, Model model) {
+    public String conversation(@PathVariable Long id, Principal principal, Locale locale, Model model) {
         var me = currentUser.resolve(principal);
+        timeFormats.into(model, me, locale);
         var conversation = conversationService.requireById(id);
         // Membership enforced inside recent(); throws AccessDeniedException if the viewer
         // isn't part of this DM, which the global handler turns into a 403.
@@ -209,14 +221,14 @@ public class HomeController {
         var attachmentMap = conversationAttachmentService.findForMessages(rows);
         var reactionMap = conversationReactionService.groupingsFor(rows, me);
         var replyCounts = conversationService.threadReplyCounts(rows);
-        var messages = rows.stream()
+        var messages = linkPreviews.decorateConversation(rows.stream()
                 .map(m -> ConversationMessageDto.from(m,
                         markdown.renderInConversation(m.getBodyMarkdown()),
                         attachmentMap.getOrDefault(m.getId(), List.of()),
                         reactionMap.getOrDefault(m.getId(), List.of()),
                         replyCounts.getOrDefault(m.getId(), 0L),
                         List.of()))
-                .toList();
+                .toList());
 
         var other = conversation.getType() == ConversationType.DIRECT
                 ? conversationService.members(conversation).stream()

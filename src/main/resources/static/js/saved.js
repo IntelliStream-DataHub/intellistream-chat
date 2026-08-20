@@ -51,11 +51,13 @@
     return h;
   };
 
+  // Zone, locale, clock and date order all come from ChatTime, so a save shows the same time here
+  // as the message does in the channel it was saved from.
   const formatWhen = (iso) => {
     if (!iso) return '';
-    const d = new Date(iso);
-    return d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })
-        + ' · ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    const date = ChatTime.formatDate(iso);
+    const time = ChatTime.formatTime(iso);
+    return date && time ? date + ' · ' + time : (date || time);
   };
 
   const showError = (msg) => {

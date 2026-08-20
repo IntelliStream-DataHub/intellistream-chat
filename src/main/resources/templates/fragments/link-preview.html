@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+<!--/*
+  The card under a message that contains a link, for server-rendered messages. The live copy is
+  ChatKit.buildLinkPreviewEl in static/js/chat-kit.js — same markup, same class names, and the
+  reason for both is in that file's comment. Change one, change the other.
+
+  Usage:
+    <a th:replace="~{fragments/link-preview :: card(${msg.linkPreview})}"></a>
+
+  Renders nothing for a null preview. The whole card is one <a> to the page, opened like the link
+  in the body (new tab, noopener noreferrer nofollow). The <img> is the server's copy under
+  /api/link-previews/images/<key>, never the page's own picture — and not class="attachment-image",
+  which the lightbox delegate would catch: a preview picture is a link to a page, not a picture to
+  zoom.
+*/-->
+<a th:fragment="card(p)" th:if="${p != null}" class="link-preview"
+   th:href="${p.url}" target="_blank" rel="noopener noreferrer nofollow">
+    <img th:if="${p.imageUrl != null}" class="link-preview-image" th:src="@{${p.imageUrl}}" alt="" loading="lazy"/>
+    <span class="link-preview-text">
+        <span th:if="${p.siteName != null}" class="link-preview-site" th:text="${p.siteName}">example.com</span>
+        <span class="link-preview-title" th:text="${p.title}">Title</span>
+        <span th:if="${p.description != null}" class="link-preview-desc" th:text="${p.description}">Description</span>
+    </span>
+</a>
+</body>
+</html>

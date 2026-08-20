@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+<!--/*
+  "We could not work out your time zone." Rendered above the feed when, and only when, every
+  automatic answer came up empty: no profile choice, no stored browser detection, no zoneinfo claim
+  from the identity provider, and an Accept-Language that names no single-zone country — a bare
+  `en` is the common one, since English implies the United States and the United States keeps six
+  clocks. Times on the page are then the server's default, which is a fallback and not a fact, so
+  the page says so instead of pretending.
+
+  Most people never see it. time-format.js asks the browser directly on load, and a browser that
+  answers both fixes the page in place and posts the answer back, which retires this banner. What is
+  left is the corner where that cannot happen: scripts blocked, an ancient browser, or a locked-down
+  environment where Intl reports nothing.
+
+  Dismissible, and dismissal is remembered server-side (users.zone_prompt_dismissed). A nudge that
+  returns on every page load is nagging, and the condition behind it does not fix itself.
+
+  Include inside the message column:
+      <div th:replace="~{fragments/zone-prompt :: banner}"></div>
+*/-->
+<div th:fragment="banner" th:if="${askForZone}" id="zone-prompt" class="zone-prompt" role="status">
+    <svg class="icon" aria-hidden="true"><use href="#icon-clock"/></svg>
+    <p class="zone-prompt-text">
+        <strong>Times here may be wrong.</strong>
+        We could not tell which time zone you are in, so message times are shown in
+        <code th:text="${fmt.zoneId()}">UTC</code>. Pick your zone and how you like dates and
+        times written in your profile.
+    </p>
+    <!--/* Straight to the section, not just the page: the profile has six of them and the one
+           this is about is halfway down. */-->
+    <a class="zone-prompt-go" th:href="|@{/profile}#timezone-section|">Set my time zone</a>
+    <button type="button" id="zone-prompt-dismiss" class="zone-prompt-dismiss"
+            title="Dismiss" aria-label="Dismiss">
+        <svg class="icon" aria-hidden="true"><use href="#icon-close"/></svg>
+    </button>
+</div>
+</body>
+</html>

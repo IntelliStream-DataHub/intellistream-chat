@@ -171,6 +171,15 @@ public class MarkdownRenderer {
         return doc.body().html();
     }
 
+    /**
+     * Whether {@link #embedVideos} would already have put a player after this URL. Link previews
+     * ask before unfurling, so a YouTube or Vimeo link gets the player and not a card underneath it
+     * as well — one embed per link, and the player is the better one.
+     */
+    public static boolean embedsVideo(String url) {
+        return matchFirst(url, YT_SHORTS, YT_WATCH, YT_BE, YT_EMBED, VIMEO) != null;
+    }
+
     private static String matchFirst(String url, Pattern... patterns) {
         if (url == null) return null;
         for (var p : patterns) {

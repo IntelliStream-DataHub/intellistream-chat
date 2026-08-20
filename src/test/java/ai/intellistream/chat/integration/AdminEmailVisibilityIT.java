@@ -39,6 +39,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.security.Principal;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -108,9 +109,14 @@ class AdminEmailVisibilityIT {
                 mock(ai.intellistream.chat.moderation.MessageModerationService.class),
                 storageQuotas,
                 auditMock(),
-                // Same reasoning: this IT never unarchives anything, and the console's unarchive
-                // escape hatch is covered by ChannelLifecycleIT at the service level.
-                mock(ai.intellistream.chat.service.ChannelService.class));
+                // Same reasoning: this IT never unarchives or deletes anything; the console's
+                // unarchive escape hatch is covered by ChannelLifecycleIT at the service level and
+                // the delete form's confirmation by ChannelDestructionTest.
+                mock(ai.intellistream.chat.service.ChannelService.class),
+                mock(ai.intellistream.chat.web.ChannelDestruction.class),
+                // Real, not mocked: the console's timestamp columns run through it, and a null
+                // TimeView would fail every render here for a reason unrelated to email masking.
+                new ai.intellistream.chat.i18n.TimeFormats(""));
         // Capture the existing value so the suite is reentrant — every test restores it on teardown.
         originalSetting = settings.current().isExposeUserEmails();
     }
@@ -193,7 +199,7 @@ class AdminEmailVisibilityIT {
         settings.setExposeUserEmails(true);
 
         var model = new ConcurrentModel();
-        controller.index(mock(Principal.class), model);
+        controller.index(mock(Principal.class), Locale.UK, model);
 
         var rows = (List<Map<String, Object>>) model.getAttribute("userRows");
         assertThat(rows).isNotNull();
@@ -211,7 +217,7 @@ class AdminEmailVisibilityIT {
         settings.setExposeUserEmails(false);
 
         var model = new ConcurrentModel();
-        controller.index(mock(Principal.class), model);
+        controller.index(mock(Principal.class), Locale.UK, model);
 
         var rows = (List<Map<String, Object>>) model.getAttribute("userRows");
         assertThat(rows).isNotNull();

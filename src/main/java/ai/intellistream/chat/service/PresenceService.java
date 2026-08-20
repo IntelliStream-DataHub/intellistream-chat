@@ -20,7 +20,6 @@ import ai.intellistream.chat.domain.PresenceKind;
 import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.domain.UserPresence;
 import ai.intellistream.chat.repository.UserPresenceRepository;
-import ai.intellistream.chat.repository.UserRepository;
 import ai.intellistream.chat.web.dto.PresenceDto;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -50,21 +49,27 @@ public class PresenceService {
     private static final int MAX_TEXT_LEN = 120;
 
     private final UserPresenceRepository repo;
-    private final UserRepository users;
     private final PresenceTracker tracker;
     private final Duration awayThreshold;
 
     public PresenceService(UserPresenceRepository repo,
-                           UserRepository users,
                            PresenceTracker tracker,
-                           @Value("${ichat.presence.away-after-minutes:10}") int awayAfterMinutes) {
+                           @Value("${ichat.presence.away-after-minutes:1}") int awayAfterMinutes) {
         this.repo = repo;
-        this.users = users;
         this.tracker = tracker;
         this.awayThreshold = Duration.ofMinutes(Math.max(1, awayAfterMinutes));
     }
 
-    /** Visible-for-tests: the configured idle threshold before auto-AWAY kicks in. */
+    /**
+     * The idle threshold before auto-AWAY kicks in ({@code ichat.presence.away-after-minutes}).
+     *
+     * <p>One minute, not ten. Ten was chosen when idleness was inferred from
+     * {@code users.last_active_at} — the last authenticated HTTP request — which needed a long
+     * window because it was so lossy: a person actively chatting produces no HTTP requests at all,
+     * so a short threshold turned them yellow mid-conversation. Now that the browser reports real
+     * input ({@link PresenceTracker#noteActivity}), the signal means what it says and the window
+     * can be as short as the thing it describes. A minute away from the keyboard is a minute away.
+     */
     public Duration awayThreshold() {
         return awayThreshold;
     }
@@ -91,8 +96,7 @@ public class PresenceService {
         var row = repo.findById(user.getId()).orElseThrow();
         row.setStatus(emptyToNull(trimmedEmoji), emptyToNull(trimmedText), clearAt);
         var saved = repo.save(row);
-        return toDto(user.getUsername(), saved, tracker.isOnline(user.getUsername()),
-                user.getLastActiveAt(), Instant.now());
+        return toDto(user.getUsername(), saved, tracker.isOnline(user.getUsername()), Instant.now());
     }
 
     @Transactional
@@ -105,8 +109,7 @@ public class PresenceService {
         // Custom-status emoji is gone but the manual KIND override (Away/DND/Offline)
         // stays — those are independent. Recompute the effective DTO so a user who's
         // marked themselves Away keeps the yellow dot after clearing their lunch emoji.
-        return toDto(user.getUsername(), row, tracker.isOnline(user.getUsername()),
-                user.getLastActiveAt(), Instant.now());
+        return toDto(user.getUsername(), row, tracker.isOnline(user.getUsername()), Instant.now());
     }
 
     /**
@@ -121,8 +124,7 @@ public class PresenceService {
         var row = repo.findById(user.getId()).orElseThrow();
         row.setManualKind(kind);
         var saved = repo.save(row);
-        return toDto(user.getUsername(), saved, tracker.isOnline(user.getUsername()),
-                user.getLastActiveAt(), Instant.now());
+        return toDto(user.getUsername(), saved, tracker.isOnline(user.getUsername()), Instant.now());
     }
 
     /** Clear the manual override; equivalent to {@code setKind(user, ACTIVE)}. */
@@ -137,7 +139,7 @@ public class PresenceService {
         var now = Instant.now();
         var online = tracker.isOnline(user.getUsername());
         var row = repo.findById(user.getId()).orElse(null);
-        return toDto(user.getUsername(), row, online, user.getLastActiveAt(), now);
+        return toDto(user.getUsername(), row, online, now);
     }
 
     /**
@@ -156,39 +158,44 @@ public class PresenceService {
         for (var r : rows) {
             byUsername.put(r.getUser().getUsername().toLowerCase(), r);
         }
-        // lastActiveAt isn't on user_presence — it lives on the users table. Fetch the
-        // matching User rows in one query so the auto-AWAY check has data even for users
-        // who have no user_presence row yet (they still have a User row).
-        var lastActiveByUsername = new HashMap<String, Instant>(lc.size());
-        for (var u : users.findAllByUsernameLowerIn(lc)) {
-            lastActiveByUsername.put(u.getUsername().toLowerCase(), u.getLastActiveAt());
-        }
+        // No second query for last-activity: idleness now comes from PresenceTracker, which holds
+        // it in memory next to the session set. This used to fetch every named User row purely to
+        // read users.last_active_at — a whole extra SELECT on a poll that every open tab repeats
+        // once a minute, for a column that was answering the wrong question anyway.
         var now = Instant.now();
         var out = new ArrayList<PresenceDto>(lc.size());
         for (var username : usernames) {
             if (username == null || username.isBlank()) continue;
-            var key = username.toLowerCase();
-            var row = byUsername.get(key);
-            var online = tracker.isOnline(username);
-            var lastActive = lastActiveByUsername.get(key);
-            out.add(toDto(username, row, online, lastActive, now));
+            var row = byUsername.get(username.toLowerCase());
+            out.add(toDto(username, row, tracker.isOnline(username), now));
         }
         return out;
     }
 
-    private PresenceDto toDto(String username, UserPresence row, boolean online,
-                              Instant lastActiveAt, Instant now) {
+    /**
+     * The three-way derivation, in one place.
+     *
+     * <ul>
+     *   <li><b>OFFLINE means there is no live WebSocket</b>, and nothing else does. A person with
+     *       a window open is never grey — they are green or yellow.</li>
+     *   <li><b>AWAY means connected but not doing anything</b> for {@link #awayThreshold}, where
+     *       "doing anything" is real input in the browser, reported over the socket. It used to be
+     *       "no authenticated HTTP request lately", which is a different question with a different
+     *       answer: someone chatting over STOMP makes no HTTP requests, so the busiest person in
+     *       the room went yellow while they typed.</li>
+     *   <li><b>A manual override beats both</b>, always. Someone who set themselves DND stays DND
+     *       through idleness, activity and a reconnect — see {@code manualDndSurvives…} in
+     *       PresenceFlowIT.</li>
+     * </ul>
+     */
+    private PresenceDto toDto(String username, UserPresence row, boolean online, Instant now) {
         var manual = row == null ? null : row.getManualKind();
-        // Effective kind: manual override beats auto state. With no override, the auto
-        // state is ACTIVE if connected + recently active; AWAY if connected but idle past
-        // the away threshold; OFFLINE if the tracker says disconnected.
         PresenceKind kind;
         if (manual != null) {
             kind = manual;
         } else if (!online) {
             kind = PresenceKind.OFFLINE;
-        } else if (lastActiveAt != null
-                && Duration.between(lastActiveAt, now).compareTo(awayThreshold) >= 0) {
+        } else if (tracker.isIdle(username, awayThreshold, now)) {
             kind = PresenceKind.AWAY;
         } else {
             kind = PresenceKind.ACTIVE;

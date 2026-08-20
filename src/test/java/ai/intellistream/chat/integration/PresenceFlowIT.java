@@ -16,6 +16,8 @@
 
 package ai.intellistream.chat.integration;
 
+import ai.intellistream.chat.config.ClientIdleHeader;
+import ai.intellistream.chat.domain.PresenceKind;
 import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.repository.UserPresenceRepository;
 import ai.intellistream.chat.repository.UserRepository;
@@ -32,6 +34,8 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.messaging.Message;
+import org.springframework.messaging.simp.SimpAttributes;
+import org.springframework.messaging.simp.SimpAttributesContextHolder;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.messaging.support.GenericMessage;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -110,6 +114,18 @@ class PresenceFlowIT {
         controller = new PresenceRestController(presenceService, currentUser, broker,
                 new ai.intellistream.chat.security.RateLimiter());
         listener = new PresenceEventListener(tracker, presenceService, users, broker);
+    }
+
+    /**
+     * Push this user's last reported activity far enough into the past that they read as idle.
+     *
+     * <p>Backdating the tracker rather than the {@code users.last_active_at} column, because that
+     * column no longer decides this — it recorded the last authenticated HTTP request, which a
+     * person chatting over the WebSocket never makes.
+     */
+    private void goIdle(String username) {
+        tracker.noteActivity(username,
+                Instant.now().minus(presenceService.awayThreshold().plusMinutes(1)));
     }
 
     private User newUser(String prefix) {
@@ -229,6 +245,52 @@ class PresenceFlowIT {
         listener.onConnect(connectEventFor(alice.getUsername(), "tab-2"));
 
         verify(broker).convertAndSend(eq("/topic/presence"), any(PresenceDto.class));
+    }
+
+    /**
+     * A background tab whose socket was dropped and redialled reports how long it has been
+     * untouched on CONNECT ({@code ClientIdleHeader}); the interceptor parks that on the session
+     * attributes, and Spring publishes the connected event with those attributes bound to
+     * {@link SimpAttributesContextHolder}. The announce must then be AWAY, not the ACTIVE that
+     * every connect used to be — that flash of green on each reconnect was the visible half of a
+     * throttled-heartbeat loop.
+     */
+    @Test
+    void reconnectReportingIdleTimeAnnouncesAwayNotActive() {
+        var alice = newUser("alice");
+        var idleSince = Instant.now().minus(presenceService.awayThreshold().plusMinutes(2));
+
+        withSessionAttribute("tab-1", ClientIdleHeader.SESSION_KEY, idleSince,
+                () -> listener.onConnect(connectEventFor(alice.getUsername(), "tab-1")));
+
+        var captor = ArgumentCaptor.forClass(PresenceDto.class);
+        verify(broker).convertAndSend(eq("/topic/presence"), captor.capture());
+        assertThat(captor.getValue().kind()).isEqualTo(PresenceKind.AWAY);
+        assertThat(captor.getValue().online()).isFalse();
+        assertThat(tracker.lastActivityAt(alice.getUsername())).isEqualTo(idleSince);
+    }
+
+    @Test
+    void connectWithoutIdleAttributeIsActiveNow() {
+        var alice = newUser("alice");
+        // Attributes bound, but nothing parked under the key — a client that sent no header.
+        withSessionAttribute("tab-1", "unrelated", "x",
+                () -> listener.onConnect(connectEventFor(alice.getUsername(), "tab-1")));
+
+        var captor = ArgumentCaptor.forClass(PresenceDto.class);
+        verify(broker).convertAndSend(eq("/topic/presence"), captor.capture());
+        assertThat(captor.getValue().kind()).isEqualTo(PresenceKind.ACTIVE);
+    }
+
+    private static void withSessionAttribute(String sessionId, String key, Object value, Runnable body) {
+        var attributes = new java.util.concurrent.ConcurrentHashMap<String, Object>();
+        attributes.put(key, value);
+        SimpAttributesContextHolder.setAttributes(new SimpAttributes(sessionId, attributes));
+        try {
+            body.run();
+        } finally {
+            SimpAttributesContextHolder.resetAttributes();
+        }
     }
 
     @Test
@@ -397,13 +459,13 @@ class PresenceFlowIT {
 
     @Test
     void idleConnectedUserAutoFlipsToAway() {
-        // User is connected via STOMP but their last_active_at is older than the away
-        // threshold — the auto-AWAY rule fires without anyone setting a manual override.
+        // Connected, but the browser has not reported any input for longer than the threshold, so
+        // auto-AWAY fires without anyone setting a manual override. Backdating the tracker is how
+        // idleness is expressed now: it used to be an old users.last_active_at, which recorded the
+        // last authenticated HTTP request and so said nothing about whether a person was there.
         var alice = newUser("alice");
-        alice.touchActive(java.time.Instant.now()
-                .minus(presenceService.awayThreshold().plusMinutes(1)));
-        users.save(alice);
         tracker.connect(alice.getUsername(), "session-solo");
+        goIdle(alice.getUsername());
 
         var dto = presenceService.presenceFor(alice);
 
@@ -416,10 +478,8 @@ class PresenceFlowIT {
         // User is genuinely idle (would auto-AWAY) AND they've set themselves DND.
         // Manual override always wins — we should see DND, not AWAY.
         var alice = newUser("alice");
-        alice.touchActive(java.time.Instant.now()
-                .minus(presenceService.awayThreshold().plusMinutes(1)));
-        users.save(alice);
         tracker.connect(alice.getUsername(), "session-solo");
+        goIdle(alice.getUsername());
         presenceService.setKind(alice, ai.intellistream.chat.domain.PresenceKind.DND);
 
         var dto = presenceService.presenceFor(alice);
@@ -440,13 +500,11 @@ class PresenceFlowIT {
         tracker.connect(alice.getUsername(), "session-solo");
         presenceService.setKind(alice, ai.intellistream.chat.domain.PresenceKind.DND);
 
-        alice.touchActive(Instant.now().minus(presenceService.awayThreshold().plusMinutes(1)));
-        users.save(alice);
+        goIdle(alice.getUsername());
         assertThat(presenceService.presenceFor(alice).kind())
                 .isEqualTo(ai.intellistream.chat.domain.PresenceKind.DND);
 
-        alice.touchActive(Instant.now());
-        users.save(alice);
+        tracker.noteActivity(alice.getUsername());
         assertThat(presenceService.presenceFor(alice).kind())
                 .isEqualTo(ai.intellistream.chat.domain.PresenceKind.DND);
 
@@ -465,12 +523,9 @@ class PresenceFlowIT {
 
     @Test
     void disconnectedIdleUserStillReportsOffline() {
-        // Auto-AWAY is for connected idle users. If they're disconnected, OFFLINE wins
-        // regardless of how stale lastActiveAt is.
+        // Auto-AWAY is for connected idle users. Without a socket the answer is OFFLINE, and that
+        // is the whole meaning of the grey dot: no live WebSocket, nothing else.
         var alice = newUser("alice");
-        alice.touchActive(java.time.Instant.now()
-                .minus(presenceService.awayThreshold().plusMinutes(1)));
-        users.save(alice);
 
         var dto = presenceService.presenceFor(alice);
 
@@ -483,11 +538,9 @@ class PresenceFlowIT {
         // sidebar avatars hit. Two users: one fresh-active, one idle-but-connected.
         var fresh = newUser("fresh");
         var idle = newUser("idle");
-        idle.touchActive(java.time.Instant.now()
-                .minus(presenceService.awayThreshold().plusMinutes(1)));
-        users.save(idle);
         tracker.connect(fresh.getUsername(), "session-solo");
         tracker.connect(idle.getUsername(), "session-solo");
+        goIdle(idle.getUsername());
 
         var result = presenceService.presenceFor(
                 java.util.List.of(fresh.getUsername(), idle.getUsername()));

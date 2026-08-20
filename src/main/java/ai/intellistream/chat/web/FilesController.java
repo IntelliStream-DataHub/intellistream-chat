@@ -17,6 +17,7 @@
 package ai.intellistream.chat.web;
 
 import ai.intellistream.chat.moderation.StorageQuotaService;
+import ai.intellistream.chat.i18n.TimeFormats;
 import ai.intellistream.chat.security.CurrentUser;
 import ai.intellistream.chat.service.ChannelService;
 import org.springframework.stereotype.Controller;
@@ -25,6 +26,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 
 import java.security.Principal;
+import java.util.Locale;
 
 /**
  * The two file-listing pages. Both render a shell only — the table is filled by JavaScript from an
@@ -50,18 +52,21 @@ public class FilesController {
     private final CurrentUser currentUser;
     private final StorageQuotaService quotas;
     private final ChannelService channels;
+    private final TimeFormats timeFormats;
 
     public FilesController(CurrentUser currentUser, StorageQuotaService quotas,
-                           ChannelService channels) {
+                           ChannelService channels, TimeFormats timeFormats) {
         this.currentUser = currentUser;
         this.quotas = quotas;
         this.channels = channels;
+        this.timeFormats = timeFormats;
     }
 
     @GetMapping("/files")
-    public String files(Principal principal, Model model) {
+    public String files(Principal principal, Locale locale, Model model) {
         var me = currentUser.resolve(principal);
         model.addAttribute("me", me);
+        timeFormats.into(model, me, locale);
         // The quota line is server-rendered because it is true on arrival and does not change while
         // the user searches; the list below it is the part that moves.
         model.addAttribute("usage", quotas.usageFor(me));
@@ -79,8 +84,10 @@ public class FilesController {
      * has no {@code canRead}, and the API the script would call refuses the same request with a 403.
      */
     @GetMapping("/channels/{channelId}/files")
-    public String channelFiles(@PathVariable Long channelId, Principal principal, Model model) {
+    public String channelFiles(@PathVariable Long channelId, Principal principal, Locale locale,
+                               Model model) {
         var me = currentUser.resolve(principal);
+        timeFormats.into(model, me, locale);
         var channel = channels.requireById(channelId);
         model.addAttribute("me", me);
         model.addAttribute("channel", channel);

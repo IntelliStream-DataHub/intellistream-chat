@@ -15,10 +15,29 @@
  */
 
 /**
- * Admin console behaviours. Currently: live preview of a selected logo file before
- * upload — rendered at the same height the topbar uses, via a blob: URL (allowed by
- * the CSP's img-src). Warns early when the file exceeds the server's 256 KB cap.
+ * Admin console behaviours.
+ *
+ * 1. Live preview of a selected logo file before upload — rendered at the same height the
+ *    topbar uses, via a blob: URL (allowed by the CSP's img-src). Warns early when the file
+ *    exceeds the server's 256 KB cap.
+ * 2. The channel table's Delete forms: the button stays disabled until the typed name matches
+ *    the row's channel (trimmed, case-insensitive — the same comparison the server makes). The
+ *    server enforces the name regardless; this only stops a click that was going to bounce.
  */
+(function () {
+  document.querySelectorAll('form.admin-channel-delete').forEach((form) => {
+    const input = form.querySelector('input[name="name"]');
+    const button = form.querySelector('button[type="submit"]');
+    const expected = (form.dataset.channelName || '').trim().toLowerCase();
+    if (!input || !button || !expected) return;
+    const sync = () => {
+      button.disabled = input.value.trim().toLowerCase() !== expected;
+    };
+    input.addEventListener('input', sync);
+    sync();
+  });
+})();
+
 (function () {
   const input = document.querySelector('form[action$="/admin/logo"] input[type="file"]');
   const wrap = document.getElementById('logo-preview-wrap');

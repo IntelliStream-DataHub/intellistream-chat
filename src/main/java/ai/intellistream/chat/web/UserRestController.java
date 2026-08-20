@@ -26,6 +26,7 @@ import ai.intellistream.chat.service.MentionService;
 import ai.intellistream.chat.service.UserService;
 import ai.intellistream.chat.web.dto.MentionCandidateDto;
 import ai.intellistream.chat.web.dto.UserProfileDto;
+import ai.intellistream.chat.web.dto.UserSearchResultDto;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -47,7 +48,9 @@ import java.util.List;
  *
  * <p>Also home to the composer's @-mention typeahead, which is a search over people rather than
  * a lookup of one, and is therefore scoped to a channel or conversation instead of being open
- * over the whole user table — see {@link #mentionCandidates}.
+ * over the whole user table — see {@link #mentionCandidates}. The one deliberately unscoped
+ * search is {@link #directory}, which feeds starting a conversation — the action in this app
+ * that by nature has no shared scope yet; its own doc says what bounds it.
  */
 @RestController
 public class UserRestController {
@@ -105,6 +108,33 @@ public class UserRestController {
      * it inside one sentence. 120/min matches the hovercard — the client debounces and narrows
      * cached results locally, so a mention costs about one request.
      */
+    /**
+     * "Find user" browser for the new-conversation form: up to
+     * {@link UserService#MAX_INVITE_CANDIDATES} accounts, optionally narrowed by a username
+     * wildcard and/or an email-domain prefix, newest-created first by default
+     * ({@code recent=false} for username A–Z). The whole-directory sibling of
+     * {@code GET /api/channels/{id}/invite-candidates}, at the bar of the action it feeds:
+     * starting a DM needs no shared channel, so there is nothing narrower to scope by.
+     * Bounded the same three ways — the cap, the {@code user-search} budget shared with the
+     * channel browser, and a DTO that never carries an email address.
+     */
+    @GetMapping("/api/users/directory")
+    public List<UserSearchResultDto> directory(
+            @RequestParam(required = false, defaultValue = "") String username,
+            @RequestParam(required = false, defaultValue = "") String emailDomain,
+            @RequestParam(required = false, defaultValue = "true") boolean recent,
+            Principal principal) {
+        var me = currentUser.resolve(principal);
+        if (!rateLimiter.tryAcquire(me.getUsername(), "user-search", 60, Duration.ofMinutes(1))) {
+            throw new RateLimitExceededException("search rate exceeded");
+        }
+        return userService.searchDirectory(username, emailDomain, recent,
+                        UserService.MAX_INVITE_CANDIDATES)
+                .stream()
+                .map(UserSearchResultDto::from)
+                .toList();
+    }
+
     @GetMapping("/api/mention-candidates")
     public List<MentionCandidateDto> mentionCandidates(
             @RequestParam(required = false) Long channelId,

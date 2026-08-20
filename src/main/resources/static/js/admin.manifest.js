@@ -14,5 +14,7 @@
  * limitations under the License.
  */
 
+//= require time-format.js
+//= require session-watch.js
 //= require idle-logout.js
 //= require admin.js

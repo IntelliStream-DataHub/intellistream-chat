@@ -94,6 +94,7 @@ class SearchIndexRebuildIT {
     @Autowired AttachmentService attachmentService;
     @Autowired ai.intellistream.chat.service.ConversationAttachmentService conversationAttachmentService;
     @Autowired AvatarService avatarService;
+    @Autowired ai.intellistream.chat.linkpreview.LinkPreviewService linkPreviews;
     @Autowired AttachmentRepository attachmentRepo;
     @Autowired ConversationAttachmentRepository convAttachmentRepo;
     @Autowired ai.intellistream.chat.repository.MessageRepository messageRepo;
@@ -132,7 +133,7 @@ class SearchIndexRebuildIT {
         props.setEnabled(true);
         props.setDryRun(false); // the sweeps ship inert; this test is about what they do when armed
         return new CleanupTasks(props, attachmentService, avatarService, attachmentRepo,
-                convAttachmentRepo, users, messageRepo, conversationMessageRepo, messageIndex);
+                convAttachmentRepo, users, messageRepo, conversationMessageRepo, messageIndex, linkPreviews);
     }
 
     @Test
@@ -289,7 +290,7 @@ class SearchIndexRebuildIT {
 
     @Test
     void aReconcileSweepLeavesAnUpToDateDocumentWithFilesAlone() throws java.io.IOException {
-        // The failure AGENT.md warns about, in its quietest form: a sweep that decided a document
+        // The failure AGENTS.md warns about, in its quietest form: a sweep that decided a document
         // it did not recognise was stale, or that rewrote a healthy one from a projection missing
         // half its fields. Either way the file is gone from search an hour after it was uploaded,
         // and nothing anywhere says so.

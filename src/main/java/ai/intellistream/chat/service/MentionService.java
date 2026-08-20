@@ -138,7 +138,7 @@ public class MentionService {
      * <p>Not {@code mentionRepo.save()} in a loop. {@code MessageMention.id} is {@code IDENTITY},
      * which disables Hibernate's insert batching outright — every {@code save} is its own round
      * trip, so a 1,000-member channel would turn one message into 1,000 of them on the send path,
-     * which AGENT.md is explicit is the hot path. The {@code select … from users} form exists so
+     * which AGENTS.md is explicit is the hot path. The {@code select … from users} form exists so
      * the id list can travel as a single expanded parameter, and {@code on conflict do nothing}
      * makes the statement idempotent against a personal mention of the same user in the same body.
      */

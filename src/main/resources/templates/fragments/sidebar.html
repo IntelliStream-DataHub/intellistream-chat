@@ -125,6 +125,17 @@
                                 <input name="members" required autocomplete="off"
                                        placeholder="alice, bob"/>
                             </label>
+                            <!--/* Browse-and-pick instead of knowing the exact handle — the same
+                                   dialog the channel settings' Find user uses, in pick mode:
+                                   choosing people fills the field above, and the form stays the
+                                   one thing that submits. Wired from
+                                   new-conversation-picker-boot.js (the CSP forbids inline
+                                   handlers). */-->
+                            <button type="button" id="new-conversation-find-btn"
+                                    class="find-user-trigger">
+                                <svg class="icon icon-sm" aria-hidden="true"><use href="#icon-users"/></svg>
+                                Find user…
+                            </button>
                             <label class="new-conversation-title" hidden>Group name
                                 <input name="title" maxlength="120"/>
                             </label>

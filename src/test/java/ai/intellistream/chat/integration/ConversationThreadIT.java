@@ -98,7 +98,7 @@ class ConversationThreadIT {
         controller = new ConversationRestController(conversations, userService, currentUser,
                 markdown, convAttachments, convReactions, mock(SimpMessagingTemplate.class),
                 new RateLimiter(), quotas,
-                mock(ai.intellistream.chat.web.ConversationAlertPublisher.class));
+                mock(ai.intellistream.chat.web.ConversationAlertPublisher.class), linkPreviews());
     }
 
     private User newUser(String label) {
@@ -306,4 +306,12 @@ class ConversationThreadIT {
         var thread = controller.thread(note.getId(), mock(Principal.class));
         assertThat(thread.replies()).extracting(ConversationMessageDto::id).containsExactly(reply.id());
     }
+
+    /** Real decoration against this context's LinkPreviewService; the broker is the test's mock. */
+    private ai.intellistream.chat.web.LinkPreviews linkPreviews() {
+        return new ai.intellistream.chat.web.LinkPreviews(linkPreviewService,
+                org.mockito.Mockito.mock(org.springframework.messaging.simp.SimpMessagingTemplate.class));
+    }
+    @org.springframework.beans.factory.annotation.Autowired
+    ai.intellistream.chat.linkpreview.LinkPreviewService linkPreviewService;
 }

@@ -66,6 +66,7 @@ public class MessageForwardRestController {
     private final SimpMessagingTemplate broker;
     private final RateLimiter rateLimiter;
     private final ConversationAlertPublisher alerts;
+    private final LinkPreviews linkPreviews;
 
     public MessageForwardRestController(MessageForwardService forwards,
                                         ChannelService channelService,
@@ -74,7 +75,9 @@ public class MessageForwardRestController {
                                         CurrentUser currentUser,
                                         SimpMessagingTemplate broker,
                                         RateLimiter rateLimiter,
-                                        ConversationAlertPublisher alerts) {
+                                        ConversationAlertPublisher alerts,
+                                        LinkPreviews linkPreviews) {
+        this.linkPreviews = linkPreviews;
         this.forwards = forwards;
         this.channelService = channelService;
         this.conversationService = conversationService;
@@ -112,8 +115,10 @@ public class MessageForwardRestController {
             // whenDurable, not an immediate send: postWithMentions is durable on return today, but
             // the handle is the contract for "this row is really on disk" and a forward announced
             // before its insert commits is a message everyone saw and nobody has.
-            posted.whenDurable(() -> broker.convertAndSend(
-                    "/topic/channels/" + target.getId(), MessageEvent.created(dto)));
+            posted.whenDurable(() -> {
+                broker.convertAndSend("/topic/channels/" + target.getId(), MessageEvent.created(dto));
+                linkPreviews.unfurl(dto);
+            });
             return Map.of("kind", "channel", "channelId", target.getId(), "message", dto);
         }
 
@@ -122,6 +127,7 @@ public class MessageForwardRestController {
                 body.acknowledgeDisclosure(), me);
         var dto = ConversationMessageDto.from(saved, markdown.renderInConversation(saved.getBodyMarkdown()));
         broker.convertAndSend("/topic/conversations/" + target.getId(), dto);
+        linkPreviews.unfurl(dto);
         // The same alert the DM send path fires, so a forwarded message into a quiet DM is not
         // silent for the person on the other end.
         alerts.alert(target, saved);

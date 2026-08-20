@@ -52,13 +52,16 @@ public class AttachmentRestController {
     private final CurrentUser currentUser;
     private final SimpMessagingTemplate broker;
     private final RateLimiter rateLimiter;
+    private final LinkPreviews linkPreviews;
 
     public AttachmentRestController(AttachmentService attachmentService,
                                     ChannelService channelService,
                                     MarkdownRenderer markdown,
                                     CurrentUser currentUser,
                                     SimpMessagingTemplate broker,
-                                    RateLimiter rateLimiter) {
+                                    RateLimiter rateLimiter,
+                                    LinkPreviews linkPreviews) {
+        this.linkPreviews = linkPreviews;
         this.attachmentService = attachmentService;
         this.channelService = channelService;
         this.markdown = markdown;
@@ -96,6 +99,7 @@ public class AttachmentRestController {
                 markdown.render(message.getBodyMarkdown()),
                 List.of(savedAttachment));
         broker.convertAndSend("/topic/channels/" + channelId, MessageEvent.created(dto));
+        linkPreviews.unfurl(dto);
         return dto;
     }
 

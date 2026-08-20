@@ -28,6 +28,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.config.Customizer;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.Authentication;
@@ -149,6 +150,14 @@ public class SecurityConfig {
         // style attributes; restrict connect-src to the same origin so WS/AJAX stays in-bounds.
         var csp = "default-src 'self'; "
                 + "script-src 'self'; "
+                // blob: is for one thing: the STOMP client's heartbeat runs in a Web Worker built
+                // from a Blob (StompJS `heartbeatStrategy: 'worker'`). Page timers in a hidden tab
+                // are throttled — Chrome to once a minute after five minutes — which starved the
+                // 10s heartbeat, made the server hang up on every backgrounded tab and showed its
+                // owner as offline; worker timers are not throttled. This does not widen what an
+                // injected script could do: constructing a Blob already requires running script,
+                // and worker-src is checked on its own, so script-src stays 'self' alone.
+                + "worker-src 'self' blob:; "
                 + "style-src 'self' 'unsafe-inline'; "
                 + "img-src 'self' data: blob:; "
                 + "font-src 'self' data:; "
@@ -172,6 +181,12 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/", "/css/**", "/js/**", "/img/**", "/webjars/**",
                                          "/actuator/health", "/branding/logo").permitAll()
+                        // The session probe has to be reachable *after* the session dies, or it
+                        // cannot report that it did — an authenticated route answers an expired
+                        // session with a 302 to Keycloak, which a background fetch follows and
+                        // resolves as a 200 full of login-page HTML. See SessionRestController.
+                        // It discloses nothing: the caller's own sign-in state and their own name.
+                        .requestMatchers(HttpMethod.GET, "/api/session").permitAll()
                         // Admin console + branding mutations require the ichat-admin realm role
                         // (mapped to ROLE_ADMIN by KeycloakRolesConverter).
                         .requestMatchers("/admin", "/admin/**").hasRole("ADMIN")

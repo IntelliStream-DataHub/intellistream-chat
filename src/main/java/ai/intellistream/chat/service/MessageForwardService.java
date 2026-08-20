@@ -28,8 +28,9 @@ import ai.intellistream.chat.security.ResourceNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Locale;
 
 /**
  * Forwarding: send an existing message somewhere else, as a new message that quotes it.
@@ -89,22 +90,43 @@ public class MessageForwardService {
 
     private static final int MAX_COMMENT_CHARS = 2000;
 
-    private static final DateTimeFormatter QUOTE_DATE =
-            DateTimeFormatter.ofPattern("d MMM yyyy").withZone(ZoneOffset.UTC);
+    /**
+     * The date stamped into the quote header, in the forwarding user's zone.
+     *
+     * <p>Unlike every other timestamp in the product this one is <em>written into a message body</em>
+     * and read by everybody in the destination, so it can only have one zone and somebody's will be
+     * wrong. The forwarder's is the least wrong: they are the author of the line, it is the date
+     * they saw on the message they picked, and it is the one they can check before sending. UTC —
+     * what this used to be — is nobody's, and produced quote headers a day off from the message
+     * they quoted for every reader east of London.
+     *
+     * <p>Not locale-formatted, for the same reason: the body is one string shared by readers who do
+     * not share a locale, and an abbreviated English month at least cannot be misread the way a
+     * numeric order can.
+     */
+    private static DateTimeFormatter quoteDate(ZoneId zone) {
+        return DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH).withZone(zone);
+    }
 
     private final MessageRepository messages;
     private final MessageService messageService;
     private final ConversationService conversationService;
     private final ChannelService channelService;
 
+    /** {@code ichat.default-zone}; blank means the server's own zone. See {@link User#effectiveZone}. */
+    private final ZoneId defaultZone;
+
     public MessageForwardService(MessageRepository messages,
                                  MessageService messageService,
                                  ConversationService conversationService,
-                                 ChannelService channelService) {
+                                 ChannelService channelService,
+                                 @org.springframework.beans.factory.annotation.Value("${ichat.default-zone:}")
+                                 String defaultZone) {
         this.messages = messages;
         this.messageService = messageService;
         this.conversationService = conversationService;
         this.channelService = channelService;
+        this.defaultZone = User.zoneOrSystemDefault(defaultZone);
     }
 
     /** Forward a channel message into another channel. */
@@ -122,7 +144,7 @@ public class MessageForwardService {
         }
         requireDisclosureAcknowledged(source.getChannel(), acknowledgeDisclosure);
         channelService.requireWriteAccess(target, actor);
-        return messageService.postWithMentions(target, actor, buildBody(source, comment));
+        return messageService.postWithMentions(target, actor, buildBody(source, comment, actor.effectiveZone(defaultZone)));
     }
 
     /** Forward a channel message into a DM or group conversation. */
@@ -133,7 +155,7 @@ public class MessageForwardService {
         var source = requireReadableSource(sourceMessageId, actor);
         requireDisclosureAcknowledged(source.getChannel(), acknowledgeDisclosure);
         conversationService.requireMember(target, actor);
-        return conversationService.post(target, actor, buildBody(source, comment));
+        return conversationService.post(target, actor, buildBody(source, comment, actor.effectiveZone(defaultZone)));
     }
 
     /**
@@ -169,8 +191,12 @@ public class MessageForwardService {
      * indented once. Markdown's lazy continuation would otherwise fold a quoted list, heading or
      * code fence into the surrounding quote and change what the original said, which is the one
      * thing a quote must not do.
+     *
+     * @param zone the forwarding user's zone — see {@link #quoteDate}; this date is written into a
+     *             message body, so it is fixed at the moment of forwarding rather than rendered
+     *             per reader like every other timestamp in the product
      */
-    static String buildBody(Message source, String comment) {
+    static String buildBody(Message source, String comment, ZoneId zone) {
         var trimmedComment = comment == null ? "" : comment.trim();
         if (trimmedComment.length() > MAX_COMMENT_CHARS) {
             throw new IllegalArgumentException(
@@ -185,7 +211,7 @@ public class MessageForwardService {
         }
         sb.append("> **@").append(source.getAuthor().getUsername()).append("** in [#")
                 .append(channel.getName()).append("](").append(permalink).append(") · ")
-                .append(QUOTE_DATE.format(source.getCreatedAt()))
+                .append(quoteDate(zone).format(source.getCreatedAt()))
                 .append("\n>\n");
         var body = source.getBodyMarkdown() == null ? "" : source.getBodyMarkdown();
         var truncated = body.length() > MAX_QUOTED_CHARS;

@@ -25,7 +25,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Static guard for the "Channel members" panel in {@code chat.js}. The project deliberately
- * doesn't run JS in tests (no Node, no headless browser — see AGENT.md), so this is the
+ * doesn't run JS in tests (no Node, no headless browser — see AGENTS.md), so this is the
  * closest we can get to catching a class of regression where the panel block refers to a
  * {@code window.ChatKit} symbol before chat.js has destructured it locally.
  *

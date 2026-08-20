@@ -21,6 +21,7 @@ import ai.intellistream.chat.repository.ChannelRepository;
 import ai.intellistream.chat.repository.MessageRepository;
 import ai.intellistream.chat.repository.UserRepository;
 import ai.intellistream.chat.attachments.AttachmentBytes;
+import ai.intellistream.chat.i18n.TimeFormats;
 import ai.intellistream.chat.security.CurrentUser;
 import ai.intellistream.chat.security.PublicBadRequestException;
 import ai.intellistream.chat.security.ResourceNotFoundException;
@@ -48,6 +49,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.security.Principal;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 
@@ -83,6 +85,8 @@ public class AdminController {
     private final StorageQuotaService storageQuotas;
     private final AuditService auditService;
     private final ai.intellistream.chat.service.ChannelService channelService;
+    private final ChannelDestruction channelDestruction;
+    private final TimeFormats timeFormats;
 
     public AdminController(AppSettingsService settings,
                            ChannelRepository channels,
@@ -95,7 +99,9 @@ public class AdminController {
                            MessageModerationService messageModeration,
                            StorageQuotaService storageQuotas,
                            AuditService auditService,
-                           ai.intellistream.chat.service.ChannelService channelService) {
+                           ai.intellistream.chat.service.ChannelService channelService,
+                           ChannelDestruction channelDestruction,
+                           TimeFormats timeFormats) {
         this.settings = settings;
         this.channels = channels;
         this.users = users;
@@ -108,12 +114,15 @@ public class AdminController {
         this.storageQuotas = storageQuotas;
         this.auditService = auditService;
         this.channelService = channelService;
+        this.channelDestruction = channelDestruction;
+        this.timeFormats = timeFormats;
     }
 
     @GetMapping("/admin")
     @Transactional(readOnly = true)
-    public String index(Principal principal, Model model) {
+    public String index(Principal principal, Locale locale, Model model) {
         var me = currentUser.resolve(principal);
+        timeFormats.into(model, me, locale);
         var s = settings.current();
 
         // Channel summary: id, name, type, memberCount, messageCount.
@@ -300,6 +309,40 @@ public class AdminController {
                 () -> new ResourceNotFoundException("No such channel: " + id));
         channelService.unarchive(channel, me);
         ra.addFlashAttribute("flash", "#" + channel.getName() + " is no longer archived.");
+        return "redirect:/admin";
+    }
+
+    /**
+     * Delete a channel from the console. Same three steps, same typed-name confirmation and same
+     * workspace-admin bar as {@code DELETE /api/channels/{id}}, through the same
+     * {@link ChannelDestruction} — the difference is who can reach it.
+     *
+     * <p>The channel page's Delete control sits inside the channel settings panel, which is rendered
+     * for members only. That is right for the panel — a non-member has nothing to configure — but it
+     * means a workspace admin who is not in a PRIVATE channel has no way to delete it: the channel
+     * cannot be joined, its page shows the "ask for an invitation" screen, and the API is not
+     * something you drive from a browser. This table lists every channel there is, so it is where
+     * that admin ends up, and this form is the door. {@code ChannelService.destroy} never required
+     * membership; only the UI did.
+     *
+     * <p>A wrong name is a flash and a redirect, not an error page — the console is a form, and the
+     * likeliest cause is a typo in a name the admin can see two cells to the left.
+     */
+    @PostMapping("/admin/channels/{id}/delete")
+    public String deleteChannel(@PathVariable Long id,
+                                @RequestParam(value = "name", required = false) String confirmName,
+                                Principal principal, RedirectAttributes ra) {
+        var me = currentUser.resolve(principal);
+        var channel = channels.findById(id).orElseThrow(
+                () -> new ResourceNotFoundException("No such channel: " + id));
+        var name = channel.getName();
+        try {
+            channelDestruction.destroy(channel, me, confirmName);
+        } catch (PublicBadRequestException e) {
+            ra.addFlashAttribute("error", "#" + name + " was not deleted: " + e.getMessage());
+            return "redirect:/admin";
+        }
+        ra.addFlashAttribute("flash", "#" + name + " deleted, with everything in it.");
         return "redirect:/admin";
     }
 

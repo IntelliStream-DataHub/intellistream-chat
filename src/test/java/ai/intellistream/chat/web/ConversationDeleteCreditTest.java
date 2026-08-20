@@ -77,7 +77,9 @@ class ConversationDeleteCreditTest {
                 currentUser, mock(MarkdownRenderer.class), attachments,
                 mock(ConversationReactionService.class), mock(SimpMessagingTemplate.class),
                 new RateLimiter(), quotas,
-                mock(ai.intellistream.chat.web.ConversationAlertPublisher.class));
+                mock(ai.intellistream.chat.web.ConversationAlertPublisher.class),
+                // Passes DTOs through untouched; this test is about storage credits, not cards.
+                mock(LinkPreviews.class, inv -> inv.getArguments().length > 0 ? inv.getArgument(0) : null));
     }
 
     @Test

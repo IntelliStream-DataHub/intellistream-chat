@@ -26,18 +26,30 @@ directives; the build turns that into one minified file served from the site roo
 
 ## Current bundles
 
-| name           | type | pages                | contents |
-|----------------|------|----------------------|----------|
-| `chat`         | js   | channels.html        | theme-loader, emoji-data, chat-kit, hovercard, notifications, mention-inbox, presence, idle-logout |
-| `conversation` | js   | conversation.html    | emoji-data, chat-kit, hovercard, mention-inbox, presence, idle-logout, conversation |
-| `profile`      | js   | profile.html         | presence, idle-logout, profile |
-| `admin`        | js   | admin.html           | idle-logout |
-| `app`          | css  | every page           | app.css |
+| name | type | pages | contents (in load order) |
+|------|------|-------|--------------------------|
+| `chat` | js | channels.html | theme-loader, time-format, session-watch, favicon-alert, emoji-data, chat-kit, hovercard, notifications, mention-inbox, presence, idle-logout, call-transport, calls |
+| `conversation` | js | conversation.html | time-format, session-watch, favicon-alert, emoji-data, chat-kit, hovercard, mention-inbox, presence, idle-logout, notifications, call-transport, calls, conversation |
+| `profile` | js | profile.html | time-format, session-watch, presence, idle-logout, notifications, profile |
+| `admin` | js | admin.html | time-format, session-watch, idle-logout, admin |
+| `files` | js | files.html | time-format, session-watch, chat-kit, presence, idle-logout, files |
+| `channel-files` | js | channel-files.html | time-format, session-watch, chat-kit, presence, idle-logout, channel-files |
+| `saved` | js | saved.html | time-format, session-watch, chat-kit, presence, idle-logout, saved |
+| `search` | js | search.html | theme-loader, time-format, session-watch, hovercard, mention-inbox, presence, idle-logout |
+| `app` | css | every page | app |
 
 **Not bundled:** the vendored libraries (`js/vendor/*` — pre-minified upstream) and the
-`js/chat/` ES-module graph (`index.js` + shared/chrome/presence-menu), which loads as a native
-`<script type="module">` tag. The vendor highlight.js stylesheets also stay separate —
+`js/chat/` ES-module graph (`index.js` + shared/chrome/presence-menu and the rest), which loads as
+a native `<script type="module">` tag. The vendor highlight.js stylesheets also stay separate —
 `theme-loader.js` picks one at runtime based on the user's theme.
+
+**Unbundled means unversioned, and that has a caching consequence.** Only the bundles above carry a
+`?v=<hash>`; the module graph and the vendor files are ~420 KB served at fixed paths that are
+identical before and after a deploy. `StaticAssetCacheConfig` is what keeps that safe: a URL with a
+`v` parameter gets `max-age=31536000, immutable`, everything else under `/js/`, `/css/`, `/img/`
+and `/fonts/` gets `max-age=60, must-revalidate`. **Do not put a directory-wide `Cache-Control` in
+front of the app** — `frontend.md` used to, and `immutable` on the whole of `/js/` meant a changed
+`chat/index.js` was served stale for up to thirty days with nothing to indicate it.
 
 ## Add a bundle
 

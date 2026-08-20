@@ -690,7 +690,7 @@ public class ChannelService {
      * WebSocket send paths, thread replies, edits, reactions, attachments, typing pings, invites,
      * poll votes and {@code /remind} are nine or ten separate entry points across five classes, and
      * a rule enforced in ten places is a rule enforced in nine as soon as an eleventh is written.
-     * AGENT.md already tells new write endpoints to call {@code requireWriteAccess}; hanging this off
+     * AGENTS.md already tells new write endpoints to call {@code requireWriteAccess}; hanging this off
      * that instruction means a new one inherits the rule without its author having heard of
      * archiving. The two paths that genuinely cannot use it — {@link #join}, where you are not a
      * member yet, and {@link #rename} — call this directly, and they are the exceptions precisely

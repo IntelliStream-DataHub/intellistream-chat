@@ -16,6 +16,7 @@
 
 package ai.intellistream.chat.web;
 
+import ai.intellistream.chat.i18n.TimeFormats;
 import ai.intellistream.chat.security.CurrentUser;
 import ai.intellistream.chat.service.SavedMessageService;
 import org.springframework.stereotype.Controller;
@@ -23,6 +24,7 @@ import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
 
 import java.security.Principal;
+import java.util.Locale;
 
 /**
  * The saved-items page. Shell only — the list is filled by {@code saved.js} from
@@ -37,16 +39,20 @@ public class SavedController {
 
     private final CurrentUser currentUser;
     private final SavedMessageService saved;
+    private final TimeFormats timeFormats;
 
-    public SavedController(CurrentUser currentUser, SavedMessageService saved) {
+    public SavedController(CurrentUser currentUser, SavedMessageService saved,
+                           TimeFormats timeFormats) {
         this.currentUser = currentUser;
         this.saved = saved;
+        this.timeFormats = timeFormats;
     }
 
     @GetMapping("/saved")
-    public String saved(Principal principal, Model model) {
+    public String saved(Principal principal, Locale locale, Model model) {
         var me = currentUser.resolve(principal);
         model.addAttribute("me", me);
+        timeFormats.into(model, me, locale);
         // Server-rendered because it is true on arrival; the list below it is the part that moves.
         model.addAttribute("savedCount", saved.countFor(me));
         return "saved";

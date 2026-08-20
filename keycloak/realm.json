@@ -6,6 +6,7 @@
   "loginTheme": "intellistream",
   "registrationAllowed": true,
   "loginWithEmailAllowed": true,
+  "organizationsEnabled": true,
   "ssoSessionIdleTimeout": 28800,
   "ssoSessionMaxLifespan": 28800,
   "ssoSessionIdleTimeoutRememberMe": 28800,

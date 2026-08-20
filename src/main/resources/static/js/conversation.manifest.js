@@ -14,6 +14,9 @@
  * limitations under the License.
  */
 
+//= require time-format.js
+//= require session-watch.js
+//= require favicon-alert.js
 //= require emoji-data.js
 //= require chat-kit.js
 //= require hovercard.js

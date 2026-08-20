@@ -104,7 +104,8 @@ class ChannelMembersListIT {
                 reads, userService, pollService, markdown, currentUser, new RateLimiter(),
                 mock(org.springframework.messaging.simp.SimpMessagingTemplate.class),
                 mock(ai.intellistream.chat.repository.MessageMentionRepository.class),
-                mock(ai.intellistream.chat.service.SidebarService.class));
+                mock(ai.intellistream.chat.service.SidebarService.class),
+                mock(ai.intellistream.chat.web.ChannelDestruction.class), linkPreviews());
     }
 
     private User newUser(String prefix) {
@@ -208,4 +209,12 @@ class ChannelMembersListIT {
         assertThat(bobRow.avatarVersion()).isPositive();
         assertThat(bobRow.displayName()).isNotBlank();
     }
+
+    /** Real decoration against this context's LinkPreviewService; the broker is the test's mock. */
+    private ai.intellistream.chat.web.LinkPreviews linkPreviews() {
+        return new ai.intellistream.chat.web.LinkPreviews(linkPreviewService,
+                org.mockito.Mockito.mock(org.springframework.messaging.simp.SimpMessagingTemplate.class));
+    }
+    @org.springframework.beans.factory.annotation.Autowired
+    ai.intellistream.chat.linkpreview.LinkPreviewService linkPreviewService;
 }

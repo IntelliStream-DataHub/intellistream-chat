@@ -13,6 +13,21 @@ Works with Podman (`podman compose`) or Docker (`docker compose`) — the comman
 - **Podman** (with `podman compose`) or **Docker** with the compose plugin
 - **jq** (used once, to read the dev client secret out of the realm file)
 
+```bash
+# Fedora / RHEL / AlmaLinux
+sudo dnf install -y java-25-openjdk-devel podman podman-compose jq
+# Ubuntu / Debian
+sudo apt install -y openjdk-25-jdk podman podman-compose jq
+# macOS
+brew install openjdk@25 podman jq && brew services start podman
+# If `java` doesn't land on PATH afterwards, follow Homebrew's post-install hint, e.g. on Apple
+# silicon: echo 'export PATH="/opt/homebrew/opt/openjdk@25/bin:$PATH"' >> ~/.zshrc
+```
+
+Ubuntu 24.04 LTS and later package `openjdk-25-jdk`, as does Debian 13. Only Debian 12 and Ubuntu
+releases older than 24.04 need [SDKMAN](https://sdkman.io) or Adoptium. Gradle itself is not
+required — `./gradlew` downloads it on first use.
+
 ## 1. Start the infrastructure
 
 ```bash
@@ -44,7 +59,21 @@ ships an OIDC client (`ichat-client`) and two test users: **`alice`/`alice`** an
 > `KEYCLOAK_ISSUER_URI` accordingly.
 
 An optional OpenBao (Vault) dev server is profile-gated — only started with
-`podman compose --profile openbao up -d`. The app runs fine without it.
+`podman compose --profile openbao up -d`. The app runs fine without it. To try pulling the DB
+password and OIDC client secret out of it instead of plain env vars:
+
+```bash
+podman compose --profile openbao up -d
+KEYCLOAK_CLIENT_SECRET=<value-from-keycloak/realm.json> ./scripts/seed-vault.sh
+ICHAT_VAULT_ENABLED=true ICHAT_VAULT_URI=http://127.0.0.1:8200 \
+  ICHAT_VAULT_TOKEN=intellistream-dev-token ./gradlew bootRun
+```
+
+Hit `/actuator/env` to confirm the `intellistream-vault` property source appeared. The container
+uses in-memory storage and a root token — fine for exercising the integration, not for running it;
+`QUICKSTART-MANUAL.md`'s [OpenBao section](QUICKSTART-MANUAL.md#optional-secrets-from-openbao) has
+the production recipe (dedicated KV-v2 mount, read-only policy, AppRole). Full property reference:
+[docs site → Vault and OpenBao](https://intellistream-datahub.github.io/intellistream-chat/docs.html#config-vault).
 
 ## 2. Run the app
 
@@ -103,6 +132,37 @@ realm re-imports on either form and `alice` / `bob` come back regardless.
 
 Neither touches `data/` on the host (attachments, avatars, Lucene index), so delete that too if you
 want `down -v` to leave nothing behind.
+
+## Pointing at existing infrastructure instead
+
+Already running Postgres 18 and Keycloak 26 elsewhere (managed cloud, a shared dev environment, a
+host install per `QUICKSTART-MANUAL.md`)? Skip `podman compose` for those two and point the app at
+them directly:
+
+```bash
+export ICHAT_DB_URL=jdbc:postgresql://db.example.com:5432/intellistream_chat
+export ICHAT_DB_USERNAME=ichat_role
+export ICHAT_DB_PASSWORD=...
+export KEYCLOAK_ISSUER_URI=https://auth.example.com/realms/ichat-realm
+export KEYCLOAK_CLIENT_SECRET=...
+./gradlew bootRun
+```
+
+Import `keycloak/realm.json` into that Keycloak first (admin console **Realms → Import**, or
+`bin/kcadm.sh create realms -f keycloak/realm.json`), then regenerate the client secret — the
+bundled one is in this public repo — and use the new value above. Flyway creates the schema on
+first boot; the only manual SQL is `CREATE DATABASE intellistream_chat OWNER ichat_role`.
+
+## Verifying the production profile locally
+
+The build wires `bootRun` to `--spring.profiles.active=dev` only when `SPRING_PROFILES_ACTIVE` is
+unset, so you can boot with `prod` against the same containers to sanity-check it before a real
+deploy:
+
+```bash
+export KEYCLOAK_CLIENT_SECRET=$(jq -r '.clients[] | select(.clientId=="ichat-client") | .secret' keycloak/realm.json)
+SPRING_PROFILES_ACTIVE=prod ./gradlew bootRun
+```
 
 ## Troubleshooting
 

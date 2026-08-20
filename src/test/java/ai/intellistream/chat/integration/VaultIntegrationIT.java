@@ -28,6 +28,9 @@ import org.testcontainers.utility.DockerImageName;
 import org.testcontainers.vault.VaultContainer;
 
 import ai.intellistream.chat.config.VaultEnvironmentPostProcessor;
+import tools.jackson.databind.ObjectMapper;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -51,6 +54,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class VaultIntegrationIT {
 
     private static final String DEV_TOKEN = "test-root-token";
+    private static String roleId;
+    private static String secretId;
 
     @SuppressWarnings("resource") // closed in @AfterAll
     private static final VaultContainer<?> VAULT = new VaultContainer<>(
@@ -67,6 +72,21 @@ class VaultIntegrationIT {
                 "keycloak.client-id=vault-client",
                 "keycloak.client-secret=vault-client-secret",
                 "keycloak.issuer-uri=https://vault-issuer.example/realms/ichat-realm");
+
+        // AppRole: a policy that can read exactly that record, a role bound to it, and the pair
+        // the app will log in with — the same four steps QUICKSTART-MANUAL.md walks through.
+        VAULT.execInContainer("sh", "-c",
+                "printf 'path \"secret/data/intellistream-chat\" { capabilities = [\"read\"] }' "
+                        + "| vault policy write ichat-read -");
+        VAULT.execInContainer("vault", "auth", "enable", "approle");
+        VAULT.execInContainer("vault", "write", "auth/approle/role/ichat",
+                "token_policies=ichat-read", "token_ttl=5m", "token_max_ttl=5m");
+        roleId = VAULT.execInContainer("vault", "read", "-field=role_id",
+                "auth/approle/role/ichat/role-id").getStdout().strip();
+        secretId = VAULT.execInContainer("vault", "write", "-f", "-field=secret_id",
+                "auth/approle/role/ichat/secret-id").getStdout().strip();
+        assertThat(roleId).isNotEmpty();
+        assertThat(secretId).isNotEmpty();
     }
 
     @AfterAll
@@ -94,6 +114,54 @@ class VaultIntegrationIT {
             // verify the override fired by hitting /actuator/env.
             assertThat(env.getPropertySources().contains(VaultEnvironmentPostProcessor.SOURCE_NAME)).isTrue();
         }
+    }
+
+    @Test
+    void appRoleLoginMintsAToken_readsTheRecord_andRevokesTheTokenAgain() throws Exception {
+        int accessorsBefore = tokenAccessorCount();
+
+        var app = new SpringApplication(VaultTestApp.class);
+        app.setWebApplicationType(WebApplicationType.NONE);
+        try (ConfigurableApplicationContext ctx = app.run(
+                "--ichat.vault.enabled=true",
+                "--ichat.vault.uri=" + VAULT.getHttpHostAddress(),
+                "--ichat.vault.role-id=" + roleId,
+                "--ichat.vault.secret-id=" + secretId,
+                "--ichat.vault.path=intellistream-chat")) {
+            ConfigurableEnvironment env = ctx.getEnvironment();
+            assertThat(env.getProperty("spring.datasource.password")).isEqualTo("vault-pass");
+            assertThat(env.getProperty("spring.security.oauth2.client.registration.keycloak.client-secret"))
+                    .isEqualTo("vault-client-secret");
+            assertThat(env.getPropertySources().contains(VaultEnvironmentPostProcessor.SOURCE_NAME)).isTrue();
+            // No token property anywhere: the minted one lived and died inside the post-processor.
+            assertThat(env.getProperty("ichat.vault.token")).isNullOrEmpty();
+        }
+
+        // The login created a token; revoke-self removed it again, so Vault's accessor list is
+        // back where it started. A leak here would grow by one every boot until the TTL caught up.
+        assertThat(tokenAccessorCount()).isEqualTo(accessorsBefore);
+    }
+
+    @Test
+    void aWrongSecretIdIsRefusedWithVaultsOwnMessage() {
+        assertThatThrownBy(() -> {
+            var app = new SpringApplication(VaultTestApp.class);
+            app.setWebApplicationType(WebApplicationType.NONE);
+            app.run(
+                    "--ichat.vault.enabled=true",
+                    "--ichat.vault.uri=" + VAULT.getHttpHostAddress(),
+                    "--ichat.vault.role-id=" + roleId,
+                    "--ichat.vault.secret-id=not-the-secret-id",
+                    "--ichat.vault.path=intellistream-chat"
+            ).close();
+        }).isInstanceOf(IllegalStateException.class)
+          .hasMessageContaining("AppRole login")
+          .hasMessageContaining("invalid");
+    }
+
+    private static int tokenAccessorCount() throws Exception {
+        var out = VAULT.execInContainer("vault", "list", "-format=json", "auth/token/accessors").getStdout();
+        return new ObjectMapper().readValue(out, List.class).size();
     }
 
     @Test
@@ -125,7 +193,7 @@ class VaultIntegrationIT {
                     "--ichat.vault.path=intellistream-chat"
             ).close();
         }).isInstanceOf(IllegalStateException.class)
-          .hasMessageContaining("ichat.vault.enabled=true but ichat.vault.uri or ichat.vault.token is missing");
+          .hasMessageContaining("ichat.vault.enabled=true but no credential is set");
     }
 
     /** Common boot helper — slim context with no DB/JPA so we don't need a Postgres around. */

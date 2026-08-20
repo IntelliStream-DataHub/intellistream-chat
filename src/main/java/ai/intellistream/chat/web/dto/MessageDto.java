@@ -47,7 +47,14 @@ public record MessageDto(
          * Who pinned it — populated only where the query paid for the association (the pins
          * endpoint), null on the feed. See {@link #build} for why it is not simply read.
          */
-        String pinnedByUsername
+        String pinnedByUsername,
+        /**
+         * The card for the first link in the body, or null: nothing previewable, not fetched yet,
+         * or the page had nothing to say. Derived at read time from the body — see
+         * {@code LinkPreviewService} — and attached with {@link #withLinkPreview}; a create
+         * broadcast carries null and the {@code link-preview} event fills it in.
+         */
+        LinkPreviewDto linkPreview
 ) {
     public static MessageDto from(Message message, String html) {
         return from(message, html, List.of(), List.of(), 0L, List.of(), null);
@@ -114,7 +121,14 @@ public record MessageDto(
                 authorHasAvatar, authorAvatarVersion, bodyMarkdown, bodyHtml, createdAt, editedAt,
                 attachments, reactions, replyCount, mentions, poll,
                 participants == null ? List.of() : List.copyOf(participants),
-                pinnedAt, pinnedByUsername);
+                pinnedAt, pinnedByUsername, linkPreview);
+    }
+
+    public MessageDto withLinkPreview(LinkPreviewDto preview) {
+        return new MessageDto(id, channelId, parentId, authorUsername, authorDisplayName,
+                authorHasAvatar, authorAvatarVersion, bodyMarkdown, bodyHtml, createdAt, editedAt,
+                attachments, reactions, replyCount, mentions, poll, threadParticipants,
+                pinnedAt, pinnedByUsername, preview);
     }
 
     private static MessageDto build(Message message, String html,
@@ -143,7 +157,8 @@ public record MessageDto(
                 poll,
                 List.of(),
                 message.getPinnedAt(),
-                pinnerUsername(message)
+                pinnerUsername(message),
+                null
         );
     }
 
