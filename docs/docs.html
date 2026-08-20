@@ -1332,6 +1332,15 @@
     for a broadcast that landed before their subscription did.
   </p>
   <p>
+    <b>A tab you switched away from stays connected.</b> Browsers slow down a hidden tab's timers —
+    Chrome to once a minute after five minutes — which is enough to starve a socket's keep-alive, and
+    a starved socket is hung up on by the server. That used to show the tab's owner as Offline, then
+    briefly Active when the page quietly reconnected, then Offline again, for as long as they were
+    reading something else. The keep-alive now runs in a Web Worker, which browsers do not throttle,
+    and a page that does reconnect tells the server how long it has been untouched — so someone who
+    stepped away is <b>Away</b>, and stays Away, until they come back.
+  </p>
+  <p>
     Click your own avatar in the top bar for the picker: <b>Active</b>, <b>Away</b>, <b>Do not
     disturb</b>, <b>Appear offline</b>, then <b>View profile</b>, <b>Set a status</b>, <b>Admin
     console</b> if you have the role, <b>About</b>, and <b>Sign out</b>. It is fully keyboard

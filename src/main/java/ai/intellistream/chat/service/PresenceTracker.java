@@ -65,8 +65,31 @@ public class PresenceTracker {
      */
     private final ConcurrentHashMap<String, Instant> lastActivity = new ConcurrentHashMap<>();
 
-    /** Returns true when this is the first session for {@code username} (i.e. they just came online). */
+    /**
+     * Returns true when this is the first session for {@code username} (i.e. they just came online).
+     *
+     * <p>Counts the connect as activity happening now. Right for a page load; for a reconnect use
+     * {@link #connect(String, String, Instant)} with what the client reported.
+     */
     public boolean connect(String username, String sessionId) {
+        return connect(username, sessionId, Instant.now());
+    }
+
+    /**
+     * As {@link #connect(String, String)}, with the moment the person behind this session last did
+     * something — which the browser knows and the server does not.
+     *
+     * <p>A fresh page load reports "just now", and that is the activity it always was: a second
+     * window is a person doing something, and treating it as nothing would leave them AWAY while
+     * they were plainly there. A <em>reconnect</em> reports how long the tab has been untouched,
+     * and is stamped accordingly — so a background tab whose socket was dropped and redialled comes
+     * back as the AWAY it was, not as a burst of green that nobody caused. See
+     * {@code ClientIdleHeader} for why that used to happen.
+     *
+     * <p>The stamp never moves backwards: with a second tab already open and active, a stale claim
+     * from a reconnecting first tab must not undo what the live one has said.
+     */
+    public boolean connect(String username, String sessionId, Instant lastInputAt) {
         if (username == null || username.isBlank() || sessionId == null) return false;
         boolean[] cameOnline = {false};
         sessions.compute(username, (k, set) -> {
@@ -76,10 +99,8 @@ public class PresenceTracker {
             cameOnline[0] = wasEmpty && !set.isEmpty();
             return set;
         });
-        // Opening a tab is activity, and it is stamped on every connect rather than only on the
-        // first. A second window is a person doing something; treating it as nothing would leave
-        // them AWAY while they were plainly there.
-        lastActivity.put(username, Instant.now());
+        var at = lastInputAt == null ? Instant.now() : lastInputAt;
+        lastActivity.merge(username, at, (known, claimed) -> known.isAfter(claimed) ? known : claimed);
         return cameOnline[0];
     }
 

@@ -93,9 +93,11 @@ public class PresenceAwaySweeper {
             var idle = tracker.isIdle(username, threshold, now);
             var previous = published.put(username, idle);
             if (previous != null && previous == idle) continue;
-            // First sighting of an active user is not news — everyone already drew them green
-            // when they connected. Only publish a real edge, and only the one this class owns.
-            if (previous == null && !idle) continue;
+            // First sighting is not news either way: PresenceEventListener announced the state on
+            // connect, and since a connect carries the client's idle time that announcement is
+            // already AWAY for a redialled background tab. Only publish a real edge, and only the
+            // one this class owns.
+            if (previous == null) continue;
             users.findByUsernameIgnoreCase(username).ifPresent(user ->
                     broker.convertAndSend("/topic/presence", presenceService.presenceFor(user)));
         }

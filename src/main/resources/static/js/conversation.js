@@ -618,10 +618,13 @@
 
   // ---------- STOMP connection ----------
   const wsUrl = (location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws';
-  const stomp = new StompJs.Client({
+  // Presence.stompOptions() is not optional: it is the worker-driven heartbeat that keeps this
+  // socket alive in a background tab, and the idle-ms header that keeps a reconnect from reading
+  // as activity. Same shape as chat/index.js; keep the two identical.
+  const stomp = new StompJs.Client(Object.assign({
     brokerURL: wsUrl,
     reconnectDelay: 4000,
-  });
+  }, window.Presence ? window.Presence.stompOptions() : {}));
 
   // The conversation topic carries ConversationMessageDto (new message) and lightweight
   // ConversationEvent envelopes (member-added, message-updated, message-deleted, link-preview).

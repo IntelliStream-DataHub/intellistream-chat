@@ -22,6 +22,7 @@
  *
  * Public surface:
  *   window.Presence = {
+ *     stompOptions(),               // StompJs.Client options every page's socket must carry
  *     attachStomp(stompClient),     // wire WS subscription once connected
  *     refreshAll(),                 // re-scan DOM + fetch
  *     stateFor(username),           // last known PresenceDto, or null
@@ -157,18 +158,22 @@
   const PING_MS = 15_000;
   let stompRef = null;
   let lastPingAt = 0;
+  // The unthrottled truth behind the pings: when this tab last saw real input. Loading the page
+  // counts, exactly as the server counts a fresh CONNECT.
+  let lastInputAt = Date.now();
 
   function pingActivity(force) {
-    if (!stompRef || typeof stompRef.publish !== 'function') return;
     if (document.visibilityState !== 'visible') return;
-    const now = Date.now();
-    if (!force && now - lastPingAt < PING_MS) return;
-    lastPingAt = now;
+    lastInputAt = Date.now();
+    if (!stompRef || typeof stompRef.publish !== 'function') return;
+    if (!force && lastInputAt - lastPingAt < PING_MS) return;
     try {
       stompRef.publish({ destination: '/app/presence/activity', body: '{}' });
+      lastPingAt = lastInputAt;
     } catch (notConnected) {
       // The socket is down, which the server already reads as OFFLINE — a louder state than
-      // anything this could report.
+      // anything this could report. lastPingAt is left alone so the next input retries rather
+      // than waiting out a throttle window on a ping that never left.
     }
   }
 
@@ -183,6 +188,32 @@
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') pingActivity(true);
   });
+
+  /*
+   * ---------- Keeping the socket honest in a background tab ----------
+   *
+   * Two things a page's STOMP client has to do for presence to mean anything, handed to the pages
+   * as options so neither page can construct a client without them:
+   *
+   * 1. Heartbeat from a Web Worker, not a page timer. Browsers throttle timers in a hidden tab —
+   *    Chrome to once a minute after five minutes, and nothing about an open WebSocket exempts it.
+   *    The STOMP heartbeat is a 10s timer and the server hangs up after 30s of silence, so a tab
+   *    left behind while its owner read the news was disconnected, shown OFFLINE, reconnected, and
+   *    disconnected again, forever — never once AWAY. Worker timers are not throttled.
+   *
+   * 2. Tell the server how idle this tab is on CONNECT. A reconnect is not a person arriving, but
+   *    the server cannot tell a redial from a page load; without this header it stamped every
+   *    connect as activity and a reconnecting background tab flashed green. The first connect
+   *    reports "just now", which is what a page load is. See ClientIdleHeader on the server.
+   */
+  function stompOptions() {
+    return {
+      heartbeatStrategy: 'worker',
+      beforeConnect: (client) => {
+        client.connectHeaders = { 'idle-ms': String(Math.max(0, Date.now() - lastInputAt)) };
+      },
+    };
+  }
 
   function attachStomp(stompClient) {
     if (!stompClient || typeof stompClient.subscribe !== 'function') return;
@@ -257,7 +288,7 @@
   });
   observer.observe(document.body, { childList: true, subtree: true });
 
-  window.Presence = { attachStomp, refreshAll, stateFor, onChange, me, isDnd };
+  window.Presence = { stompOptions, attachStomp, refreshAll, stateFor, onChange, me, isDnd };
 
   // Prime the state on page load — even if the STOMP client never attaches (e.g. profile
   // page), we still want the dots painted from the latest server snapshot.
