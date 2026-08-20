@@ -16,6 +16,8 @@
 
 package ai.intellistream.chat.integration;
 
+import ai.intellistream.chat.config.ClientIdleHeader;
+import ai.intellistream.chat.domain.PresenceKind;
 import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.repository.UserPresenceRepository;
 import ai.intellistream.chat.repository.UserRepository;
@@ -32,6 +34,8 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.messaging.Message;
+import org.springframework.messaging.simp.SimpAttributes;
+import org.springframework.messaging.simp.SimpAttributesContextHolder;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.messaging.support.GenericMessage;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -241,6 +245,52 @@ class PresenceFlowIT {
         listener.onConnect(connectEventFor(alice.getUsername(), "tab-2"));
 
         verify(broker).convertAndSend(eq("/topic/presence"), any(PresenceDto.class));
+    }
+
+    /**
+     * A background tab whose socket was dropped and redialled reports how long it has been
+     * untouched on CONNECT ({@code ClientIdleHeader}); the interceptor parks that on the session
+     * attributes, and Spring publishes the connected event with those attributes bound to
+     * {@link SimpAttributesContextHolder}. The announce must then be AWAY, not the ACTIVE that
+     * every connect used to be — that flash of green on each reconnect was the visible half of a
+     * throttled-heartbeat loop.
+     */
+    @Test
+    void reconnectReportingIdleTimeAnnouncesAwayNotActive() {
+        var alice = newUser("alice");
+        var idleSince = Instant.now().minus(presenceService.awayThreshold().plusMinutes(2));
+
+        withSessionAttribute("tab-1", ClientIdleHeader.SESSION_KEY, idleSince,
+                () -> listener.onConnect(connectEventFor(alice.getUsername(), "tab-1")));
+
+        var captor = ArgumentCaptor.forClass(PresenceDto.class);
+        verify(broker).convertAndSend(eq("/topic/presence"), captor.capture());
+        assertThat(captor.getValue().kind()).isEqualTo(PresenceKind.AWAY);
+        assertThat(captor.getValue().online()).isFalse();
+        assertThat(tracker.lastActivityAt(alice.getUsername())).isEqualTo(idleSince);
+    }
+
+    @Test
+    void connectWithoutIdleAttributeIsActiveNow() {
+        var alice = newUser("alice");
+        // Attributes bound, but nothing parked under the key — a client that sent no header.
+        withSessionAttribute("tab-1", "unrelated", "x",
+                () -> listener.onConnect(connectEventFor(alice.getUsername(), "tab-1")));
+
+        var captor = ArgumentCaptor.forClass(PresenceDto.class);
+        verify(broker).convertAndSend(eq("/topic/presence"), captor.capture());
+        assertThat(captor.getValue().kind()).isEqualTo(PresenceKind.ACTIVE);
+    }
+
+    private static void withSessionAttribute(String sessionId, String key, Object value, Runnable body) {
+        var attributes = new java.util.concurrent.ConcurrentHashMap<String, Object>();
+        attributes.put(key, value);
+        SimpAttributesContextHolder.setAttributes(new SimpAttributes(sessionId, attributes));
+        try {
+            body.run();
+        } finally {
+            SimpAttributesContextHolder.resetAttributes();
+        }
     }
 
     @Test

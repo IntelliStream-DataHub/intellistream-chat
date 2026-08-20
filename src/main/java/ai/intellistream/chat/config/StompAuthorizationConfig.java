@@ -37,6 +37,7 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
 import org.springframework.messaging.simp.config.ChannelRegistration;
 
 import java.security.Principal;
+import java.time.Instant;
 import java.util.regex.Pattern;
 
 /**
@@ -124,6 +125,14 @@ public class StompAuthorizationConfig implements WebSocketMessageBrokerConfigure
                         sessionAttrs.put(SESSION_USER_KEY, user);
                         // Tie the socket to the account so a later ban can hang up on it.
                         evictor.bind(accessor.getSessionId(), user.getId());
+                    }
+                    // How long the tab has been untouched, so that a reconnect is not mistaken
+                    // for a person arriving. Read here because this is where the CONNECT frame's
+                    // native headers are; consumed by PresenceEventListener off the session
+                    // attributes, which the SessionConnectedEvent is published with.
+                    if (sessionAttrs != null) {
+                        sessionAttrs.put(ClientIdleHeader.SESSION_KEY, ClientIdleHeader.lastInputAt(
+                                accessor.getFirstNativeHeader(ClientIdleHeader.HEADER), Instant.now()));
                     }
                     return message;
                 }
