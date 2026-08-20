@@ -364,7 +364,39 @@ async def shot_new_conversation(page, ctx):
 async def shot_profile(page, ctx):
     await page.goto(f"{BASE}/profile", wait_until="domcontentloaded")
     await page.wait_for_timeout(1000)
-    await page.evaluate("() => document.getElementById('notification-sound')?.scrollIntoView({block:'center'})")
+    # The id is per-kind — there is no bare #notification-sound, and there has not been since the
+    # single sound switch was split into one for mentions and one for direct messages. The `?.`
+    # swallowed the miss, so this scrolled nowhere and the slide showed the top of the page under a
+    # caption describing a section further down it.
+    await page.evaluate(
+        "() => document.getElementById('notification-sound-mention')?.scrollIntoView({block:'center'})")
+    await page.wait_for_timeout(400)
+    return None
+
+
+async def shot_time_settings(page, ctx):
+    """The time-zone and date-format controls, with the zone picker open on a search.
+
+    Worth its own slide because the thing it fixes is invisible in a screenshot of a fixed
+    instance: every timestamp used to be rendered in the *server's* zone with a hard-coded US
+    12-hour pattern, so a UTC container showed everyone else the wrong hour in the wrong format.
+    What can be shown is the control that now decides it — and the search is the point of the
+    picture, since the alternative is six hundred options in a native <select>.
+    """
+    await page.goto(f"{BASE}/profile", wait_until="domcontentloaded")
+    await page.wait_for_timeout(1000)
+    await page.evaluate(
+        "() => document.getElementById('timezone-section')?.scrollIntoView({block:'start'})")
+    await page.wait_for_timeout(300)
+    try:
+        # Focusing selects the current value, so typing replaces it and the list filters.
+        await page.click("#timezone-search")
+        await page.type("#timezone-search", "osl", delay=70)
+        await page.wait_for_selector(".tz-combo-option", timeout=5000)
+    except Exception:
+        # No combobox means the script did not load and the plain <select> is still there — a
+        # duller picture, but an honest one, and better than no slide.
+        pass
     await page.wait_for_timeout(400)
     return None
 
@@ -570,8 +602,16 @@ SHOTS = [
      "The admin console: suspend an account and close its live sessions, clear or restore someone's messages, set per-person storage quotas, and an append-only audit trail.",
      "forest"),
     ("profile", shot_profile,
-     "Twenty themes, five of them dark, an account-wide notification default, and per-device sounds set separately for mentions and direct messages.",
+     "An account-wide notification default, and per-device sounds set separately for mentions and direct messages — a direct message is someone waiting on you, a mention is your name going past in a room that was talking anyway.",
      "indigo"),
+    ("time-settings", shot_time_settings,
+     "Every timestamp is shown in your zone, your clock and your date order — not the server's. The picker searches by city and shows what each zone is on right now; Automatic follows the device you are reading on, so it stays right when you travel.",
+     # Default rather than one of the other nineteen, uniquely among these entries: the theme is
+     # applied by setting data-theme on the body after the recipe runs, but the theme picker's
+     # "selected" ring is server-rendered from the stored choice. On every other slide the grid is
+     # off-screen and the two cannot disagree; this one has it in frame, and a page painted in Ocean
+     # with the Default tile ringed is a screenshot arguing with itself.
+     "default"),
 ]
 
 
