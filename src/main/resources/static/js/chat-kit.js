@@ -64,9 +64,13 @@
   };
 
   // ---------- Date / number formatters ----------
-  const dayKey = (d) =>
-      d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-  const formatTime = (d) => d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  // Delegated to ChatTime (time-format.js), which resolves the viewer's zone, locale, clock and
+  // date order from the meta tags the server published — and, when the server only had an
+  // Accept-Language guess to go on, from what the browser itself reports. Formatting here with
+  // the browser's raw defaults is what used to put a 24-hour local time directly under the
+  // server's 12-hour UTC render of the message above it.
+  const dayKey = (d) => ChatTime.dayKey(d);
+  const formatTime = (d) => ChatTime.formatTime(d);
   const formatBytes = (n) => {
     if (n == null) return '';
     const units = ['B', 'KB', 'MB', 'GB'];
@@ -249,6 +253,61 @@
   const REACTION_PICKER_EMOJI = ['👍','👎','❤️','😂','🎉','🚀','👀','🙏','🔥','💯','✅','❌'];
   let emojiPickerEl = null;
 
+  /*
+   * Recently used emoji.
+   *
+   * The picker opens on "Smileys & Emotion" — four hundred faces, of which almost nobody uses more
+   * than a couple of dozen, and the ones they do use are scattered across eight categories. Putting
+   * the last two dozen at the top turns the common case from a search or a scroll into a click.
+   *
+   * localStorage, so per device and per browser profile, like the notification sound switches and
+   * for a similar reason: this is a scratch list that changes several times a session, and paying a
+   * request per emoji to keep it on the account would cost more than it is worth. The trade is that
+   * it does not follow you between machines — acceptable for a shortcut whose absence just gives
+   * you the picker as it was.
+   *
+   * Stored as characters only, not as objects: names and keywords come from EMOJI_DATA at render
+   * time, so a dataset edit fixes an old entry's tooltip rather than leaving it frozen in storage.
+   */
+  const RECENT_EMOJI_KEY = 'ichat.emoji.recent';
+  const RECENT_EMOJI_MAX = 24;
+
+  const readRecentEmoji = () => {
+    try {
+      const raw = JSON.parse(localStorage.getItem(RECENT_EMOJI_KEY) || '[]');
+      return Array.isArray(raw) ? raw.filter((c) => typeof c === 'string' && c) : [];
+    } catch (unavailableOrCorrupt) {
+      // Private mode, disabled storage, or somebody's hand-edited JSON. A missing shortcut is not
+      // worth an exception on the way to opening a picker.
+      return [];
+    }
+  };
+
+  /** Move {@code char} to the front of the recents, capped. Most recent first. */
+  const rememberEmoji = (char) => {
+    if (!char) return;
+    try {
+      const next = [char, ...readRecentEmoji().filter((c) => c !== char)].slice(0, RECENT_EMOJI_MAX);
+      localStorage.setItem(RECENT_EMOJI_KEY, JSON.stringify(next));
+    } catch (unavailable) {
+      // Same as above: the picker still works, it just will not remember.
+    }
+  };
+
+  /** Character → dataset entry, built once, so a recent emoji keeps its name and tooltip. */
+  let emojiByChar = null;
+  const emojiEntry = (char) => {
+    if (!emojiByChar) {
+      emojiByChar = new Map();
+      for (const g of (window.EMOJI_DATA?.groups || [])) {
+        for (const e of g.emojis) emojiByChar.set(e.c, e);
+      }
+    }
+    // An emoji that has since been removed from the dataset still renders — it is in the list
+    // because the user picked it, and dropping it would look like the list losing entries at random.
+    return emojiByChar.get(char) || { c: char, n: char, k: [] };
+  };
+
   const closeEmojiPicker = () => {
     emojiPickerEl?.remove();
     emojiPickerEl = null;
@@ -276,6 +335,15 @@
       ? window.EMOJI_DATA.groups
       : [{ name: 'Common', icon: '😀', emojis: REACTION_PICKER_EMOJI.map((c) => ({ c, n: c, k: [] })) }];
 
+    // Read on every open, not once at load: a pick made in another picker (or another tab) should
+    // be at the top the next time this one opens.
+    const recent = readRecentEmoji();
+    // With nothing used yet there is no section and no tab — the picker is exactly what it was.
+    // A "Recently used (empty)" header would be a promise of a feature rather than the feature.
+    const displayGroups = recent.length
+      ? [{ name: 'Recently used', icon: '🕘', emojis: recent.map(emojiEntry) }, ...groups]
+      : groups;
+
     const picker = document.createElement('div');
     picker.className = 'emoji-picker';
     picker.setAttribute('role', 'dialog');
@@ -292,7 +360,7 @@
 
     const tabs = document.createElement('div');
     tabs.className = 'emoji-picker-tabs';
-    groups.forEach((g, i) => {
+    displayGroups.forEach((g, i) => {
       const tab = document.createElement('button');
       tab.type = 'button';
       tab.className = 'emoji-picker-tab' + (i === 0 ? ' active' : '');
@@ -313,7 +381,11 @@
       b.className = 'emoji-picker-btn';
       b.textContent = e.c;
       b.title = e.n;
-      b.addEventListener('click', () => { closeEmojiPicker(); onPick(e.c); });
+      b.addEventListener('click', () => {
+        rememberEmoji(e.c);
+        closeEmojiPicker();
+        onPick(e.c);
+      });
       return b;
     };
     const matches = (emoji, lower) => {
@@ -323,7 +395,7 @@
     };
     const renderGroups = () => {
       results.innerHTML = '';
-      groups.forEach((g, i) => {
+      displayGroups.forEach((g, i) => {
         const section = document.createElement('section');
         section.className = 'emoji-picker-section';
         section.dataset.group = String(i);
@@ -343,6 +415,8 @@
       const grid = document.createElement('div');
       grid.className = 'emoji-picker-grid';
       let n = 0;
+      // `groups`, not `displayGroups`: searching the recents as well would return every match
+      // twice, once from the shortcut and once from the category it actually lives in.
       outer: for (const g of groups) {
         for (const e of g.emojis) {
           if (matches(e, lower)) {
@@ -503,6 +577,9 @@
         btn.title = (mine ? 'Remove ' : 'React with ') + emoji;
         btn.addEventListener('click', () => {
           closeMessageSheet();
+          // Reacting counts as using it; un-reacting does not. Tapping 👍 off a message is not a
+          // statement that 👍 is one of your emoji.
+          if (!mine) rememberEmoji(emoji);
           quickReactionFn(li.dataset.id, emoji, mine);
         });
         strip.append(btn);
@@ -610,13 +687,7 @@
   // what happened. Rendered as plain text, not a link: the bytes are gone, and a download that
   // 404s is worse than no download. Named and dated because "a file used to be here" invites the
   // question this answers.
-  const formatRemovedAt = (iso) => {
-    if (!iso) return '';
-    const d = new Date(iso);
-    return isNaN(d) ? '' : d.toLocaleString([], {
-      year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
-    });
-  };
+  const formatRemovedAt = (iso) => (iso ? ChatTime.formatDateTime(iso) : '');
 
   const buildRemovedAttachmentEl = (a) => {
     const el = document.createElement('span');
@@ -1223,6 +1294,11 @@
       return;
     }
 
+    // Past that check the message is unread, which is exactly when the tab icon has something to
+    // say. Here rather than in MentionNotifications.show for the same reason the badge below is:
+    // show() is gated on Do Not Disturb, and DND silences interruptions, not unread markers.
+    window.FaviconAlert?.pulse();
+
     const esc = (window.CSS && CSS.escape) ? CSS.escape(id) : id;
     let li = list.querySelector('li[data-conv-id="' + esc + '"]');
     if (!li) {
@@ -1295,6 +1371,10 @@
     openEmojiPicker,
     closeEmojiPicker,
     REACTION_PICKER_EMOJI,
+    // Exposed so the picker's shortcut list can be inspected without opening a picker — the
+    // in-browser smoke runner asserts on it, and a console is the only place anybody would ever
+    // want to clear it.
+    emojiRecents: { read: readRecentEmoji, remember: rememberEmoji, max: RECENT_EMOJI_MAX },
     appendAuthorHandle,
     setQuickReaction,
   };

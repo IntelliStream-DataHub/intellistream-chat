@@ -28,6 +28,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
 import org.springframework.security.config.Customizer;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.Authentication;
@@ -172,6 +173,12 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers("/", "/css/**", "/js/**", "/img/**", "/webjars/**",
                                          "/actuator/health", "/branding/logo").permitAll()
+                        // The session probe has to be reachable *after* the session dies, or it
+                        // cannot report that it did — an authenticated route answers an expired
+                        // session with a 302 to Keycloak, which a background fetch follows and
+                        // resolves as a 200 full of login-page HTML. See SessionRestController.
+                        // It discloses nothing: the caller's own sign-in state and their own name.
+                        .requestMatchers(HttpMethod.GET, "/api/session").permitAll()
                         // Admin console + branding mutations require the ichat-admin realm role
                         // (mapped to ROLE_ADMIN by KeycloakRolesConverter).
                         .requestMatchers("/admin", "/admin/**").hasRole("ADMIN")

@@ -670,6 +670,17 @@
     mouse, key, scroll, touch and focus events, and after 8 hours of genuine inactivity it posts to
     <code>/logout</code> itself rather than leaving a stale tab open until someone clicks something.
   </p>
+  <p>
+    <b>When a session does end, the tab says so.</b> A signed-out page does not look signed out —
+    the sidebar is still drawn, the composer still accepts text, and every request it makes is
+    answered with a redirect to the sign-in page that the browser follows silently. Nothing throws,
+    no message ever arrives again, and the first honest feedback used to be a send that quietly did
+    nothing. Each open tab now checks once a minute (only while you are looking at it) and puts a
+    bar at the bottom of the page with a <b>Reload</b> button when the answer changes. Reloading is
+    the whole fix: if your single sign-on session is still alive you come straight back to the page
+    you were on. The same bar appears if you sign in as somebody else in another tab, which leaves
+    this one showing a view that is no longer yours.
+  </p>
 </section>
 
 <section class="doc" id="channels">
@@ -1149,6 +1160,14 @@
     shows who reacted.
   </p>
   <p>
+    <b>The picker leads with what you have used recently</b> &mdash; the last two dozen, most recent
+    first, in a section of their own above the categories. Nobody uses more than a handful of the
+    650, and the ones they do use are scattered across eight tabs, so this turns the common case
+    from a search into a click. Until you have picked anything the section is not there at all and
+    the picker opens exactly as it did before. The list lives in the browser, like the notification
+    sound switches, so it is per device and per browser profile rather than per account.
+  </p>
+  <p>
     <b>You cannot react to your own message.</b> The button is hidden on your own messages and the
     server refuses the request as well. It is an opinion rather than a technical limit, and it is
     worth knowing before you file it as a bug.
@@ -1268,6 +1287,16 @@
     a session arrives only after your first click or keypress. Nothing is lost — the toast still
     appears — and it is why the settings page plays the sound when you switch it on.
   </p>
+  <p>
+    <b>The tab icon pulses too.</b> A mention or a direct message flips the favicon between the
+    normal mark and a red-dotted one. If the window is not focused it keeps pulsing until you come
+    back to it, because that is the case the toast cannot cover — it expires unseen while you are
+    somewhere else, and the only lasting trace is a badge inside a page you are not looking at. If
+    you are already here it flashes a few times and stops. Unlike the toast, the sound and the
+    desktop alert, this is <em>not</em> silenced by Do not disturb: it is an unread marker rather
+    than an interruption, and it sits in the same category as the sidebar badge and the unread
+    count, which have always kept working.
+  </p>
 
   <figure class="doc-shot">
     <img src="data:image/webp;base64,UklGRtYmAABXRUJQVlA4IMomAAAwvACdASqIAQICPpVGnkylo6MionCKiLASiWdu/CX44OfcDzJRzgB9Zv1O7cbzHfcB7vX+39Z28yegn0tH+CyZ3yl/iPT/3hffP8B+5H9+9L/xz5b/Ef1z9wPVzxv9V+pT8n+xP8T+4ec3/I8J/jP/mf1X2AvVX/E8O/YxaV/qf97/YfYC9hvp//N7/X+f/vXqf+af2D/hf2f4AP5T/Wf+z/d/ZH/a+C191/xP7T/AD/I/7D/zP7x/n/2u+lf+c/+H+j85v59/if/n/n/gG/mn9v/ZH21v//7fP3H///ur/t1//xr9PapNQLNRmjM3GDWtHIcFUuE88VDeK1OgpJjCBfZoVWROF63QzdhxhGPsUAznBiVjtw7+eity+xnpOVv0H1ydjAfirxd8nNm6YUg6jCs5jVaQmU5SJY63ytltRM/sOq3ER5vwF+gJC7zOsd0dtB7JvgIiQ+zgLLm4myQNgsolAlaTfAREieyb4CIjc7RKQjoLifvc3jfr/kP8l44la1KVxGhaEs/HxHW+Vs+AQ6ePAwGuMoC9VsstUfUq3JY3nWLYw4YpA1JC9m80se4+I63ytnwCHTx0dLeR6SP7BXiS2lRArYXeOrj5yEQ4WOOpAIiRPZN74FDr5xLxF7audQmxDp4+I63ytnwCGV8dcwjdX+AQUY+rYVTOVyRZPTbNjDutbuDByVcJp2piRNsPISE/ofWwcCdy64GYv7A1IGxxV/IJ9jeQwqn8Oo4O7hsYXAqIHteo1Veezlmxr+cQCaWLaX8PCfePp55RATyjenJ7lj1MfHgkSx1vlY0OQMb0KNpzb8mTAeb4MhbKnzCd6RTwhS4x0Vz532HxL2VFAtDYCK6bj10a2N77zN3AFH3unXS9IlYw5QfbRlT6GGlKnppeMZSfp0WGUxi4GK/QATw1HshivAHakCwlOrFMQaFSswLO2TfARR7Vx1IqxWHVW+XvzO8VzDK+ss/xw9ldDjqQCIkT2Te9Hdx0AsJ4QsefiPxsNjrJEXS+n5AFCRPZN8BESJ7IDknt2/xkAgJckhvYn1WoqfACMnj4jrfK2fAAeC7fEreWe9GfOaJgWE/0tMMkwC6sct9ubMVPo4Fjy8ZfwzANwQj06SwPgZk8fEdb5Wz4BDOCJgPl/A5ktRzsU9QJIlbbitlkZngauAIOZSuB4e+p7G+oc6rWo2GrpWz4BDp49+EgryzfwM+usmZPML0tiMxm+MwszX7wmd6XBvAJiGAytbbFf9cdJdsE+SywCMnj4jrfA/khJTku0t0kdSojRAmmJ6CgdbpmrKPj/hHFsJiJE9k3wERIhRpX0KXVYri+58kwF3B+3zphoJ0nKPTaJ3VFf//1bAyGrXLcx4gcEQN041U8Igbpd8AoEmTNxHm3L8h1eBxWx9AnENq/TMrE9k3wEEdN2jGBw/ju03ep5VHVbYtAWTzlQnszKp4RA3TjVTwiBunGqnhDa5EbxHPPNAx5NPr5sNxbcfAwCoI9wbR4V2cRmlITdOW/Yox3q8+K5DTCIBtVJ5V+9bDjG/1+ObOyAjiPJsm7R6mchtmEfBp/a1ELgFnmoYs2UfJ9aNvYhC+B+UZgMLTvQj8XDGvwxcHsf7Gfr5Y5HqOzERInsmjEIpqe7/7aHIanYKelrr5Iac63DzWmDfAREieyb4CdhD1hhWe+QcJWeBR1X9dfvSDjKMPIuM8lJ3r5E3zzPtPSt1le0wCIkT2PvqHT3JSvMrlXzc2849DdYqELF3/A2PLmETGSVBET2TfAREieycAet5TC0/JvlbPgEOnj4jrfK2eb5Hr5mVTCBUa/k8cPnphZPYBmzlvXiIoj5jks7cmL5y7wQOFKVuZatIo6VS3ytnwCFuU7NzLg1088Y0nfCYtD+qFt4KAixgw0tQx3fIby4z4Lf9Md/sjAdiFAQWGtrhEieyb304Jfqpxb9HxtfcBdqAQoJK4Vb5Wz4BDpUbMlaobjLFHvpQ02VRHGqnhEDdONVPCIG6caqeEQN041U3LDjv+nAAD+7AiKRi8Xnha+ASZZckzPMkhJIXdxtUMURSj32NYRghlbr/8DtAJWMdlvQqdfaV/NFp+VphjqOZ/KO7Tdn/hD7/bhVZFUO+IanKsJJCURZyNqXDVfRBe4tZCeOG0ikbHyp3pi4i8eAkUZMGtdQRJyjBBMVooMwTDtN/LE4XLQG4i+mB2eew1QAXR9YASy7tiabFDSofPr8943l8HEEYd9KqgnQ7LmEeJSpWWqhTvaDtTCg2ccGRkuUfmMdlxGhhvHmj5Chbncrv/AiSCN0AeYfBla10K/4vsbHm+u3nOewYQwApFK+alupw3JuA7w3/r8w347FPl7lpP8B/coigtmsOEKC5abdSY1tIU6JLE0K/4TNv+K0e8ooth2/E9f+UCAM11UR/6KwbPH1BTwGYUY2j4289hvc8QO5hcPzKZJS7+bwyt9KKO2ADgxVywBHou9YFFqeFibrWB+3AUJXcNBAfL5mm8wbhFw+Zlk4XWJB2ttTDg9YlN99Hztahp2ZCx6hKztpL5O0DyDM0tecIh7uBZjfHb5APTqQ6V8DXnT9/gGjsw9/UGNiw/zuRJBnmXB+31xGUeL3Sjav1b41oe1mnauXtA6YXdBAS/maQcU1lwzAyUeSqw+hmX3hoJwl73xoW47EPb1GVqgV8yWonaoECPN4f4Q/PL+0NX2H2cxDMi6tdWztlij/0Vg2UITSoaEZHVM6oIkdN2tlmlBxuc8CiQGc0R2zppFhPVBISRotXMxfj/bgvGsSj7+xsYf4x93w4/WvstUS9izEkvvVyyFUqNyP3DRyXzOT2TXW7LJTg+9lvzqO6cK7X12EsjIuk01Y3Cx6Pd9RXXkq7d3+2P8XFTLOdjmYRN40I/CeduX3v1QLKIxdeIAOtehAAgXe9D0F0bnATq0H9JSXS4lrD16NL3KvUdvF2E1sZtnfwLkvbMBd4S3Tkhw7dFSAjMS6euO1arZhZPM03xHDuqSfbUg6cN9ZOC25lJOOFKNxyP/FzNmbb5h+NxBo2fDFaQd9hMjBw9S3Jv18yWnJf3q7QZIz8Tc64QJgmksHUGtr5hvI8RpKVeXuE0khNehfGSZ2mLNiXe320gQZQ6wQrsLCWIMEhypfWqzqvf2ht+DRgITXvw7I5jgvay1GgWj5uqHiW50os5XU46yoN9K/eX1WaKimJbDLlAedgLI1eV2ODYyL0gM35KdTr3EWCqwhd7MN6psT8hoIRLIWE3uzpFRqwiPcLarQV0RNeXoHU7EsZY0GlGxPg77Qs5G2WGwi30wBEqZU1GxPdPW+FIB/vTn7G00sK8OL/rVZhQ2fG5DD7X9/O7gxbf4/xLSmUsTsvEXnyusHiXpMPakUmKOihQ7xd2kwtezc7cBjt/bc9i6zhGpALunPcnwaJSeiJbuGEABCzsZT98fBoJT4FV0P2tzfLL1HXgkaCC+IHlAAk1OXjr3vQi02ZXGkejjuFHcUo632P3Z7R95VbS1Q28vwpTx9UUOuF2Fj8sPeo68nl6Jf3CM5qYX1pLGPSAjh/61MKPw+u5Moa9UpbdmKcfqDwbTR+MIdMeWkHLABpwAFuB37Y0jsjyjCA3Qea+W/f16R1jMY455yj5k0kCHhx4e7BrBumPTC5imIej9KuUibOiHSUJqjMhJ7r3NhGfquqK8TfaNvZ6NbU+h7HQdyDaV5bTP+fMqlxWNrvM7LepeJ95dRrA0xq4aznSO5Bojac/hRA772P3YjP/05x7B2O/bVZom1akAhk+sdSE4HWQYacnBjGmWo4mX+dM7fz4dUqyi1DPO9bW8qPFuQVa/vb5yd+7JBzZyIGFYtGF+VLJazYoWc5z4X1yd7ZnAEoouErdlcgNgteHqTjrqs8eQ1rI/TNXgqc6W3/T1FFAsuGaF4dtICKWpa/waiS1Pxxr9WwRNQyMG+GeCGm+6aLEtiuuRzsfCPgb78KH+Uh/zywG8/bcEK7MqoOFVQ5FrCwGk+dDiEp8xiWxHhnN8QJIEzL7zXOdydaDgdbeaoCW/ZoGCSg9e6wG12eyKO8FzNAdXc1xw2NHXxjamDb/zFZgTzy9vJVjy+lvjoFT5ScKHIetRhl3qhboV7NHaUGGDniIhZafno7Pom/oteEKOWSWCejbQefptgDagymEsb6qMDfLbN3VRdyFF4lWYOKowYm7m7hjMZ0cVYPBFOCmIwxMYqet/Op//3KxekQLhnjhHVDRWdvvCDL48n1SPYvsaZ0crc6W5dwoME8aV7GWDF8LZ1U0uENeglhuSgGH1qsb7Yip/QE1z8gXHLQXc97ej76rn31XPvsZWpUFjloAR59gaKoNPDh5WJZZ4DQcAAk0mq1DrHOvKDnRl8Q+lqtjnS2mrjupOXeZMWXKe3qffWO/RvB3Oq2YuROg6KKFDDGDP3DC7a1HYA1wVcj1jXLv6pDudAouGKCrCmu6u8Ng8GZv042dFeSqTuLSW/Maf2Xze0A9pt4GLyxh5UN2JSjHOGVS9DIw5ZpmI9bpWzWlCam2zg1yhlGqsuNJs/nuIPVAx14WtM2W9CCJiyVdgRA21t2k7XAFaI4QQMFFLE/srOG+dCvbVffgBm781/h5nYzDj/nRiQn2Co/DCrbwUr2zGwEVzoHXoLyx65xefho/LgYnycKwlfepAP7hmLuO44VDL4l4ucmvovvJQvobtDc+lGMHuMzmbIqo2Jv6VtgUOgGpzVnDFnJvGK9DDnPSPIWn+iY0DNPA0mwWt+0oFBA5u5b6xnKrh7hPm1c9mh/5jRFVdJSjqVRXdJEbfK1NRleBsKCGZ8rzSo6AluGFnvBUzJTjYBdQlqa3HfjWpcyrFYthfPO3j314qfn+jLhM0/EWkfQA2XPKG3ZQJzQ/W3edzHOykCOBH8pYYorJiShVuXVSEIA2jjvWf2rxtPDvB8DiSAyNTLOdjH1IrXaGLC5LOOa/VZL/AaEnBHTLSGslz09cZOUW98a8WKOYlDS2rtwa6taWNLT0+TgsAXihJQMm2UYtG/wDZAv3f/8jXjf/e9X0vd+t/MjykaBGaEWvYAl4nHl89sMQhc9hkOvr9ez+HfS5mrlOKvCooS96TkseaxcfE80EHkxXEoCHEHQ+CUu88nBzNEKWRe7W2dH/Dvw7H8Lif/yt9ULMEcfeWVYhfsMWF2mYWTPUhag9k8Gx8vnKan9K7cwRWhkjNPwB4UJioq5UL1Jztr7qiF2x1hL49KKr5XIUJSyKkhuyKud0j3mQuZ1lO7EKnpmaM/HF7s/aEQ5nwD2wYDOZ1Q2OR4UGVRVL6ntCPFVgworb4BZX6/KWa8Zcou+HOESIGuRKaLJkuvoZT+SR5rDI6x4ndV0sCDKjCR+5k4rptcLhEE6/+buFRKzdeiZlTF2/qtQNPW24LLhDOeKfRW7yFEGDV93zLHQYGuUt7jKTYMMOeBQA4c4HwKxA/XlD3q1irJYx+P1asu9jfsJNnDJtySoK1T5yia6AEI53qRZZeGSlfO9NP3o8x3jhw6JlMB6/vLqcShGwFccwDZURthHknoWnxyiwC7AEWwEneV2NY7AfuZOK7eEw9PZF1UQuHHSD7H1v9nn4HEkBkamWFz9oHtFeyFZgP50Ng2IBv0OiaX0Do0mN2+z7s+ya6JRmL4qtwzoYU1zFmz5FtrN0NGSEGXu5/eRWd6YEZXRpv18qONhrYp9LqRFjmxJiEu4ww5Fr8YTV2+Bewa2IE2fgyAqFb4wuR2bByMZXiIfQkeyT0j5uHk5rO/cn8sHvI01BruILbSf0uvwfJhz/IBPKx2/MB8XAB3KJ6APKPgitLDBKqnsVxWqQFIBVndKLpSuK9u0tqqhGHdSGHWdAmfIEjrKhy4qdKK0mCessE0PYLHxak2VlEsBJmwc6xrI9PPN3d+/cOBEQ3JD0ZXGQXfhzAumLIpJUO3T2Ai4nXISFh+l8+4nesx1D2cjwn41Tzq05aAok91hw1iJDzww4UQW4sScJvehg51LKHQD2zvcEYPDs6ToiQXXTLsHF621Gc1S39yns14kjCXWc6h3iU8C4ns29KBcdrJXjpd0MdKEK0X+S4iteZn7s4BqZ1v1SMXI1ahyDt6x9tGAqovzl5t54+IHKr1RKYGfwzGAlKsAyxkBgR88/JtWSRDSc+ptjWXlaXZDl4EIUOgTf4Vs49kG6p1Fz+analXMoBc/C+LSpBq913SXgiyNsQptI4er/s2JdSt1u7EvgfzmXy2hOZsKD45Kz0GgCJQNtBTyzTAU90DHM2jPrIVoCjtKfGqf5t+xnymKEVIEwIOal5sl6d54d/hqOE2SsfiEcYN7xO/mSjB7RkqRaIJmQfU5lIf+3bY8EgJkewf1YLHoevTBWuapUCzkXB+x9hzjDENb4aKFkKZBIB7uLMxyjvi2G7JjnSCTbnvHU2RpYPeijsYsvRRqv87wYDfqtKGEJm63tQs0+k9OqqWJaNjsOXCWm0Y0QIN3gvOMBN3soqrdU9zSCNmsZ7+VmAbfbT5pH62KkfJl33vE063cCDVi9O7sIr6i2VjOyOusewurlMwcSI0qec7vW/IWmiVUOTJy3DiLaIyxCak3O+BZlA/HBNHTLIguoI/R/VmOK/FLGgGOdBfFfCaJdzvH1wzVxXuHvpQmLDL+ODbdNXUnSSaryg0pGFV23r7hPhqZjeGxqA4fWUakViLkPDKD2xjdic03NNBuXPNiymxKuwQIFbdma04l8zzP3IpNRq26EXjeIJqdwB6nDYpyT2m8VENzMYB2OvtG6y9+qsVvow+9aatWHpZeL3+OTCMHYilmMcdyzOdkNUsbaIv4cyo/hSC3tcktZB4nPm9vjdtbOpR+0icFd1iq1mRSKu5AG+Td/f5zBaB/ALG4qa7OMwWemsHCQuwRKi/hXBU0eQ98GiK5ZfTS+V4EJepG/6dVeykVXvfYF2wX4KgFGLRdMrHXz5EtMqbCEuRyfGhcCg4z2S0aZgn/ozaxy8B3GLxwANCPAsdazGaJQp9dAdiNkJ7RBGZtn0EIj32G4kKJgEayDEhPNef9x6lNeLvWgNOLy97Uom2P89Igh6pmb9OTwPGeo1PUvnIQ6oJwnyE0KG0YC5aWO/sAyvIHp2mkV5NWRWYqwKWHLtBufyiVXALMpqOZyEZDx1NK6nepi94iwt4QxKJc5bRzDcZsYZXnk+lnGV7QenXfQhpG77hx+diPTDbjKtcXX0gaqDpXTx6UgH824AKjeyFtPsGc0Pr4R6r8WepmlHhWDygsou2VwuMpZQgrrSTc1pyZvkKSD9fzhboZ5IBxxERc3zELX0bplAKB1Qqdxawz43O4yma9r0JTj/9eGaQ0i+i+dyI435DrD0qt6uyd4IBqyJsCWlJFvW3CYzYFts7opOeBPArzAQ8gHTIQ5Md1do9xhVtmdota8YCA/oMS6bA/x6KspWGTtYB8YGvRr/cCPpSsD4hzVGd0kAVyXNvI6loYkm2zpDd6zRda97bHEZN9zukLZAAIvPxy3u9tlusirTyup19/+vL5OgRKL/nI1Anf5sWX8dUbQAQLrqhOVoDeL9MI5St2ZIk2T2EwB44jOprtWyIkf2z8ZGLUu8CQ+ae8PLUK52BQXaBj20pjwT0OB62Yvjf3SK5Nhbgd1kIc8CxiRG46kQ4PsnzR9BgKuttbX9M0/YUyRaXVX8tvpmhBJqBs6oL9Z0d4nrv34IR3B2OH1/XYOGSDo+ubCqB2JZpMIAGod1NHjJ40MPSwe9mZ/BzFH4izu6idtQb841yvtGXfVZf9HPdOrHTD8EWhg9XhuqoLduL1z7h/Dzc/zoyIJ3tA31FHm5tu+d3Bm91SOwryn9N+duKyv6HUxQZleS2oFOzUCSsBJyAFy9kqCQHvC72Df3EzUAsxhDaguJtIfLU/Uva6RS/kYgNIVDDUljie8HGZVH2tVJGx5f/Yeo8AfAEa8RHvPxmxEOjhbetUsAotCABmgUbDW2YCWHfwt2PPfyaK8RfWe4HwnMPpt5U3mdIpGvWvNdvmv0+t/Pz2NbC43yE3/df+WD4sCIWTKoXN05CfAPYq1znztRu+Jr8qdPghsdXLSudmE4Jhky3Kutl7Fz6+ryNl23X8oK3a1WyJBIVCdZeZL516ivnVuEHGeWUVUTalrAeCN2UQI4HyuPHirzx7QmS4QSxTF88+NhhqymOcxtK22IpidzCAOUrQHMIkeglq8Qod+uyKbiplOKUCRilsFRf73GIJWf9S9wK8UMW+11IB2Mz/YGbrVu3U1CmqVAbHRp0mtTt418ePjnh2pH19xRP9jFak/q2Labffzv3IP7l7EYko7DC1BR5rYU44Wz0as37FlN4SF94qmVm4x/u9Ew417lIXVDksNUUL46Z4o6yKWCNFjWJLo2rFLYzZphox09tRYtvqUSgm7uDlfPasi6rLT5sXXGaEmBDg//5QIdIuQzVWYboZnWxykmbndzzkq8rc9PoOg8XJKKXkpQ+4DOiJxSxJH/MuqcZMPY6rw/qbJrJd3Mq+uGuVmlYPGFkLY4e7A/CII4fzNR58KVat1Fz4eolz3byK7iAtFtL4M42NgNrw8EEkahm/cvMLAcnMdXS3/FzJbsSLaCMwNrv6rcSuNcuqibPsw4E1RbivxS/hKoQZU59z7uhim2lQEXH18eRtDG82iMtKvB5ufpfsjpZtRurmMeYcphCA7hCqR7YcFxvoQGYDLuWqrRwd4McOoLNKUGv91UEZaD2kFknGjg1lwbnTGbazIFrUoMaepj/z7taBDNYYKk4qVnXWv7Y83lzCmGMcLBGdIt1iywKdSm+ERduBzzAltPU4MSQymHEO53bgNs5U/uZYOs4YVSfF+Q7gpMerDEJcvAs8tuaoNy6SIUiOkSVzdCvpyJIudUMuMhvyrLtsyExMIAJ0KhHCCxn93qC6w/UMKPB1Dg8zcoiB/dWiBvmj7ejPkbhbzuHdRrPh1T1K1MWHf2DLdYnHMThP2xZtRot1M3/nS9CwsuG10zkM5FyayVoc6cvp304zxN1+5vWXfvBON0tg8FBqEcbeAas2wSt/3f2V76FicaVIeDChL4mUGRPXZc4tdWtNGeDENMNO4OYFGtiS6S9YlhefgJjqEw7oCnsNv4YGfYA/40Q57A4lbfFrbeEpkZsxU4Rw7gJMI9yV9rqo7tuDwoU9BzbXMfzpOEgE2+kpoaQ6OsqAHOdMAMeQp90qEAtVd4KDkOkop+K0xPB8GLsbSd1atyF2sv1PTFoN1ILe7MP6wDwBgyTRKgrS1aKjuTOxvni4uVnmqORg2OuKuBZABsjTGUXudeimo2QJTHY+jFFXwNfRQsiWedGUht+3vgMx7c00nfa4B0qE2JV8KYwSb4JDi2DmECaGJgn4SrZHS662jJDZdw3FU2XD4fS6UYdcCampImaexFnaLxt2fK3GTwZh7pgDNJkcozcXlRpb4c4JxJQgPRjPIsxQThvDwJ+j1WYX2FqttvYkqS/LXw2PqK3y8Lj3B+QXwxgFRvYseMiz2E3YXaq5Rddo4AoeVtkz6WDthXSAc/7vbIgdVFbJARlceSSmN89a0YF3k4FL3RXevj6KsPlDauZrMqROZMvcO8R80DIlP7TjJN047zkuughieOQEC8aZg6tzpkM+f5lGO22FtakamsCtXZBJrj9yBd5N/wKF343d1tPPPCvcgY3jWmL1lGucYNw/T8Ou0Jv91jNIeN6aAWPujH5oXqYNaf4sQ9c1SSt3FMAc7vAyOiZEYtF53uR2o0R9LECpSGMH3COeCbJIp1HNC3z0OLLG2EHAXrkGLV7XfsRiBIQJCBIQJCBIQJB/AaYGRY4thR/C3EMkYXUdnzLJzRj2gmKVIG4sJM+qefyohpvVP0x0z+fIXv1f+zLUl5OoGxknC2Qd116FxLWG7jf/x6IQoCl//8IUq16bKXhRtUR3z/Eob+pEWXZpl5AdexsXJNdblC4cvlyhcOXy5QtjVKzaB7w4oegPFQUzA0HAgHEEBwVNt08K2k3FktLOazltfwINbrCNe4AeefxDPbhH+hpeXXRwnHRu4t4HIotLq0J4SqkiMLSO4qzV77Faf8i5m+F1ia+hCTgZ39GMrOaPs3L7J4zHKgBkRE+IktduS/JvnJ/RRtT32FgStDt4Vm+jyy1E6qNGAI81N59n6KS75rBkgHq8LzMxqD43LOVQS3f4G6STcelVctpubkyVDX+8yYgybXCLYI0hRz/AVdMl6XWRzr0hA005iyfjsjQ14CUMFsIdHax0dHax0dHax0dHax0dHax0dHax0dHazgDWEJ+oOf3e+JrR0EdaxzEa8S3yNicn5SUVe1FYfqlIMGHTdSi/lmUm9PLzZqmc/TbGdSLVKmzRtPGD4Y068jYSPIm5wIN7J5qDG3/PqEoBv3aBHnPDdj7yxGLLmJag8ZbFN9bZmDMxvgLEBL5d0/QRnbn6tJh43gHkL6p0Jbqp18/U7cKWOOocDnh2MjRu0Z3yZnpQK8XhCHiaykcnM7VRtbunwfdIWveeX30+qiNK6y8m2ohLdVOvnrCIH5GGvvfYHkglSYMUHnORmzuwIdxXOA7YBmuMrwaEwAiy/p8DLZOE7Dl9nzUGPGOWOWl2D0GpOIcE8zuf/C7jGwGq297qcRT8ozlSD9cVIIddI1a6paoXlpcZneCD8RWuYIQQfiK1zBCCD8RWuMk0IzZPe8xidgefPWZFLE77092HhEb6G0+yjKmJ41ybXx6gl/MPQC7nS+Rjs5QDfzEacS//wFcReoun23uIzYgAAcMm6zD/n4BGIMqSiIYjiRfqpAPEXtyajHS5haHkAf8gGODyvExbKWh0zQmUDqrdiTv9awlv4PcG2pWfbMHxsJ+GwIHvb7DQMIYFesK9KrWouJfWdY1VyaKBp+el4Jl2s7mcHBR3Hrt1LIrngsRIz9IwJPV3xYZ55qn7NGagToOaccXBuARehWdkLWkMDC97xdTpQTXDJm213pBHL6BMZXLDS1qMcXrbGj2lPMKMXaSxN83FLJiE9aT9M+woZtycoWes6iLHjVWCKT5IO4elO1V4wEgF7pGCkvVVkKJ0Jsyo8kJ3Ak4gEk8mpqx7h+vAkWAOFdrXUis6nmtZtgABrhTfQB6/MuGe+vTQt6VcJVx1CCZLjlnizY4na9Ozpp+RhMntXE5kgMUcf77dZXnX4NYm+obG9PvAxt+9riKYL95TT3xpPcTYvZd3sZKotIdh+On1uqBWsI3YXYJhrqzBU6V7mm9SqIH8RhVzX/qur/hBiqvX8A6+/aL8oNaeYwbsytjVnhRj5YnsYzhB3asN3+51YW9XE5knjhsK+ab2YHhmcVCwpMolWWsiIvR5/pzEgFOhqfPdjLN9wJ0ZjHt1+5fWrs0hwltLLyD+V9IRupYAbiH+SUnv/lSrCN2x8uGjAoIHQNW5ZQ7iv3rLk+tozEaZ4NAaGJxEj76yfol/4ggpQDt5xcIbpV2ovc8voPY17gNjVAFXwXpTB5IG4qN2sQV3aoDSzk2jYvMyfscGXGZUyM8qu2ZtiI0qgzCkK20rEpGhW3mxzzpOdkuUofS8n9bvoiSDujnmM66ddlOMC0OLWSQTdO/VmPeWLIBQ9ZYLvVtzskE/lm/EiIj706W0GuoXcBrcW+SSh3IXnN7DGcqKAJI+vFkBK4WJPgKhgAt5fCRqHn69jLDuGNPUJHWN1NSOXBuTPjXIzcYiwT+61syoF/mKUXaTJ1qHZ5uNkPRSNkfgyw1VAR7v28mXm90Xw+NdwdzLD1TzQhlLTqGiE0z9J48wf+1m3VR4OFg5mWgXEEsbRfJo4DFdk6r8FLDdUbhCnmW/3n3UdJo4q3pCum57awaHOva2DOSXOQlx6Hss3rNd+ac89C82Uh4P+RHyoViNxxNtRvqJswpqhKSP+RlohBWVnqCeDIQ3DQ5tZcjK1Rscsgd00JzkxOI6wPj2qLX9rr9rpvftWzShVNhqZqTcuSC6kleMX78AsvzEyxUYCYceAitCkbFB9UDVGjlIY9e0udCBtaa8bZXlEgeecenBHQ3qklzGG9BHp4ZoG01OiGDJFqEXx9dmagPsnz9q1UAfLtOyp/6XLcawcgbrbIwTsa9upgUG5a4n2sZ+tSRR1di3440dh+NtawmhRWWN56Ub4YUHzv5fwI/9SUl/ORsQa7+7mXYC7lWUv+P0/UZ5GyAB+bdqrq5l4csUIlaT+6KOZJeD/NmSRHypf8fp+owtJ6NgxYzz1t8v5tz/5jPB62hwRVJqjrRZYnWZfDkbe6q+P55A37xQUbxd1pQ2KVfHDCJ4P/pcXKFAZZMJ2fb9yYfESrCI4aqv2mgHVNRbZaCRauMqEv9JKoiIYoeNcx9wqk8EzS3w5JpjUImTOq+/72jmYTTU1a9yvva1e241QtIPc6EfmWkJZXNC2US6ynoKyAwABA23rO6hXjpJjm/4xAAWNnsVZRYmtUYGDYq9zJdl6nfe7KXcBuPEbDAqWYWF9CNrLQAj2liwJ1i+UoK2lo9F1+9yr6m5KihGxDT2vpxIKm8+AT0uapbumE5PYaY1WSMpzScIrLmEmfJm2CHMN30HlRS7LxSB0qT8FEeFKTKOlpSNjVUo0eOC8AN59hTBhgRG2E0ncbybmZQvSrtyfpVhN7sfmovlTNfXYqkByhj1j1rpOPvrQrzVV2rC2WLAXDRssi4SrSUgNvdO4SQEcQrdTIGCXAKOuqvDww3eoLGZATwvMi0DkvZL1FcCBQmXOmn43gWuSvvkfK4gfBynrCkwX6Y7hy1DvhZmnRjgBEVhhb08FFd0JYO+vN3M9mUn7KYlVGAYRWadP4A+jLRJcIcnJ5RzFp7fzmqAJCRTkKLkWCWaUg71iW3wZM6rvluPMAdqalUKVPoyTZ8u4tg/IHtarntp1/yJ91DUpc/RsxKJlysPcyawc1YVojVT4lpcuGKgdz9WoBNAme4QWRG/SLsizSksqpNjVg/YMpLRyPMOdbVPivAyROK0LkCtAZEIZRATRdEAMwilbPHACtt7152qVekacaVNPOvNsyZWBDYyvB1yN52Z1U2G3V2bgqaJXB8guh9PHE+asIUGe0jpOL/bGNfHCTHLsW04Z2ODWKYQJC6zoaG2IEoaDIBngJQSdbeYbCcFRROMD7+6TcfXC5+2CAd/yjf2A+qJZv8aq32+6C0mbVGYcY0mhf1tsCgGym2mpo1v987mXwvGS4NbtUhHiAaIpYBVRaD2nDFk5WpuyeLsdTAGB4REBYAXC9N8YJAAA=" alt="Per-channel notifications. “Default” inherits the account setting, so changing that moves every channel you have not overridden." loading="lazy"/>
@@ -1278,19 +1307,29 @@
 <section class="doc" id="presence">
   <h3><span class="marker"></span>Presence and custom status</h3>
   <p>
-    Presence is derived from your WebSocket connection, not from a heartbeat and not from a
-    periodic ping. If you have at least one live session you are connected; if you have none you are
-    offline. On top of that:
+    <b>Offline means one thing: no live WebSocket.</b> If a browser window is open and connected you
+    are never grey — you are green or yellow. On top of that:
   </p>
   <ol>
     <li>A manual choice wins over everything and persists until you change it.</li>
     <li>Otherwise, no live session means <b>Offline</b>.</li>
-    <li>Otherwise, no activity for longer than the away threshold (10 minutes by default) means <b>Away</b>.</li>
+    <li>Otherwise, no activity for longer than the away threshold (one minute by default) means <b>Away</b>.</li>
     <li>Otherwise <b>Active</b>.</li>
   </ol>
   <p>
-    Because the away transition is computed rather than pushed, clients re-poll presence once a
-    minute to pick it up. Manual changes broadcast immediately.
+    <b>Activity means activity in your browser</b> — pointer, keyboard, scroll, touch — reported over
+    the same socket the messages use. It used to mean "the last page or API request we saw from
+    you", which is a different thing and was wrong in both directions: reading a channel makes no
+    requests at all, and neither does sending a message (that goes over the socket), so the person
+    doing the most talking in a room turned yellow while they talked. Meanwhile a forgotten tab in a
+    background window stayed green, because its own housekeeping polls kept the timestamp warm.
+  </p>
+  <p>
+    Every transition is pushed. Connecting, disconnecting and manual changes broadcast from the
+    event that caused them; going away has no event behind it — it is the absence of one — so a
+    sweep publishes that edge within about fifteen seconds of the threshold passing, and coming back
+    publishes immediately on your first keypress. Clients still re-poll once a minute as a backstop
+    for a broadcast that landed before their subscription did.
   </p>
   <p>
     Click your own avatar in the top bar for the picker: <b>Active</b>, <b>Away</b>, <b>Do not
@@ -1536,9 +1575,10 @@
     </li>
     <li>
       <code>at HH:MM</code> accepts 24-hour or 12-hour time and rolls over to tomorrow if today's
-      time has already passed. It resolves in <b>your</b> timezone — set on the profile page, or
-      taken from your identity provider if it supplies one. It used to resolve in the server's,
-      which quietly meant the wrong hour for anyone not sitting next to the machine.
+      time has already passed. It resolves in <b>your</b> timezone — the one shown on your
+      <a href="#profile">profile page</a>, which is your own pick if you made one and otherwise
+      whatever your browser reports. It used to resolve in the server's, which quietly meant the
+      wrong hour for anyone not sitting next to the machine.
     </li>
     <li>
       <b>Nothing is posted to the channel.</b> The confirmation is a private notice showing the
@@ -1565,7 +1605,7 @@
 <section class="doc" id="profile">
   <h3><span class="marker"></span>Your profile and themes</h3>
   <p>
-    Reach <code>/profile</code> from the avatar menu. Four sections, of which three are editable.
+    Reach <code>/profile</code> from the avatar menu. Six sections, of which five are editable.
   </p>
   <ul>
     <li>
@@ -1579,12 +1619,39 @@
       there.
     </li>
     <li>
+      <b>Time zone.</b> The zone every message time is shown in, and the zone times you type are read
+      in — <code>/remind me at 14:00</code> means 14:00 here. Leave it on <em>Automatic</em> and it
+      follows the device you are reading on, so it stays right when you travel. Pick a zone and that
+      pick wins everywhere, on every machine you sign in from. Type to search the list: it matches
+      on region and city, so <kbd>oslo</kbd> and <kbd>new york</kbd> both find what you expect, and
+      each result shows its current UTC offset so you can tell the near-identical names apart.
+    </li>
+    <li>
+      <b>Date and time format.</b> Whether the clock is 24-hour or 12-hour, and whether dates read
+      day-first, month-first or ISO. <em>Automatic</em> follows your browser's language, which is
+      right often enough to be the default — and wrong often enough to be worth overriding, if you
+      read the interface in English from somewhere that has never used a 12-hour clock.
+    </li>
+    <li>
       <b>Theme.</b> Eight fixed palettes: default, dark, orange, pink, green, purple, red, cyan.
       Only <em>dark</em> is dark; the other seven are light variants with different accents.
       Clicking a tile saves it, there is no save button, and the choice is stored on your user row
       rather than in the browser, so it follows you between machines.
     </li>
   </ul>
+  <div class="note">
+    <span class="tag">How your zone is worked out</span>
+    <p>
+      In order: the zone you picked here, then what your browser reports, then a
+      <code>zoneinfo</code> claim from your identity provider if it sends one, then a guess from the
+      language your browser asks for pages in — <code>nb</code> means Norway means Oslo. Your own
+      pick beats all of them, permanently; everything below it is evidence, and can be revised by
+      the next thing that answers. When none of them does — a browser asking for plain
+      <code>en</code> tells us nothing, because English implies the United States and the United
+      States keeps six clocks — a banner above the message list says so and links here, rather than
+      showing you the server's clock as though it were yours.
+    </p>
+  </div>
   <div class="note">
     <span class="tag">Worth knowing</span>
     <p>
@@ -2386,8 +2453,12 @@ ICHAT_TURN_SECRET=&lt;something unguessable&gt; \
       </tr>
       <tr><td><code>ichat.cache.max-entries</code></td><td><code>100000</code></td><td>Cache ceiling.</td></tr>
       <tr>
-        <td><code>ichat.presence.away-after-minutes</code></td><td><code>10</code></td>
-        <td>Inactivity before a connected user is shown as Away. Clamped to at least one minute.</td>
+        <td><code>ichat.presence.away-after-minutes</code></td><td><code>1</code></td>
+        <td>
+          Inactivity — real input in the browser — before a connected user is shown as Away. Clamped
+          to at least one minute. The old default was ten, which had to be that long because
+          idleness was inferred from HTTP requests and so missed most of what people actually do.
+        </td>
       </tr>
       <tr><td><code>ichat.reminders.poll-ms</code></td><td><code>30000</code></td><td>How often <code>/remind</code> checks for due reminders, and therefore how precise delivery is.</td></tr>
     </tbody>

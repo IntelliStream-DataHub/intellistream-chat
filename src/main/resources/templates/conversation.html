@@ -9,6 +9,7 @@
     <th:block th:replace="~{fragments/assets :: css('app')}"/>
     <meta name="_csrf" th:content="${_csrf != null ? _csrf.token : ''}"/>
     <meta name="_csrf_header" th:content="${_csrf != null ? _csrf.headerName : ''}"/>
+    <th:block th:replace="~{fragments/time-prefs :: metas}"/>
     <!-- Workspace-admin flag (realm role ichat-admin -> ROLE_ADMIN); read by the avatar
          dropdown to decide whether to offer the Admin console item. Distinct from the
          channel-scoped me-is-admin meta on the chat pages. -->
@@ -201,11 +202,12 @@
             </div>
 
             <div class="messages-stack">
+                <div th:replace="~{fragments/zone-prompt :: banner}"></div>
                 <ol id="messages" class="messages">
                     <th:block th:each="msg, iter : ${messages}"
                               th:with="prev=${iter.index > 0 ? messages[iter.index - 1] : null},
-                                       curDay=${#temporals.format(msg.createdAt, 'yyyy-MM-dd')},
-                                       prevDay=${prev != null ? #temporals.format(prev.createdAt, 'yyyy-MM-dd') : ''},
+                                       curDay=${fmt.dayKey(msg.createdAt)},
+                                       prevDay=${prev != null ? fmt.dayKey(prev.createdAt) : ''},
                                        showDay=${prev == null or curDay != prevDay},
                                        sameAuthor=${prev != null and prev.authorUsername == msg.authorUsername and !showDay},
                                        nameKey=${msg.authorDisplayName ?: msg.authorUsername}">
@@ -224,7 +226,9 @@
                             <div>
                                 <div class="message-meta">
                                     <span class="author" th:data-author="${msg.authorUsername}" th:text="${nameKey}">user</span>
-                                    <time th:text="${#temporals.format(msg.createdAt, 'h:mm a')}">time</time>
+                                    <time data-time-format="time"
+                                          th:datetime="${msg.createdAt}"
+                                          th:text="${fmt.time(msg.createdAt)}">time</time>
                                     <span th:if="${msg.editedAt}" class="edited-tag">(edited)</span>
                                 </div>
                                 <div th:if="${!#strings.isEmpty(msg.bodyMarkdown)}"
@@ -238,12 +242,12 @@
                                      class="message-attachments">
                                     <th:block th:each="a : ${msg.attachments}">
                                         <span th:if="${a.deletedAt != null}" class="attachment attachment-removed"
-                                              th:title="|Deleted ${#temporals.format(a.deletedAt, 'd MMM yyyy, HH:mm')}${a.deletedBy != null ? ' by ' + a.deletedBy : ''}|">
+                                              th:title="|Deleted ${fmt.dateTime(a.deletedAt)}${a.deletedBy != null ? ' by ' + a.deletedBy : ''}|">
                                             <svg class="icon attachment-icon" aria-hidden="true"><use href="#icon-paperclip"/></svg>
                                             <span class="attachment-info">
                                                 <span class="attachment-name" th:text="${a.filename}">file</span>
                                                 <span class="attachment-meta"
-                                                      th:text="|Deleted ${#temporals.format(a.deletedAt, 'd MMM yyyy, HH:mm')}${a.deletedBy != null ? ' by ' + a.deletedBy : ''}|">removed</span>
+                                                      th:text="|Deleted ${fmt.dateTime(a.deletedAt)}${a.deletedBy != null ? ' by ' + a.deletedBy : ''}|">removed</span>
                                             </span>
                                         </span>
                                         <a th:if="${a.deletedAt == null and #strings.startsWith(a.contentType, 'image/')}"

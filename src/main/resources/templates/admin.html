@@ -9,6 +9,7 @@
     <th:block th:replace="~{fragments/assets :: css('app')}"/>
     <meta name="_csrf" th:content="${_csrf != null ? _csrf.token : ''}"/>
     <meta name="_csrf_header" th:content="${_csrf != null ? _csrf.headerName : ''}"/>
+    <th:block th:replace="~{fragments/time-prefs :: metas}"/>
     <!-- Workspace-admin flag (realm role ichat-admin -> ROLE_ADMIN); read by the avatar
          dropdown to decide whether to offer the Admin console item. Distinct from the
          channel-scoped me-is-admin meta on the chat pages. -->
@@ -99,7 +100,7 @@
                     <td th:text="${c.type}">PUBLIC</td>
                     <td th:text="${c.memberCount}">0</td>
                     <td th:text="${c.messageCount}">0</td>
-                    <td th:text="${#temporals.format(c.createdAt, 'yyyy-MM-dd')}">2026-01-01</td>
+                    <td th:text="${fmt.dayKey(c.createdAt)}">2026-01-01</td>
                     <!--/* This table is the only place in the product that lists every channel there
                            is: archived ones are out of the sidebar and out of channel search. So it
                            is where a workspace admin sees what has been archived, and — for a PRIVATE
@@ -109,7 +110,7 @@
                         <span th:if="${!c.archived}" class="admin-muted">Active</span>
                         <th:block th:if="${c.archived}">
                             <span class="admin-archived-mark"
-                                  th:title="|Archived${c.archivedBy != null ? ' by ' + c.archivedBy : ''}${c.archivedAt != null ? ' on ' + #temporals.format(c.archivedAt, 'yyyy-MM-dd') : ''}|">
+                                  th:title="|Archived${c.archivedBy != null ? ' by ' + c.archivedBy : ''}${c.archivedAt != null ? ' on ' + fmt.dayKey(c.archivedAt) : ''}|">
                                 Archived</span>
                             <form th:action="@{'/admin/channels/' + ${c.id} + '/unarchive'}"
                                   method="post" class="admin-inline-form">
@@ -214,7 +215,7 @@
                                th:text="' / ' + ${#numbers.formatDecimal(u.effectiveQuotaBytes / 1048576.0, 1, 0)} + ' MB'"> / 2048 MB</small>
                         <small th:if="${u.quotaBytes != null}" class="admin-badge" title="Overrides the workspace default">custom</small>
                     </td>
-                    <td th:text="${u.lastActiveAt != null ? #temporals.format(u.lastActiveAt, 'yyyy-MM-dd HH:mm') : '—'}">—</td>
+                    <td th:text="${u.lastActiveAt != null ? fmt.stamp(u.lastActiveAt) : '—'}">—</td>
                     <td>
                         <span th:if="${u.admin}" class="admin-badge">admin</span>
                         <span th:if="${u.suspended}" class="admin-badge is-danger"
@@ -275,7 +276,7 @@
                 </thead>
                 <tbody>
                 <tr th:each="a : ${auditRows}">
-                    <td th:text="${#temporals.format(a.createdAt, 'yyyy-MM-dd HH:mm')}">2026-01-01 00:00</td>
+                    <td th:text="${fmt.stamp(a.createdAt)}">2026-01-01 00:00</td>
                     <td th:text="${a.actor != null ? a.actor.username : 'system'}">system</td>
                     <td th:text="${a.action}">user.suspend</td>
                     <td th:text="${a.targetUser != null ? a.targetUser.username : (a.targetRef ?: '—')}">—</td>

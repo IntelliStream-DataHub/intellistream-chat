@@ -18,6 +18,7 @@ package ai.intellistream.chat.web;
 
 import ai.intellistream.chat.domain.Channel;
 import ai.intellistream.chat.domain.Conversation;
+import ai.intellistream.chat.i18n.TimeFormats;
 import ai.intellistream.chat.security.CurrentUser;
 import ai.intellistream.chat.security.PublicBadRequestException;
 import ai.intellistream.chat.security.RateLimitExceededException;
@@ -37,6 +38,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import java.security.Principal;
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * {@code GET /search} — the reviewable results page.
@@ -77,19 +79,22 @@ public class SearchPageController {
     private final SearchHitAssembler assembler;
     private final CurrentUser currentUser;
     private final RateLimiter rateLimiter;
+    private final TimeFormats timeFormats;
 
     public SearchPageController(SearchService searchService,
                                 ChannelService channelService,
                                 ConversationService conversationService,
                                 SearchHitAssembler assembler,
                                 CurrentUser currentUser,
-                                RateLimiter rateLimiter) {
+                                RateLimiter rateLimiter,
+                                TimeFormats timeFormats) {
         this.searchService = searchService;
         this.channelService = channelService;
         this.conversationService = conversationService;
         this.assembler = assembler;
         this.currentUser = currentUser;
         this.rateLimiter = rateLimiter;
+        this.timeFormats = timeFormats;
     }
 
     @GetMapping("/search")
@@ -98,8 +103,9 @@ public class SearchPageController {
                          @RequestParam(value = "channelId", required = false) Long channelId,
                          @RequestParam(value = "conversationId", required = false) Long conversationId,
                          @RequestParam(value = "page", defaultValue = "0") int page,
-                         Principal principal, Model model) {
+                         Principal principal, Locale locale, Model model) {
         var me = currentUser.resolve(principal);
+        timeFormats.into(model, me, locale);
         // A separate budget from the dropdown's. The dropdown fires on keystrokes and 30/min is
         // already tight for it; a page load that comes back 429 is a broken page rather than a
         // missing suggestion list, and paging through results is a handful of requests a minute.

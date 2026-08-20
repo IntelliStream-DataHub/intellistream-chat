@@ -22,7 +22,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -35,14 +34,6 @@ public interface UserRepository extends JpaRepository<User, Long> {
      *  serve that index and forced a seq scan on every mention/login/lookup (N27). */
     @Query("select u from User u where lower(u.username) = lower(:username)")
     Optional<User> findByUsernameIgnoreCase(@Param("username") String username);
-
-    /**
-     * Batch lookup used by {@code PresenceService} so the auto-away computation can
-     * read {@code lastActiveAt} for every requested user in a single query, without
-     * resorting to N+1 lazy fetches off {@code UserPresence.user}.
-     */
-    @Query("select u from User u where lower(u.username) in :usernames")
-    List<User> findAllByUsernameLowerIn(@Param("usernames") Collection<String> lowercaseUsernames);
 
     /**
      * Every account with this email, case-insensitively. Used once per never-seen subject at login,

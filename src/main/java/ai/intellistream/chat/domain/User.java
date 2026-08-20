@@ -80,6 +80,46 @@ public class User {
     private String oidcZoneId;
 
     /**
+     * IANA zone the browser reported via {@code Intl.DateTimeFormat().resolvedOptions().timeZone},
+     * posted back by {@code time-format.js} on page load. The only signal that knows where the
+     * person physically is, so it outranks {@link #oidcZoneId} — see {@link #effectiveZone}.
+     *
+     * <p>A third column rather than a second use of {@link #oidcZoneId} for the reason V8 gives for
+     * splitting those two: three independent answers that must not overwrite each other. Folding
+     * detection into the chosen column would mean signing in from a colleague's laptop in another
+     * country silently discarding a deliberate choice.
+     */
+    @Column(name = "detected_zone_id", length = 64)
+    private String detectedZoneId;
+
+    /**
+     * Whether this user reads a 12-hour or a 24-hour clock. {@link HourCycle#AUTO} — the shipping
+     * value — follows whatever their browser's locale does.
+     *
+     * <p>Not a {@code @Setter}: see {@link #chooseHourCycle}, which coerces an unknown value to
+     * AUTO rather than throwing. This arrives from a {@code <select>}, and a stale form field is
+     * not worth a 500.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "hour_cycle", nullable = false, length = 16)
+    private HourCycle hourCycle = HourCycle.AUTO;
+
+    /** Day-first, month-first or ISO. {@link DateStyle#AUTO} follows the locale. */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "date_style", nullable = false, length = 16)
+    private DateStyle dateStyle = DateStyle.AUTO;
+
+    /**
+     * True once the user has answered the "we could not work out your time zone" banner, either by
+     * dismissing it or by picking a zone. A one-time nudge that keeps reappearing is nagging, and
+     * the state it nags about (an unguessable locale and a browser that would not report) does not
+     * fix itself.
+     */
+    @Setter
+    @Column(name = "zone_prompt_dismissed", nullable = false)
+    private boolean zonePromptDismissed = false;
+
+    /**
      * The account-wide notification default: how much a channel interrupts this user when they
      * have not said otherwise for that specific channel. Ships as {@code MENTIONS}, which is what
      * the app already did for everyone.
@@ -218,9 +258,16 @@ public class User {
 
     /**
      * The zone to interpret this user's wall-clock times in: their own choice, else what their
-     * identity provider reported, else {@code fallback} (the {@code ichat.default-zone} property,
-     * which itself defaults to the server zone — so an install that configures nothing behaves
-     * exactly as it did before zones existed).
+     * browser detected, else what their identity provider reported, else {@code fallback} (the
+     * caller's best remaining guess — for a rendered page that is the {@code Accept-Language}
+     * inference and then the {@code ichat.default-zone} property, which itself defaults to the
+     * server zone, so an install that configures nothing behaves exactly as it did before zones
+     * existed).
+     *
+     * <p>Detection sits above the identity provider on purpose. {@code zoneinfo} is an account
+     * attribute somebody set once and rarely revisits; the browser is reporting where this person
+     * is sitting today. Someone who wants their zone pinned regardless of where they sign in from
+     * says so with {@link #chooseZone}, which outranks both.
      *
      * <p>A stored id that tzdb no longer knows is skipped rather than thrown: zone names are
      * retired between tzdb releases, and a reminder firing an hour off is a better outcome than a
@@ -229,6 +276,8 @@ public class User {
     public ZoneId effectiveZone(ZoneId fallback) {
         var chosen = parseZone(zoneId);
         if (chosen != null) return chosen;
+        var detected = parseZone(detectedZoneId);
+        if (detected != null) return detected;
         var reported = parseZone(oidcZoneId);
         if (reported != null) return reported;
         return fallback;
@@ -254,6 +303,42 @@ public class User {
             throw new IllegalArgumentException("Unknown time zone: " + trimmed);
         }
         this.zoneId = trimmed;
+        // Answering the question retires the banner that asked it.
+        this.zonePromptDismissed = true;
+    }
+
+    /**
+     * Take the browser's detected zone. Same contract as {@link #noteOidcZone} — unknown names are
+     * ignored rather than rejected, and the return value says whether a write is needed.
+     *
+     * <p>Called on essentially every page load with a value that almost never changes, so the
+     * common answer is {@code false} and costs nothing. It does not touch {@link #zoneId}: a
+     * detection informs a guess, it does not overrule a decision.
+     *
+     * @return true when the stored value changed
+     */
+    public boolean noteDetectedZone(String ianaName) {
+        var trimmed = ianaName == null ? null : ianaName.trim();
+        if (trimmed != null && (trimmed.isEmpty() || !ZoneId.getAvailableZoneIds().contains(trimmed))) {
+            return false;
+        }
+        if (java.util.Objects.equals(this.detectedZoneId, trimmed)) return false;
+        this.detectedZoneId = trimmed;
+        return true;
+    }
+
+    /**
+     * Record the clock preference. Unknown input becomes {@link HourCycle#AUTO} rather than
+     * throwing: the values come from a {@code <select>}, and a page left open across a deploy that
+     * renamed one should fall back to following the locale, not fail the save.
+     */
+    public void chooseHourCycle(HourCycle cycle) {
+        this.hourCycle = cycle == null ? HourCycle.AUTO : cycle;
+    }
+
+    /** Record the date-order preference. Unknown input becomes {@link DateStyle#AUTO}. */
+    public void chooseDateStyle(DateStyle style) {
+        this.dateStyle = style == null ? DateStyle.AUTO : style;
     }
 
     /**

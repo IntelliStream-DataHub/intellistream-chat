@@ -127,6 +127,11 @@ class SearchPageTemplateTest {
         variables.putIfAbsent("activeConversationId", null);
         variables.putIfAbsent("canSearchEverywhere", false);
         variables.putIfAbsent("error", null);
+        // Every page carries the viewer's resolved timestamp conventions (fragments/time-prefs),
+        // so a template test that omits them fails on the head rather than on what it is testing.
+        variables.putIfAbsent("fmt", new ai.intellistream.chat.i18n.TimeFormats("UTC")
+                .forUser(null, Locale.ENGLISH));
+        variables.putIfAbsent("askForZone", false);
 
         return engine.process("search", new WebContext(exchange, Locale.ENGLISH, variables));
     }

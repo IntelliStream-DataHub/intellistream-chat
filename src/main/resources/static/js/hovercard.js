@@ -114,14 +114,12 @@
     if (hr < 24) return hr + ' h ago';
     const day = Math.round(hr / 24);
     if (day < 30) return day + ' d ago';
-    return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    return ChatTime.formatDate(d);
   };
 
   const formatDate = (iso) => {
     if (!iso) return '—';
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return '—';
-    return d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    return ChatTime.formatDate(iso) || '—';
   };
 
   const render = (dto, host) => {
@@ -132,7 +130,14 @@
       : '';
     const isMe = dto.username === myUsername;
     const presence = window.Presence ? window.Presence.stateFor(dto.username) : null;
-    const presenceLabel = presence ? (presence.online ? 'Online' : 'Offline') : 'Offline';
+    // From the kind, not from the `online` boolean. That boolean is only true for ACTIVE — it is
+    // a backwards-compatibility field, not an answer to "are they connected" — so reading it here
+    // labelled everybody who was away or on Do Not Disturb as "Offline", which is both wrong and
+    // the opposite of what the dot beside it was showing.
+    const PRESENCE_LABELS = {
+      ACTIVE: 'Online', AWAY: 'Away', DND: 'Do not disturb', OFFLINE: 'Offline',
+    };
+    const presenceLabel = (presence && PRESENCE_LABELS[presence.kind]) || 'Offline';
     const customStatusRow = (presence && (presence.statusEmoji || presence.statusText))
       ? `<div class="user-hovercard-status">
            ${presence.statusEmoji ? `<span class="user-hovercard-status-emoji">${escapeHtml(presence.statusEmoji)}</span>` : ''}

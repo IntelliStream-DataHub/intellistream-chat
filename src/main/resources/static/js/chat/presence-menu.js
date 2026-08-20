@@ -410,7 +410,7 @@ async function openAbout() {
     if (data.buildTime) {
         const built = document.createElement('p');
         built.className = 'about-built';
-        built.textContent = 'Built ' + new Date(data.buildTime).toLocaleString();
+        built.textContent = 'Built ' + ChatTime.formatDateTime(data.buildTime);
         body.appendChild(built);
     }
 

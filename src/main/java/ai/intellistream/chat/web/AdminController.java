@@ -21,6 +21,7 @@ import ai.intellistream.chat.repository.ChannelRepository;
 import ai.intellistream.chat.repository.MessageRepository;
 import ai.intellistream.chat.repository.UserRepository;
 import ai.intellistream.chat.attachments.AttachmentBytes;
+import ai.intellistream.chat.i18n.TimeFormats;
 import ai.intellistream.chat.security.CurrentUser;
 import ai.intellistream.chat.security.PublicBadRequestException;
 import ai.intellistream.chat.security.ResourceNotFoundException;
@@ -48,6 +49,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.security.Principal;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 
@@ -84,6 +86,7 @@ public class AdminController {
     private final AuditService auditService;
     private final ai.intellistream.chat.service.ChannelService channelService;
     private final ChannelDestruction channelDestruction;
+    private final TimeFormats timeFormats;
 
     public AdminController(AppSettingsService settings,
                            ChannelRepository channels,
@@ -97,7 +100,8 @@ public class AdminController {
                            StorageQuotaService storageQuotas,
                            AuditService auditService,
                            ai.intellistream.chat.service.ChannelService channelService,
-                           ChannelDestruction channelDestruction) {
+                           ChannelDestruction channelDestruction,
+                           TimeFormats timeFormats) {
         this.settings = settings;
         this.channels = channels;
         this.users = users;
@@ -111,12 +115,14 @@ public class AdminController {
         this.auditService = auditService;
         this.channelService = channelService;
         this.channelDestruction = channelDestruction;
+        this.timeFormats = timeFormats;
     }
 
     @GetMapping("/admin")
     @Transactional(readOnly = true)
-    public String index(Principal principal, Model model) {
+    public String index(Principal principal, Locale locale, Model model) {
         var me = currentUser.resolve(principal);
+        timeFormats.into(model, me, locale);
         var s = settings.current();
 
         // Channel summary: id, name, type, memberCount, messageCount.

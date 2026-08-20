@@ -9,6 +9,7 @@
     <th:block th:replace="~{fragments/assets :: css('app')}"/>
     <meta name="_csrf" th:content="${_csrf != null ? _csrf.token : ''}"/>
     <meta name="_csrf_header" th:content="${_csrf != null ? _csrf.headerName : ''}"/>
+    <th:block th:replace="~{fragments/time-prefs :: metas}"/>
     <!-- Workspace-admin flag (realm role ichat-admin -> ROLE_ADMIN); read by the avatar
          dropdown to decide whether to offer the Admin console item. Distinct from the
          channel-scoped me-is-admin meta on the chat pages. -->
@@ -413,6 +414,7 @@
             </div>
 
             <div class="messages-stack">
+              <div th:replace="~{fragments/zone-prompt :: banner}"></div>
               <!-- Shown when the page was opened with ?m=<id> (search-result permalink). Lets
                    the user bail back to the live tail without having to scroll past the
                    intervening N thousand messages. -->
@@ -424,8 +426,8 @@
               <ol id="messages" class="messages">
                 <th:block th:each="msg, iter : ${messages}"
                           th:with="prev=${iter.index > 0 ? messages[iter.index - 1] : null},
-                                   curDay=${#temporals.format(msg.createdAt, 'yyyy-MM-dd')},
-                                   prevDay=${prev != null ? #temporals.format(prev.createdAt, 'yyyy-MM-dd') : ''},
+                                   curDay=${fmt.dayKey(msg.createdAt)},
+                                   prevDay=${prev != null ? fmt.dayKey(prev.createdAt) : ''},
                                    showDay=${prev == null or curDay != prevDay},
                                    sameAuthor=${prev != null and prev.authorUsername == msg.authorUsername and !showDay},
                                    nameKey=${msg.authorDisplayName ?: msg.authorUsername}">
@@ -457,7 +459,11 @@
                                       class="author-handle"
                                       th:data-author="${msg.authorUsername}"
                                       th:text="'@' + ${msg.authorUsername}">@user</span>
-                                <time th:text="${#temporals.format(msg.createdAt, 'h:mm a')}">time</time>
+                                <!--/* datetime carries the raw instant so time-format.js can re-render this in the
+       browser-detected zone when the server only had a guess to go on. */-->
+                                <time data-time-format="time"
+                                      th:datetime="${msg.createdAt}"
+                                      th:text="${fmt.time(msg.createdAt)}">time</time>
                             </div>
                             <div th:if="${!#strings.isEmpty(msg.bodyMarkdown)}"
                                  class="message-body" th:utext="${msg.bodyHtml}">html</div>
@@ -482,12 +488,12 @@
                                            manager and the message stayed. Not a link — the bytes
                                            are gone, and a download that 404s is worse than none. */-->
                                     <span th:if="${a.deletedAt != null}" class="attachment attachment-removed"
-                                          th:title="|Deleted ${#temporals.format(a.deletedAt, 'd MMM yyyy, HH:mm')}${a.deletedBy != null ? ' by ' + a.deletedBy : ''}|">
+                                          th:title="|Deleted ${fmt.dateTime(a.deletedAt)}${a.deletedBy != null ? ' by ' + a.deletedBy : ''}|">
                                         <svg class="icon attachment-icon" aria-hidden="true"><use href="#icon-paperclip"/></svg>
                                         <span class="attachment-info">
                                             <span class="attachment-name" th:text="${a.filename}">file</span>
                                             <span class="attachment-meta"
-                                                  th:text="|Deleted ${#temporals.format(a.deletedAt, 'd MMM yyyy, HH:mm')}${a.deletedBy != null ? ' by ' + a.deletedBy : ''}|">removed</span>
+                                                  th:text="|Deleted ${fmt.dateTime(a.deletedAt)}${a.deletedBy != null ? ' by ' + a.deletedBy : ''}|">removed</span>
                                         </span>
                                     </span>
                                     <a th:if="${a.deletedAt == null and #strings.startsWith(a.contentType, 'image/')}"
@@ -529,13 +535,14 @@
               <div id="day-divider-layer" class="day-divider-layer" aria-hidden="true">
                 <th:block th:each="msg, iter : ${messages}"
                           th:with="prev=${iter.index > 0 ? messages[iter.index - 1] : null},
-                                   curDay=${#temporals.format(msg.createdAt, 'yyyy-MM-dd')},
-                                   prevDay=${prev != null ? #temporals.format(prev.createdAt, 'yyyy-MM-dd') : ''},
+                                   curDay=${fmt.dayKey(msg.createdAt)},
+                                   prevDay=${prev != null ? fmt.dayKey(prev.createdAt) : ''},
                                    showDay=${prev == null or curDay != prevDay}">
                     <div th:if="${showDay}" class="day-divider"
                          th:data-anchor-id="${msg.id}"
                          th:data-day="${curDay}">
-                        <span th:text="${#temporals.format(msg.createdAt, 'EEEE, MMMM d')}">Today</span>
+                        <span data-time-format="day" th:data-time-value="${msg.createdAt}"
+                              th:text="${fmt.day(msg.createdAt)}">Today</span>
                     </div>
                 </th:block>
               </div>
@@ -556,7 +563,7 @@
                     <span th:if="${activeChannel.archivedByUsername != null}"
                           th:text="|Archived by ${activeChannel.archivedByUsername}| +
                                    ${activeChannel.archivedAt != null
-                                     ? ' on ' + #temporals.format(activeChannel.archivedAt, 'd MMM yyyy')
+                                     ? ' on ' + fmt.date(activeChannel.archivedAt)
                                      : ''} + '.'">Archived by someone.</span>
                     It is read-only: the history stays here and stays searchable, but nobody can post
                     to it.

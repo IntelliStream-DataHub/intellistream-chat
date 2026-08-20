@@ -122,6 +122,261 @@
   });
 })();
 
+// ---------- Time zone: searchable combobox ----------
+/*
+ * Six hundred options in a native <select> is a list you scroll, not a list you search. Everyone
+ * knows the name of their own zone and nobody wants to hunt for it between America/Nuuk and
+ * Antarctica/Troll.
+ *
+ * Built as an *enhancement*, never a replacement: the real <select> stays in the DOM, keeps its
+ * name and value, and is only hidden once this code has successfully put something better in front
+ * of it. That was the stated reason the page shipped a plain select in the first place — a
+ * searchable widget is the one control here that a user cannot fall back from if the script fails
+ * to load — and hiding the fallback as the last step rather than in the template is what keeps that
+ * promise. Selection writes back to the <select> and fires its `change` event, so the save path
+ * below is exactly the same one the native control used; there is no second way to save a zone.
+ */
+(function () {
+  const select = document.getElementById('timezone-select');
+  if (!select || !select.options.length) return;
+
+  // A long list needs a ceiling or every keystroke re-renders six hundred rows. The count of what
+  // was cut is shown rather than dropped in silence — a filtered list that quietly stops at 60 is
+  // a list that lies about whether your zone exists.
+  const MAX_ROWS = 60;
+
+  const offsets = new Map();
+
+  /**
+   * "UTC+02:00" for a zone, computed once per zone and only for rows actually rendered.
+   *
+   * Worth showing: it is how people sanity-check a name they half-recognise, and it is the only
+   * thing that distinguishes the several plausible-looking answers a search for "america" returns.
+   */
+  function offsetOf(zone) {
+    if (!zone) return '';
+    if (offsets.has(zone)) return offsets.get(zone);
+    let label = '';
+    try {
+      const parts = new Intl.DateTimeFormat('en-US', { timeZone: zone, timeZoneName: 'shortOffset' })
+          .formatToParts(new Date());
+      label = (parts.find((p) => p.type === 'timeZoneName')?.value || '').replace('GMT', 'UTC');
+      if (label === 'UTC') label = 'UTC+00:00';
+    } catch (unknownZone) {
+      label = '';
+    }
+    offsets.set(zone, label);
+    return label;
+  }
+
+  // Region and city as separate words, so "oslo" finds Europe/Oslo and "new york" finds
+  // America/New_York without the user having to reproduce the underscore.
+  const haystack = (opt) =>
+      (opt.value + ' ' + opt.textContent).toLowerCase().replace(/[_/]/g, ' ');
+
+  const items = Array.from(select.options).map((opt) => ({
+    value: opt.value,
+    label: opt.textContent.trim(),
+    search: haystack(opt),
+  }));
+
+  const wrap = document.createElement('div');
+  wrap.className = 'tz-combo';
+
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.className = 'tz-combo-input';
+  input.setAttribute('role', 'combobox');
+  input.setAttribute('aria-expanded', 'false');
+  input.setAttribute('aria-autocomplete', 'list');
+  input.setAttribute('aria-controls', 'tz-combo-list');
+  input.setAttribute('autocomplete', 'off');
+  input.setAttribute('spellcheck', 'false');
+  input.placeholder = 'Search time zones…';
+  input.id = 'timezone-search';
+
+  const list = document.createElement('ul');
+  list.className = 'tz-combo-list';
+  list.id = 'tz-combo-list';
+  list.setAttribute('role', 'listbox');
+  list.hidden = true;
+
+  const note = document.createElement('li');
+  note.className = 'tz-combo-note';
+  note.setAttribute('aria-hidden', 'true');
+
+  wrap.append(input, list);
+
+  let matches = [];
+  let activeIndex = -1;
+
+  const labelFor = (value) =>
+      items.find((i) => i.value === value)?.label || value;
+
+  const showSelection = () => { input.value = labelFor(select.value); };
+
+  function render(query) {
+    const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    matches = tokens.length
+        ? items.filter((i) => tokens.every((t) => i.search.includes(t)))
+        : items.slice();
+    const shown = matches.slice(0, MAX_ROWS);
+
+    list.textContent = '';
+    shown.forEach((item, index) => {
+      const li = document.createElement('li');
+      li.className = 'tz-combo-option';
+      li.id = 'tz-opt-' + index;
+      li.setAttribute('role', 'option');
+      li.setAttribute('aria-selected', String(item.value === select.value));
+      li.dataset.value = item.value;
+
+      const name = document.createElement('span');
+      name.className = 'tz-combo-name';
+      name.textContent = item.label;
+      li.appendChild(name);
+
+      const off = offsetOf(item.value);
+      if (off) {
+        const badge = document.createElement('span');
+        badge.className = 'tz-combo-offset';
+        badge.textContent = off;
+        li.appendChild(badge);
+      }
+      li.addEventListener('mousedown', (e) => {
+        // mousedown, not click: the input's blur would close the list before a click landed.
+        e.preventDefault();
+        choose(item.value);
+      });
+      list.appendChild(li);
+    });
+
+    if (!shown.length) {
+      note.textContent = 'No time zone matches “' + query.trim() + '”.';
+      list.appendChild(note);
+    } else if (matches.length > shown.length) {
+      note.textContent = (matches.length - shown.length) + ' more — keep typing to narrow it down.';
+      list.appendChild(note);
+    }
+    setActive(shown.findIndex((i) => i.value === select.value));
+  }
+
+  function setActive(index) {
+    const options = list.querySelectorAll('.tz-combo-option');
+    activeIndex = Math.max(-1, Math.min(index, options.length - 1));
+    options.forEach((el, i) => el.classList.toggle('is-active', i === activeIndex));
+    if (activeIndex >= 0) {
+      input.setAttribute('aria-activedescendant', 'tz-opt-' + activeIndex);
+      options[activeIndex].scrollIntoView({ block: 'nearest' });
+    } else {
+      input.removeAttribute('aria-activedescendant');
+    }
+  }
+
+  function open(query) {
+    render(query === undefined ? '' : query);
+    list.hidden = false;
+    input.setAttribute('aria-expanded', 'true');
+  }
+
+  function close() {
+    list.hidden = true;
+    input.setAttribute('aria-expanded', 'false');
+    input.removeAttribute('aria-activedescendant');
+    showSelection();
+  }
+
+  function choose(value) {
+    select.value = value;
+    close();
+    // The one save path. Dispatching the native event means this control saves through exactly the
+    // handler the <select> already had, rather than growing a duplicate of it.
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  }
+
+  input.addEventListener('focus', () => { input.select(); open(''); });
+  input.addEventListener('input', () => open(input.value));
+  input.addEventListener('blur', () => setTimeout(close, 0));
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (list.hidden) { open(''); return; }
+      setActive(activeIndex + (e.key === 'ArrowDown' ? 1 : -1));
+    } else if (e.key === 'Home' && !list.hidden) {
+      e.preventDefault(); setActive(0);
+    } else if (e.key === 'End' && !list.hidden) {
+      e.preventDefault(); setActive(list.querySelectorAll('.tz-combo-option').length - 1);
+    } else if (e.key === 'Enter') {
+      const options = list.querySelectorAll('.tz-combo-option');
+      if (!list.hidden && activeIndex >= 0 && options[activeIndex]) {
+        e.preventDefault();
+        choose(options[activeIndex].dataset.value);
+      }
+    } else if (e.key === 'Escape') {
+      if (!list.hidden) { e.stopPropagation(); close(); }
+    }
+  });
+
+  // Last: the fallback is only given up once the replacement is definitely on the page.
+  select.parentNode.insertBefore(wrap, select);
+  // The section's visible label was pointing at the control we are about to hide, which would
+  // leave the input people actually type into with no accessible name at all.
+  document.querySelector('label[for="timezone-select"]')?.setAttribute('for', 'timezone-search');
+  select.hidden = true;
+  select.setAttribute('tabindex', '-1');
+  select.setAttribute('aria-hidden', 'true');
+  showSelection();
+})();
+
+// ---------- Date and time format ----------
+// Same shape again — choosing IS the save, real <form> with a real action so it degrades to a page
+// reload if this script never runs. Two selects share one form and one endpoint because they are
+// one decision ("how do I want times written"), and posting them together keeps the sample line
+// below them describing a state that actually exists.
+(function () {
+  const form = document.getElementById('time-format-form');
+  const feedback = document.getElementById('time-format-feedback');
+  if (!form) return;
+
+  const selects = Array.from(form.querySelectorAll('select'));
+  let feedbackTimer = null;
+  let saved = new Map(selects.map((s) => [s.name, s.value]));
+
+  function show(text, isError) {
+    if (!feedback) return;
+    clearTimeout(feedbackTimer);
+    feedback.textContent = text;
+    feedback.className = 'profile-help' + (isError ? ' error' : '');
+    feedback.hidden = false;
+    if (!isError) feedbackTimer = setTimeout(() => { feedback.hidden = true; }, 2500);
+  }
+
+  form.addEventListener('submit', (e) => e.preventDefault());
+
+  form.addEventListener('change', async (e) => {
+    if (!(e.target instanceof HTMLSelectElement)) return;
+    selects.forEach((s) => { s.disabled = true; });
+    try {
+      const res = await fetch(form.action, {
+        method: 'POST',
+        body: new URLSearchParams(new FormData(form)),
+      });
+      if (!res.ok && !res.redirected) throw new Error('rejected');
+      saved = new Map(selects.map((s) => [s.name, s.value]));
+      // The sample line is server-rendered, so it is one reload behind. Reload rather than say so:
+      // the whole point of this control is seeing the format, and a stale sample under a changed
+      // picker is exactly the confusion it exists to remove.
+      window.location.reload();
+    } catch (err) {
+      selects.forEach((s) => { s.value = saved.get(s.name); });
+      show('Could not save the format.', true);
+    } finally {
+      selects.forEach((s) => { s.disabled = false; });
+    }
+  });
+})();
+
 // ---------- Profile picture upload ----------
 (function () {
   const fileInput = document.getElementById('avatar-file');

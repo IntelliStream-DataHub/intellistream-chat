@@ -9,6 +9,7 @@
     <th:block th:replace="~{fragments/assets :: css('app')}"/>
     <meta name="_csrf" th:content="${_csrf != null ? _csrf.token : ''}"/>
     <meta name="_csrf_header" th:content="${_csrf != null ? _csrf.headerName : ''}"/>
+    <th:block th:replace="~{fragments/time-prefs :: metas}"/>
     <!-- Read by the avatar dropdown to decide whether to offer the Admin console item. -->
     <meta name="me-is-workspace-admin" sec:authorize="hasRole('ADMIN')" content="true"/>
 </head>

@@ -23,6 +23,7 @@ import ai.intellistream.chat.domain.User;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.time.ZoneOffset;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -34,6 +35,9 @@ import static org.mockito.Mockito.when;
  * a 3,000-character message to reach.
  */
 class MessageForwardBodyTest {
+
+    /** The quote header is stamped in the forwarding user's zone; these assertions are zone-free. */
+    private static final ZoneOffset ZONE = ZoneOffset.UTC;
 
     private static Message source(String body) {
         var channel = mock(Channel.class);
@@ -52,7 +56,7 @@ class MessageForwardBodyTest {
 
     @Test
     void theQuoteCarriesAuthorChannelDateAndAPermalink() {
-        var body = MessageForwardService.buildBody(source("ship it"), null);
+        var body = MessageForwardService.buildBody(source("ship it"), null, ZONE);
         assertThat(body).isEqualTo(
                 "> **@alice** in [#planning](/channels/7?m=42#m=42) · 26 Jul 2026\n"
                 + ">\n"
@@ -61,7 +65,7 @@ class MessageForwardBodyTest {
 
     @Test
     void aCommentGoesAboveTheQuoteWithABlankLineBetween() {
-        var body = MessageForwardService.buildBody(source("ship it"), "  relevant to us  ");
+        var body = MessageForwardService.buildBody(source("ship it"), "  relevant to us  ", ZONE);
         assertThat(body).startsWith("relevant to us\n\n> **@alice**");
     }
 
@@ -71,13 +75,13 @@ class MessageForwardBodyTest {
      */
     @Test
     void everyLineIsPrefixedIncludingBlankOnes() {
-        var body = MessageForwardService.buildBody(source("one\n\ntwo"), null);
+        var body = MessageForwardService.buildBody(source("one\n\ntwo"), null, ZONE);
         assertThat(body).contains("> one\n> \n> two");
     }
 
     @Test
     void aVeryLongOriginalIsTruncatedWithAnEllipsis() {
-        var body = MessageForwardService.buildBody(source("x".repeat(5000)), null);
+        var body = MessageForwardService.buildBody(source("x".repeat(5000)), null, ZONE);
         assertThat(body).endsWith("…");
         // Bounded well inside the 8000-character message limit, with room for a comment.
         assertThat(body.length()).isLessThan(4000);
@@ -87,7 +91,7 @@ class MessageForwardBodyTest {
     void anOverlongCommentIsRefusedRatherThanSilentlyCut() {
         var message = source("hi");
         var tooLong = "y".repeat(2001);
-        assertThatThrownBy(() -> MessageForwardService.buildBody(message, tooLong))
+        assertThatThrownBy(() -> MessageForwardService.buildBody(message, tooLong, ZONE))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

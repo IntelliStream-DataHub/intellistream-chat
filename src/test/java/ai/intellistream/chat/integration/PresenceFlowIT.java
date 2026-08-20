@@ -112,6 +112,18 @@ class PresenceFlowIT {
         listener = new PresenceEventListener(tracker, presenceService, users, broker);
     }
 
+    /**
+     * Push this user's last reported activity far enough into the past that they read as idle.
+     *
+     * <p>Backdating the tracker rather than the {@code users.last_active_at} column, because that
+     * column no longer decides this — it recorded the last authenticated HTTP request, which a
+     * person chatting over the WebSocket never makes.
+     */
+    private void goIdle(String username) {
+        tracker.noteActivity(username,
+                Instant.now().minus(presenceService.awayThreshold().plusMinutes(1)));
+    }
+
     private User newUser(String prefix) {
         var i = SEQ.incrementAndGet();
         return users.save(new User("kc-pres-" + prefix + i, prefix + "-" + i,
@@ -397,13 +409,13 @@ class PresenceFlowIT {
 
     @Test
     void idleConnectedUserAutoFlipsToAway() {
-        // User is connected via STOMP but their last_active_at is older than the away
-        // threshold — the auto-AWAY rule fires without anyone setting a manual override.
+        // Connected, but the browser has not reported any input for longer than the threshold, so
+        // auto-AWAY fires without anyone setting a manual override. Backdating the tracker is how
+        // idleness is expressed now: it used to be an old users.last_active_at, which recorded the
+        // last authenticated HTTP request and so said nothing about whether a person was there.
         var alice = newUser("alice");
-        alice.touchActive(java.time.Instant.now()
-                .minus(presenceService.awayThreshold().plusMinutes(1)));
-        users.save(alice);
         tracker.connect(alice.getUsername(), "session-solo");
+        goIdle(alice.getUsername());
 
         var dto = presenceService.presenceFor(alice);
 
@@ -416,10 +428,8 @@ class PresenceFlowIT {
         // User is genuinely idle (would auto-AWAY) AND they've set themselves DND.
         // Manual override always wins — we should see DND, not AWAY.
         var alice = newUser("alice");
-        alice.touchActive(java.time.Instant.now()
-                .minus(presenceService.awayThreshold().plusMinutes(1)));
-        users.save(alice);
         tracker.connect(alice.getUsername(), "session-solo");
+        goIdle(alice.getUsername());
         presenceService.setKind(alice, ai.intellistream.chat.domain.PresenceKind.DND);
 
         var dto = presenceService.presenceFor(alice);
@@ -440,13 +450,11 @@ class PresenceFlowIT {
         tracker.connect(alice.getUsername(), "session-solo");
         presenceService.setKind(alice, ai.intellistream.chat.domain.PresenceKind.DND);
 
-        alice.touchActive(Instant.now().minus(presenceService.awayThreshold().plusMinutes(1)));
-        users.save(alice);
+        goIdle(alice.getUsername());
         assertThat(presenceService.presenceFor(alice).kind())
                 .isEqualTo(ai.intellistream.chat.domain.PresenceKind.DND);
 
-        alice.touchActive(Instant.now());
-        users.save(alice);
+        tracker.noteActivity(alice.getUsername());
         assertThat(presenceService.presenceFor(alice).kind())
                 .isEqualTo(ai.intellistream.chat.domain.PresenceKind.DND);
 
@@ -465,12 +473,9 @@ class PresenceFlowIT {
 
     @Test
     void disconnectedIdleUserStillReportsOffline() {
-        // Auto-AWAY is for connected idle users. If they're disconnected, OFFLINE wins
-        // regardless of how stale lastActiveAt is.
+        // Auto-AWAY is for connected idle users. Without a socket the answer is OFFLINE, and that
+        // is the whole meaning of the grey dot: no live WebSocket, nothing else.
         var alice = newUser("alice");
-        alice.touchActive(java.time.Instant.now()
-                .minus(presenceService.awayThreshold().plusMinutes(1)));
-        users.save(alice);
 
         var dto = presenceService.presenceFor(alice);
 
@@ -483,11 +488,9 @@ class PresenceFlowIT {
         // sidebar avatars hit. Two users: one fresh-active, one idle-but-connected.
         var fresh = newUser("fresh");
         var idle = newUser("idle");
-        idle.touchActive(java.time.Instant.now()
-                .minus(presenceService.awayThreshold().plusMinutes(1)));
-        users.save(idle);
         tracker.connect(fresh.getUsername(), "session-solo");
         tracker.connect(idle.getUsername(), "session-solo");
+        goIdle(idle.getUsername());
 
         var result = presenceService.presenceFor(
                 java.util.List.of(fresh.getUsername(), idle.getUsername()));
