@@ -191,8 +191,12 @@
                 <code>/remind me at 14:00</code> means 14:00 here.
             </p>
             <form th:action="@{/profile/timezone}" method="post" id="timezone-form">
+                <!--/* The caption is visually hidden because the section's own <h2> already says
+                       "Time zone" directly above it, and two identical labels a line apart read as
+                       a rendering bug. It stays in the DOM so the control keeps an accessible name
+                       — a screen reader lands on the input without the heading for context. */-->
                 <label class="timezone-picker" for="timezone-select">
-                    Time zone
+                    <span class="visually-hidden">Time zone</span>
                     <select id="timezone-select" name="zone">
                         <!--/* "Automatic" is a real setting, not the absence of one: it keeps
                                following the browser, so it stays right when you travel. The label
