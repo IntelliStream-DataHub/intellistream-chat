@@ -23,7 +23,20 @@
  * 2. The channel table's Delete forms: the button stays disabled until the typed name matches
  *    the row's channel (trimmed, case-insensitive — the same comparison the server makes). The
  *    server enforces the name regardless; this only stops a click that was going to bounce.
+ * 3. Any form carrying data-confirm asks before it submits. This replaces an inline onsubmit,
+ *    which the CSP (script-src 'self', no 'unsafe-inline') silently drops — so the "Clear
+ *    messages" purge went through on a single click with no question asked.
  */
+(function () {
+  document.addEventListener('submit', (event) => {
+    const form = event.target;
+    if (!(form instanceof HTMLFormElement)) return;
+    const question = form.dataset.confirm;
+    if (!question) return;
+    if (!window.confirm(question)) event.preventDefault();
+  });
+})();
+
 (function () {
   document.querySelectorAll('form.admin-channel-delete').forEach((form) => {
     const input = form.querySelector('input[name="name"]');

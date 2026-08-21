@@ -236,9 +236,13 @@
                               th:action="@{'/admin/users/' + ${u.id} + '/unsuspend'}" class="admin-inline-form">
                             <button type="submit">Restore access</button>
                         </form>
+                        <!--/* The confirmation is a data attribute read by admin.js, not an inline
+                               onsubmit: the CSP has no 'unsafe-inline' for scripts, so an inline
+                               handler is dropped by the browser — and a purge with a dropped
+                               confirm is a purge with no confirm at all. */-->
                         <form method="post" th:action="@{'/admin/users/' + ${u.id} + '/messages/purge'}"
                               class="admin-inline-form"
-                              onsubmit="return confirm('Remove every message from this account? This is reversible until the retention window expires.');">
+                              data-confirm="Remove every message from this account? This is reversible until the retention window expires.">
                             <button type="submit" class="admin-danger">Clear messages</button>
                         </form>
                         <form method="post" th:action="@{'/admin/users/' + ${u.id} + '/messages/restore'}"

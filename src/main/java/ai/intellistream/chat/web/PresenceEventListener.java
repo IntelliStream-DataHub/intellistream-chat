@@ -17,6 +17,7 @@
 package ai.intellistream.chat.web;
 
 import ai.intellistream.chat.config.ClientIdleHeader;
+import ai.intellistream.chat.config.StompAuthorizationConfig;
 import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.repository.UserRepository;
 import ai.intellistream.chat.service.PresenceService;
@@ -62,7 +63,7 @@ public class PresenceEventListener {
     public void onConnect(SessionConnectedEvent event) {
         var sessionId = StompHeaderAccessor.wrap(event.getMessage()).getSessionId();
         var lastInputAt = lastInputAt();
-        resolveUser(event.getUser()).ifPresent(user -> {
+        resolveUser(sessionUser(), event.getUser()).ifPresent(user -> {
             if (!tracker.connect(user.getUsername(), sessionId, lastInputAt)) return;
             // First session for this user — load their persisted status (if any) and announce.
             // presenceFor derives the kind from the backdated stamp, so a reconnecting background
@@ -94,7 +95,7 @@ public class PresenceEventListener {
         // event.getSessionId() identifies the exact STOMP session; membership-based tracking
         // makes a duplicate disconnect for an already-removed session a no-op (see PresenceTracker).
         var sessionId = event.getSessionId();
-        resolveUser(event.getUser()).ifPresent(user -> {
+        resolveUser(sessionUser(), event.getUser()).ifPresent(user -> {
             if (!tracker.disconnect(user.getUsername(), sessionId)) return;
             // Last session closed — broadcast offline. Custom status stays in the DB; we strip it
             // from the wire here because clients render online/offline as the primary signal.
@@ -103,15 +104,43 @@ public class PresenceEventListener {
     }
 
     /**
-     * STOMP principals come in as the Spring Security Authentication for the HTTP handshake.
-     * Its {@code getName()} resolves to {@code preferred_username} — both because OIDC pages
-     * configure {@code user-name-attribute: preferred_username} and because
-     * {@code KeycloakRolesConverter} pins the JWT principal name to the same claim. So we
-     * look up by username, not by subject. No provisioning here — the user must already
-     * exist (the handshake went through the resource-server / OIDC chain which provisions
-     * on first sight).
+     * The domain {@link User} that {@code StompAuthorizationConfig} resolved from the OIDC subject
+     * at CONNECT and cached on the session attributes, or null when the attributes are not bound
+     * or hold no user. Spring binds them to {@link SimpAttributesContextHolder} for both the
+     * connected and the disconnect event, which is the same handle {@link #lastInputAt()} uses.
      */
-    private Optional<User> resolveUser(Principal principal) {
+    private static User sessionUser() {
+        var attributes = SimpAttributesContextHolder.getAttributes();
+        if (attributes != null
+                && attributes.getAttribute(StompAuthorizationConfig.SESSION_USER_KEY) instanceof User user) {
+            return user;
+        }
+        return null;
+    }
+
+    /**
+     * The session's cached user when there is one, else a lookup by the principal's name.
+     *
+     * <p><b>The cached user comes first because the name is not the handle.</b> The principal's
+     * {@code getName()} is Keycloak's {@code preferred_username} (the OIDC client sets
+     * {@code user-name-attribute: preferred_username}, and {@code KeycloakRolesConverter} pins the
+     * JWT principal to the same claim). The domain username is derived from it by
+     * {@code UserService.sanitizeUsername} — the local part of an email-shaped login — and
+     * collision-suffixed by {@code uniqueUsername}, so for exactly those accounts the two differ
+     * (the N19 note in {@code ChatWebSocketController}). Looking the name up as a handle then finds
+     * nothing, and the connect is never tracked: the person types, sends and receives over a live
+     * socket while every dot for them stays grey. With a suffixed handle it is worse — the lookup
+     * finds the <em>other</em> holder of the bare name, and one person's connects drive someone
+     * else's presence. Every other STOMP handler already reads the user the interceptor cached
+     * (keyed on the subject, which never drifts); this is the same user, so the key the tracker
+     * sees on connect is the one it sees again on disconnect.
+     *
+     * <p>The name lookup remains as the fallback for a session with no cached user — a test
+     * harness, or a socket that pre-dates the interceptor mid-deploy. No provisioning here: the
+     * handshake went through the OIDC / resource-server chain, which provisions on first sight.
+     */
+    private Optional<User> resolveUser(User cached, Principal principal) {
+        if (cached != null) return Optional.of(cached);
         if (principal == null) return Optional.empty();
         var username = principal.getName();
         if (username == null || username.isBlank()) return Optional.empty();
