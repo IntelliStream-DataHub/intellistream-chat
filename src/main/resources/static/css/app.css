@@ -258,6 +258,17 @@ input:focus, textarea:focus, select:focus {
   max-width: 34rem;
   margin-inline: auto;
 }
+/* Shown only after ?login=failed — the oauth2Login failure target. */
+.landing-error {
+  max-width: 34rem;
+  margin: 1rem auto;
+  padding: 0.6rem 0.9rem;
+  border-radius: var(--radius-md);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: var(--fs-md);
+  line-height: 1.4;
+}
 /* Feature list: left-aligned inside a centred column. Centring the text as well would make each
    line start at a different x and the list would read as four unrelated fragments. */
 .landing-features {

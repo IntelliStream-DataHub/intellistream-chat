@@ -63,7 +63,15 @@ demo users `alice` and `bob` too.
 
 1. **Create realm** `ichat-realm`.
 2. **Clients → Create client**: ID `ichat-client`, OpenID Connect, *Client authentication* ON.
-   - Valid redirect URI: `https://your-domain/login/oauth2/code/keycloak`
+   - Root URL: `https://your-domain`
+   - Home URL: `/` (or `/channels`). This is where Keycloak's **Back to Application** link goes
+     after an email verification, a password reset, or any required action finished in a browser
+     that no longer holds the login session — i.e. the link in the mail. Leave it empty and that
+     link points at the account console; set it to `/login`, as Spring tutorials suggest, and it
+     still works (the app redirects `/login` into the sign-in), but `/` is the honest value.
+   - Valid redirect URI: `https://your-domain/login/oauth2/code/keycloak`, plus the Home URL
+     itself (`https://your-domain/`) — Keycloak only follows a Home URL that is also a valid
+     redirect.
    - Web origins: `https://your-domain`
    - Copy the secret from the Credentials tab.
 3. **Realm roles → Create role**, twice: `ichat-user` and `ichat-admin`.

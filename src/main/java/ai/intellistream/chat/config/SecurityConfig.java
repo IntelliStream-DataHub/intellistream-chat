@@ -59,6 +59,12 @@ import java.util.Set;
 @Configuration
 public class SecurityConfig {
 
+    /**
+     * Where an unauthenticated browser is sent: straight into the Keycloak round-trip for the one
+     * registration this app has. Also the target of {@code /login} (see {@link LoginRedirectConfig}).
+     */
+    public static final String LOGIN_URL = "/oauth2/authorization/keycloak";
+
     /** Where a browser lands after signing in with nothing else to go back to. */
     static final String DEFAULT_LANDING_PAGE = "/channels";
 
@@ -187,6 +193,9 @@ public class SecurityConfig {
                         // resolves as a 200 full of login-page HTML. See SessionRestController.
                         // It discloses nothing: the caller's own sign-in state and their own name.
                         .requestMatchers(HttpMethod.GET, "/api/session").permitAll()
+                        // /login is a redirect into the Keycloak round-trip (LoginRedirectConfig),
+                        // reachable signed out or in, so it must not itself trigger the round-trip.
+                        .requestMatchers(HttpMethod.GET, "/login").permitAll()
                         // Admin console + branding mutations require the ichat-admin realm role
                         // (mapped to ROLE_ADMIN by KeycloakRolesConverter).
                         .requestMatchers("/admin", "/admin/**").hasRole("ADMIN")
@@ -205,6 +214,22 @@ public class SecurityConfig {
                 // deliberately NOT remembered.
                 .requestCache(rc -> rc.requestCache(requestCache))
                 .oauth2Login(login -> login
+                        // Naming a login page is how Spring's generated one is switched OFF. With
+                        // a single registration the entry point already went straight to Keycloak,
+                        // but DefaultLoginPageGeneratingFilter still answered GET /login with a
+                        // bare "Please sign in / Login with OAuth 2.0 / keycloak" page — and /login
+                        // is exactly where Keycloak's "Back to Application" link after an email
+                        // verification (or a password reset opened in another browser) lands, and
+                        // what every Spring tutorial tells operators to put in the client's Home
+                        // URL. LoginRedirectConfig turns the path into this same redirect, so the
+                        // page is never seen; see the failureUrl note below before changing it.
+                        .loginPage(LOGIN_URL)
+                        // Must be explicit. The default is loginPage + "?error", which here would
+                        // be the authorization endpoint itself: a failed token exchange (wrong
+                        // client secret, clock skew) would bounce into Keycloak, whose SSO session
+                        // answers silently, fail again, and loop without ever showing an error.
+                        // The landing page is permitAll and says what happened.
+                        .failureUrl("/?login=failed")
                         .authorizationEndpoint(ep -> ep.authorizationRequestResolver(registrationResolver))
                         .userInfoEndpoint(uie -> uie.userAuthoritiesMapper(keycloakAuthoritiesMapper()))
                         .successHandler(loginSuccessHandler(requestCache)))
