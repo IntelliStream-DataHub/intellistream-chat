@@ -18,6 +18,7 @@ package ai.intellistream.chat.web;
 
 import ai.intellistream.chat.domain.ChannelType;
 import ai.intellistream.chat.domain.NotificationLevel;
+import ai.intellistream.chat.web.dto.ChannelBrowseDto;
 import ai.intellistream.chat.web.dto.ChannelSidebarDto;
 import ai.intellistream.chat.web.dto.SidebarView;
 import org.junit.jupiter.api.Test;
@@ -80,6 +81,10 @@ class SidebarFragmentTest {
     }
 
     private static String render(List<ChannelSidebarDto> channels) {
+        return render(channels, List.of());
+    }
+
+    private static String render(List<ChannelSidebarDto> channels, List<ChannelBrowseDto> suggestions) {
         var appContext = new StaticApplicationContext();
         appContext.refresh();
         var servletContext = new MockServletContext();
@@ -88,7 +93,7 @@ class SidebarFragmentTest {
         var context = new WebContext(exchange);
         context.setVariable(ThymeleafEvaluationContext.THYMELEAF_EVALUATION_CONTEXT_CONTEXT_VARIABLE_NAME,
                 new ThymeleafEvaluationContext(appContext, null));
-        context.setVariable("sidebar", new SidebarView(channels, NotificationLevel.MENTIONS, NotificationLevel.ALL));
+        context.setVariable("sidebar", new SidebarView(channels, suggestions, NotificationLevel.MENTIONS, NotificationLevel.ALL));
         // HomeController sets both ids on every page that renders this, the inactive one to null.
         context.setVariable("activeChannelId", null);
         context.setVariable("activeConversationId", null);
@@ -130,5 +135,37 @@ class SidebarFragmentTest {
         assertThat(html).contains("id=\"sidebar-filter\"");
         assertThat(html).contains("id=\"sidebar-search-hint\"");
         assertThat(html).contains("id=\"sidebar-no-match\"");
+    }
+
+    @Test
+    void browseChannelsIsAlwaysOffered() {
+        // With a list and without one: the directory is how you reach what the filter cannot name.
+        assertThat(render(List.of())).contains("id=\"sidebar-browse-btn\"");
+        assertThat(render(List.of(row(1, "alfa", false)))).contains("id=\"sidebar-browse-btn\"");
+    }
+
+    @Test
+    void suggestionsRenderAsRowsWithAJoinEach() {
+        var html = render(List.of(), List.of(
+                new ChannelBrowseDto(7L, "general", "general", "Everyone", 42, false),
+                new ChannelBrowseDto(9L, "random", "random", null, 1, false)));
+
+        assertThat(html).contains("id=\"sidebar-suggestions\"");
+        assertThat(html).contains("Suggested for you");
+        assertThat(html).contains("data-join-channel=\"7\"");
+        assertThat(html).contains("data-join-channel=\"9\"");
+        // The row is a channel row: chrome.js's filter narrows on data-name like any other.
+        assertThat(html).contains("data-name=\"general\"");
+        // Member counts are shown, and pluralised.
+        assertThat(html).contains("42 members");
+        assertThat(html).contains("1 member\"");
+    }
+
+    @Test
+    void noSuggestionsMeansNoGroup() {
+        // SidebarService only fills the list for an account in no channel; the template must not
+        // render a heading over nothing when it is empty, same rule as Favourites.
+        assertThat(render(List.of(row(1, "alfa", false)))).doesNotContain("Suggested for you");
+        assertThat(render(List.of())).doesNotContain("Suggested for you");
     }
 }

@@ -17,8 +17,8 @@
 <html xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
 <body>
 <!--/*
-  The left sidebar: channel filter, every channel you are in, the direct-message list, and the two
-  creation popovers.
+  The left sidebar: channel filter, every channel you are in, the Browse channels button, the
+  first-login suggestions, the direct-message list, and the two creation popovers.
 
   ONE COPY, ON PURPOSE. Both pages carried their own version and they had already drifted: the
   conversation page was missing the channel search and the create-channel popover, and it used
@@ -95,7 +95,8 @@
             <ul class="channel-list" id="sidebar-channel-list"
                 th:replace="~{fragments/channel-group :: group(${sidebar.unstarred}, ${activeChannelId}, ${sidebar.notifyDefault}, 'sidebar-channel-list')}"></ul>
             <p class="sidebar-empty" th:if="${sidebar.channels.isEmpty()}">
-                You're not in any channels yet — use + to create one, or search above to find one.
+                You're not in any channels yet — join one of the suggestions below, browse all of
+                them, or use + to create your own.
             </p>
             <!--/* Shown by chrome.js when the filter matches none of your channels. Without it the
                    list just empties and the server results on the right look like the whole
@@ -103,6 +104,44 @@
             <p class="sidebar-empty" id="sidebar-no-match" hidden>
                 None of your channels match — see the results on the right.
             </p>
+            <!--/* The directory. A row at the foot of the list rather than a heading control, as
+                   Slack does, because it is the list's own "and everything else": the filter box
+                   above needs a name to find something, this needs nothing. Renders into the main
+                   content area (chrome.js), where a description and a member count have room. */-->
+            <button type="button" class="sidebar-browse-btn" id="sidebar-browse-btn">
+                <svg class="icon icon-sm" aria-hidden="true"><use href="#icon-compass"/></svg>
+                Browse channels
+            </button>
+        </div>
+
+        <!--/* Suggested for you — rendered only for an account that is in no channel at all, which
+               SidebarService enforces by leaving the list empty otherwise. An empty column with a
+               filter box is a poor first minute, and a newcomer has no history to rank by, so the
+               five most populated public channels stand in for one: where everybody already is.
+               The ranking is never shown next to a list the viewer has begun to learn — the group
+               disappears with the first join — which is what keeps it clear of the reason ranked
+               shortlists were removed from this sidebar (see SidebarView).
+
+               The Join button sits beside the link, not inside it, for the same reason the star
+               does: nested, a click would also navigate. Wired by chrome.js (CSP: no inline
+               handlers); joining opens the channel. */-->
+        <div class="sidebar-section channel-group" id="sidebar-suggestions"
+             th:if="${!sidebar.suggestions.isEmpty()}">
+            <h2>Suggested for you</h2>
+            <ul class="channel-list suggestion-list" id="sidebar-suggestion-list">
+                <li th:each="s : ${sidebar.suggestions}"
+                    th:attr="data-name=${#strings.toLowerCase(s.name)},data-channel-id=${s.id}">
+                    <a th:href="@{'/channels/' + ${s.id}}" th:title="${s.description}">
+                        <span class="hash">#</span>
+                        <span class="channel-name" th:text="${s.name}">name</span>
+                        <span class="suggestion-members"
+                              th:title="${s.memberCount + (s.memberCount == 1 ? ' member' : ' members')}"
+                              th:text="${s.memberCount}">12</span>
+                    </a>
+                    <button type="button" class="suggestion-join"
+                            th:attr="data-join-channel=${s.id},aria-label=${'Join #' + s.name}">Join</button>
+                </li>
+            </ul>
         </div>
 
         <div class="sidebar-section">

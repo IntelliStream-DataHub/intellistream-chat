@@ -106,6 +106,33 @@ public interface ChannelRepository extends JpaRepository<Channel, Long> {
             org.springframework.data.domain.Pageable pageable);
 
     /**
+     * Live PUBLIC channels, largest first: each row is {@code [Channel, Long memberCount]}.
+     *
+     * <p>Backs two things — the <em>Suggested for you</em> group a brand-new account sees in the
+     * sidebar, and the Browse channels directory — and it is a population ranking on purpose, not
+     * recency or activity: a person who has joined nothing has no history to rank by, and "where
+     * everybody already is" is the one signal that answers "where should I start". PUBLIC only,
+     * because a private channel's name is not something a non-member gets to read, and never
+     * archived, for the same reason {@link #searchVisibleTo} leaves them out.
+     *
+     * <p>The count is a {@code left join} so a channel with nobody left in it still ranks, at
+     * zero, rather than vanishing from the directory. Ties break on name then id, so the order is
+     * total and a page never reshuffles between two loads.
+     */
+    @org.springframework.data.jpa.repository.Query("""
+            select c, count(m.id)
+              from Channel c
+              left join ChannelMember m on m.channel = c
+             where c.type = :publicType
+               and c.archivedAt is null
+             group by c
+             order by count(m.id) desc, lower(c.name) asc, c.id asc
+            """)
+    List<Object[]> findLargestPublic(
+            @org.springframework.data.repository.query.Param("publicType") ChannelType publicType,
+            org.springframework.data.domain.Pageable pageable);
+
+    /**
      * Rename / re-describe a channel, as one UPDATE rather than through a setter.
      *
      * <p><b>This is the shape the whole feature turns on.</b> {@code Channel} exposes no mutators and

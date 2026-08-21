@@ -78,7 +78,7 @@ presenceMenu.init();
     // Any channel list, not just the main one — there is a Favourites group above it now. The
     // closest('a') test is what keeps the star button from counting as "picked a channel".
     document.getElementById('app-sidebar')?.addEventListener('click', (e) => {
-      if (e.target.closest('.channel-list a, .dm-list a')) setOpen(false);
+      if (e.target.closest('.channel-list a, .dm-list a, #sidebar-browse-btn')) setOpen(false);
     });
     window.addEventListener('resize', () => {
       if (window.innerWidth > 768 && document.body.classList.contains('sidebar-open')) setOpen(false);

@@ -15,14 +15,22 @@
  */
 
 /**
- * Slack/Mattermost-style presence-kind picker. Clicking the topbar avatar opens
- * a small floating menu with the four kinds (Active / Away / DND / Offline);
- * clicking an option calls PUT /api/presence/kind and the server broadcasts via
+ * Slack/Mattermost-style presence-kind picker under the topbar avatar: the four kinds
+ * (Active / Away / DND / Offline), then profile / status / saved / files / admin / about /
+ * sign out. Picking a kind calls PUT /api/presence/kind and the server broadcasts via
  * /topic/presence so all the user's tabs (and other users) update live.
  *
- * The topbar `<a class="me" href="/profile">` still navigates to the profile
- * page when the user clicks the display-name half — only avatar clicks open
- * the menu, via preventDefault on the parent link.
+ * The menu is built once at load and mounted as a sibling of the topbar `.me` trigger
+ * inside a `.me-menu` wrapper. Showing it on hover is the stylesheet's job
+ * (`.me-menu:hover .presence-menu`), not this file's: there is no mouseenter/mouseleave
+ * bookkeeping and no close timer, so it can never be left open by a missed event. What
+ * JS owns is the *pin* — `.is-open` on the wrapper, toggled by a click or Enter/Space on
+ * the avatar, which is how touch and keyboard users open it — plus arrow-key navigation,
+ * Escape, and dismissal on an outside click.
+ *
+ * The topbar `<a class="me" href="/profile">` still navigates to the profile page when
+ * the user clicks the display-name half — only avatar clicks toggle the pin, via
+ * preventDefault on the parent link.
  */
 
 import { headers } from './shared.js';
@@ -42,44 +50,39 @@ const KINDS = [
 /** Every focusable row, whichever ARIA role it carries. */
 const MENU_ITEM_SELECTOR = '[role="menuitem"], [role="menuitemradio"]';
 
+/** The `.me-menu` wrapper around the topbar `.me`; carries the `is-open` pin. */
+let wrapEl = null;
+/** The dropdown itself, built once by init() and shown/hidden purely by CSS. */
 let menuEl = null;
 /** Index of the currently keyboard-focused item; -1 means nothing focused. */
 let focusedIdx = -1;
-/** Pending hover-out close; cancelled when the pointer re-enters the trigger or menu. */
-let closeTimer = null;
 
-function cancelClose() {
-    clearTimeout(closeTimer);
-    closeTimer = null;
+/** Is the menu on screen right now, whether pinned open or merely hovered? */
+function isShown() {
+    return !!menuEl && menuEl.getClientRects().length > 0;
 }
 
-function scheduleClose() {
-    cancelClose();
-    // Grace period long enough to travel across the 6px gap into the menu.
-    closeTimer = setTimeout(closeMenu, 220);
+function openMenu(opts = {}) {
+    if (!wrapEl) return;
+    wrapEl.classList.add('is-open');
+    // Focus the first item only for keyboard opens — a pointer open must not steal
+    // focus from whatever the user is typing in. Arrow keys still work either way.
+    if (opts.focusFirst) focusItem(0);
 }
 
+/**
+ * Drops the pin. If the pointer is still over the trigger or the menu, CSS keeps it
+ * visible until the pointer leaves — that is hover behaving as hover, not a leak.
+ */
 function closeMenu() {
-    cancelClose();
-    if (menuEl) {
-        menuEl.remove();
-        menuEl = null;
-        focusedIdx = -1;
-    }
+    if (!wrapEl) return;
+    wrapEl.classList.remove('is-open');
+    focusedIdx = -1;
 }
 
 /** All focusable menu items in DOM order. Used by the arrow-key nav. */
 function items() {
     return menuEl ? [...menuEl.querySelectorAll(MENU_ITEM_SELECTOR)] : [];
-}
-
-/**
- * The viewer's own effective presence kind, or null before presence.js's first fetch lands.
- * Read fresh on every open rather than cached: the menu is rebuilt from scratch each time, and
- * the state can change from another tab between two opens.
- */
-function currentKind() {
-    return window.Presence?.me?.()?.kind || null;
 }
 
 function focusItem(idx) {
@@ -89,28 +92,48 @@ function focusItem(idx) {
     list[focusedIdx].focus();
 }
 
-function openMenu(anchor, opts = {}) {
-    closeMenu();
-    menuEl = document.createElement('div');
-    menuEl.className = 'presence-menu';
-    menuEl.setAttribute('role', 'menu');
-    // Keep the menu open while the pointer is inside it (hover-open pairing).
-    menuEl.addEventListener('mouseenter', cancelClose);
-    menuEl.addEventListener('mouseleave', scheduleClose);
+/**
+ * Which of the four you are in. The menu never said, which was survivable while the four
+ * states only tinted a dot, and is not now that one of them silences the app: "am I still in
+ * Do Not Disturb?" is a question you must be able to answer without sending yourself a test
+ * message.
+ *
+ * Read from the `data-self-presence` attribute presence.js hoists onto <html> on every
+ * update of the viewer's own state, and re-applied by a MutationObserver on it. That is the
+ * one source of truth for "my kind" that needs no load-order agreement with presence.js:
+ * whichever script runs first, the tick lands as soon as the attribute does, and follows it
+ * when another tab changes the state.
+ */
+function syncCurrent() {
+    if (!menuEl) return;
+    const current = document.documentElement.getAttribute('data-self-presence');
+    menuEl.querySelectorAll('[role="menuitemradio"]').forEach((item) => {
+        const on = item.dataset.kind === current;
+        item.setAttribute('aria-checked', String(on));
+        item.classList.toggle('is-current', on);
+    });
+    // Only while DND is on, and only then. Saying exactly what is and is not being suppressed
+    // is the difference between trusting the switch and wondering whether the quiet afternoon
+    // meant it worked or meant nobody wrote to you. A permanent line of small print explaining
+    // a state you are not in is noise the other 99% of the time.
+    const note = menuEl.querySelector('.presence-menu-note');
+    if (note) note.hidden = current !== 'DND';
+}
 
-    // Which of the four you are in. The menu never said, which was survivable while the four
-    // states only tinted a dot, and is not now that one of them silences the app: "am I still in
-    // Do Not Disturb?" is a question you must be able to answer without sending yourself a test
-    // message. menuitemradio rather than menuitem, so a screen reader announces the group as the
-    // single choice it is and reads the selected one back.
-    const current = currentKind();
+function buildMenu() {
+    const menu = document.createElement('div');
+    menu.className = 'presence-menu';
+    menu.setAttribute('role', 'menu');
+
+    // menuitemradio rather than menuitem, so a screen reader announces the group as the
+    // single choice it is and reads the selected one back. Which one is checked is
+    // syncCurrent()'s job.
     KINDS.forEach((k) => {
         const item = document.createElement('button');
         item.type = 'button';
         item.className = 'presence-menu-item';
         item.setAttribute('role', 'menuitemradio');
-        item.setAttribute('aria-checked', String(k.value === current));
-        if (k.value === current) item.classList.add('is-current');
+        item.setAttribute('aria-checked', 'false');
         item.dataset.kind = k.value;
         item.innerHTML =
             '<span class="presence-menu-dot" data-presence-kind="' + k.value + '"></span>' +
@@ -122,32 +145,27 @@ function openMenu(anchor, opts = {}) {
             applyKind(k.value);
             closeMenu();
         });
-        menuEl.appendChild(item);
+        menu.appendChild(item);
     });
 
-    // Only while DND is on, and only then. Saying exactly what is and is not being suppressed is
-    // the difference between trusting the switch and wondering whether the quiet afternoon meant
-    // it worked or meant nobody wrote to you. A permanent line of small print explaining a state
-    // you are not in is noise the other 99% of the time.
-    if (current === 'DND') {
-        const note = document.createElement('p');
-        note.className = 'presence-menu-note';
-        note.textContent = 'Sounds, toasts and desktop alerts are off. '
-            + 'Mentions and unread badges still arrive.';
-        menuEl.appendChild(note);
-    }
+    const note = document.createElement('p');
+    note.className = 'presence-menu-note';
+    note.hidden = true;
+    note.textContent = 'Sounds, toasts and desktop alerts are off. '
+        + 'Mentions and unread badges still arrive.';
+    menu.appendChild(note);
 
     // Divider then "View profile" / "Set a status" — match Slack's avatar dropdown shape.
     const divider = document.createElement('div');
     divider.className = 'presence-menu-divider';
-    menuEl.appendChild(divider);
+    menu.appendChild(divider);
 
     const profileLink = document.createElement('a');
     profileLink.className = 'presence-menu-item presence-menu-link';
     profileLink.setAttribute('role', 'menuitem');
     profileLink.href = '/profile';
     profileLink.innerHTML = '<span class="presence-menu-label">View profile</span>';
-    menuEl.appendChild(profileLink);
+    menu.appendChild(profileLink);
 
     const statusLink = document.createElement('a');
     statusLink.className = 'presence-menu-item presence-menu-link';
@@ -155,7 +173,7 @@ function openMenu(anchor, opts = {}) {
     // Profile page hosts the status emoji + clear-at editor; deep-link to its anchor.
     statusLink.href = '/profile#status-section';
     statusLink.innerHTML = '<span class="presence-menu-label">Set a status</span>';
-    menuEl.appendChild(statusLink);
+    menu.appendChild(statusLink);
 
     // Saved — the private reading queue. Above "Your files" because it is checked far more often:
     // both are per-person and span every room, but one is a to-do list and the other is storage.
@@ -164,7 +182,7 @@ function openMenu(anchor, opts = {}) {
     savedLink.setAttribute('role', 'menuitem');
     savedLink.href = '/saved';
     savedLink.innerHTML = '<span class="presence-menu-label">Saved</span>';
-    menuEl.appendChild(savedLink);
+    menu.appendChild(savedLink);
 
     // Your files — the per-user file manager. Sits with the other "about me" items rather
     // than in a channel's toolbar: it spans every channel and DM the account has uploaded to,
@@ -174,7 +192,7 @@ function openMenu(anchor, opts = {}) {
     filesLink.setAttribute('role', 'menuitem');
     filesLink.href = '/files';
     filesLink.innerHTML = '<span class="presence-menu-label">Your files</span>';
-    menuEl.appendChild(filesLink);
+    menu.appendChild(filesLink);
 
     // Admin console — only for workspace admins (realm role ichat-admin → ROLE_ADMIN;
     // the me-is-workspace-admin meta is emitted via sec:authorize on every page).
@@ -184,7 +202,7 @@ function openMenu(anchor, opts = {}) {
         adminLink.setAttribute('role', 'menuitem');
         adminLink.href = '/admin';
         adminLink.innerHTML = '<span class="presence-menu-label">Admin console</span>';
-        menuEl.appendChild(adminLink);
+        menu.appendChild(adminLink);
     }
 
     const aboutItem = document.createElement('button');
@@ -198,13 +216,13 @@ function openMenu(anchor, opts = {}) {
     aboutLabel.textContent = 'About ' + appName();
     aboutItem.appendChild(aboutLabel);
     aboutItem.addEventListener('click', () => { closeMenu(); openAbout(); });
-    menuEl.appendChild(aboutItem);
+    menu.appendChild(aboutItem);
 
     // Sign out — submits the hidden #logout-form so the POST keeps the
     // Thymeleaf-injected CSRF token (a plain fetch would have to re-plumb it).
     const divider2 = document.createElement('div');
     divider2.className = 'presence-menu-divider';
-    menuEl.appendChild(divider2);
+    menu.appendChild(divider2);
 
     const signOut = document.createElement('button');
     signOut.type = 'button';
@@ -215,22 +233,13 @@ function openMenu(anchor, opts = {}) {
         closeMenu();
         document.getElementById('logout-form')?.submit();
     });
-    menuEl.appendChild(signOut);
+    menu.appendChild(signOut);
 
-    // Anchor below the avatar; constrained to the viewport via simple right-edge clamp.
-    const r = anchor.getBoundingClientRect();
-    menuEl.style.position = 'fixed';
-    menuEl.style.top = (r.bottom + 6) + 'px';
-    menuEl.style.right = Math.max(8, window.innerWidth - r.right) + 'px';
-    document.body.appendChild(menuEl);
-
-    // Focus the first item only for keyboard opens — a hover-open must not steal
-    // focus from whatever the user is typing in. Arrow keys still work either way.
-    if (opts.focusFirst) focusItem(0);
+    return menu;
 }
 
 function handleKeyNav(e) {
-    if (!menuEl) return;
+    if (!isShown()) return;
     if (e.key === 'Escape') {
         e.preventDefault();
         closeMenu();
@@ -271,12 +280,11 @@ async function applyKind(kind) {
 }
 
 function dismissOnOutsideClick(e) {
-    if (!menuEl) return;
+    if (!wrapEl || !wrapEl.classList.contains('is-open')) return;
     // e.target can be the Document itself (e.g. a synthesized event after the node
     // under the pointer was replaced) — that counts as "outside", but has no closest().
     const t = e.target instanceof Element ? e.target : null;
-    if (t && menuEl.contains(t)) return;
-    if (t && t.closest('.me .avatar')) return; // re-clicks on the trigger handled separately
+    if (t && wrapEl.contains(t)) return; // trigger and menu clicks are handled by their own listeners
     closeMenu();
 }
 
@@ -288,35 +296,43 @@ export function init() {
     const avatar = meLink.querySelector('.avatar');
     if (!avatar) return;
 
-    // Clicking the avatar opens the menu instead of navigating to /profile. The
+    // Wrap the trigger so the menu can be its sibling: `.me-menu:hover` then covers both
+    // the trigger and the open menu, which is what lets the stylesheet own hover outright.
+    // The menu cannot go *inside* the <a> — nested interactive content is invalid HTML and
+    // every item click would also be a click on the profile link.
+    menuEl = buildMenu();
+    wrapEl = document.createElement('div');
+    wrapEl.className = 'me-menu';
+    meLink.parentNode.insertBefore(wrapEl, meLink);
+    wrapEl.append(meLink, menuEl);
+    syncCurrent();
+    new MutationObserver(syncCurrent).observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['data-self-presence'],
+    });
+
+    // Clicking the avatar pins the menu open instead of navigating to /profile. The
     // display-name half of the .me link is a separate event target and still
-    // navigates — clicks fall through to the parent <a>.
+    // navigates — clicks fall through to the parent <a>. On a pointer device the menu
+    // is usually already showing from hover; the click then pins it so it survives the
+    // pointer moving away. On touch, where CSS hover is off, this is the only way in.
     avatar.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
-        if (menuEl) closeMenu();
-        else openMenu(avatar);
+        if (wrapEl.classList.contains('is-open')) closeMenu();
+        else openMenu();
     });
     // Keyboard equivalent: Enter/Space on the avatar with focus toggles the menu.
     avatar.setAttribute('tabindex', '0');
     avatar.setAttribute('role', 'button');
+    avatar.setAttribute('aria-haspopup', 'menu');
     avatar.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
             e.preventDefault();
-            if (menuEl) closeMenu();
-            else openMenu(avatar, { focusFirst: true });
+            if (wrapEl.classList.contains('is-open')) closeMenu();
+            else openMenu({ focusFirst: true });
         }
     });
-
-    // Hover-open on pointer devices only: touch synthesizes mouseenter right before
-    // click, which would open the menu and have the click instantly toggle it shut.
-    if (window.matchMedia('(hover: hover)').matches) {
-        meLink.addEventListener('mouseenter', () => {
-            cancelClose();
-            if (!menuEl) openMenu(avatar);
-        });
-        meLink.addEventListener('mouseleave', scheduleClose);
-    }
 
     document.addEventListener('click', dismissOnOutsideClick);
     document.addEventListener('keydown', handleKeyNav);
