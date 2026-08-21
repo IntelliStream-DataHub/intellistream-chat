@@ -16,10 +16,10 @@
 
 /**
  * Page-chrome bits that stand outside the message feed: the first-time-user
- * tutorial overlay, the typeahead sidebar filter, and the sidebar's favourite
- * stars. Imported once from {@link ./index.js} on boot; each piece is a no-op
- * when its anchor element isn't on the page (e.g. tutorial doesn't render once
- * dismissed).
+ * tutorial overlay, the typeahead sidebar filter, the Browse channels directory,
+ * the first-login suggestions' Join buttons, and the sidebar's favourite stars.
+ * Imported once from {@link ./index.js} on boot; each piece is a no-op when its
+ * anchor element isn't on the page (e.g. tutorial doesn't render once dismissed).
  *
  * <p><b>The sidebar is shared by two pages</b> — the channel page and the
  * conversation page render the same fragment — so anything that makes it work
@@ -81,6 +81,112 @@ function initTutorial() {
  * explicit "includes channels you haven't joined" heading on the results panel. An unlabelled
  * split box reads as one search behaving inconsistently.
  */
+// ---------- The content overlay ----------
+// One panel, shared by the channel search and the Browse channels directory. Both render a list of
+// channels into the main content area, and both need the page's own content out of the way while
+// they do; two panels would need to know about each other to avoid showing side by side.
+//
+// The panel HIDES the page's own content rather than replacing it. The previous version stashed
+// content.innerHTML and assigned it back, which rebuilds every node: the message list came back as
+// fresh elements with none of the listeners chat.js had attached, and on the conversation page it
+// would also orphan the live STOMP-bound DOM. Toggling a class keeps node identity, so closing the
+// panel returns a page that still works.
+let overlayPanel = null;
+
+function overlay() {
+    if (overlayPanel) return overlayPanel;
+    overlayPanel = document.createElement('div');
+    overlayPanel.className = 'channel-search-results';
+    overlayPanel.hidden = true;
+    return overlayPanel;
+}
+
+function showOverlay() {
+    const content = document.querySelector('main.content');
+    if (!content) return null;
+    const panel = overlay();
+    if (panel.parentElement !== content) content.appendChild(panel);
+    content.classList.add('searching');
+    panel.hidden = false;
+    return panel;
+}
+
+function hideOverlay() {
+    document.querySelector('main.content')?.classList.remove('searching');
+    if (overlayPanel) overlayPanel.hidden = true;
+}
+
+/** POST the join; on success open the channel, which is what anyone who just joined wants next. */
+async function joinChannel(id, button) {
+    if (button) button.disabled = true;
+    try {
+        const res = await fetch('/api/channels/' + id + '/join', { method: 'POST', headers: headers() });
+        if (!res.ok) throw new Error(String(res.status));
+        window.location.assign('/channels/' + id);
+    } catch (_) {
+        if (button) button.disabled = false;
+        flashToast('Could not join the channel');
+    }
+}
+
+/** The row used by both the search results and the directory: #name, tags, and optionally a Join. */
+function channelRow(c, { withJoin }) {
+    const li = document.createElement('li');
+    const link = document.createElement('a');
+    link.href = '/channels/' + c.id;
+    link.className = 'channel-search-name';
+    link.textContent = '#' + c.name;
+    li.append(link);
+    if (c.type === 'PRIVATE') {
+        const lock = document.createElement('span');
+        lock.className = 'channel-search-tag';
+        lock.textContent = 'private';
+        li.append(lock);
+    }
+    // "joined" rather than "not joined": now that the sidebar carries every channel you are
+    // in, being in one is the useful thing to mark — it tells you the row is also sitting
+    // in the list on the left.
+    if (c.joined) {
+        const tag = document.createElement('span');
+        tag.className = 'channel-search-tag';
+        tag.textContent = 'joined';
+        li.append(tag);
+    }
+    // Same rule as the sidebar (ChannelSidebarDto.UnreadCue): a number only for mentions,
+    // ordinary unread carried by the name's weight. The two surfaces show the same channel
+    // at the same time, so a count here and a bold name there would read as a bug.
+    if (c.mentionCount > 0) {
+        const badge = document.createElement('span');
+        badge.className = 'unread-badge mention';
+        badge.textContent = c.mentionCount > 99 ? '99+' : String(c.mentionCount);
+        li.append(badge);
+    } else if (c.unreadCount > 0) {
+        li.classList.add('has-unread');
+    }
+    if (typeof c.memberCount === 'number') {
+        const members = document.createElement('span');
+        members.className = 'channel-search-members';
+        members.textContent = c.memberCount === 1 ? '1 member' : c.memberCount + ' members';
+        li.append(members);
+    }
+    if (c.description) {
+        const desc = document.createElement('p');
+        desc.className = 'channel-search-desc';
+        desc.textContent = c.description;
+        li.append(desc);
+    }
+    if (withJoin && !c.joined) {
+        const join = document.createElement('button');
+        join.type = 'button';
+        join.className = 'channel-search-join';
+        join.textContent = 'Join';
+        join.setAttribute('aria-label', 'Join #' + c.name);
+        join.addEventListener('click', () => joinChannel(c.id, join));
+        li.append(join);
+    }
+    return li;
+}
+
 export function initSidebarSearch() {
     const input = document.getElementById('sidebar-filter');
     const content = document.querySelector('main.content');
@@ -90,10 +196,6 @@ export function initSidebarSearch() {
     const DEBOUNCE_MS = 180;
     let timer = null;
     let sequence = 0;          // guards against a slow response overwriting a newer one
-
-    const panel = document.createElement('div');
-    panel.className = 'channel-search-results';
-    panel.hidden = true;
 
     const noMatch = document.getElementById('sidebar-no-match');
 
@@ -119,23 +221,9 @@ export function initSidebarSearch() {
         if (noMatch) noMatch.hidden = !q || rows === 0 || shown > 0;
     };
 
-    // The results panel HIDES the page's own content rather than replacing it. The previous
-    // version stashed content.innerHTML and assigned it back, which rebuilds every node: the
-    // message list came back as fresh elements with none of the listeners chat.js had attached,
-    // and on the conversation page it would also orphan the live STOMP-bound DOM. Toggling a
-    // class keeps node identity, so clearing the box returns a page that still works.
-    const restore = () => {
-        content.classList.remove('searching');
-        panel.hidden = true;
-    };
-
-    const showPanel = () => {
-        if (panel.parentElement !== content) content.appendChild(panel);
-        content.classList.add('searching');
-        panel.hidden = false;
-    };
-
     const render = (q, results) => {
+        const panel = showOverlay();
+        if (!panel) return;
         panel.replaceChildren();
         const heading = document.createElement('h2');
         heading.textContent = results.length
@@ -154,41 +242,7 @@ export function initSidebarSearch() {
         if (!results.length) return;
         const list = document.createElement('ul');
         list.className = 'channel-search-list';
-        for (const c of results) {
-            const li = document.createElement('li');
-            const link = document.createElement('a');
-            link.href = '/channels/' + c.id;
-            link.className = 'channel-search-name';
-            link.textContent = '#' + c.name;
-            li.append(link);
-            if (c.type === 'PRIVATE') {
-                const lock = document.createElement('span');
-                lock.className = 'channel-search-tag';
-                lock.textContent = 'private';
-                li.append(lock);
-            }
-            // "joined" rather than "not joined": now that the sidebar carries every channel you are
-            // in, being in one is the useful thing to mark — it tells you the row is also sitting
-            // in the list on the left.
-            if (c.joined) {
-                const tag = document.createElement('span');
-                tag.className = 'channel-search-tag';
-                tag.textContent = 'joined';
-                li.append(tag);
-            }
-            // Same rule as the sidebar (ChannelSidebarDto.UnreadCue): a number only for mentions,
-            // ordinary unread carried by the name's weight. The two surfaces show the same channel
-            // at the same time, so a count here and a bold name there would read as a bug.
-            if (c.mentionCount > 0) {
-                const badge = document.createElement('span');
-                badge.className = 'unread-badge mention';
-                badge.textContent = c.mentionCount > 99 ? '99+' : String(c.mentionCount);
-                li.append(badge);
-            } else if (c.unreadCount > 0) {
-                li.classList.add('has-unread');
-            }
-            list.append(li);
-        }
+        for (const c of results) list.append(channelRow(c, { withJoin: false }));
         panel.append(list);
     };
 
@@ -201,7 +255,6 @@ export function initSidebarSearch() {
             if (!res.ok) return;
             const results = await res.json();
             if (mine !== sequence) return;
-            showPanel();
             render(q, results);
         } catch (_) {
             // Offline or a dropped request: leave the shortlist filtering as the fallback.
@@ -214,7 +267,7 @@ export function initSidebarSearch() {
         clearTimeout(timer);
         if (q.length < MIN_QUERY) {
             sequence++;      // cancel any in-flight response
-            restore();
+            hideOverlay();
             return;
         }
         timer = setTimeout(() => search(q), DEBOUNCE_MS);
@@ -225,9 +278,81 @@ export function initSidebarSearch() {
             input.value = '';
             sequence++;
             narrowShortlist('');
-            restore();
+            hideOverlay();
             input.blur();
         }
+    });
+}
+
+/**
+ * Browse channels — the directory. Every live public channel, largest first, with a Join button
+ * on the ones you are not in. The search box above it needs a name; this needs nothing, which is
+ * the case a newcomer is in. Renders into the shared overlay, so typing in the filter takes the
+ * panel over and clearing it closes whichever was showing.
+ */
+export function initBrowseChannels() {
+    const btn = document.getElementById('sidebar-browse-btn');
+    if (!btn) return;
+
+    const render = (rows) => {
+        const panel = showOverlay();
+        if (!panel) return;
+        panel.replaceChildren();
+        const head = document.createElement('div');
+        head.className = 'channel-search-head';
+        const heading = document.createElement('h2');
+        heading.textContent = 'Browse channels';
+        const close = document.createElement('button');
+        close.type = 'button';
+        close.className = 'icon-btn channel-search-close';
+        close.title = 'Close';
+        close.setAttribute('aria-label', 'Close');
+        close.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#icon-close"/></svg>';
+        close.addEventListener('click', hideOverlay);
+        head.append(heading, close);
+        panel.append(head);
+        const hint = document.createElement('p');
+        hint.className = 'channel-search-hint';
+        hint.textContent = rows.length
+            ? 'Every public channel, most members first. Private channels are by invitation and '
+              + 'are not listed.'
+            : 'There are no public channels yet — use + in the sidebar to create the first one.';
+        panel.append(hint);
+        if (!rows.length) return;
+        const list = document.createElement('ul');
+        list.className = 'channel-search-list channel-browse-list';
+        for (const c of rows) list.append(channelRow(c, { withJoin: true }));
+        panel.append(list);
+    };
+
+    btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        try {
+            const res = await fetch('/api/channels/browse', { headers: headers() });
+            if (!res.ok) throw new Error(String(res.status));
+            render(await res.json());
+        } catch (_) {
+            flashToast('Could not load the channel directory');
+        } finally {
+            btn.disabled = false;
+        }
+    });
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && overlayPanel && !overlayPanel.hidden) hideOverlay();
+    });
+}
+
+/**
+ * The Join buttons on the first-login "Suggested for you" rows. Delegated from the sidebar, like
+ * the stars, and bound here rather than inline because of the CSP.
+ */
+export function initSuggestionJoins() {
+    document.getElementById('app-sidebar')?.addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-join-channel]');
+        if (!btn) return;
+        e.preventDefault();
+        joinChannel(btn.dataset.joinChannel, btn);
     });
 }
 
@@ -378,6 +503,8 @@ export function initCreateChannel() {
 export function init() {
     initTutorial();
     initSidebarSearch();
+    initBrowseChannels();
+    initSuggestionJoins();
     initFavouriteStars();
     initCreateChannel();
 }

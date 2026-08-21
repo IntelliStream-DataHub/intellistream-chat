@@ -126,6 +126,21 @@ public class ChannelRestController {
         return sidebarService.search(me, q, limit);
     }
 
+    /**
+     * The channel directory behind the sidebar's Browse channels button: every live public
+     * channel, largest first, with a joined flag. Rendered into the main content area like search
+     * results, for the same reason — a description and a member count need the room.
+     */
+    @GetMapping("/browse")
+    public List<ai.intellistream.chat.web.dto.ChannelBrowseDto> browse(Principal principal) {
+        var me = currentUser.resolve(principal);
+        // One click, one request — this is not type-ahead, so the budget is far below search's.
+        if (!rateLimiter.tryAcquire(me.getUsername(), "channel-browse", 30, Duration.ofMinutes(1))) {
+            throw new RateLimitExceededException("browse rate exceeded");
+        }
+        return sidebarService.browse(me);
+    }
+
     @GetMapping("/mine")
     public List<ChannelDto> mine(Principal principal) {
         var me = currentUser.resolve(principal);

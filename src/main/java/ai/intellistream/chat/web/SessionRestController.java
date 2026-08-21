@@ -16,6 +16,9 @@
 
 package ai.intellistream.chat.web;
 
+import ai.intellistream.chat.security.CurrentUser;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -39,6 +42,16 @@ import org.springframework.web.bind.annotation.RestController;
  * belongs to somebody else. That reads as "still logged in" to a boolean and produces a page acting
  * on one identity while the server acts on another.
  *
+ * <p><b>The username is the domain handle, resolved through {@link CurrentUser}</b> — not
+ * {@code Authentication.getName()}. The page's {@code me-username} meta, which the client compares
+ * against, is {@code User.username}: the local part of an email-shaped login, collision-suffixed
+ * when taken. The principal name is Keycloak's {@code preferred_username}, the login itself. For
+ * every plain {@code alice} the two are the same string and the difference is invisible; for an
+ * {@code olav@example.com} login, or the second {@code bob} to arrive, they never match, and a
+ * tab that reported the principal name told its owner on the very first poll that they were
+ * "signed in as someone else" — an account switch that had not happened. Same mistake as the
+ * presence listener once made with the same name, same fix: go through {@code CurrentUser}.
+ *
  * <p><b>It renews the session.</b> Any request carrying the cookie updates Tomcat's last-accessed
  * time, and there is no per-request opt-out. That is already the status quo — {@code presence.js}
  * polls every 60 seconds — and the idle timeout that matters is enforced by {@code idle-logout.js},
@@ -49,11 +62,20 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 public class SessionRestController {
 
+    private static final Logger log = LoggerFactory.getLogger(SessionRestController.class);
+
+    private final CurrentUser currentUser;
+
+    public SessionRestController(CurrentUser currentUser) {
+        this.currentUser = currentUser;
+    }
+
     /**
      * @param authenticated false once the session is gone — the only state this endpoint exists to
      *                      be able to report
-     * @param username      who the session belongs to now, or null; compared client-side against
-     *                      the name the page was rendered for
+     * @param username      the domain handle the session belongs to now, or null when signed out
+     *                      or when the handle could not be resolved; compared client-side against
+     *                      the {@code me-username} the page was rendered for, and skipped when null
      */
     public record SessionStatus(boolean authenticated, String username) {
     }
@@ -73,6 +95,21 @@ public class SessionRestController {
                 // A cached "yes" is the one answer that must never be served: it would keep a dead
                 // tab convinced it is alive for the life of the cache entry.
                 .cacheControl(CacheControl.noStore())
-                .body(new SessionStatus(signedIn, signedIn ? auth.getName() : null));
+                .body(new SessionStatus(signedIn, signedIn ? handleOf(auth) : null));
+    }
+
+    /**
+     * The signed-in user's handle, or null when it cannot be resolved. Null is "no news" to the
+     * client — it skips the identity comparison rather than announcing anything — which is the
+     * right answer for a probe: the session <em>is</em> live, we just could not name it, and a
+     * false "you are somebody else" is the bug this method exists to remove.
+     */
+    private String handleOf(Authentication auth) {
+        try {
+            return currentUser.resolve(auth).getUsername();
+        } catch (RuntimeException e) {
+            log.debug("Could not resolve a handle for the session probe: {}", e.toString());
+            return null;
+        }
     }
 }

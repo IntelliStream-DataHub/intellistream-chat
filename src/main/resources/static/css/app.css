@@ -1761,17 +1761,47 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
 .avatar.avatar-large .avatar-status-emoji { width: 22px; height: 22px; font-size: 14px; }
 
 /* ---------- Presence kind menu (topbar avatar dropdown) ----------
-   Slack-style four-item picker: Active / Away / DND / Offline. Anchored below
-   the .me .avatar via JS-set inline position. Each item renders its own colored
-   dot using the same data-presence-kind variants the avatars use. */
+   Slack-style picker: Active / Away / DND / Offline, then the "about me" links. presence-menu.js
+   builds it once and mounts it beside the .me trigger inside a .me-menu wrapper; from there on
+   showing it is this stylesheet's job. `.me-menu:hover` covers the trigger and the open menu
+   alike, so the pointer can travel between them with no mouseenter/mouseleave bookkeeping and no
+   close timer. `.is-open` is the pin JS sets on a click or Enter/Space — the only way in on touch,
+   where hover is not a thing, and what keeps the menu up after the pointer has moved on. */
+.me-menu {
+  position: relative;
+  display: inline-flex;
+}
 .presence-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
   background: var(--panel);
+  /* Explicit, not inherited: the menu sits inside the topbar, whose text colour is the
+     light-on-dark --sb-text — inherited onto a --panel background that is white on white. */
+  color: var(--text);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-3);
   padding: 4px;
   z-index: 1000;
   min-width: 220px;
+}
+/* The 6px gap between avatar and menu is outside both, so crossing it would drop :hover and
+   close the menu on the way down. A transparent strip across the gap keeps it one hover target. */
+.presence-menu::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 6px;
+}
+.me-menu.is-open .presence-menu { display: block; }
+/* Pointer devices only. A touch browser keeps :hover stuck on the last tapped element, so with
+   this rule on touch a second tap could never close what the first had opened. */
+@media (hover: hover) {
+  .me-menu:hover .presence-menu { display: block; }
 }
 .presence-menu-item {
   display: grid;
@@ -1793,10 +1823,16 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
   transition: background-color 0.1s;
 }
 /* Hover/focus tint — var(--hover), not var(--bg): in the light theme --bg equals the
-   menu panel's white, which made the old hover invisible. */
+   menu panel's white, which made the old hover invisible.
+   `color: inherit` is restated here on purpose. The items are plain <button>s and <a>s, and the
+   global `button:hover { color: var(--accent-on) }` and `a:hover { color: var(--accent-2) }`
+   rules (one tag + one pseudo-class) outrank the item's resting `color: inherit` (one class).
+   Only the background was overridden before, so a hovered button went white-on-white and a
+   hovered link went accent-on-tint. Two classes' worth of specificity here settles both. */
 .presence-menu-item:hover,
 .presence-menu-item:focus {
   background: var(--hover);
+  color: inherit;
   outline: none;
 }
 /* The destructive item hovers red-tinted, matching its label. */
@@ -3627,6 +3663,62 @@ main.content.searching > :not(.channel-search-results) { display: none; }
   line-height: 1.4;
   color: var(--sb-muted);
 }
+/* Browse channels — a row at the foot of the channel list, dressed like one of its rows rather
+   than like a button, so it reads as "...and the rest of them" and not as a call to action
+   competing with the channels above it. The global button skin (accent fill, white text, bold)
+   is reset here for that reason. */
+.sidebar-browse-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  margin-top: 0.15rem;
+  padding: 0.32rem 0.7rem;
+  background: transparent;
+  color: var(--sb-muted);
+  border: 0;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-md);
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+.sidebar-browse-btn:hover,
+.sidebar-browse-btn:focus-visible {
+  background: var(--sb-bg-2);
+  color: var(--sb-text);
+}
+.sidebar-browse-btn[disabled] { opacity: 0.6; cursor: progress; }
+/* Suggested for you: the same row as a channel, with the member count where the unread badge
+   would sit and a Join beside the link. Join is always visible — unlike the star, it is the whole
+   point of the row, and a newcomer has no way to know a hidden control is there. */
+.suggestion-members {
+  flex: 0 0 auto;
+  font-size: var(--fs-xs);
+  color: inherit;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+.suggestion-join {
+  flex: 0 0 auto;
+  margin-right: 0.15rem;
+  padding: 0.1rem 0.55rem;
+  background: transparent;
+  color: var(--sb-text);
+  border: 1px solid var(--sb-muted);
+  border-radius: var(--radius-full);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.suggestion-join:hover,
+.suggestion-join:focus-visible {
+  background: var(--sb-text);
+  color: var(--sb-bg);
+  border-color: var(--sb-text);
+}
+.suggestion-join[disabled] { opacity: 0.6; cursor: progress; }
 /* Channel search results live in the main content area, not the sidebar — there is room here to
    say what a channel is and whether you're in it, which a 200px column cannot. */
 .channel-search-results { padding: 1.5rem 2rem; }
@@ -3658,6 +3750,40 @@ main.content.searching > :not(.channel-search-results) { display: none; }
   border-radius: var(--radius-full);
   padding: 0.05rem 0.4rem;
 }
+/* Browse channels shares the results panel and adds what a directory row needs: a member count,
+   the description on its own line under the name, and a Join on the rows you are not in. The row
+   wraps so the description can take the full width; everything before it stays on one line. */
+.channel-search-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.channel-search-head h2 { margin: 0; }
+.channel-browse-list li { flex-wrap: wrap; }
+.channel-search-members {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.channel-search-desc {
+  flex: 1 0 100%;
+  order: 10;
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.channel-search-join {
+  margin-left: auto;
+  padding: 0.2rem 0.8rem;
+  font-size: var(--fs-sm);
+  border-radius: var(--radius-full);
+}
+.channel-search-join[disabled] { opacity: 0.6; cursor: progress; }
 
 /* ---------- Optimistic send ----------
    A message the sender has submitted but the server hasn't confirmed yet. Broadcasts wait for the

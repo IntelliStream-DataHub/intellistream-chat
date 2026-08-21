@@ -36,12 +36,22 @@ import java.util.List;
  * joins or leaves one, which is the one kind of change they caused themselves.
  *
  * <p>Discovering channels the viewer has <em>not</em> joined is a different job and stays with the
- * search box, which queries the server and renders into the main content area where there is room
- * to show what a channel is and offer a Join button.
+ * search box and the Browse channels directory, which query the server and render into the main
+ * content area where there is room to show what a channel is and offer a Join button. The one
+ * exception is {@link #suggestions}: an account that belongs to nothing has an empty sidebar and no
+ * spatial memory to protect, and a blank column with a filter box is a poor first minute. So — and
+ * only then — the five most populated public channels are offered in the column with a Join button
+ * each. The moment the viewer joins one, the group is gone and the sidebar is theirs; the ranking
+ * never reorders a list they have started to learn, because it is only shown while there is no
+ * list.
  *
  * @param channels      every channel the viewer belongs to, ordered by name (case-insensitive,
  *                      ties by id so the order is total). Each row carries its own unread and
  *                      mention counts and its raw notification level.
+ * @param suggestions   the largest public channels the viewer has not joined, offered with a Join
+ *                      button. Non-empty <b>only while {@code channels} is empty</b> — the
+ *                      first-login state; {@code SidebarService.joinedFor} does not compute it
+ *                      otherwise. Capped at {@code SidebarService.SUGGESTION_COUNT}.
  * @param notifyDefault the viewer's account-wide notification default — never {@code DEFAULT}.
  *                      Here so the page can render every row's notification state, and the
  *                      per-channel picker, without a second request: each row carries its raw
@@ -55,6 +65,7 @@ import java.util.List;
  */
 public record SidebarView(
         List<ChannelSidebarDto> channels,
+        List<ChannelBrowseDto> suggestions,
         NotificationLevel notifyDefault,
         NotificationLevel notifyDmDefault
 ) {
