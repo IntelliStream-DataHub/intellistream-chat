@@ -195,11 +195,136 @@
       const f = map[e.key.toLowerCase()];
       if (f) { e.preventDefault(); applyFormat(ta, f); }
     });
+    // Every composer textarea has exactly one toolbar pointing at it, so this is the
+    // single wiring point that gives the channel, DM and both thread composers the
+    // rich-paste conversion — no page script has to remember it.
+    wirePasteMarkdown(ta);
   };
 
   /** Wire every toolbar with data-format-target on the page. Idempotent — call once at startup. */
   const wireAllFormatToolbars = (root = document) => {
     root.querySelectorAll('.composer-toolbar[data-format-target]').forEach(wireFormatToolbar);
+  };
+
+  // ---------- CSRF ----------
+  /**
+   * Standard JSON headers plus the CSRF token from the page metas. Browser /api/** calls
+   * ride the session-cookie web chain, so this header is what authorises a POST.
+   */
+  const csrfHeaders = () => {
+    const token = document.querySelector('meta[name="_csrf"]')?.content;
+    const header = document.querySelector('meta[name="_csrf_header"]')?.content;
+    const h = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+    if (token && header) h[header] = token;
+    return h;
+  };
+
+  // ---------- Paste rich text as Markdown ----------
+  /*
+   * Any app that copies rich text — Google Docs, Apple Notes, Word — puts a text/html
+   * flavor on the clipboard beside text/plain. The paste handler sends that HTML to
+   * POST /api/paste/markdown and inserts the returned Markdown; on convert:false, a
+   * non-ok response, a timeout or any error it inserts the plain flavor it captured up
+   * front, so a paste can be delayed by up to the 2s timeout but never lost.
+   * Ctrl+Shift+V (paste without formatting) ships no text/html and bypasses all of this
+   * natively; Ctrl+Z after a converted paste takes the whole paste back out.
+   */
+
+  /**
+   * Cheap pre-guard so the everyday "copied plain text off a page" paste — which still
+   * carries a bare-div text/html flavor — skips the round trip. Deliberately
+   * over-inclusive: the server's signal test is the authoritative answer.
+   */
+  const PASTE_RICH_HINT = /<(b|strong|em|i|s|del|h[1-6]|li|table|blockquote|pre|code|a)\b|font-weight|font-style:\s*(italic|oblique)|line-through|mso-list|docs-internal-guid/i;
+  const pasteWorthConverting = (html) =>
+      !!html && html.length <= 524288 && PASTE_RICH_HINT.test(html);
+
+  /** Transient banner above the composer that owns {@code ta}; reuses .composer-notice styling. */
+  const showPasteNotice = (ta, text) => {
+    const form = ta.closest('form') || ta.parentElement;
+    if (!form || !form.parentNode) return;
+    let notice = form.previousElementSibling;
+    if (!notice || !notice.classList.contains('composer-paste-notice')) {
+      notice = document.createElement('div');
+      notice.className = 'composer-notice composer-paste-notice';
+      notice.setAttribute('role', 'status');
+      form.parentNode.insertBefore(notice, form);
+    }
+    notice.textContent = text;
+    notice.hidden = false;
+    clearTimeout(notice._hideTimer);
+    notice._hideTimer = setTimeout(() => { notice.hidden = true; }, 4000);
+  };
+
+  /**
+   * Insert pasted text at the caret. execCommand is deprecated but universally
+   * implemented for textarea insertText, and it is the only insertion that keeps the
+   * native undo stack — which is the whole escape hatch for an unwanted conversion.
+   * insertAtCursor is the fallback where it reports failure: no undo, but never lost
+   * text. The pre-clamp to the remaining room matters because engines disagree on
+   * whether maxlength binds a scripted insert (Chrome truncates inside execCommand,
+   * others don't); clamping first makes them agree, and the hard slice after is only
+   * for a corner where one still overshoots.
+   */
+  const insertPasteText = (ta, text) => {
+    if (!text) return;
+    const max = Number(ta.getAttribute('maxlength')) || 8000;
+    const selection = (ta.selectionEnd ?? 0) - (ta.selectionStart ?? 0);
+    const room = max - (ta.value.length - selection);
+    if (room <= 0) {
+      showPasteNotice(ta, 'The message is already at the ' + max.toLocaleString() + '-character limit.');
+      return;
+    }
+    let clipped = text;
+    if (clipped.length > room) {
+      clipped = clipped.slice(0, room);
+      const tail = clipped.charCodeAt(clipped.length - 1);
+      if (tail >= 0xD800 && tail <= 0xDBFF) clipped = clipped.slice(0, -1); // don't split a surrogate pair
+      showPasteNotice(ta, 'Pasted text was shortened to fit the ' + max.toLocaleString() + '-character limit.');
+    }
+    if (document.activeElement !== ta) ta.focus();
+    let inserted = false;
+    try { inserted = document.execCommand('insertText', false, clipped); } catch (_) { inserted = false; }
+    if (!inserted) insertAtCursor(ta, clipped);
+    if (ta.value.length > max) {
+      ta.value = ta.value.slice(0, max);
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  };
+
+  /** Convert rich pastes to Markdown. Wired once per composer by wireFormatToolbar. */
+  const wirePasteMarkdown = (ta) => {
+    if (!ta || ta.dataset.pasteWired) return;
+    ta.dataset.pasteWired = '1';
+    ta.addEventListener('paste', (e) => {
+      const dt = e.clipboardData;
+      if (!dt) return;
+      // Both flavors must be read before anything async — clipboardData is only
+      // readable synchronously inside the event dispatch.
+      const html = dt.getData('text/html');
+      const plain = dt.getData('text/plain');
+      if (!html || !plain || !pasteWorthConverting(html)) return; // native paste
+      // A second paste while one is in flight stays native: it lands as plain text now
+      // rather than being dropped — degraded beats lost.
+      if (ta._pastePending) return;
+      e.preventDefault();
+      ta._pastePending = true;
+      const finish = (insertText) => {
+        ta._pastePending = false;
+        insertPasteText(ta, insertText);
+      };
+      const signal = (typeof AbortSignal !== 'undefined' && AbortSignal.timeout)
+          ? AbortSignal.timeout(2000) : undefined;
+      fetch('/api/paste/markdown', {
+        method: 'POST',
+        headers: csrfHeaders(),
+        body: JSON.stringify({ html }),
+        signal,
+      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => finish(data && data.convert && data.markdown ? data.markdown : plain))
+        .catch(() => finish(plain));
+    });
   };
 
   // ---------- Markdown live preview ----------
@@ -1208,13 +1333,7 @@
     };
     membersInput.addEventListener('input', syncMode);
 
-    const csrfToken = document.querySelector('meta[name="_csrf"]')?.content;
-    const csrfHeader = document.querySelector('meta[name="_csrf_header"]')?.content;
-    const headers = () => {
-      const h = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
-      if (csrfToken && csrfHeader) h[csrfHeader] = csrfToken;
-      return h;
-    };
+    const headers = csrfHeaders;
 
     const fail = (msg) => {
       hint.textContent = msg;
@@ -1368,6 +1487,11 @@
     wireAllFormatToolbars,
     wireAutoResize,
     wireLivePreview,
+    wirePasteMarkdown,
+    // Exposed for the in-browser smoke tests: the guard and clamp are pure enough to
+    // assert without a clipboard.
+    pasteWorthConverting,
+    insertPasteText,
     openEmojiPicker,
     closeEmojiPicker,
     REACTION_PICKER_EMOJI,

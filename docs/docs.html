@@ -852,6 +852,7 @@
     <thead><tr><th>Works</th><th>Notes</th></tr></thead>
     <tbody>
       <tr><td><code>**bold**</code>, <code>_italic_</code>, <code>`code`</code></td><td>The toolbar's B, I and <code>{ }</code> buttons insert these.</td></tr>
+      <tr><td><code>~~strikethrough~~</code></td><td>The toolbar's S button; renders as <code>&lt;del&gt;</code>.</td></tr>
       <tr><td>Fenced code blocks</td><td>Syntax highlighted client-side with highlight.js.</td></tr>
       <tr><td>Headings <code>#</code> through <code>######</code></td><td>Explicitly re-allowed after sanitization.</td></tr>
       <tr><td>Bullet and numbered lists</td><td></td></tr>
@@ -870,6 +871,32 @@
     <code>youtube-nocookie</code> host, and those three origins are the only ones the CSP allows in
     a frame.
   </p>
+  <h4>Pasting from Google Docs, Word and Notes</h4>
+  <p>
+    Paste formatted text into the composer and it arrives <b>as Markdown</b>: bold, italics,
+    strikethrough, headings, nested lists, tables and links survive the trip from Google Docs,
+    Word (desktop and Online) and Apple Notes &mdash; anything that puts rich text on the
+    clipboard. The conversion happens on the server against the same rules that will render the
+    message, so the live preview under the composer shows exactly what your paste will look like
+    before you send it.
+  </p>
+  <p>
+    Two escape hatches, both the ones your fingers already know:
+    <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>V</kbd> pastes without formatting (the browser strips
+    the rich flavor before we ever see it), and <kbd>Ctrl</kbd>+<kbd>Z</kbd> right after a paste
+    takes the converted text back out. Pasting code is deliberately left alone: a copy from an
+    editor or terminal that is monospace all the way through arrives as the plain text you
+    expected, not a wall of backticks.
+  </p>
+  <p>
+    What does not survive, because the Markdown dialect above cannot say it: images (attach them
+    instead), underline, colours, numbered lists that continue from earlier numbers (they restart
+    at 1), and merged table cells (they unmerge). If the conversion cannot happen &mdash; the
+    server is briefly unreachable, say &mdash; the paste falls back to plain text after a moment;
+    a paste is never lost. A paste that would push the message past the 8,000-character limit is
+    shortened, and a banner above the composer says so.
+  </p>
+
   <h4>Link previews</h4>
   <p>
     A message that contains a link gets a card under it a moment after it is sent: the site's
@@ -890,14 +917,6 @@
     <code>ichat.link-previews.enabled=false</code>, and tune it under
     <a href="#config-storage">Storage and quotas</a>.
   </p>
-  <div class="warn">
-    <span class="tag">Does not work</span>
-    <p>
-      The toolbar has a strikethrough button that inserts <code>~~text~~</code>, but the GFM
-      strikethrough extension is not registered in the renderer, so the tildes render literally.
-      Treat the button as unimplemented until that changes.
-    </p>
-  </div>
 
   <h4>Editing, deleting, permalinks</h4>
   <p>

@@ -69,6 +69,8 @@ src/main/java/ai/intellistream/chat/
 ├── repository/    Spring Data JPA repos (one per entity)
 ├── linkpreview/   LinkPreviewService (cache + bounded fetch pool), LinkPreviewFetcher,
 │                  OutboundUrlGuard (the SSRF guard), LinkUrls, LinkPreviewProperties
+├── paste/         HtmlToMarkdownConverter (rich-paste → Markdown, POST /api/paste/markdown),
+│                  MarkdownEmitter, StyleResolver, WordDesktopNormalizer
 ├── search/        MessageIndexService (embedded Lucene), LuceneBootstrap, LuceneConfig
 ├── service/       ChannelService, MessageService, ConversationService, SearchService,
 │                  SidebarService, MarkdownRenderer, UserService, AvatarService,
