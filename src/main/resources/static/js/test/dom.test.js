@@ -72,19 +72,44 @@ add('ChatKit exposes the shared message-body renderer', () => {
     // it processed, so this asserts the pairing rather than the presence of the function.
     const el = kit.buildMessageBodyEl('<pre><code class="language-java">int x = 1;</code></pre>');
     const block = el.querySelector('pre code');
+    if (!block) {
+        throw new Error('buildMessageBodyEl dropped the code block entirely');
+    }
+    // The language hint has to survive however the body was set. hljs falls back to
+    // auto-detection when it is gone, so highlighting still "works" while quietly guessing the
+    // language of every block — a failure worth naming rather than eyeballing.
+    if (!block.className.includes('language-java')) {
+        throw new Error('the language class was stripped from a code block: ' + block.className);
+    }
     if (window.hljs && block.dataset.highlighted !== 'yes') {
         throw new Error('buildMessageBodyEl rendered a code block without highlighting it');
     }
 });
 
-add('every code block on the page is highlighted', () => {
-    // Catches the original bug directly: server-rendered history that no page script swept.
-    // Skipped where the page has no code on it, which is most of the time.
-    if (!window.hljs) return;
-    const missed = [...document.querySelectorAll('.message-body pre code')]
-        .filter((b) => b.dataset.highlighted !== 'yes');
-    if (missed.length) {
-        throw new Error(missed.length + ' code block(s) rendered unhighlighted — a body reached the '
-            + 'DOM without going through ChatKit.renderMessageBody');
+add('Element.setHTML is available (polyfilled where the browser lacks it)', () => {
+    // search-box.js calls it with no feature test, so it has to exist. Safari only shipped it in
+    // 26; js/vendor/html-setters-polyfill.min.js covers everything older.
+    if (typeof document.createElement('div').setHTML !== 'function') {
+        throw new Error('Element.setHTML missing — the search dropdown will throw on every row');
+    }
+});
+
+add('a message body keeps its video embed and data-* attributes', () => {
+    // The reason renderMessageBody uses innerHTML rather than setHTML: the browser sanitizer
+    // removes <iframe> unconditionally and strips data-*, and a body legitimately carries both.
+    // If someone "hardens" the seam with setHTML, every video embed in the app disappears — this
+    // is the check that says so out loud.
+    const el = window.ChatKit.buildMessageBodyEl(
+        '<div class="video-embed-wrapper" data-orientation="vertical">'
+        + '<iframe class="video-embed" src="https://www.youtube-nocookie.com/embed/x"></iframe></div>'
+        + '<span class="mention" data-username="alice">@alice</span>');
+    if (!el.querySelector('iframe.video-embed')) {
+        throw new Error('the embed iframe was stripped — renderMessageBody must not use setHTML');
+    }
+    if (!el.querySelector('[data-orientation="vertical"]')) {
+        throw new Error('data-orientation was stripped — the Shorts frame will render landscape');
+    }
+    if (!el.querySelector('.mention[data-username="alice"]')) {
+        throw new Error('data-username was stripped off a mention');
     }
 });

@@ -378,8 +378,17 @@
    */
   const renderMessageBody = (el, html) => {
     if (!el) return el;
-    // bodyHtml is rendered and sanitized server-side (MarkdownRenderer + jsoup), which is what
-    // makes innerHTML the right call here rather than textContent.
+    // innerHTML, deliberately, and NOT Element.setHTML(). A body is sanitized server-side
+    // (CommonMark → jsoup Safelist → MarkdownRenderer's own additions) and then deliberately
+    // given back two things the browser's sanitizer destroys:
+    //   - the <iframe> of a YouTube/Vimeo embed, which MarkdownRenderer.embedVideos injects
+    //     *after* the safelist pass. setHTML removes iframes unconditionally — a custom
+    //     SanitizerConfig cannot allow them back — so every video embed in the app would
+    //     silently disappear.
+    //   - data-* attributes, which the default sanitizer strips: data-username / data-mention
+    //     on a rendered mention, and data-orientation on the embed wrapper, which app.css reads
+    //     to give a Short its 9:16 frame.
+    // The escaped snippets in search-box.js are the opposite case and do use setHTML; see there.
     el.innerHTML = html || '';
     highlightCode(el);
     return el;

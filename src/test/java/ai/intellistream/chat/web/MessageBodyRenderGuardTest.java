@@ -70,6 +70,18 @@ class MessageBodyRenderGuardTest {
         return Files.readString(p);
     }
 
+    /**
+     * Drop {@code //} comment lines. The comments in these files explain at length which API is
+     * deliberately *not* used, so a scan for a call has to look at code or it matches the prose
+     * warning against it.
+     */
+    private static String codeOnly(String src) {
+        return src.lines()
+                .filter(line -> !line.stripLeading().startsWith("//"))
+                .filter(line -> !line.stripLeading().startsWith("*"))
+                .collect(java.util.stream.Collectors.joining("\n"));
+    }
+
     /** The bundle a template pulls in, from its {@code ~{fragments/assets :: js('name')}} include. */
     private static String bundleOf(String template) {
         var m = Pattern.compile("assets\\s*::\\s*js\\('([^']+)'\\)").matcher(template);
@@ -105,6 +117,88 @@ class MessageBodyRenderGuardTest {
                 .as("renderMessageBody must highlight what it renders — that pairing is the fix")
                 .contains("el.innerHTML = html")
                 .contains("highlightCode(el)");
+    }
+
+    @Test
+    void messageBodiesAreNotRunThroughTheBrowserSanitizer() throws Exception {
+        // Element.setHTML() removes <iframe> unconditionally — no SanitizerConfig can allow it
+        // back — and strips data-* attributes. A rendered body deliberately carries both: the
+        // video embed MarkdownRenderer injects after the jsoup pass, data-username/data-mention on
+        // mentions, and data-orientation on the embed wrapper (app.css reads it for the 9:16 Shorts
+        // frame). So setHTML here would delete every video embed in the app. The server-side
+        // sanitizing is the defence, and it is the one that runs for every client.
+        var src = read(JS.resolve(SEAM_FILE));
+        int render = src.indexOf("const renderMessageBody");
+        var block = src.substring(render, src.indexOf("};", render));
+        assertThat(codeOnly(block))
+                .as("renderMessageBody must not call setHTML — it would strip the embed iframe and "
+                        + "every data-* attribute off the body")
+                .doesNotContain(".setHTML(");
+
+        // And the thing that would actually break has to still be produced, or the rule above is
+        // guarding nothing.
+        var renderer = read(Path.of("src/main/java/ai/intellistream/chat/service/MarkdownRenderer.java"));
+        assertThat(renderer)
+                .as("bodies carry an iframe and data-* attributes; that is why innerHTML stays")
+                .contains("<iframe class=")
+                .contains("video-embed")
+                .contains("data-orientation")
+                .contains("data-username");
+    }
+
+    @Test
+    void escapedSnippetsDoGoThroughTheBrowserSanitizer() throws Exception {
+        // The opposite case: a search snippet is escaped text plus <mark>, so the default
+        // sanitizer costs nothing and is a second lock under the server's escaping.
+        var searchBox = read(JS.resolve("chat/search-box.js"));
+        assertThat(searchBox)
+                .as("the search dropdown's snippet and filenames should use Element.setHTML")
+                .contains(".setHTML(m.bodySnippet || m.bodyHtml || '')")
+                .contains(".setHTML(matchedFiles.join(', '))");
+
+        // setHTML is not Baseline, so the pages that run search-box.js must carry the polyfill —
+        // otherwise the call throws on Safari < 26 and the row renders empty.
+        assertThat(Files.exists(JS.resolve("vendor/html-setters-polyfill.min.js")))
+                .as("the setHTML polyfill must be vendored").isTrue();
+        for (String page : List.of("channels.html", "conversation.html", "search.html")) {
+            assertThat(read(TEMPLATES.resolve(page)))
+                    .as("%s runs the search dropdown, so it needs the setHTML polyfill", page)
+                    .contains("html-setters-polyfill.min.js");
+        }
+    }
+
+    @Test
+    void serverHtmlIsNeverAssignedRawByAPageScript() throws Exception {
+        // The three things the server hands us as HTML rather than text. Assigning any of them
+        // straight to innerHTML skips both the highlight step and the browser's sanitizer.
+        var raw = Pattern.compile("innerHTML\\s*=\\s*[^;]*\\b(bodyHtml|bodySnippet|matchedFilenames)\\b");
+        // chat-kit's own renderMessageBody is the deliberate exception, covered by the test above.
+        for (Path p : jsSources()) {
+            if (p.getFileName().toString().equals(SEAM_FILE)) continue;
+            assertThat(raw.matcher(read(p)).find())
+                    .as("%s puts server HTML into the DOM directly — use "
+                            + "ChatKit.buildMessageBodyEl for a message body, or Element.setHTML "
+                            + "for an escaped snippet", p)
+                    .isFalse();
+        }
+    }
+
+    @Test
+    void thereIsOneLivePreviewWiring() throws Exception {
+        // Four composers show a live markdown preview (channel, its thread panel, DM, its thread
+        // panel) and two of them used to carry their own copy of the debounce, the stale-response
+        // guard and the hide-on-send. ChatKit.wireLivePreview is the wiring; a page script that
+        // fetches /api/preview itself has written a fifth.
+        for (Path p : jsSources()) {
+            if (p.getFileName().toString().equals(SEAM_FILE)) continue;
+            assertThat(read(p))
+                    .as("%s calls /api/preview itself — use ChatKit.wireLivePreview", p)
+                    .doesNotContain("'/api/preview'");
+        }
+        assertThat(read(JS.resolve(SEAM_FILE)))
+                .as("wireLivePreview renders through the seam, so it needs no highlight callback")
+                .contains("const wireLivePreview = ({ textarea, pane, body, form, headers })")
+                .contains("renderMessageBody(body, data.html)");
     }
 
     @Test
