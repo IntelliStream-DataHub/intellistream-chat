@@ -63,6 +63,7 @@
     wireAllFormatToolbars,
     wireLivePreview,
     openEmojiPicker,
+    highlightCode,
   } = window.ChatKit;
   backfillAvatarColors();
 
@@ -132,6 +133,7 @@
       const body = document.createElement('div');
       body.className = 'message-body';
       body.innerHTML = msg.bodyHtml || '';
+      highlightCode(body);
       right.appendChild(body);
     }
 
@@ -341,6 +343,7 @@
       const body = document.createElement('div');
       body.className = 'message-body';
       body.innerHTML = msg.bodyHtml || '';
+      highlightCode(body);
       meta.after(body);
       const preview = window.ChatKit.buildLinkPreviewEl(msg.linkPreview);
       if (preview) body.after(preview);
@@ -524,6 +527,7 @@
       const body = document.createElement('div');
       body.className = 'message-body';
       body.innerHTML = msg.bodyHtml || '';
+      highlightCode(body);
       right.appendChild(body);
     }
     const preview = window.ChatKit.buildLinkPreviewEl(msg.linkPreview);
@@ -557,6 +561,7 @@
       return res.json().catch(() => null);
     },
     renderMessage: renderThreadMessage,
+    highlight: highlightCode,
   });
 
   // ---------- Attachment rendering ----------
@@ -854,6 +859,7 @@
     body: document.getElementById('composer-preview-body'),
     form: composer,
     headers,
+    highlight: highlightCode,
   });
   composer.addEventListener('submit', () => input._autoResize?.());
 

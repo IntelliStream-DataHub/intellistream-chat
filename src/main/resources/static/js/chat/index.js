@@ -2216,25 +2216,9 @@ presenceMenu.init();
   }
 
   // ---------- Syntax highlighting ----------
-  const highlightCode = (root) => {
-    if (!root) return;
-    if (!window.hljs) {
-      if (!highlightCode._warned) {
-        highlightCode._warned = true;
-        console.warn('[hljs] highlight.js not loaded — code blocks will render unhighlighted');
-      }
-      return;
-    }
-    root.querySelectorAll('pre code').forEach((block) => {
-      // hljs v11 marks processed blocks with data-highlighted="yes"; re-running just spams a warning.
-      if (block.dataset.highlighted === 'yes') return;
-      try {
-        window.hljs.highlightElement(block);
-      } catch (err) {
-        console.warn('[hljs] failed to highlight a block:', err);
-      }
-    });
-  };
+  // Implementation lives in ChatKit.highlightCode — shared with the DM page and both pages'
+  // thread panels, see its doc comment in chat-kit.js.
+  const highlightCode = ChatKit.highlightCode;
   // Highlight everything currently on the page (server-rendered messages, search results, etc.).
   highlightCode(document);
 

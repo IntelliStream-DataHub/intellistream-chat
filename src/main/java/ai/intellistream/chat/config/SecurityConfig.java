@@ -185,7 +185,7 @@ public class SecurityConfig {
 
         http
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/", "/css/**", "/js/**", "/img/**", "/webjars/**",
+                        .requestMatchers("/", "/css/**", "/js/**", "/img/**", "/fonts/**", "/webjars/**",
                                          "/actuator/health", "/branding/logo").permitAll()
                         // The session probe has to be reachable *after* the session dies, or it
                         // cannot report that it did — an authenticated route answers an expired
