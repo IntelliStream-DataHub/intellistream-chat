@@ -397,6 +397,9 @@
 </th:block>
 
 <script th:src="@{/js/vendor/stomp.umd.min.js}"></script>
+<!-- Fenced code blocks get the same highlight.js treatment as the channel page (theme-loader.js
+     is part of the 'conversation' bundle below, which picks the matching light/dark stylesheet). -->
+<script th:src="@{/js/vendor/highlight.min.js}"></script>
 <!-- Bundled page scripts (assets.gradle); dev serves the source files. See ASSETS.md. -->
 <th:block th:replace="~{fragments/assets :: js('conversation')}"/>
 <!-- Avatar dropdown (presence + sign out). ES module, so it loads its own graph;

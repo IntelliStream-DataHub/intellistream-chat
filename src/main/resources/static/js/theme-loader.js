@@ -21,9 +21,15 @@
  * disallows 'unsafe-inline' for script-src.
  */
 (function () {
+  // Every dark theme, not just the one literally named "dark" — kept in step with the
+  // "Structural, not palette" selector list in app.css (search that comment before adding a
+  // sixth). Missing one here doesn't break layout, just contrast: the light hljs theme's
+  // near-black token colors land on that theme's dark message-code background and the
+  // highlighting becomes unreadable rather than absent, which is easy to miss in review.
+  var DARK_THEMES = ['dark', 'midnight', 'carbon', 'forest', 'dusk'];
   function injectHljsStylesheet() {
     var theme = (document.body && document.body.dataset && document.body.dataset.theme) || 'default';
-    var dark = theme === 'dark';
+    var dark = DARK_THEMES.indexOf(theme) !== -1;
     var link = document.createElement('link');
     link.rel = 'stylesheet';
     link.href = dark

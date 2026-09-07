@@ -327,6 +327,35 @@
     });
   };
 
+  // ---------- Syntax highlighting ----------
+  /**
+   * Run highlight.js over every {@code pre code} under {@code root}. Shared by the channel page,
+   * the DM page, and both of their thread panels / live previews, so a message rendered anywhere
+   * gets the same treatment — see the module doc for why a second implementation here is a bug
+   * waiting, not a shortcut. Pages that don't load {@code vendor/highlight.min.js} (a fenced code
+   * block is content, not chrome — nothing breaks by skipping it) get a one-time console warning
+   * instead of a hard dependency.
+   */
+  const highlightCode = (root) => {
+    if (!root) return;
+    if (!window.hljs) {
+      if (!highlightCode._warned) {
+        highlightCode._warned = true;
+        console.warn('[hljs] highlight.js not loaded — code blocks will render unhighlighted');
+      }
+      return;
+    }
+    root.querySelectorAll('pre code').forEach((block) => {
+      // hljs v11 marks processed blocks with data-highlighted="yes"; re-running just spams a warning.
+      if (block.dataset.highlighted === 'yes') return;
+      try {
+        window.hljs.highlightElement(block);
+      } catch (err) {
+        console.warn('[hljs] failed to highlight a block:', err);
+      }
+    });
+  };
+
   // ---------- Markdown live preview ----------
   /**
    * Wire {@code textarea} to a paired preview pane. The pane is the container that
@@ -1253,6 +1282,7 @@
         body: el(ids.previewBody || 'thread-preview-body'),
         form,
         headers: opts.headers,
+        highlight: highlightCode,
       });
     }
 
@@ -1501,5 +1531,6 @@
     emojiRecents: { read: readRecentEmoji, remember: rememberEmoji, max: RECENT_EMOJI_MAX },
     appendAuthorHandle,
     setQuickReaction,
+    highlightCode,
   };
 })();
