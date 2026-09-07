@@ -66,6 +66,11 @@
     highlightCode,
   } = window.ChatKit;
   backfillAvatarColors();
+  // Highlight the history Thymeleaf drew before this script ran. Every other call site here is on
+  // a message this file just built (arrival, edit, thread reply, preview), so without this the
+  // fenced blocks you land on stay plain and only the ones that change get coloured — the channel
+  // page has had the same one-liner since it grew highlighting.
+  highlightCode(document);
 
   const lastMessageEl = () => {
     const items = messagesEl.querySelectorAll('li.message');
