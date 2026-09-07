@@ -381,11 +381,7 @@ presenceMenu.init();
           }
           li.append(head);
 
-          // bodyHtml is server-rendered and server-sanitized (MarkdownRenderer + jsoup), the same
-          // string the feed renders with innerHTML.
-          const body = document.createElement('div');
-          body.className = 'message-body channel-pin-body';
-          body.innerHTML = msg.bodyHtml || '';
+          const body = window.ChatKit.buildMessageBodyEl(msg.bodyHtml, 'channel-pin-body');
           li.append(body);
 
           const actions = document.createElement('div');
@@ -1647,8 +1643,7 @@ presenceMenu.init();
           if (!res.ok) return;
           const data = await res.json();
           if (myReq !== previewReq) return; // stale response, dropped
-          previewBody.innerHTML = data.html || '';
-          highlightCode(previewBody);
+          ChatKit.renderMessageBody(previewBody, data.html);
           previewPane.hidden = !data.html;
         } catch (_) {
           // Network blip — leave the prior preview in place rather than blanking it.
@@ -1781,10 +1776,7 @@ presenceMenu.init();
     right.append(meta);
 
     if (msg.bodyMarkdown && msg.bodyMarkdown.length > 0) {
-      const body = document.createElement('div');
-      body.className = 'message-body';
-      body.innerHTML = msg.bodyHtml;
-      highlightCode(body);
+      const body = ChatKit.buildMessageBodyEl(msg.bodyHtml);
       right.append(body);
     }
 
@@ -2216,11 +2208,9 @@ presenceMenu.init();
   }
 
   // ---------- Syntax highlighting ----------
-  // Implementation lives in ChatKit.highlightCode — shared with the DM page and both pages'
-  // thread panels, see its doc comment in chat-kit.js.
-  const highlightCode = ChatKit.highlightCode;
-  // Highlight everything currently on the page (server-rendered messages, search results, etc.).
-  highlightCode(document);
+  // Nothing here on purpose. Bodies are built by ChatKit.buildMessageBodyEl / renderMessageBody,
+  // which highlight as part of rendering, and chat-kit sweeps the server-rendered history on load
+  // for every page at once. See its doc comment for why this isn't per-page code any more.
 
   // ---------- Color server-rendered avatars (delegated to ChatKit) ----------
   ChatKit.backfillAvatarColors();
@@ -2820,10 +2810,7 @@ presenceMenu.init();
     right.querySelectorAll('.message-body, .link-preview, .message-attachments, .message-reactions, .message-edit, .edited-tag, .poll-widget').forEach(n => n.remove());
     const meta = right.querySelector('.message-meta');
     if (msg.bodyMarkdown) {
-      const body = document.createElement('div');
-      body.className = 'message-body';
-      body.innerHTML = msg.bodyHtml;
-      highlightCode(body);
+      const body = ChatKit.buildMessageBodyEl(msg.bodyHtml);
       meta.after(body);
       if (isEdit) flashEdited(body);
       // The update frame carries the card the message already has (the server decorates it);
@@ -3161,10 +3148,7 @@ presenceMenu.init();
     }
     const right = li.querySelector(':scope > div');
     if (msg.bodyMarkdown) {
-      const body = document.createElement('div');
-      body.className = 'message-body';
-      body.innerHTML = msg.bodyHtml;
-      highlightCode(body);
+      const body = ChatKit.buildMessageBodyEl(msg.bodyHtml);
       right.appendChild(body);
     }
     const preview = ChatKit.buildLinkPreviewEl(msg.linkPreview);
@@ -3244,8 +3228,7 @@ presenceMenu.init();
         if (!res.ok) return;
         const data = await res.json();
         if (myReq !== req) return;
-        body.innerHTML = data.html || '';
-        highlightCode(body);
+        ChatKit.renderMessageBody(body, data.html);
         pane.hidden = !data.html;
       } catch (_) { /* leave previous render */ }
     }

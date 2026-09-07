@@ -58,3 +58,33 @@ add('no inline <script> elements (CSP would have blocked them)', () => {
         throw new Error('found ' + inline.length + ' inline <script> blocks — strict CSP forbids these');
     }
 });
+
+// Message bodies: the seam every feed, panel and list renders through, and the one
+// observable consequence of it. See MessageBodyRenderGuardTest for the CI-side guard —
+// this is the half that can only be checked against a real page.
+add('ChatKit exposes the shared message-body renderer', () => {
+    const kit = window.ChatKit;
+    if (typeof kit?.buildMessageBodyEl !== 'function' || typeof kit?.renderMessageBody !== 'function') {
+        throw new Error('ChatKit.buildMessageBodyEl / renderMessageBody missing — pages will render '
+            + 'bodies their own way again, and half of them will forget to highlight');
+    }
+    // Render a fenced block through the seam and check it came back highlighted. hljs marks what
+    // it processed, so this asserts the pairing rather than the presence of the function.
+    const el = kit.buildMessageBodyEl('<pre><code class="language-java">int x = 1;</code></pre>');
+    const block = el.querySelector('pre code');
+    if (window.hljs && block.dataset.highlighted !== 'yes') {
+        throw new Error('buildMessageBodyEl rendered a code block without highlighting it');
+    }
+});
+
+add('every code block on the page is highlighted', () => {
+    // Catches the original bug directly: server-rendered history that no page script swept.
+    // Skipped where the page has no code on it, which is most of the time.
+    if (!window.hljs) return;
+    const missed = [...document.querySelectorAll('.message-body pre code')]
+        .filter((b) => b.dataset.highlighted !== 'yes');
+    if (missed.length) {
+        throw new Error(missed.length + ' code block(s) rendered unhighlighted — a body reached the '
+            + 'DOM without going through ChatKit.renderMessageBody');
+    }
+});

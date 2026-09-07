@@ -63,14 +63,8 @@
     wireAllFormatToolbars,
     wireLivePreview,
     openEmojiPicker,
-    highlightCode,
   } = window.ChatKit;
   backfillAvatarColors();
-  // Highlight the history Thymeleaf drew before this script ran. Every other call site here is on
-  // a message this file just built (arrival, edit, thread reply, preview), so without this the
-  // fenced blocks you land on stay plain and only the ones that change get coloured — the channel
-  // page has had the same one-liner since it grew highlighting.
-  highlightCode(document);
 
   const lastMessageEl = () => {
     const items = messagesEl.querySelectorAll('li.message');
@@ -135,10 +129,7 @@
     }
 
     if (msg.bodyMarkdown) {
-      const body = document.createElement('div');
-      body.className = 'message-body';
-      body.innerHTML = msg.bodyHtml || '';
-      highlightCode(body);
+      const body = window.ChatKit.buildMessageBodyEl(msg.bodyHtml);
       right.appendChild(body);
     }
 
@@ -348,10 +339,7 @@
     right.querySelectorAll('.message-body, .link-preview, .message-reactions, .message-attachments, .message-edit, .edited-tag, .thread-indicator').forEach(n => n.remove());
     const meta = right.querySelector('.message-meta');
     if (msg.bodyMarkdown) {
-      const body = document.createElement('div');
-      body.className = 'message-body';
-      body.innerHTML = msg.bodyHtml || '';
-      highlightCode(body);
+      const body = window.ChatKit.buildMessageBodyEl(msg.bodyHtml);
       meta.after(body);
       const preview = window.ChatKit.buildLinkPreviewEl(msg.linkPreview);
       if (preview) body.after(preview);
@@ -542,10 +530,7 @@
     }
     right.appendChild(meta);
     if (msg.bodyMarkdown) {
-      const body = document.createElement('div');
-      body.className = 'message-body';
-      body.innerHTML = msg.bodyHtml || '';
-      highlightCode(body);
+      const body = window.ChatKit.buildMessageBodyEl(msg.bodyHtml);
       right.appendChild(body);
     }
     const preview = window.ChatKit.buildLinkPreviewEl(msg.linkPreview);
@@ -579,7 +564,6 @@
       return res.json().catch(() => null);
     },
     renderMessage: renderThreadMessage,
-    highlight: highlightCode,
   });
 
   // ---------- Attachment rendering ----------
@@ -877,7 +861,6 @@
     body: document.getElementById('composer-preview-body'),
     form: composer,
     headers,
-    highlight: highlightCode,
   });
   composer.addEventListener('submit', () => input._autoResize?.());
 

@@ -142,12 +142,12 @@
     head.append(when);
     li.append(head);
 
-    const body = document.createElement('div');
+    let body;
     if (row.readable) {
-      // Server-rendered, server-sanitized markdown — the identical string the feed renders.
-      body.className = 'message-body saved-body';
-      body.innerHTML = row.bodyHtml || '';
+      // The same builder the feeds use — identical string, identical treatment.
+      body = window.ChatKit.buildMessageBodyEl(row.bodyHtml, 'saved-body');
     } else {
+      body = document.createElement('div');
       // The save outlived the access. Say so plainly and keep the row so it can be cleared —
       // a bookmark that silently vanishes reads as data loss, and one that 500s reads as a bug.
       body.className = 'saved-body saved-unavailable';

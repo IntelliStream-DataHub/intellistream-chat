@@ -338,6 +338,11 @@
    */
   const highlightCode = (root) => {
     if (!root) return;
+    const blocks = root.querySelectorAll('pre code');
+    // Nothing to do is not a problem worth a warning: chat-kit runs on pages that carry no code
+    // at all (/files, the file manager), and warning there trains people to ignore the line that
+    // matters — a page that has code blocks and no highlighter.
+    if (!blocks.length) return;
     if (!window.hljs) {
       if (!highlightCode._warned) {
         highlightCode._warned = true;
@@ -345,7 +350,7 @@
       }
       return;
     }
-    root.querySelectorAll('pre code').forEach((block) => {
+    blocks.forEach((block) => {
       // hljs v11 marks processed blocks with data-highlighted="yes"; re-running just spams a warning.
       if (block.dataset.highlighted === 'yes') return;
       try {
@@ -356,14 +361,59 @@
     });
   };
 
+  // ---------- Rendered message bodies ----------
+  /*
+   * The one way a server-rendered message body reaches the DOM.
+   *
+   * Every feed, panel and list that shows a message does the same two things: drop the server's
+   * sanitized bodyHtml in, then highlight the fenced code in it. That was eight copies of the
+   * pair — the channel feed, its edit re-render, its thread replies and pins panel, the DM feed
+   * and its two re-renders, and /saved — and four of them had the second line while four did not.
+   * The result was a code block that rendered coloured in the channel feed and plain in the DM
+   * history, the pins panel and saved items, with nothing thrown and nothing logged. Route a new
+   * body renderer through here and the step it would have forgotten is not optional any more.
+   *
+   * A body that is *typed* rather than rendered (the optimistic bubble's escaped text) has no
+   * markup to highlight and does not need this, but costs nothing by using it.
+   */
+  const renderMessageBody = (el, html) => {
+    if (!el) return el;
+    // bodyHtml is rendered and sanitized server-side (MarkdownRenderer + jsoup), which is what
+    // makes innerHTML the right call here rather than textContent.
+    el.innerHTML = html || '';
+    highlightCode(el);
+    return el;
+  };
+
+  /** {@link renderMessageBody} into a fresh {@code div.message-body}, plus any page-specific class. */
+  const buildMessageBodyEl = (html, extraClass) => {
+    const el = document.createElement('div');
+    el.className = extraClass ? 'message-body ' + extraClass : 'message-body';
+    return renderMessageBody(el, html);
+  };
+
+  /*
+   * The other half: the history Thymeleaf drew before any of this ran. Every page that renders
+   * messages server-side needs it, so it happens here once instead of being a line each page's
+   * own script has to remember — which is exactly the line the DM page didn't have, leaving a
+   * refreshed conversation's code blocks plain until something edited them.
+   */
+  const highlightServerRendered = () => highlightCode(document);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', highlightServerRendered, { once: true });
+  } else {
+    highlightServerRendered();
+  }
+
   // ---------- Markdown live preview ----------
   /**
    * Wire {@code textarea} to a paired preview pane. The pane is the container that
-   * shows/hides with the rendered output; {@code body} is the inner div whose innerHTML
-   * we set. Server-rendered preview ({@code POST /api/preview}) so the result is
-   * identical to the posted message. Also supplies a hook to reset on submit.
+   * shows/hides with the rendered output; {@code body} is the inner div we render into.
+   * Server-rendered preview ({@code POST /api/preview}) so the result is identical to the
+   * posted message — including its highlighting, since it goes through
+   * {@link renderMessageBody} like every other body. Also supplies a hook to reset on submit.
    */
-  const wireLivePreview = ({ textarea, pane, body, form, headers, highlight }) => {
+  const wireLivePreview = ({ textarea, pane, body, form, headers }) => {
     if (!textarea || !pane || !body) return;
     let debounce = null;
     let req = 0;
@@ -384,8 +434,7 @@
         if (!res.ok) return;
         const data = await res.json();
         if (myReq !== req) return; // stale
-        body.innerHTML = data.html || '';
-        if (typeof highlight === 'function') highlight(body);
+        renderMessageBody(body, data.html);
         pane.hidden = !data.html;
       } catch (_) { /* leave previous render */ }
     };
@@ -1282,7 +1331,6 @@
         body: el(ids.previewBody || 'thread-preview-body'),
         form,
         headers: opts.headers,
-        highlight: highlightCode,
       });
     }
 
@@ -1532,5 +1580,7 @@
     appendAuthorHandle,
     setQuickReaction,
     highlightCode,
+    renderMessageBody,
+    buildMessageBodyEl,
   };
 })();
