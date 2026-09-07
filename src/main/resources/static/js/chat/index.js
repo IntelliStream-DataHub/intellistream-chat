@@ -2800,8 +2800,11 @@ presenceMenu.init();
   // people notice when they say attachments "behave differently" in a DM.
   window.ChatKit.wireImageLightbox();
 
-  const replaceMessageDom = (msg) => {
-    const li = findMessageEl(msg.id);
+  // `target` names the row to repaint. The broadcast path has none in hand and looks one up; the
+  // author's own save passes the row it just edited, so an edit made in the thread panel repaints
+  // that copy rather than the feed's.
+  const replaceMessageDom = (msg, target) => {
+    const li = target || findMessageEl(msg.id);
     if (!li) return;
     // Detect an actual body edit (vs. a reaction-only update) so we only flash on edits.
     const prevBody = li.dataset.bodyMarkdown || '';
@@ -2996,6 +2999,9 @@ presenceMenu.init();
     wrap.querySelector('.message-edit-save').addEventListener('click', async () => {
       const newBody = ta.value.trim();
       if (!newBody) { alert('Body cannot be empty'); return; }
+      // Saving the text you were handed is a cancel, not an edit: no request, no index rewrite,
+      // and no "(edited)" marker for a change nobody made.
+      if (newBody === original.trim()) { wrap.replaceWith(body); return; }
       const id = li.dataset.id;
       const res = await fetch('/api/messages/' + id, {
         method: 'PATCH',
@@ -3007,7 +3013,15 @@ presenceMenu.init();
         alert('Edit failed: ' + (err.error || res.statusText));
         return;
       }
-      // WS broadcast triggers replaceMessageDom — nothing else to do.
+      // Retire the form here rather than leaving it to the broadcast. An `updated` frame carries
+      // no "what changed", so replaceMessageDom infers an edit from the body differing and keeps
+      // an open edit box when it doesn't — which made a save whose result matched what was
+      // already on screen (an edit undone while typing, whitespace, a poll-less retype) look like
+      // nothing had happened. The response is the one signal that says *this* save succeeded, so
+      // it is what closes the box, and the DTO it carries repaints the row immediately.
+      wrap.replaceWith(body);
+      const dto = await res.json().catch(() => null);
+      if (dto) replaceMessageDom(dto, li);
     });
     ta.addEventListener('keydown', (ev) => {
       if (ev.key === 'Escape') {
