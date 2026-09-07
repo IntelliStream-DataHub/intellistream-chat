@@ -94,22 +94,42 @@ add('Element.setHTML is available (polyfilled where the browser lacks it)', () =
     }
 });
 
-add('a message body keeps its video embed and data-* attributes', () => {
-    // The reason renderMessageBody uses innerHTML rather than setHTML: the browser sanitizer
-    // removes <iframe> unconditionally and strips data-*, and a body legitimately carries both.
-    // If someone "hardens" the seam with setHTML, every video embed in the app disappears — this
-    // is the check that says so out loud.
+add('a message body carries no player, and mentions keep their data-*', () => {
+    // The body used to carry a YouTube <iframe>, which called Google on every render and made the
+    // body impossible to run through Element.setHTML. The player is now a click-to-play facade on
+    // the link-preview card; the body has the plain link and nothing else.
     const el = window.ChatKit.buildMessageBodyEl(
-        '<div class="video-embed-wrapper" data-orientation="vertical">'
-        + '<iframe class="video-embed" src="https://www.youtube-nocookie.com/embed/x"></iframe></div>'
+        '<p><a href="https://youtu.be/x">https://youtu.be/x</a></p>'
         + '<span class="mention" data-username="alice">@alice</span>');
-    if (!el.querySelector('iframe.video-embed')) {
-        throw new Error('the embed iframe was stripped — renderMessageBody must not use setHTML');
-    }
-    if (!el.querySelector('[data-orientation="vertical"]')) {
-        throw new Error('data-orientation was stripped — the Shorts frame will render landscape');
+    if (el.querySelector('iframe')) {
+        throw new Error('a player was rendered inside the message body');
     }
     if (!el.querySelector('.mention[data-username="alice"]')) {
-        throw new Error('data-username was stripped off a mention');
+        throw new Error('data-username was stripped off a mention — is the seam using setHTML?');
+    }
+});
+
+add('a video card is a facade until it is clicked', () => {
+    const card = window.ChatKit.buildVideoFacadeEl({
+        url: 'https://youtu.be/dQw4w9WgXcQ',
+        title: 'Never Gonna Give You Up',
+        imageUrl: '/api/link-previews/images/abc',
+        video: {
+            provider: 'YouTube',
+            embedUrl: 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ',
+            orientation: null,
+        },
+    });
+    if (card.querySelector('iframe')) {
+        throw new Error('the card built an iframe before anyone clicked it — that is the leak');
+    }
+    const button = card.querySelector('.video-facade');
+    if (!button || !button.dataset.embedUrl) {
+        throw new Error('no play button, or no embed URL on it');
+    }
+    // The poster must be our own copy, never the third party's picture.
+    const poster = card.querySelector('.video-facade-poster');
+    if (!poster || !poster.getAttribute('src').startsWith('/api/link-previews/images/')) {
+        throw new Error('the poster is not served from this origin: ' + poster?.getAttribute('src'));
     }
 });

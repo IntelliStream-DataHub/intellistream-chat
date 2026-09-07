@@ -866,10 +866,12 @@
     Removed on the way through: raw <code>&lt;script&gt;</code>, <code>&lt;div&gt;</code>,
     <code>&lt;span&gt;</code>, <code>&lt;img&gt;</code> and inline <code>style</code> attributes.
     Because images are not on the allowlist, <b>inline Markdown images are stripped</b>; to share a
-    picture, attach it. The one exception to the no-embedding rule is video: a link to YouTube or
-    Vimeo gets a responsive player appended after it, using the privacy-preserving
-    <code>youtube-nocookie</code> host, and those three origins are the only ones the CSP allows in
-    a frame.
+    picture, attach it. Nothing is embedded into a message body at all &mdash; not even video. A
+    YouTube or Vimeo link gets a <b>click-to-play card</b> underneath instead, and the player is
+    built only when somebody presses play, on the privacy-preserving
+    <code>youtube-nocookie</code> host (those origins are the only ones the CSP allows in a frame).
+    The poster you see before that is this server's own copy of the thumbnail, so scrolling past
+    somebody else's video link tells YouTube nothing about you.
   </p>
   <h4>Pasting from Google Docs, Word and Notes</h4>
   <p>
@@ -903,10 +905,11 @@
     name, the page's title and description, and its picture when the page offers one. The
     <b>first</b> link in the message, one card per message &mdash; a message that is a list of ten
     links is a list, and ten cards would bury it. Links inside code are being quoted, not shared,
-    and get no card; a YouTube or Vimeo link gets the player above and not a card as well. If the
-    page cannot be reached, is not a web page, or has nothing to say about itself, there is no card
-    and the link is just a link. Editing a message re-evaluates it: swap the link and the card
-    follows.
+    and get no card. A YouTube or Vimeo link gets a card too, and its card is the player: the
+    thumbnail with a play button over it, which loads the video only once you click. If the page
+    cannot be reached, is not a web page, or has nothing to say about itself, there is no card and
+    the link is just a link &mdash; except for a video, which keeps its play button either way.
+    Editing a message re-evaluates it: swap the link and the card follows.
   </p>
   <p>
     The server does the fetching, once per URL, and copies the picture &mdash; the card's image is

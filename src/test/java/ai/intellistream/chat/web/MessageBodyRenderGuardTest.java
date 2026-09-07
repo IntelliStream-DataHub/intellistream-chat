@@ -121,29 +121,51 @@ class MessageBodyRenderGuardTest {
 
     @Test
     void messageBodiesAreNotRunThroughTheBrowserSanitizer() throws Exception {
-        // Element.setHTML() removes <iframe> unconditionally — no SanitizerConfig can allow it
-        // back — and strips data-* attributes. A rendered body deliberately carries both: the
-        // video embed MarkdownRenderer injects after the jsoup pass, data-username/data-mention on
-        // mentions, and data-orientation on the embed wrapper (app.css reads it for the 9:16 Shorts
-        // frame). So setHTML here would delete every video embed in the app. The server-side
-        // sanitizing is the defence, and it is the one that runs for every client.
+        // Element.setHTML() strips data-* attributes, and a rendered mention carries
+        // data-username / data-mention. Nothing reads them *today*, which is exactly why removing
+        // them would be a silent loss rather than a visible one — so the seam keeps innerHTML and
+        // the server-side jsoup pass stays the defence that matters (it runs for every client,
+        // not only the ones with a modern sanitizer).
         var src = read(JS.resolve(SEAM_FILE));
         int render = src.indexOf("const renderMessageBody");
         var block = src.substring(render, src.indexOf("};", render));
         assertThat(codeOnly(block))
-                .as("renderMessageBody must not call setHTML — it would strip the embed iframe and "
-                        + "every data-* attribute off the body")
+                .as("renderMessageBody must not call setHTML while bodies still carry data-*")
                 .doesNotContain(".setHTML(");
 
-        // And the thing that would actually break has to still be produced, or the rule above is
-        // guarding nothing.
         var renderer = read(Path.of("src/main/java/ai/intellistream/chat/service/MarkdownRenderer.java"));
         assertThat(renderer)
-                .as("bodies carry an iframe and data-* attributes; that is why innerHTML stays")
-                .contains("<iframe class=")
-                .contains("video-embed")
-                .contains("data-orientation")
-                .contains("data-username");
+                .as("bodies still carry data-* on mentions; that is what innerHTML is protecting")
+                .contains("data-username")
+                .contains("data-mention");
+    }
+
+    @Test
+    void noPlayerIsInjectedIntoTheMessageBody() throws Exception {
+        // The other half of what used to block sanitizing a body: an <iframe>, which setHTML
+        // removes unconditionally. It is gone — the player is a click-to-play facade on the
+        // link-preview card (linkpreview/VideoLinks) — and it must not come back, both because it
+        // re-blocks the sanitizer and because an embed in the body calls YouTube on every render,
+        // which is the leak link-preview images are copied server-side to avoid.
+        var renderer = read(Path.of("src/main/java/ai/intellistream/chat/service/MarkdownRenderer.java"));
+        assertThat(codeOnly(renderer))
+                .as("MarkdownRenderer must not build a player into the body")
+                .doesNotContain("<iframe")
+                .doesNotContain("youtube-nocookie")
+                .doesNotContain("player.vimeo.com");
+
+        // The embed URL is built server-side from a regex-matched id, in one place.
+        var videoLinks = read(Path.of("src/main/java/ai/intellistream/chat/linkpreview/VideoLinks.java"));
+        assertThat(videoLinks)
+                .contains("https://www.youtube-nocookie.com/embed/")
+                .contains("https://player.vimeo.com/video/");
+
+        // ...and the client is the only thing that ever creates the iframe, from that URL.
+        var kit = read(JS.resolve(SEAM_FILE));
+        assertThat(kit)
+                .as("the facade must build its iframe from the server's embedUrl, not from parts")
+                .contains("dataset.embedUrl")
+                .contains("createElement('iframe')");
     }
 
     @Test

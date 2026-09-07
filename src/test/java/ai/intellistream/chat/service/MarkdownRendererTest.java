@@ -143,54 +143,27 @@ class MarkdownRendererTest {
     }
 
     @Test
-    void embedsYouTubeWatchUrls() {
-        var html = renderer.render("look https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-        assertThat(html).contains("class=\"video-embed-wrapper\"");
-        assertThat(html).contains("src=\"https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ\"");
-    }
-
-    @Test
-    void embedsYouTubeShortDomainUrls() {
-        // youtu.be — share-button shortlink, not the /shorts/ path (different feature).
-        var html = renderer.render("look https://youtu.be/dQw4w9WgXcQ");
-        assertThat(html).contains("src=\"https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ\"");
-    }
-
-    @Test
-    void embedsYouTubeShortsPath() {
-        // /shorts/ID — vertical-format videos. Same embed endpoint, but the wrapper carries
-        // data-orientation="vertical" so the stylesheet renders a 9:16 phone-shaped frame.
-        var html = renderer.render("look https://www.youtube.com/shorts/phwq5hZZwDU");
-        assertThat(html).contains("class=\"video-embed-wrapper\"");
-        assertThat(html).contains("data-orientation=\"vertical\"");
-        assertThat(html).contains("src=\"https://www.youtube-nocookie.com/embed/phwq5hZZwDU\"");
-    }
-
-    @Test
-    void landscapeYouTubeDoesNotSetVerticalOrientation() {
-        // Sanity: /watch URLs stay in the landscape default; data-orientation is shorts-only.
-        var html = renderer.render("look https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-        assertThat(html).doesNotContain("data-orientation");
-    }
-
-    @Test
-    void embedsYouTubeMobileSubdomain() {
-        // m.youtube.com is what the YouTube mobile app emits when sharing via "Copy link".
-        var html = renderer.render("look https://m.youtube.com/watch?v=dQw4w9WgXcQ");
-        assertThat(html).contains("src=\"https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ\"");
-    }
-
-    @Test
-    void embedsVimeoUrls() {
-        var html = renderer.render("watch https://vimeo.com/76979871");
-        assertThat(html).contains("class=\"video-embed-wrapper\"");
-        assertThat(html).contains("src=\"https://player.vimeo.com/video/76979871\"");
-    }
-
-    @Test
-    void doesNotEmbedNonVideoLinks() {
-        var html = renderer.render("see https://example.com here");
-        assertThat(html).doesNotContain("video-embed");
+    void doesNotPutAPlayerInTheBody() {
+        // The renderer used to inject an <iframe> after a video link. It doesn't any more: the
+        // player is a click-to-play facade on the link-preview card (VideoLinksTest covers which
+        // URLs get one). Two reasons, both in linkpreview/VideoLinks — an iframe called YouTube on
+        // every render, and an iframe in the body makes the body impossible to run through the
+        // browser's own sanitizer, since Element.setHTML() drops iframes unconditionally.
+        for (var url : new String[] {
+                "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+                "https://youtu.be/dQw4w9WgXcQ",
+                "https://www.youtube.com/shorts/phwq5hZZwDU",
+                "https://m.youtube.com/watch?v=dQw4w9WgXcQ",
+                "https://vimeo.com/76979871" }) {
+            var html = renderer.render("look " + url);
+            assertThat(html)
+                    .as("body for %s", url)
+                    .doesNotContain("<iframe")
+                    .doesNotContain("video-embed")
+                    .doesNotContain("data-orientation");
+            // The link itself is still a link, which is what the card hangs off.
+            assertThat(html).contains("href=\"" + url + "\"");
+        }
     }
 
     @Test

@@ -929,8 +929,96 @@
   // does, with the same rel. The image is NOT class="attachment-image", on purpose — that class
   // is what the lightbox delegate catches, and a preview picture is a link to a page, not a
   // picture to zoom.
+  /*
+   * A video link's card is a click-to-play facade, not a player.
+   *
+   * The server used to inject the <iframe> straight into the message body, which meant every
+   * reader's browser called YouTube just for scrolling past someone else's link — the exact leak
+   * that makes link-preview pictures a server-side *copy* served from this origin. Now the poster
+   * is that same copied picture, and the iframe is built here, once, by the person who actually
+   * wants to watch. See linkpreview/VideoLinks for the full reasoning.
+   *
+   * Markup is mirrored by fragments/link-preview.html for server-rendered messages, and the click
+   * is handled by one delegated listener below so both kinds of card behave the same.
+   */
+  const buildVideoFacadeEl = (p) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'link-preview link-preview-video';
+    if (p.video.orientation) wrap.dataset.orientation = p.video.orientation;
+
+    const play = document.createElement('button');
+    play.type = 'button';
+    play.className = 'video-facade';
+    // The embed URL is the server's, built from a regex-matched id — the client never assembles a
+    // third-party URL out of parts, which is what keeps frame-src meaningful.
+    play.dataset.embedUrl = p.video.embedUrl;
+    play.setAttribute('aria-label', p.title ? 'Play ' + p.title : 'Play video');
+    if (p.imageUrl) {
+      const poster = document.createElement('img');
+      poster.className = 'video-facade-poster';
+      poster.src = p.imageUrl;
+      poster.alt = '';
+      poster.loading = 'lazy';
+      play.appendChild(poster);
+    }
+    const glyph = document.createElement('span');
+    glyph.className = 'video-facade-play';
+    glyph.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#icon-play"/></svg>';
+    play.appendChild(glyph);
+    wrap.appendChild(play);
+
+    // The words stay a plain link to the page, so the card still gets you there without playing.
+    if (p.title || p.siteName) {
+      const a = document.createElement('a');
+      a.className = 'link-preview-text';
+      a.href = p.url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer nofollow';
+      if (p.siteName || p.video.provider) {
+        const site = document.createElement('span');
+        site.className = 'link-preview-site';
+        site.textContent = p.siteName || p.video.provider;
+        a.appendChild(site);
+      }
+      if (p.title) {
+        const title = document.createElement('span');
+        title.className = 'link-preview-title';
+        title.textContent = p.title;
+        a.appendChild(title);
+      }
+      wrap.appendChild(a);
+    }
+    return wrap;
+  };
+
+  /** Swap a facade for the real player. The one place an embed iframe is ever created. */
+  const playVideoFacade = (button) => {
+    const wrap = button.closest('.link-preview-video');
+    const src = button.dataset.embedUrl;
+    if (!wrap || !src) return;
+    const frame = document.createElement('iframe');
+    frame.className = 'video-embed';
+    // autoplay=1 because the click *was* the play instruction; without it the reader has to press
+    // play twice, once in our UI and once in YouTube's.
+    frame.src = src + (src.includes('?') ? '&' : '?') + 'autoplay=1';
+    frame.title = wrap.querySelector('.link-preview-title')?.textContent || 'Video';
+    frame.loading = 'lazy';
+    frame.allowFullscreen = true;
+    frame.setAttribute('allow',
+        'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture');
+    wrap.classList.add('is-playing');
+    button.replaceWith(frame);
+  };
+
+  document.addEventListener('click', (e) => {
+    const button = e.target.closest?.('.video-facade');
+    if (button) playVideoFacade(button);
+  });
+
   const buildLinkPreviewEl = (p) => {
-    if (!p || !p.url || !p.title) return null;
+    if (!p || !p.url) return null;
+    if (p.video) return buildVideoFacadeEl(p);
+    if (!p.title) return null;
     const a = document.createElement('a');
     a.className = 'link-preview';
     a.href = p.url;
@@ -1560,6 +1648,7 @@
     wireImageLightbox,
     buildRemovedAttachmentEl,
     buildLinkPreviewEl,
+    buildVideoFacadeEl,
     applyLinkPreview,
     hashCode,
     avatarColor,

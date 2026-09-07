@@ -16,7 +16,6 @@
 
 package ai.intellistream.chat.linkpreview;
 
-import ai.intellistream.chat.service.MarkdownRenderer;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -31,10 +30,15 @@ import java.util.regex.Pattern;
  * Which URL in a message body gets the card, and how it is keyed.
  *
  * <p>The first {@code http(s)} URL in the Markdown, skipping code (a URL inside backticks is being
- * quoted, not shared) and skipping anything {@link MarkdownRenderer#embedsVideo} already turns into
- * a player. One per message, deliberately: a message that is a list of ten links is a list, and ten
- * cards under it would bury it. Trailing punctuation that prose puts after a link — the full stop,
- * the closing bracket of "(see https://…)" — is not part of the URL.
+ * quoted, not shared). One per message, deliberately: a message that is a list of ten links is a
+ * list, and ten cards under it would bury it. Trailing punctuation that prose puts after a link —
+ * the full stop, the closing bracket of "(see https://…)" — is not part of the URL.
+ *
+ * <p>A video link is <em>not</em> skipped, and used to be: it got an {@code <iframe>} injected into
+ * the body instead, so a card underneath would have been a second embed for one link. The player is
+ * now the card — {@link VideoLinks} puts a play button on it and the client builds the iframe only
+ * when it is clicked — so the unfurl is what supplies its poster and title. See {@link VideoLinks}
+ * for why the body no longer carries a player at all.
  *
  * <p>Pure functions; the tests are {@code LinkUrlsTest}.
  */
@@ -60,7 +64,7 @@ public final class LinkUrls {
         var m = CANDIDATE.matcher(text);
         while (m.find()) {
             var url = trimTrailing(m.group());
-            if (url.length() > MAX_URL_LENGTH || !isHttpUrl(url) || MarkdownRenderer.embedsVideo(url)) {
+            if (url.length() > MAX_URL_LENGTH || !isHttpUrl(url)) {
                 continue;
             }
             return Optional.of(url);
