@@ -28,7 +28,7 @@ public class LinkPreviewProperties {
 
     private boolean enabled = true;
     private String dir = "./data/link-previews";
-    private long maxHtmlBytes = 512 * 1024;
+    private long maxHtmlBytes = 10 * 1024 * 1024;
     private long maxImageBytes = 3 * 1024 * 1024;
     private Duration timeout = Duration.ofSeconds(6);
     private Duration refreshAfter = Duration.ofDays(7);
