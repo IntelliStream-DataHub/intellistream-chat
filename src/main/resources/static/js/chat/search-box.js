@@ -168,19 +168,25 @@ export function initSearchBox(inputId) {
         row.querySelector('.search-dropdown-time').textContent =
             ChatTime.formatDateTime(m.createdAt);
         // bodySnippet is the Lucene-highlighted excerpt with <mark>-wrapped match terms
-        // (HTML-escaped before highlighting, so innerHTML is safe). Falls back to bodyHtml —
-        // the server-rendered, jsoup-sanitized body — when there is no snippet.
-        row.querySelector('.search-dropdown-snippet').innerHTML = m.bodySnippet || m.bodyHtml || '';
+        // (HTML-escaped before highlighting). Falls back to bodyHtml — the server-rendered,
+        // jsoup-sanitized body — when there is no snippet.
+        // Element.setHTML rather than innerHTML: unlike a message body (which needs its embed
+        // iframe and its data-* attributes to survive — see ChatKit.renderMessageBody), a snippet
+        // is escaped text plus <mark>, so the browser's default sanitizer costs nothing here and
+        // is a second lock under the server's escaping.
+        row.querySelector('.search-dropdown-snippet').setHTML(m.bodySnippet || m.bodyHtml || '');
         // Filenames are searchable, so a row can be here because of a file rather than because of
         // anything in its text — and a file posted without a caption has no text at all, which used
         // to draw as an empty row. matchedFilenames are HTML-escaped and <mark>-wrapped by the same
-        // highlighter as the snippet, so innerHTML is safe on the same terms.
+        // highlighter as the snippet, so they go in on the same terms as it — the icon stays a
+        // plain assignment, since a sanitizer has no business deciding about <use>.
         const matchedFiles = m.matchedFilenames || [];
         if (matchedFiles.length) {
           const files = row.querySelector('.search-dropdown-files');
-          files.innerHTML =
-              '<svg class="icon icon-sm" aria-hidden="true"><use href="#icon-paperclip"/></svg>' +
-              '<span>' + matchedFiles.join(', ') + '</span>';
+          // The icon keeps innerHTML: setHTML removes <use> unconditionally, which would take
+          // every sprite icon off the page. Only the filenames go through the sanitizer.
+          files.innerHTML = '<svg class="icon icon-sm" aria-hidden="true"><use href="#icon-paperclip"/></svg><span></span>';
+          files.querySelector('span').setHTML(matchedFiles.join(', '));
           files.hidden = false;
         }
         // mousedown so the input doesn't blur (and close us) before the click fires.

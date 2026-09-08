@@ -69,13 +69,20 @@ class LinkUrlsTest {
     }
 
     @Test
-    void videoLinksAlreadyGetAPlayerSoTheyGetNoCard() {
-        assertThat(LinkUrls.firstPreviewable("https://www.youtube.com/watch?v=dQw4w9WgXcQ")).isEmpty();
-        assertThat(LinkUrls.firstPreviewable("https://youtu.be/dQw4w9WgXcQ")).isEmpty();
-        assertThat(LinkUrls.firstPreviewable("https://vimeo.com/123456789")).isEmpty();
-        // ...but a second, ordinary link in the same message still can.
+    void videoLinksGetACardBecauseTheCardIsNowThePlayer() {
+        // These used to be skipped: MarkdownRenderer injected an <iframe> after the link, so a
+        // card underneath would have been a second embed for one URL. The body carries no player
+        // any more — the card *is* the player (poster + play button) — so the unfurl is what
+        // supplies its poster and title, and skipping it would leave a play button over a blank.
+        assertThat(LinkUrls.firstPreviewable("https://www.youtube.com/watch?v=dQw4w9WgXcQ"))
+                .contains("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+        assertThat(LinkUrls.firstPreviewable("https://youtu.be/dQw4w9WgXcQ"))
+                .contains("https://youtu.be/dQw4w9WgXcQ");
+        assertThat(LinkUrls.firstPreviewable("https://vimeo.com/123456789"))
+                .contains("https://vimeo.com/123456789");
+        // First link wins, video or not — one card per message is still the rule.
         assertThat(LinkUrls.firstPreviewable("https://youtu.be/dQw4w9WgXcQ and https://example.com/article"))
-                .contains("https://example.com/article");
+                .contains("https://youtu.be/dQw4w9WgXcQ");
     }
 
     @Test

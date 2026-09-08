@@ -98,8 +98,7 @@ public class MarkdownRenderer {
         var rawHtml = renderer.render(node);
         var clean = Jsoup.clean(rawHtml, safelist);
         var hardened = hardenAnchors(clean);
-        var embedded = embedVideos(hardened);
-        return decorateMentions(embedded, mentionService.resolvedUsernames(markdown), room);
+        return decorateMentions(hardened, mentionService.resolvedUsernames(markdown), room);
     }
 
     /**
@@ -116,90 +115,15 @@ public class MarkdownRenderer {
         return doc.body().html();
     }
 
-    // Subdomain is optional and may be www / m (mobile share URLs) / music — all cover the
-    // same video catalogue. The video id captured by group(1) is fed into the
-    // youtube-nocookie embed URL regardless of which entry path the user pasted.
-    private static final String YT_HOST = "(?:www\\.|m\\.|music\\.)?youtube\\.com";
-    private static final Pattern YT_WATCH = Pattern.compile(
-            "^https?://" + YT_HOST + "/watch\\?(?:[^#]*&)?v=([A-Za-z0-9_-]{6,20})");
-    /** Short-domain links — youtu.be/ID — usually the result of the YouTube share button. */
-    private static final Pattern YT_BE = Pattern.compile(
-            "^https?://(?:www\\.)?youtu\\.be/([A-Za-z0-9_-]{6,20})");
-    private static final Pattern YT_EMBED = Pattern.compile(
-            "^https?://" + YT_HOST + "/embed/([A-Za-z0-9_-]{6,20})");
-    /** Vertical-format Shorts (different URL path from /watch but the same embed endpoint). */
-    private static final Pattern YT_SHORTS = Pattern.compile(
-            "^https?://" + YT_HOST + "/shorts/([A-Za-z0-9_-]{6,20})");
-    private static final Pattern VIMEO = Pattern.compile(
-            "^https?://(?:www\\.)?vimeo\\.com/(?:video/)?(\\d{6,12})");
-
-    /**
-     * Append a responsive iframe embed after any anchor whose href matches a YouTube or Vimeo
-     * URL. Runs after the safelist clean (the inserted iframe is trusted markup we generate
-     * here, not user input) and before mention decoration. CSP {@code frame-src} on the web
-     * filter chain explicitly allows the YouTube and Vimeo embed origins.
+    /*
+     * A video link used to get an <iframe> injected here, right after its anchor. It doesn't any
+     * more: the player is now a click-to-play facade built by the client from
+     * LinkPreviewDto.video (see linkpreview/VideoLinks for the whole reasoning). Two things that
+     * were true of the old arrangement are worth keeping in mind before anyone re-adds it — the
+     * embed contacted YouTube on render, which is exactly what the link-preview card copies
+     * pictures server-side to avoid; and an <iframe> in the body makes the body impossible to run
+     * through the browser's own sanitizer, since Element.setHTML() drops iframes unconditionally.
      */
-    private static String embedVideos(String html) {
-        if (html == null || html.isEmpty() || !html.contains("href=")) return html;
-        var doc = Jsoup.parseBodyFragment(html);
-        for (var a : doc.select("a[href]")) {
-            // Don't double-embed if this anchor is already inside (or right next to) one of our wrappers.
-            var next = a.nextElementSibling();
-            if (next != null && next.hasClass("video-embed-wrapper")) continue;
-
-            var href = a.attr("href");
-            // Shorts get their own branch so the wrapper can carry data-orientation="vertical",
-            // which the stylesheet uses to render a 9:16 aspect-ratio frame instead of the
-            // landscape default. Regular /watch, /embed, and youtu.be URLs all funnel through
-            // matchFirst below and stay landscape.
-            var shortsId = matchFirst(href, YT_SHORTS);
-            if (shortsId != null) {
-                a.after(buildEmbed("https://www.youtube-nocookie.com/embed/" + shortsId,
-                        "YouTube Short", "vertical"));
-                continue;
-            }
-            var ytId = matchFirst(href, YT_WATCH, YT_BE, YT_EMBED);
-            if (ytId != null) {
-                a.after(buildEmbed("https://www.youtube-nocookie.com/embed/" + ytId, "YouTube video", null));
-                continue;
-            }
-            var vmId = matchFirst(href, VIMEO);
-            if (vmId != null) {
-                a.after(buildEmbed("https://player.vimeo.com/video/" + vmId, "Vimeo video", null));
-            }
-        }
-        return doc.body().html();
-    }
-
-    /**
-     * Whether {@link #embedVideos} would already have put a player after this URL. Link previews
-     * ask before unfurling, so a YouTube or Vimeo link gets the player and not a card underneath it
-     * as well — one embed per link, and the player is the better one.
-     */
-    public static boolean embedsVideo(String url) {
-        return matchFirst(url, YT_SHORTS, YT_WATCH, YT_BE, YT_EMBED, VIMEO) != null;
-    }
-
-    private static String matchFirst(String url, Pattern... patterns) {
-        if (url == null) return null;
-        for (var p : patterns) {
-            var m = p.matcher(url);
-            if (m.find()) return m.group(1);
-        }
-        return null;
-    }
-
-    private static String buildEmbed(String src, String title, String orientation) {
-        // src and title are constructed from a regex-matched id and a fixed string, so no
-        // untrusted content. orientation is one of {null, "vertical"} — the stylesheet
-        // selects on data-orientation="vertical" for the 9:16 Shorts frame.
-        var dataAttr = orientation == null ? "" : " data-orientation=\"" + orientation + "\"";
-        return "<div class=\"video-embed-wrapper\"" + dataAttr + ">"
-                + "<iframe class=\"video-embed\" src=\"" + src + "\" "
-                + "title=\"" + title + "\" loading=\"lazy\" allowfullscreen "
-                + "allow=\"accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture\""
-                + "></iframe></div>";
-    }
 
     /**
      * After CommonMark + jsoup-clean, walk the text nodes and wrap any {@code @username} that

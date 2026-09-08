@@ -58,3 +58,78 @@ add('no inline <script> elements (CSP would have blocked them)', () => {
         throw new Error('found ' + inline.length + ' inline <script> blocks — strict CSP forbids these');
     }
 });
+
+// Message bodies: the seam every feed, panel and list renders through, and the one
+// observable consequence of it. See MessageBodyRenderGuardTest for the CI-side guard —
+// this is the half that can only be checked against a real page.
+add('ChatKit exposes the shared message-body renderer', () => {
+    const kit = window.ChatKit;
+    if (typeof kit?.buildMessageBodyEl !== 'function' || typeof kit?.renderMessageBody !== 'function') {
+        throw new Error('ChatKit.buildMessageBodyEl / renderMessageBody missing — pages will render '
+            + 'bodies their own way again, and half of them will forget to highlight');
+    }
+    // Render a fenced block through the seam and check it came back highlighted. hljs marks what
+    // it processed, so this asserts the pairing rather than the presence of the function.
+    const el = kit.buildMessageBodyEl('<pre><code class="language-java">int x = 1;</code></pre>');
+    const block = el.querySelector('pre code');
+    if (!block) {
+        throw new Error('buildMessageBodyEl dropped the code block entirely');
+    }
+    // The language hint has to survive however the body was set. hljs falls back to
+    // auto-detection when it is gone, so highlighting still "works" while quietly guessing the
+    // language of every block — a failure worth naming rather than eyeballing.
+    if (!block.className.includes('language-java')) {
+        throw new Error('the language class was stripped from a code block: ' + block.className);
+    }
+    if (window.hljs && block.dataset.highlighted !== 'yes') {
+        throw new Error('buildMessageBodyEl rendered a code block without highlighting it');
+    }
+});
+
+add('Element.setHTML is available (polyfilled where the browser lacks it)', () => {
+    // search-box.js calls it with no feature test, so it has to exist. Safari only shipped it in
+    // 26; js/vendor/html-setters-polyfill.min.js covers everything older.
+    if (typeof document.createElement('div').setHTML !== 'function') {
+        throw new Error('Element.setHTML missing — the search dropdown will throw on every row');
+    }
+});
+
+add('a message body carries no player, and mentions keep their data-*', () => {
+    // The body used to carry a YouTube <iframe>, which called Google on every render and made the
+    // body impossible to run through Element.setHTML. The player is now a click-to-play facade on
+    // the link-preview card; the body has the plain link and nothing else.
+    const el = window.ChatKit.buildMessageBodyEl(
+        '<p><a href="https://youtu.be/x">https://youtu.be/x</a></p>'
+        + '<span class="mention" data-username="alice">@alice</span>');
+    if (el.querySelector('iframe')) {
+        throw new Error('a player was rendered inside the message body');
+    }
+    if (!el.querySelector('.mention[data-username="alice"]')) {
+        throw new Error('data-username was stripped off a mention — is the seam using setHTML?');
+    }
+});
+
+add('a video card is a facade until it is clicked', () => {
+    const card = window.ChatKit.buildVideoFacadeEl({
+        url: 'https://youtu.be/dQw4w9WgXcQ',
+        title: 'Never Gonna Give You Up',
+        imageUrl: '/api/link-previews/images/abc',
+        video: {
+            provider: 'YouTube',
+            embedUrl: 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ',
+            orientation: null,
+        },
+    });
+    if (card.querySelector('iframe')) {
+        throw new Error('the card built an iframe before anyone clicked it — that is the leak');
+    }
+    const button = card.querySelector('.video-facade');
+    if (!button || !button.dataset.embedUrl) {
+        throw new Error('no play button, or no embed URL on it');
+    }
+    // The poster must be our own copy, never the third party's picture.
+    const poster = card.querySelector('.video-facade-poster');
+    if (!poster || !poster.getAttribute('src').startsWith('/api/link-previews/images/')) {
+        throw new Error('the poster is not served from this origin: ' + poster?.getAttribute('src'));
+    }
+});

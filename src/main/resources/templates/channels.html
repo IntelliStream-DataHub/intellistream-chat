@@ -678,6 +678,10 @@
 </div>
 
 <!-- Vendored libraries stay as separate tags — pre-minified upstream, not re-compiled. -->
+<!-- Element.setHTML() is not Baseline yet (Safari only got it in 26). search-box.js calls it on
+     the escaped search snippets, so polyfill it rather than feature-test at each call site.
+     GoogleChromeLabs/html-setters-polyfill 0.1.1, Apache-2.0, unmodified. -->
+<script th:src="@{/js/vendor/html-setters-polyfill.min.js}"></script>
 <script th:src="@{/js/vendor/stomp.umd.min.js}"></script>
 <script th:src="@{/js/vendor/highlight.min.js}"></script>
 

@@ -338,6 +338,11 @@
    */
   const highlightCode = (root) => {
     if (!root) return;
+    const blocks = root.querySelectorAll('pre code');
+    // Nothing to do is not a problem worth a warning: chat-kit runs on pages that carry no code
+    // at all (/files, the file manager), and warning there trains people to ignore the line that
+    // matters — a page that has code blocks and no highlighter.
+    if (!blocks.length) return;
     if (!window.hljs) {
       if (!highlightCode._warned) {
         highlightCode._warned = true;
@@ -345,7 +350,7 @@
       }
       return;
     }
-    root.querySelectorAll('pre code').forEach((block) => {
+    blocks.forEach((block) => {
       // hljs v11 marks processed blocks with data-highlighted="yes"; re-running just spams a warning.
       if (block.dataset.highlighted === 'yes') return;
       try {
@@ -356,14 +361,68 @@
     });
   };
 
+  // ---------- Rendered message bodies ----------
+  /*
+   * The one way a server-rendered message body reaches the DOM.
+   *
+   * Every feed, panel and list that shows a message does the same two things: drop the server's
+   * sanitized bodyHtml in, then highlight the fenced code in it. That was eight copies of the
+   * pair — the channel feed, its edit re-render, its thread replies and pins panel, the DM feed
+   * and its two re-renders, and /saved — and four of them had the second line while four did not.
+   * The result was a code block that rendered coloured in the channel feed and plain in the DM
+   * history, the pins panel and saved items, with nothing thrown and nothing logged. Route a new
+   * body renderer through here and the step it would have forgotten is not optional any more.
+   *
+   * A body that is *typed* rather than rendered (the optimistic bubble's escaped text) has no
+   * markup to highlight and does not need this, but costs nothing by using it.
+   */
+  const renderMessageBody = (el, html) => {
+    if (!el) return el;
+    // innerHTML, deliberately, and NOT Element.setHTML(). A body is sanitized server-side
+    // (CommonMark → jsoup Safelist → MarkdownRenderer's own additions) and then deliberately
+    // given back two things the browser's sanitizer destroys:
+    //   - the <iframe> of a YouTube/Vimeo embed, which MarkdownRenderer.embedVideos injects
+    //     *after* the safelist pass. setHTML removes iframes unconditionally — a custom
+    //     SanitizerConfig cannot allow them back — so every video embed in the app would
+    //     silently disappear.
+    //   - data-* attributes, which the default sanitizer strips: data-username / data-mention
+    //     on a rendered mention, and data-orientation on the embed wrapper, which app.css reads
+    //     to give a Short its 9:16 frame.
+    // The escaped snippets in search-box.js are the opposite case and do use setHTML; see there.
+    el.innerHTML = html || '';
+    highlightCode(el);
+    return el;
+  };
+
+  /** {@link renderMessageBody} into a fresh {@code div.message-body}, plus any page-specific class. */
+  const buildMessageBodyEl = (html, extraClass) => {
+    const el = document.createElement('div');
+    el.className = extraClass ? 'message-body ' + extraClass : 'message-body';
+    return renderMessageBody(el, html);
+  };
+
+  /*
+   * The other half: the history Thymeleaf drew before any of this ran. Every page that renders
+   * messages server-side needs it, so it happens here once instead of being a line each page's
+   * own script has to remember — which is exactly the line the DM page didn't have, leaving a
+   * refreshed conversation's code blocks plain until something edited them.
+   */
+  const highlightServerRendered = () => highlightCode(document);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', highlightServerRendered, { once: true });
+  } else {
+    highlightServerRendered();
+  }
+
   // ---------- Markdown live preview ----------
   /**
    * Wire {@code textarea} to a paired preview pane. The pane is the container that
-   * shows/hides with the rendered output; {@code body} is the inner div whose innerHTML
-   * we set. Server-rendered preview ({@code POST /api/preview}) so the result is
-   * identical to the posted message. Also supplies a hook to reset on submit.
+   * shows/hides with the rendered output; {@code body} is the inner div we render into.
+   * Server-rendered preview ({@code POST /api/preview}) so the result is identical to the
+   * posted message — including its highlighting, since it goes through
+   * {@link renderMessageBody} like every other body. Also supplies a hook to reset on submit.
    */
-  const wireLivePreview = ({ textarea, pane, body, form, headers, highlight }) => {
+  const wireLivePreview = ({ textarea, pane, body, form, headers }) => {
     if (!textarea || !pane || !body) return;
     let debounce = null;
     let req = 0;
@@ -384,8 +443,7 @@
         if (!res.ok) return;
         const data = await res.json();
         if (myReq !== req) return; // stale
-        body.innerHTML = data.html || '';
-        if (typeof highlight === 'function') highlight(body);
+        renderMessageBody(body, data.html);
         pane.hidden = !data.html;
       } catch (_) { /* leave previous render */ }
     };
@@ -871,8 +929,96 @@
   // does, with the same rel. The image is NOT class="attachment-image", on purpose — that class
   // is what the lightbox delegate catches, and a preview picture is a link to a page, not a
   // picture to zoom.
+  /*
+   * A video link's card is a click-to-play facade, not a player.
+   *
+   * The server used to inject the <iframe> straight into the message body, which meant every
+   * reader's browser called YouTube just for scrolling past someone else's link — the exact leak
+   * that makes link-preview pictures a server-side *copy* served from this origin. Now the poster
+   * is that same copied picture, and the iframe is built here, once, by the person who actually
+   * wants to watch. See linkpreview/VideoLinks for the full reasoning.
+   *
+   * Markup is mirrored by fragments/link-preview.html for server-rendered messages, and the click
+   * is handled by one delegated listener below so both kinds of card behave the same.
+   */
+  const buildVideoFacadeEl = (p) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'link-preview link-preview-video';
+    if (p.video.orientation) wrap.dataset.orientation = p.video.orientation;
+
+    const play = document.createElement('button');
+    play.type = 'button';
+    play.className = 'video-facade';
+    // The embed URL is the server's, built from a regex-matched id — the client never assembles a
+    // third-party URL out of parts, which is what keeps frame-src meaningful.
+    play.dataset.embedUrl = p.video.embedUrl;
+    play.setAttribute('aria-label', p.title ? 'Play ' + p.title : 'Play video');
+    if (p.imageUrl) {
+      const poster = document.createElement('img');
+      poster.className = 'video-facade-poster';
+      poster.src = p.imageUrl;
+      poster.alt = '';
+      poster.loading = 'lazy';
+      play.appendChild(poster);
+    }
+    const glyph = document.createElement('span');
+    glyph.className = 'video-facade-play';
+    glyph.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#icon-play"/></svg>';
+    play.appendChild(glyph);
+    wrap.appendChild(play);
+
+    // The words stay a plain link to the page, so the card still gets you there without playing.
+    if (p.title || p.siteName) {
+      const a = document.createElement('a');
+      a.className = 'link-preview-text';
+      a.href = p.url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer nofollow';
+      if (p.siteName || p.video.provider) {
+        const site = document.createElement('span');
+        site.className = 'link-preview-site';
+        site.textContent = p.siteName || p.video.provider;
+        a.appendChild(site);
+      }
+      if (p.title) {
+        const title = document.createElement('span');
+        title.className = 'link-preview-title';
+        title.textContent = p.title;
+        a.appendChild(title);
+      }
+      wrap.appendChild(a);
+    }
+    return wrap;
+  };
+
+  /** Swap a facade for the real player. The one place an embed iframe is ever created. */
+  const playVideoFacade = (button) => {
+    const wrap = button.closest('.link-preview-video');
+    const src = button.dataset.embedUrl;
+    if (!wrap || !src) return;
+    const frame = document.createElement('iframe');
+    frame.className = 'video-embed';
+    // autoplay=1 because the click *was* the play instruction; without it the reader has to press
+    // play twice, once in our UI and once in YouTube's.
+    frame.src = src + (src.includes('?') ? '&' : '?') + 'autoplay=1';
+    frame.title = wrap.querySelector('.link-preview-title')?.textContent || 'Video';
+    frame.loading = 'lazy';
+    frame.allowFullscreen = true;
+    frame.setAttribute('allow',
+        'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture');
+    wrap.classList.add('is-playing');
+    button.replaceWith(frame);
+  };
+
+  document.addEventListener('click', (e) => {
+    const button = e.target.closest?.('.video-facade');
+    if (button) playVideoFacade(button);
+  });
+
   const buildLinkPreviewEl = (p) => {
-    if (!p || !p.url || !p.title) return null;
+    if (!p || !p.url) return null;
+    if (p.video) return buildVideoFacadeEl(p);
+    if (!p.title) return null;
     const a = document.createElement('a');
     a.className = 'link-preview';
     a.href = p.url;
@@ -1282,7 +1428,6 @@
         body: el(ids.previewBody || 'thread-preview-body'),
         form,
         headers: opts.headers,
-        highlight: highlightCode,
       });
     }
 
@@ -1503,6 +1648,7 @@
     wireImageLightbox,
     buildRemovedAttachmentEl,
     buildLinkPreviewEl,
+    buildVideoFacadeEl,
     applyLinkPreview,
     hashCode,
     avatarColor,
@@ -1532,5 +1678,7 @@
     appendAuthorHandle,
     setQuickReaction,
     highlightCode,
+    renderMessageBody,
+    buildMessageBodyEl,
   };
 })();

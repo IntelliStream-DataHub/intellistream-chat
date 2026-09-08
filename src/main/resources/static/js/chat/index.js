@@ -381,11 +381,7 @@ presenceMenu.init();
           }
           li.append(head);
 
-          // bodyHtml is server-rendered and server-sanitized (MarkdownRenderer + jsoup), the same
-          // string the feed renders with innerHTML.
-          const body = document.createElement('div');
-          body.className = 'message-body channel-pin-body';
-          body.innerHTML = msg.bodyHtml || '';
+          const body = window.ChatKit.buildMessageBodyEl(msg.bodyHtml, 'channel-pin-body');
           li.append(body);
 
           const actions = document.createElement('div');
@@ -564,7 +560,7 @@ presenceMenu.init();
 
   // Composer/textarea helpers (auto-resize, caret insert, format toolbar, emoji picker)
   // come from window.ChatKit (chat-kit.js). Pull them into local scope for terseness.
-  const { wireAutoResize, insertAtCursor, openEmojiPicker } = ChatKit;
+  const { wireAutoResize, insertAtCursor, openEmojiPicker, wireLivePreview } = ChatKit;
 
   // ---------- Joined channels: the subscription set ----------
   // Every channel the user is a member of, straight from the server (meta me-channel-ids, built
@@ -1624,45 +1620,15 @@ presenceMenu.init();
       });
 
       // Live markdown preview — server-rendered so the preview matches the posted message
-      // exactly (mentions, code highlighting, sanitisation, all identical).
-      const previewPane = document.getElementById('composer-preview');
-      const previewBody = document.getElementById('composer-preview-body');
-      let previewDebounce = null;
-      let previewReq = 0;
-      async function refreshPreview() {
-        if (!previewPane || !previewBody || !composerInput) return;
-        const body = composerInput.value;
-        if (!body.trim()) {
-          previewPane.hidden = true;
-          previewBody.innerHTML = '';
-          return;
-        }
-        const myReq = ++previewReq;
-        try {
-          const res = await fetch('/api/preview', {
-            method: 'POST',
-            headers: headers(),
-            body: JSON.stringify({ body })
-          });
-          if (!res.ok) return;
-          const data = await res.json();
-          if (myReq !== previewReq) return; // stale response, dropped
-          previewBody.innerHTML = data.html || '';
-          highlightCode(previewBody);
-          previewPane.hidden = !data.html;
-        } catch (_) {
-          // Network blip — leave the prior preview in place rather than blanking it.
-        }
-      }
-      composerInput?.addEventListener('input', () => {
-        clearTimeout(previewDebounce);
-        previewDebounce = setTimeout(refreshPreview, 220);
-      });
-      // Hide preview after sending so an empty composer doesn't show a stale render.
-      composer.addEventListener('submit', () => {
-        clearTimeout(previewDebounce);
-        if (previewPane) previewPane.hidden = true;
-        if (previewBody) previewBody.innerHTML = '';
+      // exactly (mentions, code highlighting, sanitisation, all identical). The wiring is
+      // ChatKit's, shared with the thread composer below and both of the DM page's, so the
+      // debounce, the stale-response guard and the hide-on-send behave the same in all four.
+      wireLivePreview({
+        textarea: composerInput,
+        pane: document.getElementById('composer-preview'),
+        body: document.getElementById('composer-preview-body'),
+        form: composer,
+        headers,
       });
 
       const addPendingAttachment = (file) => {
@@ -1781,10 +1747,7 @@ presenceMenu.init();
     right.append(meta);
 
     if (msg.bodyMarkdown && msg.bodyMarkdown.length > 0) {
-      const body = document.createElement('div');
-      body.className = 'message-body';
-      body.innerHTML = msg.bodyHtml;
-      highlightCode(body);
+      const body = ChatKit.buildMessageBodyEl(msg.bodyHtml);
       right.append(body);
     }
 
@@ -2216,11 +2179,9 @@ presenceMenu.init();
   }
 
   // ---------- Syntax highlighting ----------
-  // Implementation lives in ChatKit.highlightCode — shared with the DM page and both pages'
-  // thread panels, see its doc comment in chat-kit.js.
-  const highlightCode = ChatKit.highlightCode;
-  // Highlight everything currently on the page (server-rendered messages, search results, etc.).
-  highlightCode(document);
+  // Nothing here on purpose. Bodies are built by ChatKit.buildMessageBodyEl / renderMessageBody,
+  // which highlight as part of rendering, and chat-kit sweeps the server-rendered history on load
+  // for every page at once. See its doc comment for why this isn't per-page code any more.
 
   // ---------- Color server-rendered avatars (delegated to ChatKit) ----------
   ChatKit.backfillAvatarColors();
@@ -2820,10 +2781,7 @@ presenceMenu.init();
     right.querySelectorAll('.message-body, .link-preview, .message-attachments, .message-reactions, .message-edit, .edited-tag, .poll-widget').forEach(n => n.remove());
     const meta = right.querySelector('.message-meta');
     if (msg.bodyMarkdown) {
-      const body = document.createElement('div');
-      body.className = 'message-body';
-      body.innerHTML = msg.bodyHtml;
-      highlightCode(body);
+      const body = ChatKit.buildMessageBodyEl(msg.bodyHtml);
       meta.after(body);
       if (isEdit) flashEdited(body);
       // The update frame carries the card the message already has (the server decorates it);
@@ -3161,10 +3119,7 @@ presenceMenu.init();
     }
     const right = li.querySelector(':scope > div');
     if (msg.bodyMarkdown) {
-      const body = document.createElement('div');
-      body.className = 'message-body';
-      body.innerHTML = msg.bodyHtml;
-      highlightCode(body);
+      const body = ChatKit.buildMessageBodyEl(msg.bodyHtml);
       right.appendChild(body);
     }
     const preview = ChatKit.buildLinkPreviewEl(msg.linkPreview);
@@ -3219,46 +3174,15 @@ presenceMenu.init();
   // Enter-to-send is handled by the top-level document keydown handler.
   wireAutoResize(threadInput);
 
-  // Live markdown preview for the thread reply composer — same /api/preview path the
-  // channel composer uses so the rendered HTML is identical.
-  (function wireThreadPreview() {
-    const pane = document.getElementById('thread-preview');
-    const body = document.getElementById('thread-preview-body');
-    if (!pane || !body || !threadInput) return;
-    let debounce = null;
-    let req = 0;
-    async function refresh() {
-      const text = threadInput.value;
-      if (!text.trim()) {
-        pane.hidden = true;
-        body.innerHTML = '';
-        return;
-      }
-      const myReq = ++req;
-      try {
-        const res = await fetch('/api/preview', {
-          method: 'POST',
-          headers: headers(),
-          body: JSON.stringify({ body: text }),
-        });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (myReq !== req) return;
-        body.innerHTML = data.html || '';
-        highlightCode(body);
-        pane.hidden = !data.html;
-      } catch (_) { /* leave previous render */ }
-    }
-    threadInput.addEventListener('input', () => {
-      clearTimeout(debounce);
-      debounce = setTimeout(refresh, 220);
-    });
-    threadComposerForm?.addEventListener('submit', () => {
-      clearTimeout(debounce);
-      pane.hidden = true;
-      body.innerHTML = '';
-    });
-  })();
+  // Live markdown preview for the thread reply composer — the same ChatKit wiring as the
+  // channel composer, so the rendered HTML and the behaviour around it are identical.
+  wireLivePreview({
+    textarea: threadInput,
+    pane: document.getElementById('thread-preview'),
+    body: document.getElementById('thread-preview-body'),
+    form: threadComposerForm,
+    headers,
+  });
 
   // Tutorial overlay + sidebar filter were moved to ./chrome.js — see chrome.init() at the
   // top of this file. They were structurally independent of the message-feed code in here.

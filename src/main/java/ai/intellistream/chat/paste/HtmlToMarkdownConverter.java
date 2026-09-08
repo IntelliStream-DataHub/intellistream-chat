@@ -43,9 +43,10 @@ public class HtmlToMarkdownConverter {
 
     /**
      * How much clipboard HTML we are willing to parse. Word and Docs emit span-per-word
-     * markup, so a few pages of real content measures a few hundred KB; this mirrors
-     * {@code ichat.link-previews.max-html-bytes}, the codebase's existing answer to "how
-     * much foreign HTML will we read".
+     * markup, so a few pages of real content measures a few hundred KB. Not tied to
+     * {@code ichat.link-previews.max-html-bytes} — that one answers a different question (how far
+     * into a fetched page the {@code <head>} might be, which on YouTube is ~700 KB in) and the two
+     * moved apart when it was raised.
      */
     public static final int MAX_HTML_CHARS = 524_288;
 

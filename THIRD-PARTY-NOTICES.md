@@ -25,6 +25,18 @@ These files are checked into `src/main/resources/static/` and served to browsers
 - Part of the highlight.js styles collection.
 - License: **BSD 3-Clause** (same as highlight.js above).
 
+### HTML setters polyfill
+- File: `static/js/vendor/html-setters-polyfill.min.js`
+- Project: https://github.com/GoogleChromeLabs/html-setters-polyfill (v0.1.1, `index.min.js`, unmodified)
+- License: **Apache License 2.0** — https://www.apache.org/licenses/LICENSE-2.0
+- Copyright © Google LLC.
+- Why: `Element.setHTML()` is not Baseline yet (Safari shipped it in 26). The search dropdown
+  renders its escaped snippets through it; see the note in `AGENTS.md`.
+- **Compatibility shim, not a security control.** Its only DOM work is declarative shadow DOM; it
+  implements no sanitizer, so on a browser that needs the polyfill `setHTML` behaves as
+  `innerHTML`. Don't rely on it for a security property — the snippets it renders are escaped
+  server-side, which is what actually makes them safe.
+
 ### Figtree (font)
 - Files: `static/fonts/figtree-*.woff2`, and the upright subsets copied into the Keycloak login
   theme at `keycloak/themes/intellistream/login/resources/fonts/figtree-*.woff2` (the sign-in page

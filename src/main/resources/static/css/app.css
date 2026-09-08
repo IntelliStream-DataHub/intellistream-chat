@@ -2145,35 +2145,70 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
   font-weight: 700;
 }
 
-/* Responsive wrapper for YouTube / Vimeo embeds inserted by MarkdownRenderer.
-   Default is the landscape 4:1 compact strip used for /watch, /embed, youtu.be, and Vimeo.
-   Shorts ("data-orientation=vertical") flip to a 9:16 phone-shaped frame instead. */
-.video-embed-wrapper {
-  position: relative;
-  padding-bottom: 25%;
-  height: 0;
-  overflow: hidden;
-  max-width: 640px;          /* wider preview; combined with padding-bottom:25% gives ≈160px tall */
+/* A video link's card: a poster with a play button, and the <iframe> only after a click.
+   Nothing here contacts YouTube until then — the poster is our own copy of the page picture,
+   served from this origin like every other link-preview image. See linkpreview/VideoLinks.
+   Shorts ("data-orientation=vertical") are 9:16; everything else is 16:9. */
+.link-preview-video {
+  display: block;
+  max-width: 480px;
   margin: 0.5rem 0;
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-raised, var(--bg));
+}
+.link-preview-video .video-facade {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  aspect-ratio: 16 / 9;
   background: #000;
 }
-.video-embed-wrapper[data-orientation="vertical"] {
-  /* Shorts are 9:16. aspect-ratio replaces the padding-bottom hack and is well-supported
-     by every browser shipped since 2021. max-width pinned narrow so the embed sits
-     phone-sized in the feed instead of dominating the column. */
-  padding-bottom: 0;
-  height: auto;
-  aspect-ratio: 9 / 16;
+.link-preview-video[data-orientation="vertical"] {
   max-width: 280px;
 }
-.video-embed-wrapper iframe.video-embed {
-  position: absolute;
-  top: 0;
-  left: 0;
+.link-preview-video[data-orientation="vertical"] .video-facade,
+.link-preview-video[data-orientation="vertical"] iframe.video-embed {
+  aspect-ratio: 9 / 16;
+}
+.video-facade-poster {
   width: 100%;
   height: 100%;
+  object-fit: cover;
+  display: block;
+}
+/* The play badge sits centred over the poster — and over the bare black panel when the unfurl
+   found no picture, which is what keeps a link playable even when its page wouldn't answer. */
+.video-facade-play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+.video-facade-play .icon {
+  width: 48px;
+  height: 48px;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6));
+}
+.video-facade:hover .video-facade-play .icon,
+.video-facade:focus-visible .video-facade-play .icon {
+  transform: scale(1.08);
+}
+.link-preview-video iframe.video-embed {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
   border: 0;
+}
+.link-preview-video .link-preview-text {
+  display: block;
+  padding: 0.5rem 0.6rem;
 }
 
 /* ---------- Composer ---------- */

@@ -187,6 +187,11 @@ ichat:
   # (OutboundUrlGuard); this is what makes "paste a link" safe to have. The picture is copied to
   # `dir` and served from this origin, never hotlinked (the CSP forbids it, and it would leak every
   # reader's address to every linked site).
+  #   max-html-bytes      how far into a page we will read looking for its head. The read stops at
+  #                       </head>, so on a well-formed page this is never reached — it is the
+  #                       backstop for one that never closes a head, and it is generous because
+  #                       cutting a page short costs a card: YouTube puts ~700 KB of script before
+  #                       its <title>, and a cut above that is a card with nothing in it
   #   refresh-after       a good card is re-fetched when a new message posts the URL after this long
   #   retry-failed-after  a page that failed or had nothing is not tried again before this
   #   retention           rows nobody has posted in this long are purged, images included
@@ -195,7 +200,7 @@ ichat:
   link-previews:
     enabled: ${ICHAT_LINK_PREVIEWS_ENABLED:true}
     dir: ${ICHAT_LINK_PREVIEWS_DIR:./data/link-previews}
-    max-html-bytes: ${ICHAT_LINK_PREVIEWS_MAX_HTML_BYTES:524288}
+    max-html-bytes: ${ICHAT_LINK_PREVIEWS_MAX_HTML_BYTES:10485760}
     max-image-bytes: ${ICHAT_LINK_PREVIEWS_MAX_IMAGE_BYTES:3145728}
     timeout: ${ICHAT_LINK_PREVIEWS_TIMEOUT:6s}
     refresh-after: ${ICHAT_LINK_PREVIEWS_REFRESH_AFTER:7d}
