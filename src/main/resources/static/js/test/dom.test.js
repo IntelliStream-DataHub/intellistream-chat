@@ -109,6 +109,31 @@ add('a message body carries no player, and mentions keep their data-*', () => {
     }
 });
 
+add('an attachment chip offers a preview only when the server said it can', () => {
+    // previewUrl / previewKind come from the server (PreviewableAttachments); the chip must not
+    // decide from a filename, or it offers previews the endpoints then refuse.
+    const plain = window.ChatKit.buildAttachmentEl(
+        { filename: 'report.pdf', contentType: 'application/pdf', sizeBytes: 10, downloadUrl: '/d/1' });
+    if (plain.querySelector('.attachment-preview')) {
+        throw new Error('a file with no previewUrl was given a preview button');
+    }
+    const doc = window.ChatKit.buildAttachmentEl({
+        filename: 'notes.md', contentType: 'text/markdown', sizeBytes: 10,
+        downloadUrl: '/d/2', previewUrl: '/api/attachments/2/markdown', previewKind: 'markdown',
+    });
+    const button = doc.querySelector('.attachment-preview');
+    if (!button) throw new Error('a markdown attachment got no preview button');
+    if (button.dataset.previewKind !== 'markdown' || !button.dataset.previewUrl) {
+        throw new Error('the preview button carries nothing for the click delegate to read');
+    }
+    // The chip itself stays a plain download link: a <button> nested inside an <a> is neither
+    // valid markup nor operable by a keyboard, which is why the button is its sibling.
+    const chip = doc.querySelector('a.attachment');
+    if (!chip || chip.querySelector('button')) {
+        throw new Error('the preview button was nested inside the download link');
+    }
+});
+
 add('a video card is a facade until it is clicked', () => {
     const card = window.ChatKit.buildVideoFacadeEl({
         url: 'https://youtu.be/dQw4w9WgXcQ',

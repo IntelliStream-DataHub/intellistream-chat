@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<body>
+<!--/*
+  The tray of files under a message, for the history Thymeleaf renders. The live copy is
+  ChatKit.buildAttachmentTray in static/js/chat-kit.js — same markup, same class names. Change one,
+  change the other; the two pages used to carry a copy each of this block as well, which is how a
+  file could look one way in a channel and another in a DM.
+
+  Usage:
+    <div th:replace="~{fragments/attachments :: tray(${msg.attachments})}"></div>
+
+  Renders nothing when there are no attachments. Three shapes: a tombstone for a file deleted from
+  the file manager, a picture (left-click is caught by chat-kit's delegate and opened in the
+  in-page viewer), and a chip for everything else. A chip whose file the server can show as a
+  document carries a preview button beside its download — previewUrl and previewKind are the
+  server's answer to "can this be shown, and how", so nothing here guesses from a filename.
+*/-->
+<div th:fragment="tray(attachments)"
+     th:if="${attachments != null and !attachments.isEmpty()}"
+     class="message-attachments">
+    <th:block th:each="a : ${attachments}">
+        <!--/* Tombstone: the uploader deleted the file from the file manager and the message
+               stayed. Not a link — the bytes are gone, and a download that 404s is worse than
+               none. */-->
+        <span th:if="${a.deletedAt != null}" class="attachment attachment-removed"
+              th:title="|Deleted ${fmt.dateTime(a.deletedAt)}${a.deletedBy != null ? ' by ' + a.deletedBy : ''}|">
+            <svg class="icon attachment-icon" aria-hidden="true"><use href="#icon-paperclip"/></svg>
+            <span class="attachment-info">
+                <span class="attachment-name" th:text="${a.filename}">file</span>
+                <span class="attachment-meta"
+                      th:text="|Deleted ${fmt.dateTime(a.deletedAt)}${a.deletedBy != null ? ' by ' + a.deletedBy : ''}|">removed</span>
+            </span>
+        </span>
+        <a th:if="${a.deletedAt == null and #strings.startsWith(a.contentType, 'image/')}"
+           class="attachment-image"
+           th:href="@{${a.downloadUrl}}"
+           target="_blank" rel="noopener"
+           th:title="${a.filename}">
+            <img th:src="@{${a.downloadUrl}}" th:alt="${a.filename}" loading="lazy"/>
+        </a>
+        <!--/* The wrapper is unconditional so the chip is laid out identically with and without
+               the button; with no button it is a single-child flex row. */-->
+        <span th:if="${a.deletedAt == null and !#strings.startsWith(a.contentType, 'image/')}"
+              class="attachment-row">
+            <a class="attachment"
+               th:href="@{${a.downloadUrl}}"
+               th:attr="data-content-type=${a.contentType}"
+               th:title="${a.filename}">
+                <svg class="icon attachment-icon"><use href="#icon-paperclip"/></svg>
+                <span class="attachment-info">
+                    <span class="attachment-name" th:text="${a.filename}">file</span>
+                    <span class="attachment-meta">
+                        <span th:text="${a.contentType}">type</span> ·
+                        <span th:text="${#numbers.formatDecimal(a.sizeBytes / 1024.0, 1, 1) + ' KiB'}">size</span>
+                    </span>
+                </span>
+                <svg class="icon attachment-download"><use href="#icon-download"/></svg>
+            </a>
+            <button th:if="${a.previewUrl != null}" type="button" class="attachment-preview"
+                    th:title="|Show ${a.filename}|" th:aria-label="|Show ${a.filename}|"
+                    th:attr="data-preview-url=@{${a.previewUrl}},
+                             data-preview-kind=${a.previewKind},
+                             data-download-url=@{${a.downloadUrl}},
+                             data-filename=${a.filename}">
+                <svg class="icon"><use href="#icon-eye"/></svg>
+            </button>
+        </span>
+    </th:block>
+</div>
+</body>
+</html>

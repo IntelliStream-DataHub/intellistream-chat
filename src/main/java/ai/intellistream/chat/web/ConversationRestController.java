@@ -23,6 +23,7 @@ import ai.intellistream.chat.moderation.StorageQuotaService;
 import ai.intellistream.chat.security.CurrentUser;
 import ai.intellistream.chat.security.RateLimitExceededException;
 import ai.intellistream.chat.security.RateLimiter;
+import ai.intellistream.chat.security.ResourceNotFoundException;
 import ai.intellistream.chat.service.ConversationAttachmentService;
 import ai.intellistream.chat.service.ConversationReactionService;
 import ai.intellistream.chat.service.ConversationService;
@@ -35,6 +36,8 @@ import ai.intellistream.chat.web.dto.ConversationMemberDto;
 import ai.intellistream.chat.web.dto.ConversationMessageDto;
 import ai.intellistream.chat.web.dto.CreateGroupRequest;
 import ai.intellistream.chat.web.dto.EditMessageRequest;
+import ai.intellistream.chat.web.dto.HtmlPreviewDto;
+import ai.intellistream.chat.web.dto.MarkdownPreviewDto;
 import ai.intellistream.chat.web.dto.ReactionRequest;
 import ai.intellistream.chat.web.dto.StartDirectRequest;
 import jakarta.servlet.http.HttpServletRequest;
@@ -458,6 +461,44 @@ public class ConversationRestController {
         broker.convertAndSend("/topic/conversations/" + conversationId, dto);
         linkPreviews.unfurl(dto);
         return dto;
+    }
+
+    /**
+     * The rendered form of a markdown attachment in this conversation — the DM half of
+     * {@code AttachmentRestController.markdownPreview}. Same authorisation as the download below,
+     * including its flat refusal for a non-member, so a preview can't answer a question the
+     * download won't.
+     */
+    @GetMapping("/{conversationId}/attachments/{attachmentId}/markdown")
+    public MarkdownPreviewDto attachmentMarkdown(@PathVariable Long conversationId,
+                                                 @PathVariable Long attachmentId,
+                                                 Principal principal) throws IOException {
+        var attachment = requireAttachmentForPreview(conversationId, attachmentId, principal);
+        return AttachmentPreviews.markdown(attachment.getFilename(), attachment.getContentType(),
+                attachments.resolve(attachment), markdown);
+    }
+
+    /** An HTML attachment in this conversation, for the sandboxed iframe. See {@link HtmlPreviewDto}. */
+    @GetMapping("/{conversationId}/attachments/{attachmentId}/html")
+    public HtmlPreviewDto attachmentHtml(@PathVariable Long conversationId,
+                                         @PathVariable Long attachmentId,
+                                         Principal principal) throws IOException {
+        var attachment = requireAttachmentForPreview(conversationId, attachmentId, principal);
+        return AttachmentPreviews.html(attachment.getFilename(), attachment.getContentType(),
+                attachments.resolve(attachment));
+    }
+
+    private ConversationAttachment requireAttachmentForPreview(Long conversationId, Long attachmentId,
+                                                               Principal principal) {
+        var me = currentUser.resolve(principal);
+        if (!rateLimiter.tryAcquire(me.getUsername(), "dm-attachment-preview", 30, java.time.Duration.ofMinutes(1))) {
+            throw new RateLimitExceededException("attachment preview rate exceeded");
+        }
+        try {
+            return attachments.requireForDownload(conversationId, attachmentId, me);
+        } catch (NoSuchElementException ex) {
+            throw new ResourceNotFoundException("conversation attachment " + attachmentId);
+        }
     }
 
     /**
