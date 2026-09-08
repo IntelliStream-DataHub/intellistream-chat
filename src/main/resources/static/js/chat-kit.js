@@ -918,6 +918,82 @@
     return el;
   };
 
+  // ---------- Attachment chips ----------
+  /**
+   * The tray of files under a message, and the chips in it. One builder for both feeds, their
+   * update paths and their thread panels — the channel page and the DM page each had their own
+   * copy of this, identical down to the comments, which is exactly the arrangement that let the
+   * image lightbox exist on one page and not the other for months. templates/channels.html and
+   * templates/conversation.html draw the same markup for the history Thymeleaf renders; keep the
+   * three in step.
+   *
+   * <p>Three shapes: a tombstone for a file deleted from the file manager, a picture, and a chip
+   * for everything else. A chip whose file the server can show as a document (the DTO's
+   * previewUrl — markdown and HTML today) gets a preview button beside its download, in a wrapper
+   * rather than inside the chip: the chip is an <a> and a button inside a link is neither valid
+   * markup nor operable by a keyboard.
+   */
+  const buildAttachmentEl = (a) => {
+    // Tombstone: the file was deleted from the file manager, the message stayed.
+    if (a.deletedAt) return buildRemovedAttachmentEl(a);
+    const isImage = (a.contentType || '').startsWith('image/');
+    const link = document.createElement('a');
+    link.href = a.downloadUrl;
+    link.title = a.filename;
+    if (isImage) {
+      link.className = 'attachment-image';
+      // Keep href + target so middle-click and "Open in new tab" still work; left-click is
+      // intercepted by the document-level delegate that opens the viewer.
+      link.target = '_blank';
+      link.rel = 'noopener';
+      const img = document.createElement('img');
+      img.src = a.downloadUrl;
+      img.alt = a.filename;
+      img.loading = 'lazy';
+      link.append(img);
+      return link;
+    }
+    link.className = 'attachment';
+    link.dataset.contentType = a.contentType;
+    link.innerHTML = '<svg class="icon attachment-icon"><use href="#icon-paperclip"/></svg>' +
+        '<span class="attachment-info"><span class="attachment-name"></span>' +
+        '<span class="attachment-meta"></span></span>' +
+        '<svg class="icon attachment-download"><use href="#icon-download"/></svg>';
+    link.querySelector('.attachment-name').textContent = a.filename;
+    link.querySelector('.attachment-meta').textContent =
+        (a.contentType || '') + ' · ' + formatBytes(a.sizeBytes);
+    // The wrapper is unconditional, so a chip with a preview button and one without lay out
+    // identically — and so this and the Thymeleaf mirror produce the same DOM for the same file.
+    const row = document.createElement('span');
+    row.className = 'attachment-row';
+    row.append(link);
+    if (a.previewUrl) row.append(buildPreviewButton(a));
+    return row;
+  };
+
+  const buildPreviewButton = (a) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'attachment-preview';
+    button.title = 'Show ' + a.filename;
+    button.setAttribute('aria-label', 'Show ' + a.filename);
+    // The delegate reads these rather than closing over the attachment, because the identical
+    // button is server-rendered by Thymeleaf for the history and one click handler serves both.
+    button.dataset.previewUrl = a.previewUrl;
+    button.dataset.previewKind = a.previewKind || '';
+    button.dataset.downloadUrl = a.downloadUrl || '';
+    button.dataset.filename = a.filename || '';
+    button.innerHTML = '<svg class="icon"><use href="#icon-eye"/></svg>';
+    return button;
+  };
+
+  const buildAttachmentTray = (attachments) => {
+    const tray = document.createElement('div');
+    tray.className = 'message-attachments';
+    for (const a of attachments || []) tray.append(buildAttachmentEl(a));
+    return tray;
+  };
+
   // ---------- Link preview card ----------
   // The card under a message that contains a link: site, title, description, and the server's
   // copy of the page's picture. One builder for every renderer on both pages — the channel feed,
@@ -1072,37 +1148,28 @@
     if (body) body.after(el); else col.appendChild(el);
   };
 
-  // ---------- Image lightbox ----------
-  // Clicking an image attachment opens it in place, with download / open-in-tab / close, rather
-  // than navigating away. Shared because both pages have image attachments and only one of them
-  // had this: the conversation page opened a new browser tab instead, which is a different
-  // product decision made by accident, in a copy nobody compared.
+  // ---------- Attachment viewer ----------
+  // One overlay, three things it can hold: a picture, a rendered markdown document, and a
+  // sandboxed frame around an uploaded HTML file. It is one overlay because the chrome is the
+  // same question every time — a title, a download, a way out — and because Escape, the backdrop
+  // click and the scroll lock on <body> are the kind of thing that gets forgotten in the second
+  // copy. What differs per kind is only which node is shown and what is put in it.
   //
-  // Idempotent — the channel page calls it once and so does the conversation page, and a second
-  // call must not attach a second delegate.
-  let lightboxWired = false;
-  const wireImageLightbox = () => {
-    if (lightboxWired) return;
-    lightboxWired = true;
-  // One delegate covers both server-rendered messages (Thymeleaf in channels.html) and
-  // JS-rendered ones; otherwise the historical-message links would just download via href.
-  document.addEventListener('click', (e) => {
-    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-    const link = e.target.closest('a.attachment-image');
-    if (!link) return;
-    e.preventDefault();
-    const img = link.querySelector('img');
-    openLightbox(link.getAttribute('href'), img?.alt || link.title || '');
-  });
-
-  let lightboxEl = null;
-  const ensureLightbox = () => {
-    if (lightboxEl) return lightboxEl;
-    lightboxEl = document.createElement('div');
-    lightboxEl.className = 'lightbox';
-    lightboxEl.hidden = true;
-    lightboxEl.innerHTML =
+  // Clicking an image attachment opens it in place rather than navigating away. Shared because
+  // both pages have image attachments and only one of them had this: the conversation page opened
+  // a new browser tab instead, which is a different product decision made by accident, in a copy
+  // nobody compared.
+  let viewerEl = null;
+  const ensureViewer = () => {
+    if (viewerEl) return viewerEl;
+    viewerEl = document.createElement('div');
+    viewerEl.className = 'lightbox';
+    viewerEl.setAttribute('role', 'dialog');
+    viewerEl.setAttribute('aria-modal', 'true');
+    viewerEl.hidden = true;
+    viewerEl.innerHTML =
         '<div class="lightbox-toolbar">' +
+          '<span class="lightbox-title"></span>' +
           '<a class="lightbox-btn" data-action="download" title="Download" aria-label="Download">' +
             '<svg class="icon"><use href="#icon-download"/></svg>' +
           '</a>' +
@@ -1113,37 +1180,196 @@
             '<svg class="icon"><use href="#icon-close"/></svg>' +
           '</button>' +
         '</div>' +
-        '<img class="lightbox-img" alt=""/>';
-    document.body.appendChild(lightboxEl);
-    lightboxEl.addEventListener('click', (e) => {
-      if (e.target === lightboxEl) closeLightbox();
+        '<img class="lightbox-img" alt=""/>' +
+        '<div class="lightbox-doc" hidden><div class="lightbox-sheet">' +
+          '<p class="lightbox-note" hidden></p>' +
+          '<div class="message-body lightbox-doc-body"></div>' +
+        '</div></div>' +
+        '<div class="lightbox-frame-wrap" hidden>' +
+          '<p class="lightbox-note" hidden></p>' +
+          '<div class="lightbox-frame-slot"></div>' +
+        '</div>' +
+        '<p class="lightbox-status" hidden></p>';
+    document.body.appendChild(viewerEl);
+    viewerEl.addEventListener('click', (e) => {
+      if (e.target === viewerEl) closeViewer();
     });
-    lightboxEl.querySelector('[data-action="close"]').addEventListener('click', closeLightbox);
+    viewerEl.querySelector('[data-action="close"]').addEventListener('click', closeViewer);
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && lightboxEl && !lightboxEl.hidden) closeLightbox();
+      if (e.key === 'Escape' && viewerEl && !viewerEl.hidden) closeViewer();
     });
-    return lightboxEl;
+    return viewerEl;
   };
-  const openLightbox = (url, filename) => {
-    const el = ensureLightbox();
-    el.querySelector('.lightbox-img').src = url;
-    el.querySelector('.lightbox-img').alt = filename || '';
+
+  // Which of the content nodes is on show — 'image', 'doc', 'frame', or 'none' while a preview is
+  // still being fetched. Everything else about the overlay is shared, so this is the whole of
+  // "what kind of thing am I looking at".
+  const setViewerMode = (el, mode) => {
+    el.querySelector('.lightbox-img').hidden = mode !== 'image';
+    el.querySelector('.lightbox-doc').hidden = mode !== 'doc';
+    el.querySelector('.lightbox-frame-wrap').hidden = mode !== 'frame';
+    // Open-in-tab is offered only for images: the download endpoint serves everything else as an
+    // attachment on purpose (inline user-uploaded bytes in this origin is stored XSS), so the
+    // button would silently download instead of opening.
+    el.querySelector('[data-action="open"]').hidden = mode !== 'image';
+  };
+
+  const showViewer = (el, mode, opts = {}) => {
+    setViewerMode(el, mode);
     const dl = el.querySelector('[data-action="download"]');
-    dl.href = url;
-    dl.setAttribute('download', filename || '');
+    dl.hidden = !opts.downloadUrl;
+    if (opts.downloadUrl) {
+      dl.href = opts.downloadUrl;
+      dl.setAttribute('download', opts.filename || '');
+    }
+    el.querySelector('.lightbox-title').textContent = opts.filename || '';
+    el.setAttribute('aria-label', opts.filename ? 'Preview of ' + opts.filename : 'File preview');
+    setViewerStatus(el, opts.status || '');
+    el.hidden = false;
+    document.body.classList.add('lightbox-open');
+  };
+
+  const setViewerStatus = (el, text) => {
+    const status = el.querySelector('.lightbox-status');
+    status.textContent = text || '';
+    status.hidden = !text;
+  };
+
+  const setViewerNote = (host, text) => {
+    const note = host.querySelector('.lightbox-note');
+    note.textContent = text || '';
+    note.hidden = !text;
+  };
+
+  const TRUNCATED_NOTE = 'This file is too long to show in full — download it to read the rest.';
+
+  let viewerRequest = 0;
+
+  const openImageViewer = (url, filename) => {
+    const el = ensureViewer();
+    const img = el.querySelector('.lightbox-img');
+    img.src = url;
+    img.alt = filename || '';
+    showViewer(el, 'image', { filename, downloadUrl: url });
     // The download endpoint returns Content-Disposition: attachment by default, which would
     // trigger a download instead of rendering in the new tab. Ask for inline disposition here.
     const sep = url.indexOf('?') === -1 ? '?' : '&';
     el.querySelector('[data-action="open"]').href = url + sep + 'disposition=inline';
-    el.hidden = false;
-    document.body.classList.add('lightbox-open');
   };
-  const closeLightbox = () => {
-    if (!lightboxEl) return;
-    lightboxEl.hidden = true;
-    lightboxEl.querySelector('.lightbox-img').src = '';
+
+  /**
+   * Show an uploaded document. {@code kind} is the server's own word for it — the
+   * {@code previewKind} on the attachment DTO — so the client never guesses from a filename what
+   * a file is; see PreviewableAttachments on the Java side.
+   *
+   * <p>markdown: the server returns HTML that has already been through the message safelist, so it
+   * goes into the page through the same seam as a message body and comes out highlighted.
+   * html: the server returns the file's own markup, and the ONLY safe place for that is the
+   * sandboxed frame below.
+   */
+  const openDocumentViewer = ({ previewUrl, previewKind, downloadUrl, filename }) => {
+    if (!previewUrl) return;
+    const el = ensureViewer();
+    const frame = previewKind === 'html';
+    const host = el.querySelector(frame ? '.lightbox-frame-wrap' : '.lightbox-doc');
+    setViewerNote(host, '');
+    if (frame) {
+      el.querySelector('.lightbox-frame-slot').textContent = '';
+    } else {
+      el.querySelector('.lightbox-doc-body').textContent = '';
+    }
+    // 'none' until the bytes land: an empty sheet under a "Loading…" line reads as a document
+    // that rendered to nothing.
+    showViewer(el, 'none', { filename, downloadUrl, status: 'Loading preview…' });
+    const token = ++viewerRequest;
+    fetch(previewUrl, { headers: { Accept: 'application/json' } })
+        .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+        .then((data) => {
+          if (token !== viewerRequest) return; // a second preview was opened while this loaded
+          setViewerStatus(el, '');
+          setViewerMode(el, frame ? 'frame' : 'doc');
+          setViewerNote(host, data.truncated ? TRUNCATED_NOTE : '');
+          if (frame) {
+            el.querySelector('.lightbox-frame-slot').replaceChildren(
+                buildSandboxedFrame(data.source || '', filename));
+          } else {
+            renderMessageBody(el.querySelector('.lightbox-doc-body'), data.html || '');
+          }
+        })
+        .catch(() => {
+          if (token !== viewerRequest) return;
+          setViewerStatus(el, 'Sorry — that preview could not be loaded.');
+        });
+  };
+
+  /**
+   * The frame an uploaded HTML file is shown in, and the reason showing one at all is defensible.
+   *
+   * <p>A bare `sandbox` attribute — no allow-scripts, no allow-same-origin — puts the document in
+   * an opaque origin with scripting off, so it can neither run code nor reach this application's
+   * cookies, storage or DOM. Adding either token gives that away; there is no version of this
+   * feature that needs them.
+   *
+   * <p>It is `srcdoc`, not a URL, and that is load-bearing twice over. Nothing on this origin ever
+   * responds `text/html` with somebody's upload in it, so there is no address a victim could be
+   * sent to where the file would render as a top-level page. And a srcdoc document inherits this
+   * page's CSP, so the file's own `<style>` works while `img-src 'self' data:` and `connect-src
+   * 'self'` stop it fetching anything off-origin — an uploaded page cannot phone home to tell its
+   * author who read it, which is the same leak link-preview pictures are copied server-side to
+   * avoid.
+   *
+   * <p>A fresh element every time: the attribute has to be in place before the content is, and a
+   * new frame is also how the previous document is disposed of rather than left parked in memory.
+   */
+  const buildSandboxedFrame = (source, filename) => {
+    const frame = document.createElement('iframe');
+    frame.setAttribute('sandbox', '');
+    frame.setAttribute('referrerpolicy', 'no-referrer');
+    frame.className = 'lightbox-frame';
+    frame.title = filename ? 'Preview of ' + filename : 'File preview';
+    frame.srcdoc = source;
+    return frame;
+  };
+
+  const closeViewer = () => {
+    if (!viewerEl) return;
+    viewerRequest++; // an in-flight preview must not paint into a closed overlay
+    viewerEl.hidden = true;
+    viewerEl.querySelector('.lightbox-img').src = '';
+    viewerEl.querySelector('.lightbox-doc-body').textContent = '';
+    viewerEl.querySelector('.lightbox-frame-slot').textContent = '';
     document.body.classList.remove('lightbox-open');
   };
+
+  // One delegate covers both server-rendered messages (Thymeleaf in channels.html /
+  // conversation.html) and JS-rendered ones; otherwise the historical rows' image links would
+  // just download via href and their preview buttons would do nothing.
+  //
+  // Idempotent — the channel page calls it once and so does the conversation page, and a second
+  // call must not attach a second delegate.
+  let viewerWired = false;
+  const wireAttachmentViewer = () => {
+    if (viewerWired) return;
+    viewerWired = true;
+    document.addEventListener('click', (e) => {
+      const preview = e.target.closest?.('.attachment-preview');
+      if (preview) {
+        e.preventDefault();
+        openDocumentViewer({
+          previewUrl: preview.dataset.previewUrl,
+          previewKind: preview.dataset.previewKind,
+          downloadUrl: preview.dataset.downloadUrl,
+          filename: preview.dataset.filename,
+        });
+        return;
+      }
+      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const link = e.target.closest('a.attachment-image');
+      if (!link) return;
+      e.preventDefault();
+      const img = link.querySelector('img');
+      openImageViewer(link.getAttribute('href'), img?.alt || link.title || '');
+    });
   };
 
   // ---------- "New messages" divider ----------
@@ -1645,8 +1871,10 @@
     createTypingTracker,
     throttledPing,
     applyUnreadDivider,
-    wireImageLightbox,
+    wireAttachmentViewer,
     buildRemovedAttachmentEl,
+    buildAttachmentEl,
+    buildAttachmentTray,
     buildLinkPreviewEl,
     buildVideoFacadeEl,
     applyLinkPreview,

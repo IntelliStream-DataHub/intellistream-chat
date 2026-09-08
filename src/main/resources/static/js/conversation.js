@@ -57,7 +57,6 @@
     createThreadPanel,
     dayKey,
     formatTime,
-    formatBytes,
     insertAtCursor,
     wireAutoResize,
     wireAllFormatToolbars,
@@ -567,47 +566,14 @@
   });
 
   // ---------- Attachment rendering ----------
-  // Mirrors chat.js's renderAttachmentTray + buildAttachmentLink for DMs. Image attachments
-  // open an in-page lightbox via the document-level delegate that ships in chat.js — but
-  // chat.js isn't loaded here, so wire a minimal local delegate further below.
-  function buildAttachmentLink(a) {
-    // Tombstone: the file was deleted from the file manager, the message stayed.
-    if (a.deletedAt) return window.ChatKit.buildRemovedAttachmentEl(a);
-    const isImage = (a.contentType || '').startsWith('image/');
-    const link = document.createElement('a');
-    link.href = a.downloadUrl;
-    link.title = a.filename;
-    if (isImage) {
-      link.className = 'attachment-image';
-      link.target = '_blank';
-      link.rel = 'noopener';
-      const img = document.createElement('img');
-      img.src = a.downloadUrl;
-      img.alt = a.filename;
-      img.loading = 'lazy';
-      link.append(img);
-    } else {
-      link.className = 'attachment';
-      link.dataset.contentType = a.contentType;
-      link.innerHTML = '<svg class="icon attachment-icon"><use href="#icon-paperclip"/></svg>' +
-          '<span class="attachment-info"><span class="attachment-name"></span>' +
-          '<span class="attachment-meta"></span></span>' +
-          '<svg class="icon attachment-download"><use href="#icon-download"/></svg>';
-      link.querySelector('.attachment-name').textContent = a.filename;
-      link.querySelector('.attachment-meta').textContent =
-          (a.contentType || '') + ' · ' + formatBytes(a.sizeBytes);
-    }
-    return link;
-  }
+  // The tray, its chips and the in-page viewer behind them all come from ChatKit, so a DM's files
+  // look and behave exactly like a channel's. They didn't always: this page carried its own copy
+  // of the chip builder and opened images in a new browser tab, which is a different product
+  // decision made by accident in a copy nobody compared.
   function renderAttachmentTray(attachments) {
-    const tray = document.createElement('div');
-    tray.className = 'message-attachments';
-    for (const a of attachments) tray.append(buildAttachmentLink(a));
-    return tray;
+    return window.ChatKit.buildAttachmentTray(attachments);
   }
-  // The same in-page lightbox the channel page uses. This was a window.open to a new browser
-  // tab — the "minimal" version — which is why image attachments felt different in a DM.
-  window.ChatKit.wireImageLightbox();
+  window.ChatKit.wireAttachmentViewer();
 
   // ---------- Typing indicator ----------
   // Receiving and sending halves both come from ChatKit; what is local is the destination and the

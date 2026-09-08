@@ -16,6 +16,7 @@
 
 package ai.intellistream.chat.web.dto;
 
+import ai.intellistream.chat.attachments.PreviewableAttachments;
 import ai.intellistream.chat.domain.Attachment;
 
 import java.time.Instant;
@@ -27,6 +28,20 @@ public record AttachmentDto(
         String contentType,
         long sizeBytes,
         String downloadUrl,
+        /**
+         * Where to GET this file's preview, or null when it isn't one this app can show (see
+         * {@link PreviewableAttachments}). It is the server's answer to "does this chip get a
+         * preview button", so no client has to know what a markdown file looks like — and the
+         * four places that draw an attachment chip cannot disagree about it.
+         */
+        String previewUrl,
+        /**
+         * {@code "markdown"} or {@code "html"} — how the client must show what that URL returns.
+         * The two are not interchangeable: markdown comes back sanitised and goes into the page,
+         * HTML comes back as the uploader wrote it and may only be shown inside a sandboxed
+         * iframe. Null whenever {@code previewUrl} is.
+         */
+        String previewKind,
         Instant createdAt,
         /**
          * Set when the uploader removed the file from the file manager. The message survives an
@@ -38,6 +53,7 @@ public record AttachmentDto(
 ) {
     public static AttachmentDto from(Attachment a) {
         boolean gone = a.isDeleted();
+        var kind = gone ? null : PreviewableAttachments.kindOf(a.getFilename(), a.getContentType());
         return new AttachmentDto(
                 a.getId(),
                 a.getFilename(),
@@ -46,6 +62,8 @@ public record AttachmentDto(
                 // No link for a tombstone: the bytes are gone, and offering a download that
                 // 404s is worse than offering none.
                 gone ? null : "/api/attachments/" + a.getId() + "/download",
+                kind == null ? null : "/api/attachments/" + a.getId() + "/" + kind.slug(),
+                kind == null ? null : kind.slug(),
                 a.getCreatedAt(),
                 a.getDeletedAt(),
                 gone ? a.getDeletedByUsername() : null);

@@ -1515,10 +1515,24 @@
   </p>
   <p>
     The content type is sniffed from the bytes with Apache Tika and the sniffed type wins over
-    whatever the browser claimed. Images render inline and, in channels, open in a full-screen
-    lightbox with download and open-in-new-tab actions; <kbd>Esc</kbd> closes it. Everything else
-    renders as a card with the filename, type and size. Downloads are served as attachments by
+    whatever the browser claimed. Images render inline and open in a full-screen viewer with
+    download and open-in-new-tab actions; <kbd>Esc</kbd> closes it. Everything else renders as a
+    card with the filename, type and size. Downloads are served as attachments by
     default, and only real raster images may be displayed inline, which is why SVG is excluded.
+  </p>
+  <h4>Reading a file without downloading it</h4>
+  <p>
+    A <b>Markdown</b> or <b>HTML</b> attachment carries an eye button beside its download, which
+    opens the file in the same full-screen viewer the pictures use. Markdown is rendered by the
+    server into the same sanitised HTML a message body gets, code blocks highlighted and all. HTML
+    is shown as its author wrote it, inside a sandboxed frame: no scripts run, and the page cannot
+    load anything from the network, so opening it tells nobody that you did. Both are capped —
+    128 KiB of Markdown, 512 KiB of HTML — and a longer file says so and offers the download.
+  </p>
+  <p>
+    The button appears only when the sniffed type agrees with the name, so a ZIP called
+    <code>report.md</code> is still just a download. Nothing else is previewable: a PDF, a
+    spreadsheet or a <code>.txt</code> file is a download, as before.
   </p>
   <h4>Finding a file again</h4>
   <p>

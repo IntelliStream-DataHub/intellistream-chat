@@ -2545,44 +2545,12 @@ presenceMenu.init();
     li.appendChild(buildActions(li));
   };
 
-  const buildAttachmentLink = (a) => {
-    // Tombstone: the file was deleted from the file manager, the message stayed.
-    if (a.deletedAt) return window.ChatKit.buildRemovedAttachmentEl(a);
-    const isImage = (a.contentType || '').startsWith('image/');
-    const link = document.createElement('a');
-    link.href = a.downloadUrl;
-    link.title = a.filename;
-    if (isImage) {
-      link.className = 'attachment-image';
-      // Keep href + target so middle-click and "Open in new tab" still work; left-click
-      // is intercepted by the document-level delegate that opens the lightbox.
-      link.target = '_blank';
-      link.rel = 'noopener';
-      const img = document.createElement('img');
-      img.src = a.downloadUrl;
-      img.alt = a.filename;
-      img.loading = 'lazy';
-      link.append(img);
-    } else {
-      link.className = 'attachment';
-      link.dataset.contentType = a.contentType;
-      link.innerHTML = '<svg class="icon attachment-icon"><use href="#icon-paperclip"/></svg>' +
-          '<span class="attachment-info"><span class="attachment-name"></span>' +
-          '<span class="attachment-meta"></span></span>' +
-          '<svg class="icon attachment-download"><use href="#icon-download"/></svg>';
-      link.querySelector('.attachment-name').textContent = a.filename;
-      link.querySelector('.attachment-meta').textContent =
-          (a.contentType || '') + ' · ' + formatBytes(a.sizeBytes);
-    }
-    return link;
-  };
-
-  const renderAttachmentTray = (attachments) => {
-    const tray = document.createElement('div');
-    tray.className = 'message-attachments';
-    for (const a of attachments) tray.append(buildAttachmentLink(a));
-    return tray;
-  };
+  // The chips under a message come from ChatKit — one builder for this page, the DM page and the
+  // Thymeleaf history, because two copies of it is how the image lightbox ended up on one page
+  // and not the other. It is also what puts the preview button on a markdown or HTML attachment.
+  function renderAttachmentTray(attachments) {
+    return window.ChatKit.buildAttachmentTray(attachments);
+  }
 
   // ---------- Poll widget ----------
   // Click-to-vote with bar visualisation. Reactions on the host message stay independent —
@@ -2743,7 +2711,7 @@ presenceMenu.init();
   // Lives in chat-kit.js: the conversation page needs the identical one, and it used to make do
   // with window.open — a new browser tab instead of the in-page viewer, which is the difference
   // people notice when they say attachments "behave differently" in a DM.
-  window.ChatKit.wireImageLightbox();
+  window.ChatKit.wireAttachmentViewer();
 
   // `target` names the row to repaint. The broadcast path has none in hand and looks one up; the
   // author's own save passes the row it just edited, so an edit made in the thread panel repaints
