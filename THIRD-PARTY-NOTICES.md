@@ -32,6 +32,10 @@ These files are checked into `src/main/resources/static/` and served to browsers
 - Copyright © Google LLC.
 - Why: `Element.setHTML()` is not Baseline yet (Safari shipped it in 26). The search dropdown
   renders its escaped snippets through it; see the note in `AGENTS.md`.
+- **Compatibility shim, not a security control.** Its only DOM work is declarative shadow DOM; it
+  implements no sanitizer, so on a browser that needs the polyfill `setHTML` behaves as
+  `innerHTML`. Don't rely on it for a security property — the snippets it renders are escaped
+  server-side, which is what actually makes them safe.
 
 ### Figtree (font)
 - Files: `static/fonts/figtree-*.woff2`, and the upright subsets copied into the Keycloak login

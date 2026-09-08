@@ -121,23 +121,43 @@ class MessageBodyRenderGuardTest {
 
     @Test
     void messageBodiesAreNotRunThroughTheBrowserSanitizer() throws Exception {
-        // Element.setHTML() strips data-* attributes, and a rendered mention carries
-        // data-username / data-mention. Nothing reads them *today*, which is exactly why removing
-        // them would be a silent loss rather than a visible one — so the seam keeps innerHTML and
-        // the server-side jsoup pass stays the defence that matters (it runs for every client,
-        // not only the ones with a modern sanitizer).
+        // The default sanitizer's global attribute allow-list is dir/lang/title, and on <a> it is
+        // href/hreflang/type. So setHTML on a body strips class="language-…" (highlighting quietly
+        // degrades to auto-detection), strips class="mention" (its styling stops applying), and
+        // strips the rel="noopener noreferrer nofollow" / target="_blank" that hardenAnchors puts
+        // on every link — which makes it a security regression, not a hardening. data-* goes too,
+        // and is the least of it.
         var src = read(JS.resolve(SEAM_FILE));
         int render = src.indexOf("const renderMessageBody");
         var block = src.substring(render, src.indexOf("};", render));
         assertThat(codeOnly(block))
-                .as("renderMessageBody must not call setHTML while bodies still carry data-*")
+                .as("renderMessageBody must not call setHTML — bodies need class, rel and target")
                 .doesNotContain(".setHTML(");
 
+        // The attributes that would be lost, asserted where they are produced, so this rule cannot
+        // outlive its reason: if a body stops needing them, the rule is worth revisiting.
         var renderer = read(Path.of("src/main/java/ai/intellistream/chat/service/MarkdownRenderer.java"));
         assertThat(renderer)
-                .as("bodies still carry data-* on mentions; that is what innerHTML is protecting")
-                .contains("data-username")
-                .contains("data-mention");
+                .as("bodies carry class= and hardened anchors; that is what innerHTML preserves")
+                .contains("addAttributes(\"code\", \"class\")")
+                .contains("noopener noreferrer nofollow")
+                .contains("mention");
+    }
+
+    @Test
+    void theSetHtmlPolyfillIsNotTreatedAsASecurityControl() throws Exception {
+        // It implements no sanitizer — its only DOM work is declarative shadow DOM — so on a
+        // browser that needs it, setHTML is innerHTML. It is here so the search dropdown's call
+        // sites need no feature test on Safari < 26, and the snippets are safe because the server
+        // escapes them, not because of this file.
+        var polyfill = read(JS.resolve("vendor/html-setters-polyfill.min.js"));
+        assertThat(polyfill)
+                .as("if the polyfill ever grows a sanitizer, revisit what we claim about it")
+                .doesNotContain("allowAttributes")
+                .doesNotContain("removeAttributes");
+        assertThat(read(Path.of("THIRD-PARTY-NOTICES.md")))
+                .as("the notice must say the polyfill is a shim, not a security control")
+                .contains("Compatibility shim, not a security control");
     }
 
     @Test
