@@ -183,6 +183,25 @@
             </form>
         </section>
 
+        <section class="admin-section" id="admin-secrets">
+            <h2>One-time secrets</h2>
+            <p class="admin-help">
+                People can share a password or token through a link that opens once. Allow its creator
+                to let <strong>people without an account</strong> open it — a contractor, a customer.
+                Off means every secret requires sign-in, including ones already shared; nothing is
+                deleted, so turning it back on restores links that have not expired. When someone
+                without an account opens a secret, its creator is shown their IP address and browser.
+            </p>
+            <form th:action="@{/admin/public-secrets}" method="post" class="admin-form">
+                <label>
+                    <input type="checkbox" name="allow" value="true"
+                           th:checked="${settings.allowPublicSecrets}"/>
+                    Allow secrets that anyone with the link can open
+                </label>
+                <button type="submit">Save secrets setting</button>
+            </form>
+        </section>
+
         <section class="admin-section">
             <h2>Users <small th:text="'(' + ${#lists.size(userRows)} + ')'">(0)</small></h2>
             <p class="admin-help">

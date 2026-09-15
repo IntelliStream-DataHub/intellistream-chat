@@ -238,6 +238,9 @@ window.ChatTime = (function () {
    * matters later, and failing it should cost nothing and say nothing.
    */
   const report = () => {
+    // A page with no CSRF token has nobody to record it for: the one-time secret page is rendered
+    // signed out and deliberately without a token, and this POST would only fail there.
+    if (!meta('_csrf')) return;
     if (source === 'chosen' || !detected) return;
     if (source === 'detected' && detected === serverZone) return;
     fetch('/profile/timezone/detected', {

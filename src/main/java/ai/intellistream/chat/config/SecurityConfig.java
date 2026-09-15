@@ -48,6 +48,9 @@ import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
 import org.springframework.security.web.savedrequest.RequestCache;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.OrRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 
 import java.io.IOException;
 import java.net.URI;
@@ -64,6 +67,22 @@ public class SecurityConfig {
      * registration this app has. Also the target of {@code /login} (see {@link LoginRedirectConfig}).
      */
     public static final String LOGIN_URL = "/oauth2/authorization/keycloak";
+
+    /** The one-time-secret calls reachable signed out and exempt from CSRF; see the web chain. */
+    static final String[] SECRET_KEY_HOLDER_ROUTES = {"/api/secrets/*/status", "/api/secrets/*/open"};
+
+    /**
+     * {@link #SECRET_KEY_HOLDER_ROUTES} as POST-only matchers for the CSRF exemption. The
+     * {@code String...} overload of {@code ignoringRequestMatchers} matches every method, which
+     * would exempt a DELETE or PUT on the same path too; the exemption is for two calls, not two
+     * paths.
+     */
+    private static RequestMatcher secretKeyHolderPosts() {
+        var paths = PathPatternRequestMatcher.withDefaults();
+        return new OrRequestMatcher(java.util.Arrays.stream(SECRET_KEY_HOLDER_ROUTES)
+                .map(route -> (RequestMatcher) paths.matcher(HttpMethod.POST, route))
+                .toList());
+    }
 
     /** Where a browser lands after signing in with nothing else to go back to. */
     static final String DEFAULT_LANDING_PAGE = "/channels";
@@ -196,13 +215,29 @@ public class SecurityConfig {
                         // /login is a redirect into the Keycloak round-trip (LoginRedirectConfig),
                         // reachable signed out or in, so it must not itself trigger the round-trip.
                         .requestMatchers(HttpMethod.GET, "/login").permitAll()
+                        // One-time secrets: the page a link opens, and the two calls it makes. A
+                        // secret may be meant for someone with no account, and a signed-in person
+                        // arriving from an email carries no session cookie on that first navigation
+                        // (SameSite=Strict), so neither can be behind the login redirect. The page
+                        // looks nothing up; both calls answer 404 to anyone without the verifier
+                        // derived from the link's key. See SecretShareRestController. The
+                        // /s/{id}/sign-in route is deliberately NOT here: being refused is its job.
+                        .requestMatchers(HttpMethod.GET, "/s/*").permitAll()
+                        .requestMatchers(HttpMethod.POST, SECRET_KEY_HOLDER_ROUTES).permitAll()
                         // Admin console + branding mutations require the ichat-admin realm role
                         // (mapped to ROLE_ADMIN by KeycloakRolesConverter).
                         .requestMatchers("/admin", "/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(csrfRepo)
-                        .csrfTokenRequestHandler(csrfHandler))
+                        .csrfTokenRequestHandler(csrfHandler)
+                        // Only the two secret calls a link holder makes. They cannot carry a token:
+                        // the page that makes them must not render one (it would rotate the
+                        // SameSite=Strict CSRF cookie under every other open tab), and a visitor
+                        // without an account has no session to tie one to. What CSRF would protect
+                        // is already out of a forger's reach — each call does nothing without the
+                        // verifier from the link's key, and a cross-site request carries no session.
+                        .ignoringRequestMatchers(secretKeyHolderPosts()))
                 .headers(h -> h
                         .contentSecurityPolicy(c -> c.policyDirectives(csp))
                         .contentTypeOptions(Customizer.withDefaults())

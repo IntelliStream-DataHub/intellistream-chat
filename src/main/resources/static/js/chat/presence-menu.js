@@ -16,7 +16,7 @@
 
 /**
  * Slack/Mattermost-style presence-kind picker under the topbar avatar: the four kinds
- * (Active / Away / DND / Offline), then profile / status / saved / files / admin / about /
+ * (Active / Away / DND / Offline), then profile / status / saved / files / secrets / admin / about /
  * sign out. Picking a kind calls PUT /api/presence/kind and the server broadcasts via
  * /topic/presence so all the user's tabs (and other users) update live.
  *
@@ -193,6 +193,15 @@ function buildMenu() {
     filesLink.href = '/files';
     filesLink.innerHTML = '<span class="presence-menu-label">Your files</span>';
     menu.appendChild(filesLink);
+
+    // Share a secret — one-time links for passwords and tokens. Per-person like the two above: the
+    // page lists what became of the links this account shared, from any room or none.
+    const secretsLink = document.createElement('a');
+    secretsLink.className = 'presence-menu-item presence-menu-link';
+    secretsLink.setAttribute('role', 'menuitem');
+    secretsLink.href = '/secrets';
+    secretsLink.innerHTML = '<span class="presence-menu-label">Share a secret</span>';
+    menu.appendChild(secretsLink);
 
     // Admin console — only for workspace admins (realm role ichat-admin → ROLE_ADMIN;
     // the me-is-workspace-admin meta is emitted via sec:authorize on every page).
