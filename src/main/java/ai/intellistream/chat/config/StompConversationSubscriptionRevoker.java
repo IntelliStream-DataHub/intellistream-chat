@@ -66,10 +66,10 @@ public class StompConversationSubscriptionRevoker implements ConversationSubscri
 
     @Override
     public void revoke(long conversationId, long userId) {
-        // Session id to domain user id, via the map the ban feature already tags at CONNECT.
-        // SimpUser.getName() is the security principal's name — Keycloak's preferred_username —
-        // which is not the domain username for email-shaped accounts (the N19 note in
-        // ChatWebSocketController), so matching on it would silently miss exactly those users.
+        // Session id to domain user id, via the map the ban feature already tags at CONNECT. An id
+        // is what this method is given and cannot drift the way a name can — SimpUser.getName() was
+        // Keycloak's preferred_username until DomainHandleHandshakeHandler, and matching on it
+        // silently missed exactly the email-shaped and collision-suffixed accounts (N19).
         var sessionIds = sessions.sessionIdsFor(userId);
         if (sessionIds.isEmpty()) {
             return;

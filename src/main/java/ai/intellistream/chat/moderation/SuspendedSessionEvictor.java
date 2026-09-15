@@ -139,8 +139,9 @@ public class SuspendedSessionEvictor implements WebSocketMessageBrokerConfigurer
      * exactly this association and a duplicate would be a second source of truth for "which sockets
      * belong to whom". Its other consumer is channel-membership revocation
      * ({@code ChannelSubscriptionRevoker}), which needs to find a departing member's subscriptions
-     * and has no other way to get from a domain user id to a session id — the principal name and the
-     * domain username are not interchangeable (see the N19 note in {@code ChatWebSocketController}).
+     * and has no other way to get from a domain user id to a session id. (Since
+     * {@code DomainHandleHandshakeHandler} a session's principal name is the domain handle, so a name
+     * could be matched as well; an id still cannot drift, and it is what the caller holds.)
      *
      * <p>Same scan-rather-than-index tradeoff as {@link #closeAllFor}, for the same reason: a
      * sub-millisecond walk on a rare event buys one structure that cannot disagree with itself.

@@ -160,9 +160,12 @@ public class ChatWebSocketController {
     /**
      * Deliver a line to the sender alone.
      *
-     * <p>Routed by {@code principal.getName()} (the key Spring's user-destination registry uses),
-     * not the sanitized domain username — they differ for email-style or collision-suffixed
-     * usernames, and mismatching one silently delivers nothing (N19).
+     * <p>Routed by {@code principal.getName()}, the key Spring's user-destination registry uses.
+     * On a STOMP session that name <em>is</em> the domain handle: {@code DomainHandleHandshakeHandler}
+     * names the session after it, precisely so that this and the five other
+     * {@code convertAndSendToUser} call sites, which address people by handle, reach the right person.
+     * Before that handler the two differed for email-style and collision-suffixed logins, and
+     * addressing the wrong one of them delivered to somebody else or to nobody (N19).
      *
      * <p>The rejected body rides along under {@code body}, so the client can put the text back in
      * the composer instead of asking the user to retype it. The server has the text at exactly this

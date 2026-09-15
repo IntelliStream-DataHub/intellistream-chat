@@ -80,6 +80,11 @@ against anything: there is no released version for something to have been fixed 
   creator gets a receipt in their own conversation naming who opened it; for someone without an
   account, the creator's list shows their browser and IP address, deleted with the record after
   30 days and never copied into the receipt message.
+- **Per-user real-time messages now reach the right person.** A WebSocket session is named after
+  the domain handle (`DomainHandleHandshakeHandler`), which is what every sender addresses. It used
+  to be named after the Keycloak login, so for an email-shaped (`olav@example.com` → `olav`) or
+  collision-suffixed account, DM toasts, call invitations, reminders and slash-command notices went
+  to whichever session happened to hold that name — possibly someone else's — or nowhere at all.
 - `frontend.md`'s proxy configurations now **set** `X-Forwarded-For` instead of appending to it:
   the application reads the leftmost entry, which an appending proxy lets the client choose.
 
