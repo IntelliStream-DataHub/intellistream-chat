@@ -38,6 +38,30 @@ class MarkdownRendererTest {
     }
 
     @Test
+    void aDocumentIsSanitisedAndHardenedButNotMentionDecorated() {
+        // renderDocument is the path an uploaded .md file takes. It must sanitise exactly like a
+        // message body — the file is somebody's upload — but leave handles alone: nothing wrote a
+        // mention row for a word in a file, so a mention pill there would promise a notification
+        // that never happened. It also keeps the pass off a document that may hold thousands of
+        // handles, each one a user lookup.
+        Mockito.when(mentionService.resolvedUsernames(Mockito.anyString())).thenReturn(Set.of("alice"));
+
+        var html = renderer.renderDocument("hello @alice <script>alert(1)</script> [x](http://e.com)");
+
+        assertThat(html).doesNotContain("<script").doesNotContain("class=\"mention\"");
+        assertThat(html).contains("@alice");
+        assertThat(html).contains("rel=\"noopener noreferrer nofollow\"");
+        Mockito.verify(mentionService, Mockito.never()).resolvedUsernames(Mockito.anyString());
+    }
+
+    @Test
+    void aMessageStillGetsItsMentionsDecorated() {
+        // The other half: renderDocument must not have quietly become the only renderer.
+        Mockito.when(mentionService.resolvedUsernames(Mockito.anyString())).thenReturn(Set.of("alice"));
+        assertThat(renderer.render("hello @alice")).contains("class=\"mention\"");
+    }
+
+    @Test
     void userProvidedMentionSpanIsStripped() {
         // N29: a hand-written mention span in raw markdown must not survive sanitization —
         // otherwise a user could forge a styled/clickable mention of anyone.

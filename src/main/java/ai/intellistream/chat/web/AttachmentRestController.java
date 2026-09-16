@@ -22,6 +22,8 @@ import ai.intellistream.chat.security.RateLimiter;
 import ai.intellistream.chat.service.AttachmentService;
 import ai.intellistream.chat.service.ChannelService;
 import ai.intellistream.chat.service.MarkdownRenderer;
+import ai.intellistream.chat.web.dto.HtmlPreviewDto;
+import ai.intellistream.chat.web.dto.MarkdownPreviewDto;
 import ai.intellistream.chat.web.dto.MessageDto;
 import ai.intellistream.chat.web.dto.MessageEvent;
 import jakarta.servlet.http.HttpServletRequest;
@@ -101,6 +103,49 @@ public class AttachmentRestController {
         broker.convertAndSend("/topic/channels/" + channelId, MessageEvent.created(dto));
         linkPreviews.unfurl(dto);
         return dto;
+    }
+
+    /**
+     * The rendered form of a markdown attachment, for the in-page viewer behind the chip's
+     * preview button.
+     *
+     * <p>This is what makes showing the file safe. {@link #download} refuses {@code inline}
+     * disposition for everything but images, because letting user-uploaded bytes render as a
+     * document in this origin is how an upload becomes stored XSS. Here the bytes never reach the
+     * browser: they are read, parsed and sanitised on the server, and the client gets HTML that
+     * went through the same safelist as every message body.
+     *
+     * <p>Same read authorisation as the download — {@code requireForDownload} — so a preview can
+     * never show a file its viewer could not have fetched. Same for {@link #htmlPreview} below.
+     */
+    @GetMapping("/api/attachments/{id}/markdown")
+    public MarkdownPreviewDto markdownPreview(@PathVariable Long id, Principal principal) throws IOException {
+        var attachment = requireForPreview(id, principal);
+        return AttachmentPreviews.markdown(attachment.getFilename(), attachment.getContentType(),
+                attachmentService.resolve(attachment), markdown);
+    }
+
+    /**
+     * An HTML attachment, as its uploader wrote it — for the sandboxed iframe the viewer puts it
+     * in. Unsanitised on purpose; {@link HtmlPreviewDto} carries the whole reasoning and the one
+     * way the client is allowed to show it.
+     */
+    @GetMapping("/api/attachments/{id}/html")
+    public HtmlPreviewDto htmlPreview(@PathVariable Long id, Principal principal) throws IOException {
+        var attachment = requireForPreview(id, principal);
+        return AttachmentPreviews.html(attachment.getFilename(), attachment.getContentType(),
+                attachmentService.resolve(attachment));
+    }
+
+    private ai.intellistream.chat.domain.Attachment requireForPreview(Long id, Principal principal) {
+        var me = currentUser.resolve(principal);
+        // A preview costs a file read plus, for markdown, a CommonMark parse and two jsoup passes,
+        // so it is capped well below the download limit. Opening previews by hand never
+        // approaches 30/min.
+        if (!rateLimiter.tryAcquire(me.getUsername(), "attachment-preview", 30, java.time.Duration.ofMinutes(1))) {
+            throw new RateLimitExceededException("attachment preview rate exceeded");
+        }
+        return attachmentService.requireForDownload(id, me);
     }
 
     @GetMapping("/api/attachments/{id}/download")
