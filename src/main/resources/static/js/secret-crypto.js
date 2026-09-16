@@ -35,6 +35,13 @@
  *
  * Web Crypto exists only in a secure context (HTTPS, or localhost). available() says so, and both
  * pages explain it rather than failing on an undefined crypto.subtle.
+ *
+ * Promise chains rather than async/await, here and on both pages. Web Crypto and fetch only hand
+ * back promises so the asynchrony is unavoidable, but every await is a place where the function
+ * stops and the browser gets a rendering opportunity — so DOM work split across awaits is style and
+ * layout recalculated once per piece, where one synchronous block would have cost one pass. Written
+ * as chains, each .then() is visibly one such piece, and the callers keep their DOM updates inside a
+ * single one.
  */
 window.SecretCrypto = (function () {
   'use strict';
@@ -72,12 +79,14 @@ window.SecretCrypto = (function () {
   const importBase = (keyBytes) =>
     window.crypto.subtle.importKey('raw', keyBytes, 'HKDF', false, ['deriveBits', 'deriveKey']);
 
-  const deriveAesKey = async (keyBytes, usage) =>
-    window.crypto.subtle.deriveKey(hkdfParams(INFO_ENC), await importBase(keyBytes),
-        { name: 'AES-GCM', length: 256 }, false, [usage]);
+  const deriveAesKey = (keyBytes, usage) =>
+    importBase(keyBytes).then((base) => window.crypto.subtle.deriveKey(
+        hkdfParams(INFO_ENC), base, { name: 'AES-GCM', length: 256 }, false, [usage]));
 
-  const deriveVerifier = async (keyBytes) =>
-    new Uint8Array(await window.crypto.subtle.deriveBits(hkdfParams(INFO_VERIFY), await importBase(keyBytes), 256));
+  const deriveVerifier = (keyBytes) =>
+    importBase(keyBytes)
+        .then((base) => window.crypto.subtle.deriveBits(hkdfParams(INFO_VERIFY), base, 256))
+        .then((bits) => new Uint8Array(bits));
 
   /**
    * The 32-byte key from what a person pasted or the fragment carried — tolerating a leading '#'
@@ -98,49 +107,57 @@ window.SecretCrypto = (function () {
    * Encrypts a secret under a fresh key.
    * @returns {Promise<{payload: string, verifier: string, key: string}>} all base64url
    */
-  const seal = async (plaintext) => {
+  const seal = (plaintext) => {
     const key = window.crypto.getRandomValues(new Uint8Array(KEY_BYTES));
     const iv = window.crypto.getRandomValues(new Uint8Array(IV_BYTES));
-    const aes = await deriveAesKey(key, 'encrypt');
-    const sealed = new Uint8Array(await window.crypto.subtle.encrypt(
-        { name: 'AES-GCM', iv: iv, additionalData: new Uint8Array([VERSION]), tagLength: 128 },
-        aes, utf8.encode(plaintext)));
-    const payload = new Uint8Array(1 + IV_BYTES + sealed.length);
-    payload[0] = VERSION;
-    payload.set(iv, 1);
-    payload.set(sealed, 1 + IV_BYTES);
-    return {
-      payload: toBase64Url(payload),
-      verifier: toBase64Url(await deriveVerifier(key)),
-      key: toBase64Url(key),
-    };
+    return deriveAesKey(key, 'encrypt')
+        .then((aes) => window.crypto.subtle.encrypt(
+            { name: 'AES-GCM', iv: iv, additionalData: new Uint8Array([VERSION]), tagLength: 128 },
+            aes, utf8.encode(plaintext)))
+        .then((ciphertext) => {
+          const sealed = new Uint8Array(ciphertext);
+          const payload = new Uint8Array(1 + IV_BYTES + sealed.length);
+          payload[0] = VERSION;
+          payload.set(iv, 1);
+          payload.set(sealed, 1 + IV_BYTES);
+          return deriveVerifier(key).then((verifier) => ({
+            payload: toBase64Url(payload),
+            verifier: toBase64Url(verifier),
+            key: toBase64Url(key),
+          }));
+        });
   };
 
   /** The verifier for a key, base64url; null when the text is not a key. */
-  const verifierFor = async (keyText) => {
+  const verifierFor = (keyText) => {
     const key = parseKey(keyText);
-    return key ? toBase64Url(await deriveVerifier(key)) : null;
+    return key ? deriveVerifier(key).then(toBase64Url) : Promise.resolve(null);
   };
 
   /**
    * Decrypts a payload. Rejects with Error('wrong-key') when authentication fails — a wrong key
    * and a tampered payload look identical to AES-GCM, and neither ever yields partial text.
    */
-  const openPayload = async (payloadText, keyText) => {
-    const key = parseKey(keyText);
-    if (!key) throw new Error('wrong-key');
-    const payload = fromBase64Url(payloadText);
-    if (payload.length <= 1 + IV_BYTES + 16 || payload[0] !== VERSION) throw new Error('unknown-format');
-    const aes = await deriveAesKey(key, 'decrypt');
-    let plain;
+  const openPayload = (payloadText, keyText) => {
+    let key;
+    let payload;
     try {
-      plain = await window.crypto.subtle.decrypt(
-          { name: 'AES-GCM', iv: payload.subarray(1, 1 + IV_BYTES), additionalData: new Uint8Array([VERSION]), tagLength: 128 },
-          aes, payload.subarray(1 + IV_BYTES));
+      key = parseKey(keyText);
+      payload = fromBase64Url(payloadText);
     } catch (e) {
-      throw new Error('wrong-key');
+      return Promise.reject(new Error('wrong-key'));
     }
-    return new TextDecoder('utf-8', { fatal: true }).decode(plain);
+    if (!key) return Promise.reject(new Error('wrong-key'));
+    if (payload.length <= 1 + IV_BYTES + 16 || payload[0] !== VERSION) {
+      return Promise.reject(new Error('unknown-format'));
+    }
+    return deriveAesKey(key, 'decrypt')
+        .then((aes) => window.crypto.subtle.decrypt(
+            { name: 'AES-GCM', iv: payload.subarray(1, 1 + IV_BYTES), additionalData: new Uint8Array([VERSION]), tagLength: 128 },
+            aes, payload.subarray(1 + IV_BYTES)))
+        .then(
+            (plain) => new TextDecoder('utf-8', { fatal: true }).decode(plain),
+            () => { throw new Error('wrong-key'); });
   };
 
   return {

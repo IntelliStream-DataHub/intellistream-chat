@@ -6268,7 +6268,23 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
 }
 .secret-timer { display: flex; align-items: center; gap: 0.6rem; font-size: var(--fs-sm); color: var(--muted); }
 .secret-timer-bar { flex: 1; height: 4px; border-radius: var(--radius-full); background: var(--panel-3); overflow: hidden; }
-.secret-timer-fill { display: block; width: 100%; height: 100%; background: var(--accent); transition: width 0.25s linear; }
+/* The countdown bar empties itself. Driven by CSS rather than a JS timer writing style.width, and
+   by transform rather than width, so the compositor runs it: no style or layout pass per frame, and
+   nothing on the main thread between the reveal and the wipe. secret-view.js sets the duration once
+   (animation-duration: 0s here means "not yet"). */
+.secret-timer-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--accent);
+  transform-origin: left center;
+  animation: secret-countdown linear forwards;
+  animation-duration: 0s;
+}
+@keyframes secret-countdown {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
 .secret-timer-text { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .secret-page .secret-card .secret-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
 

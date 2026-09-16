@@ -35,6 +35,13 @@
  * Keycloak's own URLs. The stash is removed the moment it is read back.
  *
  * Everything is textContent; the one dialog is static markup in the template.
+ *
+ * Promise chains rather than async/await, and every step ends in one synchronous block that does all
+ * of that step's DOM work: an await is a point where the function stops and the browser recalculates
+ * style and layout, so work spread over several awaits is several passes. For the same reason the
+ * countdown bar is a CSS animation (the compositor runs it, at no cost per tick) and the text is
+ * rewritten once a second, and nothing here reads a layout property such as offsetWidth, which would
+ * force a layout in the middle of a function.
  */
 (function () {
   const root = document.getElementById('secret-view');
@@ -109,50 +116,53 @@
     REVOKED: (at) => 'The person who shared it withdrew it' + (at ? ' ' + ChatTime.formatDateTime(at) : '') + '.',
   };
 
-  const showGone = async (res) => {
-    let body = {};
-    try { body = await res.json(); } catch (e) { /* keep the generic text */ }
+  const showGone = (res) => res.json().then((body) => body, () => ({})).then((body) => {
     const describe = GONE_TEXT[body.state];
     $('sv-gone-text').textContent = describe ? describe(body.endedAt) : '';
     show('sv-gone');
-  };
+  });
 
   let verifier = null;
 
-  const checkStatus = async () => {
+  const checkStatus = () => {
     show('sv-loading');
-    verifier = await SecretCrypto.verifierFor(keyText);
-    let res;
-    try {
-      res = await call('status', verifier);
-    } catch (e) {
-      fail('Could not reach the server. Check your connection and reload.');
-      return;
-    }
-    if (res.status === 200) {
-      const body = await res.json();
-      $('sv-creator').textContent = body.creatorName || 'Someone';
-      $('sv-minutes').textContent = String(Math.max(1, Math.round((Number(body.displaySeconds) || 300) / 60)));
-      $('sv-expiry').textContent = body.expiresAt
-          ? 'If nobody opens it, the link expires ' + ChatTime.formatDateTime(body.expiresAt) + '.'
-          : '';
-      show('sv-ready');
-      $('sv-reveal').focus();
-    } else if (res.status === 401) {
-      show('sv-signin');
-    } else if (res.status === 404) {
-      if (keyFromPrompt) {
-        askForKey('That key doesn\'t match this secret. Check it and try again.');
-      } else {
-        show('sv-notfound');
-      }
-    } else if (res.status === 410) {
-      await showGone(res);
-    } else if (res.status === 429) {
-      fail('Too many attempts. Wait a minute and reload.');
-    } else {
-      fail('Something went wrong (' + res.status + '). Reload to try again.');
-    }
+    return SecretCrypto.verifierFor(keyText)
+        .then((v) => {
+          verifier = v;
+          return call('status', verifier);
+        })
+        .then((res) => {
+          if (res.status === 200) {
+            return res.json().then((body) => {
+              // One block: creator, expiry and the panel swap are a single style and layout pass.
+              $('sv-creator').textContent = body.creatorName || 'Someone';
+              $('sv-minutes').textContent =
+                  String(Math.max(1, Math.round((Number(body.displaySeconds) || 300) / 60)));
+              $('sv-expiry').textContent = body.expiresAt
+                  ? 'If nobody opens it, the link expires ' + ChatTime.formatDateTime(body.expiresAt) + '.'
+                  : '';
+              show('sv-ready');
+              $('sv-reveal').focus();
+            });
+          }
+          if (res.status === 401) {
+            show('sv-signin');
+          } else if (res.status === 404) {
+            if (keyFromPrompt) {
+              askForKey('That key doesn\'t match this secret. Check it and try again.');
+            } else {
+              show('sv-notfound');
+            }
+          } else if (res.status === 410) {
+            return showGone(res);
+          } else if (res.status === 429) {
+            fail('Too many attempts. Wait a minute and reload.');
+          } else {
+            fail('Something went wrong (' + res.status + '). Reload to try again.');
+          }
+          return null;
+        })
+        .catch(() => { fail('Could not reach the server. Check your connection and reload.'); });
   };
 
   const askForKey = (error) => {
@@ -191,48 +201,54 @@
 
   let plaintext = null;
   let deadline = 0;
-  let totalMs = 0;
   let ticker = null;
 
-  $('sv-reveal').addEventListener('click', async (e) => {
+  $('sv-reveal').addEventListener('click', (e) => {
     const button = e.currentTarget;
     button.disabled = true;
-    let res;
-    try {
-      res = await call('open', verifier);
-    } catch (err) {
-      button.disabled = false;
-      fail('Could not reach the server. The secret was not opened; reload to try again.');
-      return;
-    }
-    if (res.status === 200) {
-      const body = await res.json();
-      try {
-        plaintext = await SecretCrypto.openPayload(body.payload, keyText);
-      } catch (err) {
-        fail('The secret was opened but could not be decrypted with this key. Ask the person who shared it for a new link.');
-        return;
-      } finally {
-        keyText = null;
-        verifier = null;
-      }
-      // The link is spent; take its key out of the address bar and this history entry.
-      history.replaceState(null, '', location.pathname);
-      try { sessionStorage.setItem(OPENED_KEY, '1'); } catch (err) { /* only a nicer reload */ }
-      reveal(Math.max(1, Math.min(300, Number(body.displaySeconds) || 300)));
-    } else if (res.status === 401) {
-      show('sv-signin');
-    } else if (res.status === 410) {
-      await showGone(res);
-    } else if (res.status === 404) {
-      show('sv-notfound');
-    } else if (res.status === 429) {
-      button.disabled = false;
-      fail('Too many attempts. Wait a minute and reload.');
-    } else {
-      button.disabled = false;
-      fail('Something went wrong (' + res.status + '). The secret was not opened; reload to try again.');
-    }
+    let reachedServer = false;
+    call('open', verifier)
+        .then((res) => {
+          reachedServer = true;
+          if (res.status === 200) {
+            return res.json().then((body) => SecretCrypto.openPayload(body.payload, keyText).then(
+                (text) => {
+                  plaintext = text;
+                  keyText = null;
+                  verifier = null;
+                  // The link is spent; take its key out of the address bar and this history entry.
+                  history.replaceState(null, '', location.pathname);
+                  try { sessionStorage.setItem(OPENED_KEY, '1'); } catch (err) { /* only a nicer reload */ }
+                  reveal(Math.max(1, Math.min(300, Number(body.displaySeconds) || 300)));
+                },
+                () => {
+                  keyText = null;
+                  verifier = null;
+                  fail('The secret was opened but could not be decrypted with this key. '
+                      + 'Ask the person who shared it for a new link.');
+                }));
+          }
+          if (res.status === 401) {
+            show('sv-signin');
+          } else if (res.status === 410) {
+            return showGone(res);
+          } else if (res.status === 404) {
+            show('sv-notfound');
+          } else if (res.status === 429) {
+            button.disabled = false;
+            fail('Too many attempts. Wait a minute and reload.');
+          } else {
+            button.disabled = false;
+            fail('Something went wrong (' + res.status + '). The secret was not opened; reload to try again.');
+          }
+          return null;
+        })
+        .catch(() => {
+          if (!reachedServer) {
+            button.disabled = false;
+            fail('Could not reach the server. The secret was not opened; reload to try again.');
+          }
+        });
   });
 
   const formatRemaining = (ms) => {
@@ -240,6 +256,7 @@
     return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
   };
 
+  /** One text node, once a second. The bar beside it is a CSS animation and costs nothing here. */
   const tick = () => {
     const left = deadline - Date.now();
     if (left <= 0) {
@@ -247,24 +264,25 @@
       return;
     }
     $('sv-countdown').textContent = 'Disappears in ' + formatRemaining(left);
-    $('sv-timer-fill').style.width = (100 * left / totalMs) + '%';
   };
 
   const reveal = (seconds) => {
-    totalMs = seconds * 1000;
-    deadline = Date.now() + totalMs;
+    deadline = Date.now() + seconds * 1000;
+    // Everything the reveal changes, in one go: text, timer, banner and the panel swap are a single
+    // style and layout pass rather than one per property.
     $('sv-secret').textContent = plaintext;
     $('sv-copy-note').hidden = true;
+    $('sv-countdown').textContent = 'Disappears in ' + formatRemaining(seconds * 1000);
+    // The bar empties by CSS over exactly the display time. Animating width from JS meant a style
+    // and layout pass per frame written by hand; this one the browser runs on its own. The panel is
+    // hidden until now, so the animation starts here — no offsetWidth read to restart it, which
+    // would force a layout mid-function.
+    $('sv-timer-fill').style.animationDuration = seconds + 's';
+    $('sv-warning').classList.add('is-flashing');
     show('sv-revealed');
-    // Re-trigger the banner's entrance each time, so it reads as news rather than furniture.
-    const warning = $('sv-warning');
-    warning.classList.remove('is-flashing');
-    void warning.offsetWidth;
-    warning.classList.add('is-flashing');
-    tick();
     // A deadline, not a count of ticks: a hidden tab's timers are throttled, so counting would run
     // slow. Every tick compares against the clock.
-    ticker = setInterval(tick, 250);
+    ticker = setInterval(tick, 1000);
   };
 
   // ---------- 4. Wipe ----------

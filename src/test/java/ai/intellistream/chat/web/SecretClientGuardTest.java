@@ -39,6 +39,7 @@ class SecretClientGuardTest {
 
     private static final Path JS = Path.of("src/main/resources/static/js");
     private static final Path TEMPLATES = Path.of("src/main/resources/templates");
+    private static final Path CSS = Path.of("src/main/resources/static/css/app.css");
 
     private static String read(Path p) {
         try {
@@ -83,6 +84,27 @@ class SecretClientGuardTest {
                 .doesNotContain("Math.random");
         // Two distinct derivations: the value the server sees must not be the decryption key.
         assertThat(crypto).contains("'ichat-secret-v1 enc'").contains("'ichat-secret-v1 verify'");
+    }
+
+    @Test
+    void theSecretPagesUsePromiseChainsAndTouchNoLayoutProperty() {
+        // Not a style preference. An await is a point where the function stops and the browser gets a
+        // rendering opportunity, so DOM work spread across awaits is style and layout recalculated
+        // once per piece; these files keep each step's DOM work in one synchronous block. Reading a
+        // layout property (offsetWidth, getBoundingClientRect, getComputedStyle) is the sharper
+        // version of the same problem — it forces a layout in the middle of a function — and the
+        // countdown bar is animated by CSS for the same reason.
+        for (var name : List.of("secrets.js", "secret-view.js", "secret-crypto.js")) {
+            var code = codeOnly(read(JS.resolve(name)));
+            assertThat(code).as(name)
+                    .doesNotContain("async ").doesNotContain("await ")
+                    .doesNotContain("offsetWidth").doesNotContain("getBoundingClientRect")
+                    .doesNotContain("getComputedStyle").doesNotContain("offsetHeight");
+        }
+        // The bar is CSS; JS sets its duration once rather than writing a width per tick.
+        var view = codeOnly(read(JS.resolve("secret-view.js")));
+        assertThat(view).contains("style.animationDuration").doesNotContain("style.width");
+        assertThat(read(CSS)).contains("@keyframes secret-countdown").contains("transform: scaleX(0)");
     }
 
     @Test

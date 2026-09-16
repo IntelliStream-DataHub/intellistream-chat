@@ -25,6 +25,11 @@
  *
  * A classic script like saved.js, and like it built entirely with createElement + textContent:
  * labels, handles and browser summaries are all someone's text.
+ *
+ * Promise chains rather than async/await: an await is a point where the function stops and the
+ * browser can recalculate style and layout, so DOM work spread over several awaits is several
+ * passes. Each .then() below ends with one synchronous block that does all of that step's DOM work
+ * at once.
  */
 (function () {
   const form = document.getElementById('secret-form');
@@ -63,13 +68,10 @@
     el.hidden = !msg;
   };
 
-  const messageFrom = async (res, fallback) => {
-    try {
-      const body = await res.json();
-      if (body && typeof body.message === 'string' && body.message) return body.message;
-    } catch (e) { /* not JSON */ }
-    return fallback;
-  };
+  /** The server's own wording when it sent one, else `fallback`. */
+  const messageFrom = (res, fallback) => res.json().then(
+      (body) => (body && typeof body.message === 'string' && body.message) ? body.message : fallback,
+      () => fallback);
 
   if (!SecretCrypto.available()) {
     document.getElementById('secret-unsupported').hidden = false;
@@ -90,7 +92,7 @@
 
   // ---------- Create ----------
 
-  form.addEventListener('submit', async (e) => {
+  form.addEventListener('submit', (e) => {
     e.preventDefault();
     showError(errorEl, '');
     const plaintext = textEl.value;
@@ -104,45 +106,45 @@
       return;
     }
     submitBtn.disabled = true;
-    try {
-      const sealed = await SecretCrypto.seal(plaintext);
-      const res = await fetch('/api/secrets', {
-        method: 'POST',
-        headers: headers(),
-        cache: 'no-store',
-        body: JSON.stringify({
-          payload: sealed.payload,
-          verifier: sealed.verifier,
-          label: labelEl.value,
-          lifetimeSeconds: Number(lifetimeEl.value),
-          audience: anyoneEl && anyoneEl.checked ? 'ANYONE' : 'SIGNED_IN',
-        }),
-      });
-      if (!res.ok) {
-        showError(errorEl, await messageFrom(res, 'The secret could not be shared (' + res.status + ').'));
-        return;
-      }
-      const created = await res.json();
-      const link = location.origin + '/s/' + created.publicId;
-      const separate = separateEl.checked;
-      linkEl.value = separate ? link : link + '#' + sealed.key;
-      keyEl.value = separate ? sealed.key : '';
-      keyRow.hidden = !separate;
-      // The plaintext has served its purpose; nothing on the page should still hold it, including a
-      // field Firefox would restore on back or reload.
-      textEl.value = '';
-      labelEl.value = '';
-      updateSize();
-      form.hidden = true;
-      resultEl.hidden = false;
-      linkEl.focus();
-      linkEl.select();
-      loadList(true);
-    } catch (err) {
-      showError(errorEl, 'The secret could not be encrypted in this browser.');
-    } finally {
-      submitBtn.disabled = !SecretCrypto.available();
-    }
+    const separate = separateEl.checked;
+
+    SecretCrypto.seal(plaintext)
+        .then((sealed) => fetch('/api/secrets', {
+          method: 'POST',
+          headers: headers(),
+          cache: 'no-store',
+          body: JSON.stringify({
+            payload: sealed.payload,
+            verifier: sealed.verifier,
+            label: labelEl.value,
+            lifetimeSeconds: Number(lifetimeEl.value),
+            audience: anyoneEl && anyoneEl.checked ? 'ANYONE' : 'SIGNED_IN',
+          }),
+        }).then((res) => {
+          if (!res.ok) {
+            return messageFrom(res, 'The secret could not be shared (' + res.status + ').')
+                .then((msg) => { showError(errorEl, msg); });
+          }
+          return res.json().then((created) => {
+            // One synchronous block: the whole panel swap costs a single style and layout pass.
+            const link = location.origin + '/s/' + created.publicId;
+            linkEl.value = separate ? link : link + '#' + sealed.key;
+            keyEl.value = separate ? sealed.key : '';
+            keyRow.hidden = !separate;
+            // The plaintext has served its purpose; nothing on the page should still hold it,
+            // including a field Firefox would restore on back or reload.
+            textEl.value = '';
+            labelEl.value = '';
+            updateSize();
+            form.hidden = true;
+            resultEl.hidden = false;
+            linkEl.focus();
+            linkEl.select();
+            loadList(true);
+          });
+        }))
+        .catch(() => { showError(errorEl, 'The secret could not be encrypted in this browser.'); })
+        .then(() => { submitBtn.disabled = !SecretCrypto.available(); });
   });
 
   const copyFrom = (input, button, doneLabel) => {
@@ -235,7 +237,7 @@
       revoke.type = 'button';
       let armed = false;
       let disarm = null;
-      revoke.addEventListener('click', async () => {
+      revoke.addEventListener('click', () => {
         // Two steps, inline: a revoke cannot be taken back, and a confirm() dialog is what the rest
         // of the app has moved away from.
         if (!armed) {
@@ -251,20 +253,21 @@
         }
         clearTimeout(disarm);
         revoke.disabled = true;
-        try {
-          const res = await fetch('/api/secrets/' + encodeURIComponent(s.publicId), {
-            method: 'DELETE', headers: headers(), cache: 'no-store',
-          });
+        fetch('/api/secrets/' + encodeURIComponent(s.publicId), {
+          method: 'DELETE', headers: headers(), cache: 'no-store',
+        }).then((res) => {
           if (!res.ok) {
-            showError(listErrorEl, await messageFrom(res, 'Could not revoke that secret (' + res.status + ').'));
-            revoke.disabled = false;
-            return;
+            return messageFrom(res, 'Could not revoke that secret (' + res.status + ').')
+                .then((msg) => {
+                  showError(listErrorEl, msg);
+                  revoke.disabled = false;
+                });
           }
-          li.replaceWith(renderRow(await res.json()));
-        } catch (err) {
+          return res.json().then((view) => { li.replaceWith(renderRow(view)); });
+        }).catch(() => {
           showError(listErrorEl, 'Could not reach the server.');
           revoke.disabled = false;
-        }
+        });
       });
       actions.append(revoke);
       li.append(actions);
@@ -274,25 +277,31 @@
 
   let page = 0;
 
-  const loadList = async (reset) => {
+  const loadList = (reset) => {
     if (reset) page = 0;
     showError(listErrorEl, '');
-    try {
-      const res = await fetch('/api/secrets?page=' + page, { headers: headers(), cache: 'no-store' });
-      if (!res.ok) {
-        showError(listErrorEl, 'Could not load your secrets (' + res.status + ').');
-        return;
-      }
-      const data = await res.json();
-      if (reset) listEl.replaceChildren();
-      if (reset && data.items.length === 0) {
-        listEl.append(el('li', 'files-empty', 'You have not shared any secrets yet.'));
-      }
-      data.items.forEach((s) => listEl.append(renderRow(s)));
-      moreBtn.hidden = !data.hasMore;
-    } catch (err) {
-      showError(listErrorEl, 'Could not reach the server.');
-    }
+    fetch('/api/secrets?page=' + page, { headers: headers(), cache: 'no-store' })
+        .then((res) => {
+          if (!res.ok) {
+            showError(listErrorEl, 'Could not load your secrets (' + res.status + ').');
+            return null;
+          }
+          return res.json();
+        })
+        .then((data) => {
+          if (!data) return;
+          // Built off-document and attached once: one insertion, one style and layout pass, however
+          // many rows came back.
+          const rows = document.createDocumentFragment();
+          if (reset && data.items.length === 0) {
+            rows.append(el('li', 'files-empty', 'You have not shared any secrets yet.'));
+          }
+          data.items.forEach((row) => rows.append(renderRow(row)));
+          if (reset) listEl.replaceChildren(rows);
+          else listEl.append(rows);
+          moreBtn.hidden = !data.hasMore;
+        })
+        .catch(() => { showError(listErrorEl, 'Could not reach the server.'); });
   };
 
   moreBtn.addEventListener('click', () => {
