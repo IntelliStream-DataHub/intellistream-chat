@@ -1593,15 +1593,26 @@ presenceMenu.init();
         if (!body && !hasFiles) return;
 
         if (hasFiles) {
-          // Upload each file as its own message (caption = body, only on the first one).
+          // Upload each file as its own message (caption = body, only on the first one). Sequential
+          // on purpose: each file becomes its own message, so the order is the posting order, and
+          // taking each chip away as its upload lands is the progress indicator. What does not need
+          // repeating is the composer reset — clearing and re-measuring it once per file meant two
+          // forced layouts each time for a box that was already empty.
           let caption = body;
+          let composerCleared = false;
+          const clearComposer = () => {
+            if (composerCleared) return;
+            composerCleared = true;
+            input.value = '';
+            input._autoResize?.();
+          };
           for (const [localId, item] of Array.from(pending.entries())) {
             try {
               await uploadAttachment(item.file, caption);
               // Clear the composer as soon as the caption is consumed — otherwise a later file's
               // failure returns with the caption still in the box, and resubmitting re-posts it
               // against the remaining files (N14).
-              if (caption) { input.value = ''; input._autoResize?.(); }
+              if (caption) clearComposer();
               caption = '';
               removePendingAttachment(localId);
             } catch (err) {
@@ -1609,8 +1620,7 @@ presenceMenu.init();
               return;
             }
           }
-          input.value = '';
-          input._autoResize?.();
+          clearComposer();
         } else {
           if (await sendChannelMessage(body)) {
             input.value = '';
@@ -1932,27 +1942,41 @@ presenceMenu.init();
   let olderSentinel = null;
   let olderObserver = null;
 
+  /** The ids already on screen, for a batch that would otherwise ask the DOM once per row. */
+  const renderedMessageIds = () => {
+    const ids = new Set();
+    messagesEl.querySelectorAll('li.message[data-id]').forEach((li) => ids.add(li.dataset.id));
+    return ids;
+  };
+
   const prependOlderMessages = (rows) => {
     // Server returns oldest-first inside the batch (MessageService re-sorts ascending after
-    // the descending DB fetch). Inserting each row before the current first.message LI
-    // preserves that order: row[0] ends up at the new top, row[N-1] right above the prior top.
+    // the descending DB fetch). The fragment keeps that order and goes in above the current
+    // first .message: row[0] ends up at the new top, row[N-1] right above the prior top.
+    //
+    // One insertion, not fifty. Each row used to be inserted on its own into the live list, with
+    // a querySelector per row to de-dupe; the whole page is assembled off-document instead and
+    // attached once, which is also one style and layout pass instead of a growing list being
+    // touched fifty times.
     const firstExisting = messagesEl.querySelector('li.message');
-    let inserted = 0;
+    const seen = renderedMessageIds();
+    const batch = document.createDocumentFragment();
+    const attachTo = [];
     for (const msg of rows) {
       // De-dupe in case of overlap with the existing batch (shouldn't happen with the
       // before=<instant> contract, but handle it defensively).
-      if (messagesEl.querySelector('li.message[data-id="' + CSS.escape(msg.id) + '"]')) continue;
+      if (seen.has(String(msg.id))) continue;
       const li = buildMessageLi(msg);
-      if (firstExisting) {
-        messagesEl.insertBefore(li, firstExisting);
-      } else {
-        messagesEl.append(li);
-      }
-      attachActions(li);
+      batch.append(li);
+      attachTo.push(li);
       // Don't flagAsAppearing — these are old messages, no slide-in animation.
-      inserted++;
     }
-    return inserted;
+    if (!attachTo.length) return 0;
+    if (firstExisting) messagesEl.insertBefore(batch, firstExisting);
+    else messagesEl.append(batch);
+    // After they are in the document: attachActions reads each row's own dataset, not geometry.
+    attachTo.forEach(attachActions);
+    return attachTo.length;
   };
 
   const loadOlder = async () => {
@@ -2030,20 +2054,25 @@ presenceMenu.init();
   let newerObserver = null;
 
   const appendNewerMessages = (rows) => {
-    let inserted = 0;
+    // Same shape as prependOlderMessages: assembled off-document, attached once.
+    const seen = renderedMessageIds();
+    const batch = document.createDocumentFragment();
+    const attachTo = [];
     for (const msg of rows) {
-      if (messagesEl.querySelector('li.message[data-id="' + CSS.escape(msg.id) + '"]')) continue;
+      if (seen.has(String(msg.id))) continue;
       const li = buildMessageLi(msg);
-      // Insert before the bottom sentinel so it stays the last child.
-      if (newerSentinel && newerSentinel.parentNode === messagesEl) {
-        messagesEl.insertBefore(li, newerSentinel);
-      } else {
-        messagesEl.append(li);
-      }
-      attachActions(li);
-      inserted++;
+      batch.append(li);
+      attachTo.push(li);
     }
-    return inserted;
+    if (!attachTo.length) return 0;
+    // Insert before the bottom sentinel so it stays the last child.
+    if (newerSentinel && newerSentinel.parentNode === messagesEl) {
+      messagesEl.insertBefore(batch, newerSentinel);
+    } else {
+      messagesEl.append(batch);
+    }
+    attachTo.forEach(attachActions);
+    return attachTo.length;
   };
 
   const loadNewer = async () => {

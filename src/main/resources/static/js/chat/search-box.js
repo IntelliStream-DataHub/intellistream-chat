@@ -141,6 +141,50 @@ export function initSearchBox(inputId) {
     return '/search?' + params.toString();
   };
 
+  /**
+   * Put an escaped, <mark>-highlighted snippet into an element.
+   *
+   * Native Element.setHTML where the browser has it: it is the sanitizer this markup was written
+   * for, and the one that keeps working if the server's escaping ever slips. Safari has not shipped
+   * it, and js/vendor/html-setters-polyfill.min.js provides only the *Unsafe family, so there the
+   * string is rebuilt here instead of being handed to innerHTML — which would be a sanitizer-shaped
+   * call with no sanitizer behind it.
+   *
+   * The grammar is narrow and the server owns both ends of it: Lucene's SimpleHTMLEncoder escapes
+   * &, <, > and ", and SimpleHTMLFormatter wraps matched runs in <mark>. Everything between those
+   * tags becomes a text node, so no markup the server did not ask for can be created — an <img> in
+   * somebody's message arrives escaped and stays visible text — and an unbalanced <mark> degrades
+   * to literal text rather than to an open element.
+   */
+  const MARKED = /<mark>([\s\S]*?)<\/mark>/g;
+  const ENTITY = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'", '&apos;': "'" };
+  const unescapeEntities = (text) => text.replace(/&(?:amp|lt|gt|quot|#39|apos);/g, (e) => ENTITY[e]);
+
+  const renderSnippet = (el, html, opts) => {
+    const text = html || '';
+    if (typeof el.setHTML === 'function' && !(opts && opts.forceFallback)) {
+      el.setHTML(text);
+      return;
+    }
+    const out = document.createDocumentFragment();
+    let last = 0;
+    let match;
+    MARKED.lastIndex = 0;
+    while ((match = MARKED.exec(text)) !== null) {
+      if (match.index > last) out.append(unescapeEntities(text.slice(last, match.index)));
+      const mark = document.createElement('mark');
+      mark.textContent = unescapeEntities(match[1]);
+      out.append(mark);
+      last = MARKED.lastIndex;
+    }
+    if (last < text.length) out.append(unescapeEntities(text.slice(last)));
+    el.replaceChildren(out);
+  };
+
+  // The dev-profile smoke suite drives the fallback path directly — it has to be exercised on the
+  // browsers that do have setHTML, or it would only ever be tested where nobody develops.
+  window.SearchBoxTestHooks = { renderSnippet: renderSnippet };
+
   const render = (items) => {
     close();
     dropdown = document.createElement('div');
@@ -186,11 +230,12 @@ export function initSearchBox(inputId) {
         // bodySnippet is the Lucene-highlighted excerpt with <mark>-wrapped match terms
         // (HTML-escaped before highlighting). Falls back to bodyHtml — the server-rendered,
         // jsoup-sanitized body — when there is no snippet.
-        // Element.setHTML rather than innerHTML: unlike a message body (which needs its embed
-        // iframe and its data-* attributes to survive — see ChatKit.renderMessageBody), a snippet
-        // is escaped text plus <mark>, so the browser's default sanitizer costs nothing here and
-        // is a second lock under the server's escaping.
-        row.querySelector('.search-dropdown-snippet').setHTML(m.bodySnippet || m.bodyHtml || '');
+        // renderSnippet, not innerHTML: unlike a message body (which needs its embed iframe and
+        // its data-* attributes to survive — see ChatKit.renderMessageBody), a snippet is escaped
+        // text plus <mark>, so the browser's sanitizer costs nothing here and is a second lock
+        // under the server's escaping. Where the browser has no sanitizer, renderSnippet rebuilds
+        // the snippet from text nodes rather than trusting the string.
+        renderSnippet(row.querySelector('.search-dropdown-snippet'), m.bodySnippet || m.bodyHtml || '');
         // Filenames are searchable, so a row can be here because of a file rather than because of
         // anything in its text — and a file posted without a caption has no text at all, which used
         // to draw as an empty row. matchedFilenames are HTML-escaped and <mark>-wrapped by the same
@@ -200,9 +245,9 @@ export function initSearchBox(inputId) {
         if (matchedFiles.length) {
           const files = row.querySelector('.search-dropdown-files');
           // The icon keeps innerHTML: setHTML removes <use> unconditionally, which would take
-          // every sprite icon off the page. Only the filenames go through the sanitizer.
+          // every sprite icon off the page. Only the filenames go through renderSnippet.
           files.innerHTML = '<svg class="icon icon-sm" aria-hidden="true"><use href="#icon-paperclip"/></svg><span></span>';
-          files.querySelector('span').setHTML(matchedFiles.join(', '));
+          renderSnippet(files.querySelector('span'), matchedFiles.join(', '));
           files.hidden = false;
         }
         // mousedown so the input doesn't blur (and close us) before the click fires.

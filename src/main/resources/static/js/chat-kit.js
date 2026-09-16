@@ -614,7 +614,10 @@
       return false;
     };
     const renderGroups = () => {
-      results.innerHTML = '';
+      // Every section into one fragment, attached once: each section used to go into the live
+      // grid on its own, so opening the picker (and every clearing of the search box) re-laid it
+      // once per category.
+      const sections = document.createDocumentFragment();
       displayGroups.forEach((g, i) => {
         const section = document.createElement('section');
         section.className = 'emoji-picker-section';
@@ -626,8 +629,9 @@
         grid.className = 'emoji-picker-grid';
         for (const e of g.emojis) grid.appendChild(buildEmojiBtn(e));
         section.appendChild(grid);
-        results.appendChild(section);
+        sections.appendChild(section);
       });
+      results.replaceChildren(sections);
     };
     const renderSearch = (q) => {
       results.innerHTML = '';

@@ -86,11 +86,30 @@ add('ChatKit exposes the shared message-body renderer', () => {
     }
 });
 
-add('Element.setHTML is available (polyfilled where the browser lacks it)', () => {
-    // search-box.js calls it with no feature test, so it has to exist. Safari only shipped it in
-    // 26; js/vendor/html-setters-polyfill.min.js covers everything older.
-    if (typeof document.createElement('div').setHTML !== 'function') {
-        throw new Error('Element.setHTML missing — the search dropdown will throw on every row');
+add('a search snippet renders its <mark> runs, with or without Element.setHTML', () => {
+    // search-box.js prefers the browser's sanitizer and rebuilds the snippet from text nodes where
+    // there is none (Safari). Both paths have to produce the same thing: escaped text, matched runs
+    // in <mark>, and no element the server did not send.
+    const snippet = 'plan &amp; <mark>deploy</mark> &lt;img src=x&gt;';
+    const native = document.createElement('div');
+    const fallback = document.createElement('div');
+    if (typeof native.setHTML === 'function') native.setHTML(snippet);
+    window.SearchBoxTestHooks.renderSnippet(fallback, snippet, { forceFallback: true });
+
+    if (fallback.querySelectorAll('mark').length !== 1) {
+        throw new Error('fallback lost the <mark> highlight');
+    }
+    if (fallback.querySelector('mark').textContent !== 'deploy') {
+        throw new Error('fallback marked the wrong text: ' + fallback.querySelector('mark').textContent);
+    }
+    if (fallback.querySelector('img')) {
+        throw new Error('fallback turned escaped text into an element');
+    }
+    if (fallback.textContent !== 'plan & deploy <img src=x>') {
+        throw new Error('fallback mangled the text: ' + fallback.textContent);
+    }
+    if (typeof native.setHTML === 'function' && native.textContent !== fallback.textContent) {
+        throw new Error('the two paths disagree: ' + native.textContent + ' vs ' + fallback.textContent);
     }
 });
 
