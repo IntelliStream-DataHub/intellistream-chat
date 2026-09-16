@@ -22,7 +22,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -82,14 +81,11 @@ public class SessionRestController {
 
     @GetMapping("/api/session")
     public ResponseEntity<SessionStatus> status(Authentication authentication) {
-        // The parameter is null when nothing authenticated the request at all; an expired session
-        // that Spring replaced with an anonymous token arrives populated but unauthenticated, so
-        // both have to be tested. SecurityContextHolder is the fallback for filter orderings that
-        // do not resolve the argument.
-        var auth = authentication != null ? authentication
-                : SecurityContextHolder.getContext().getAuthentication();
-        var signedIn = auth != null && auth.isAuthenticated()
-                && !"anonymousUser".equals(auth.getPrincipal());
+        // Null for no authentication at all and for the anonymous token alike — see
+        // CurrentUser.signedInAuthentication, which also falls back to the security context for
+        // filter orderings that do not resolve the argument.
+        var auth = CurrentUser.signedInAuthentication(authentication);
+        var signedIn = auth != null;
 
         return ResponseEntity.ok()
                 // A cached "yes" is the one answer that must never be served: it would keep a dead

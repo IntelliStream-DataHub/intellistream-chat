@@ -576,6 +576,7 @@
           <li><a href="#presence">Presence and status</a></li>
           <li><a href="#search">Search</a></li>
           <li><a href="#files">Files and attachments</a></li>
+          <li><a href="#secrets">One-time secrets</a></li>
           <li><a href="#polls">Polls</a></li>
           <li><a href="#slash">Slash commands</a></li>
           <li><a href="#profile">Your profile and themes</a></li>
@@ -599,6 +600,7 @@
           <li><a href="#config-moderation">Moderation and retention</a></li>
           <li><a href="#config-cleanup">Background cleanup</a></li>
           <li><a href="#config-cache">Caches and presence</a></li>
+          <li><a href="#config-secrets">One-time secrets</a></li>
           <li><a href="#config-ratelimit">Rate limits</a></li>
           <li><a href="#config-dev">Assets and dev tools</a></li>
           <li><a href="#config-profiles">Spring profiles</a></li>
@@ -1540,6 +1542,93 @@
   </figure>
 </section>
 
+<section class="doc" id="secrets">
+  <h3><span class="marker"></span>One-time secrets</h3>
+  <p>
+    For handing someone a password, a token or a connection string without it living in chat history
+    for ever. <b>Share a secret</b> (behind your avatar) turns text into a link that opens
+    <b>once</b>. Whoever opens it sees the secret for at most <b>five minutes</b>, and then it is gone:
+    from their screen, from the server, and from the link, which stops working for everyone.
+  </p>
+  <h4>What the server can see</h4>
+  <p>
+    Nothing readable. Your browser encrypts the secret before it is sent, with AES-256-GCM and a
+    random 256-bit key made for that one secret. The key goes into the link after the <code>#</code>,
+    and browsers never send that part of a URL to any server. The server stores ciphertext it has
+    no key for, plus a fingerprint derived from the key. It won't say anything about a secret,
+    even whether it exists, to someone who can't present that fingerprint. So a link with its
+    <code>#…</code> cut off, a server log, or a preview bot can neither read a secret nor use it up.
+  </p>
+  <div class="warn">
+    <span class="tag">Pasting the link into this chat</span>
+    <p>
+      A full link pasted into a channel or a direct message is stored on this server, next to the
+      ciphertext it opens. Until the secret is opened, someone with access to the database could put
+      the two together. If that matters, tick <b>Send the key separately</b>. You get the link and
+      the key apart. Paste the link here and send the key another way (a text message, a phone call),
+      and this server never holds both halves.
+    </p>
+  </div>
+  <h4>Sharing one</h4>
+  <ul>
+    <li><b>Secret</b>: up to 16 KB of text.</li>
+    <li>
+      <b>Label</b> (optional): a note for yourself, like <i>Staging DB for Bob</i>. It is <em>not</em>
+      encrypted and only you see it. Don't put the secret there.
+    </li>
+    <li><b>Link expires after</b>: one hour, one day or seven days. After that it can't be opened.</li>
+    <li>
+      <b>Anyone with the link can open it</b>: for someone without an account here, like a contractor
+      or a customer. Without it, only people signed in to this workspace can open the secret. An admin
+      can switch this option off for the whole workspace.
+    </li>
+  </ul>
+  <p>
+    The link is shown once, with a copy button. It can't be shown again later, because the key in
+    it only ever existed in your browser.
+  </p>
+  <h4>Opening one</h4>
+  <p>
+    Opening the link doesn't reveal anything yet. The page says who shared the secret and when the link
+    expires, and waits for you to click <b>Reveal secret</b>. That way a link scanner or a chat app
+    that loads the page can't use the secret up. After the click, the secret is on screen with a
+    countdown and a copy button. It disappears when the countdown ends, when you click <b>Hide now</b>,
+    or as soon as you switch away from the tab. Reloading the page doesn't bring it back.
+  </p>
+  <p>
+    A warning appears along with the secret: <b>don't screenshot or photograph it</b>. A picture of a
+    secret is a permanent copy that phones and computers back up, sync and make searchable, which is
+    exactly what the link avoids. <b>Why this matters</b> explains it in full, along with what to do
+    instead. No web page can stop a screenshot, so it relies on you.
+  </p>
+  <p>
+    If a signed-in-only secret is opened by someone who isn't signed in, they are asked to sign in
+    first. They come back to the same page and still choose when to reveal it. If a secret was
+    already opened, the page says when. If that wasn't you, someone else had the link: tell the
+    person who shared it, and change the secret.
+  </p>
+  <h4>Knowing it arrived</h4>
+  <p>
+    When your secret is opened, you get a message in your own conversation (<b>You</b>, the one your
+    reminders land in) saying who opened it. Share a secret also lists everything you have shared,
+    with its state: <i>waiting</i>, <i>opened</i> (by whom, and when), <i>expired</i> or
+    <i>revoked</i>. <b>Revoke</b> stops a waiting link at once.
+  </p>
+  <p>
+    If someone without an account opens a secret, the message says so, and Share a secret shows
+    their <b>IP address and browser</b> (for example <i>Firefox on Windows, 203.0.113.7</i>), so you
+    can tell whether the person you meant to reach opened it. The address is what the proxy in front
+    of the server reported. Only you see these details. They are kept out of the message on purpose:
+    a message stays for as long as the conversation does, and these are deleted along with the rest of
+    the record 30 days after the secret was opened, revoked or expired.
+  </p>
+
+  <figure class="doc-shot">
+    <img src="data:image/webp;base64,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" alt="A revealed secret: the warning arrives with it, and the countdown shows how long it stays on screen." loading="lazy"/>
+    <figcaption>A revealed secret: the warning arrives with it, and the countdown shows how long it stays on screen.</figcaption>
+  </figure>
+</section>
+
 <section class="doc" id="polls">
   <h3><span class="marker"></span>Polls</h3>
   <p>Polls are created with a slash command and are channel-only.</p>
@@ -1762,6 +1851,13 @@
       and only changes rendering), so turning it off and on again loses nothing, and it never
       affects mention rendering, hovercards or the profile API &mdash; none of those expose email at
       all.
+    </li>
+    <li>
+      <b>One-time secrets.</b> One checkbox: whether people may share
+      <a href="#secrets">secrets</a> that <em>anyone with the link</em> can open, account or not.
+      On by default. Switching it off removes the option from the sharing page, and every existing
+      secret of that kind asks for sign-in before it opens. Nothing is deleted, so switching it back
+      on restores the links that have not expired.
     </li>
     <li><b>Users.</b> A read-only table: username, display name, email, last active, joined.</li>
   </ul>
@@ -2044,6 +2140,17 @@ sudo semodule -i intellistream-chat-local.pp</code></pre>
     their <code>Secure</code> flag automatically and no separate setting is needed. If your proxy
     strips that header you must force it with
     <code>server.servlet.session.cookie.secure=true</code>.
+  </p>
+  <p>
+    The same filter takes the client's address from the <b>leftmost</b> <code>X-Forwarded-For</code>
+    entry. A proxy that <em>appends</em> to that header (nginx's <code>$proxy_add_x_forwarded_for</code>,
+    haproxy's <code>option forwardfor</code>) leaves whatever the client sent in first place, so any
+    client could choose the address the application sees. That is the address recorded when someone
+    without an account opens a <a href="#secrets">one-time secret</a>, and the one per-address rate
+    limits count. Have the proxy <em>set</em> the header to the connecting address instead:
+    <code>proxy_set_header X-Forwarded-For $remote_addr;</code> in nginx,
+    <code>http-request set-header X-Forwarded-For %[src]</code> in haproxy. The configurations in
+    <code>frontend.md</code> do.
   </p>
 </section>
 
@@ -2510,6 +2617,59 @@ ICHAT_TURN_SECRET=&lt;something unguessable&gt; \
   </div>
 </section>
 
+<section class="doc" id="config-secrets">
+  <h3><span class="marker"></span>One-time secrets</h3>
+  <p>
+    The server never holds a key, so none of these settings affect what can be read. They set how
+    big a secret may be, how long its link and its record last, and how long a revealed secret stays
+    on screen. Whether people without an account may open secrets is an admin-console setting
+    (<code>app_settings.allow_public_secrets</code>), not a property, so it can be changed without a
+    restart.
+  </p>
+  <div class="tw">
+  <table class="nowrap-1 cfg">
+    <thead><tr><th>Key</th><th>Env</th><th>Default</th><th>What it does</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><code>ichat.secrets.max-plaintext-bytes</code></td><td><code>ICHAT_SECRETS_MAX_PLAINTEXT_BYTES</code></td><td><code>16384</code></td>
+        <td>Largest secret, in UTF-8 bytes before encryption. Checked in the browser, and again on the server against the ciphertext's size.</td>
+      </tr>
+      <tr>
+        <td><code>ichat.secrets.max-waiting-per-user</code></td><td><code>ICHAT_SECRETS_MAX_WAITING_PER_USER</code></td><td><code>50</code></td>
+        <td>How many unopened, unexpired secrets one account may have at once.</td>
+      </tr>
+      <tr>
+        <td><code>ichat.secrets.display-seconds</code></td><td><code>ICHAT_SECRETS_DISPLAY_SECONDS</code></td><td><code>300</code></td>
+        <td>How long a revealed secret stays on screen. Between 1 and 300. A larger value is refused at startup: five minutes is a ceiling, not a default.</td>
+      </tr>
+      <tr>
+        <td><code>ichat.secrets.lifetimes</code></td><td><code>ICHAT_SECRETS_LIFETIMES</code></td><td><code>1h,1d,7d</code></td>
+        <td>The choices offered for how long an unopened link lives. Anything else is refused.</td>
+      </tr>
+      <tr>
+        <td><code>ichat.secrets.default-lifetime</code></td><td><code>ICHAT_SECRETS_DEFAULT_LIFETIME</code></td><td><code>1d</code></td>
+        <td>Which of them is preselected.</td>
+      </tr>
+      <tr>
+        <td><code>ichat.secrets.retention</code></td><td><code>ICHAT_SECRETS_RETENTION</code></td><td><code>30d</code></td>
+        <td>How long the record of a secret is kept after it was opened, revoked or expired: what the creator's list shows, including an anonymous opener's IP address and browser summary (the receipt message in the creator's own conversation never contains those two). The ciphertext itself is gone the moment the secret ends.</td>
+      </tr>
+      <tr>
+        <td><code>ichat.secrets.sweep-ms</code></td><td><code>ICHAT_SECRETS_SWEEP_MS</code></td><td><code>300000</code></td>
+        <td>How often expired ciphertext is forgotten and old records are deleted. An expired secret is refused the moment it expires, whether or not the sweep has run.</td>
+      </tr>
+    </tbody>
+  </table>
+  </div>
+  <p>
+    Two things about the proxy matter here. The address recorded for an anonymous opener is the
+    leftmost <code>X-Forwarded-For</code> entry, so the proxy must <em>set</em> that header rather
+    than append to it (see <a href="#config-http">HTTP and the proxy</a>). And Web Crypto only exists
+    over HTTPS (or on <code>localhost</code>), so sharing and opening secrets doesn't work on a
+    plain-HTTP address.
+  </p>
+</section>
+
 <section class="doc" id="config-ratelimit">
   <h3><span class="marker"></span>Rate limits</h3>
   <p>
@@ -2532,6 +2692,9 @@ ICHAT_TURN_SECRET=&lt;something unguessable&gt; \
       <tr><td>Attachment upload</td><td>10 / min</td></tr>
       <tr><td>Attachment download</td><td>200 / min</td></tr>
       <tr><td>Avatar upload / download</td><td>5 / min, 600 / min</td></tr>
+      <tr><td>Share a one-time secret / revoke one</td><td>20 / min, 30 / min</td></tr>
+      <tr><td>Check or open a one-time secret, signed in</td><td>60 / min, 30 / min</td></tr>
+      <tr><td>Check or open a one-time secret, signed out</td><td>300 / min shared by every signed-out visitor, and 30 / min per address</td></tr>
       <tr><td>STOMP subscribe</td><td>200 / min, keyed on the session rather than the user</td></tr>
     </tbody>
   </table>

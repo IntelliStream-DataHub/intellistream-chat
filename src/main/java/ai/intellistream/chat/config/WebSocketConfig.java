@@ -57,7 +57,11 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     private final int binaryBufferBytes;
     private final int socketBufferBytes;
 
-    public WebSocketConfig(@Value("${ichat.allowed-origins:http://localhost:8080,http://127.0.0.1:8080}")
+    /** Names each session after the domain handle; see {@link DomainHandleHandshakeHandler}. */
+    private final DomainHandleHandshakeHandler handshakeHandler;
+
+    public WebSocketConfig(DomainHandleHandshakeHandler handshakeHandler,
+                           @Value("${ichat.allowed-origins:http://localhost:8080,http://127.0.0.1:8080}")
                            String allowedOriginsCsv,
                            @Value("${ichat.ws.inbound-threads:0}") int inboundThreads,
                            @Value("${ichat.ws.inbound-queue:100000}") int inboundQueue,
@@ -65,6 +69,7 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
                            @Value("${ichat.ws.outbound-queue:200000}") int outboundQueue,
                            @Value("${ichat.ws.binary-buffer-bytes:8192}") int binaryBufferBytes,
                            @Value("${ichat.ws.socket-buffer-bytes:8192}") int socketBufferBytes) {
+        this.handshakeHandler = handshakeHandler;
         this.binaryBufferBytes = binaryBufferBytes;
         this.socketBufferBytes = socketBufferBytes;
         this.allowedOrigins = Arrays.stream(allowedOriginsCsv.split(","))
@@ -149,7 +154,14 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
         // Native WebSocket only. Don't add .withSockJS() — its iframe / htmlfile / jsonp-polling
         // transports inject inline <script>, which collides with the strict CSP (script-src 'self')
         // configured in SecurityConfig.
-        registry.addEndpoint("/ws").setAllowedOriginPatterns(allowedOrigins);
+        // The handshake handler is what makes a session's principal name the domain handle, which
+        // is the name every convertAndSendToUser in this application addresses. Drop it and
+        // /user/** destinations go back to being keyed by Keycloak's preferred_username, which is a
+        // different string for an email-shaped or collision-suffixed login — and messages meant for
+        // one person then reach another, or nobody.
+        registry.addEndpoint("/ws")
+                .setHandshakeHandler(handshakeHandler)
+                .setAllowedOriginPatterns(allowedOrigins);
     }
 
     /** Drives the STOMP heartbeats configured above. */

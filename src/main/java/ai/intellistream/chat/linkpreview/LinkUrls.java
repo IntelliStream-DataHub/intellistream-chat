@@ -64,12 +64,31 @@ public final class LinkUrls {
         var m = CANDIDATE.matcher(text);
         while (m.find()) {
             var url = trimTrailing(m.group());
-            if (url.length() > MAX_URL_LENGTH || !isHttpUrl(url)) {
+            if (url.length() > MAX_URL_LENGTH || !isHttpUrl(url) || isSecretLink(url)) {
                 continue;
             }
             return Optional.of(url);
         }
         return Optional.empty();
+    }
+
+    /** The path of a one-time secret's link: {@code /s/} and a 22-character id. */
+    private static final Pattern SECRET_PATH = Pattern.compile("/s/[A-Za-z0-9_-]{22}/?");
+
+    /**
+     * A one-time secret's link is never unfurled, on any host. The server does not know its own
+     * public URL, so the path shape is the test. Fetching one could not open it — that takes the
+     * verifier derived from the key, which never reaches a server — but the fetch would store the
+     * URL, #fragment and all, in {@code link_previews.url} — the key in the same database as the
+     * ciphertext it opens.
+     */
+    static boolean isSecretLink(String url) {
+        try {
+            var path = new URI(url).getRawPath();
+            return path != null && SECRET_PATH.matcher(path).matches();
+        } catch (URISyntaxException e) {
+            return false;
+        }
     }
 
     /**
