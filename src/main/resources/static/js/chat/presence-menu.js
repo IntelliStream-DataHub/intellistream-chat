@@ -57,9 +57,29 @@ let menuEl = null;
 /** Index of the currently keyboard-focused item; -1 means nothing focused. */
 let focusedIdx = -1;
 
-/** Is the menu on screen right now, whether pinned open or merely hovered? */
+/**
+ * Is the menu on screen right now, whether pinned open or merely hovered?
+ *
+ * Answered from state, never by measuring. This is the first line of a keydown listener bound to
+ * the *document*, so it runs for every character typed anywhere on the page — and
+ * `getClientRects()` forces the browser to lay the page out before it can answer, right beside the
+ * composer's own auto-resize. The two conditions below are exactly the two CSS rules that show the
+ * menu: `.me-menu.is-open .presence-menu`, and `.me-menu:hover .presence-menu` inside
+ * `@media (hover: hover)`. Matching `:hover` reads the hover flag, not geometry.
+ */
 function isShown() {
-    return !!menuEl && menuEl.getClientRects().length > 0;
+    if (!menuEl || !wrapEl) return false;
+    if (wrapEl.classList.contains('is-open')) return true;
+    return hoverCapable() && wrapEl.matches(':hover');
+}
+
+/** Cached, because it cannot change without a new pointing device and it is read per keystroke. */
+let hoverCapableCache = null;
+function hoverCapable() {
+    if (hoverCapableCache === null) {
+        hoverCapableCache = !window.matchMedia || window.matchMedia('(hover: hover)').matches;
+    }
+    return hoverCapableCache;
 }
 
 function openMenu(opts = {}) {

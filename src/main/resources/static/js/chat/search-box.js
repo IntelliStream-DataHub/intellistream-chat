@@ -66,6 +66,11 @@ export function initSearchBox(inputId) {
     activeIndex = -1;
   };
 
+  /**
+   * Re-place the dropdown under the field. Measures, so it is throttled to one animation frame by
+   * repositionSoon() below — it is bound to scroll in the capture phase, which fires for every
+   * scroller on the page, and measuring per event forces a layout per event.
+   */
   const position = () => {
     if (!dropdown) return;
     const r = input.getBoundingClientRect();
@@ -75,9 +80,20 @@ export function initSearchBox(inputId) {
     dropdown.style.minWidth = Math.max(r.width, 320) + 'px';
   };
 
+  let positionRaf = 0;
+  const repositionSoon = () => {
+    if (positionRaf || !dropdown) return;
+    positionRaf = requestAnimationFrame(() => {
+      positionRaf = 0;
+      position();
+    });
+  };
+
   const highlight = () => {
     if (!dropdown) return;
     const rows = dropdown.querySelectorAll('.search-dropdown-row');
+    // Classes for every row first, then one scrollIntoView. Scrolling inside the loop forces a
+    // layout in the middle of it, with the rows the loop has not reached yet still to be written.
     rows.forEach((row, i) => row.classList.toggle('active', i === activeIndex));
     if (activeIndex >= 0) rows[activeIndex].scrollIntoView({ block: 'nearest' });
   };
@@ -283,6 +299,6 @@ export function initSearchBox(inputId) {
     if (dropdown.contains(e.target) || input.contains(e.target)) return;
     close();
   });
-  window.addEventListener('resize', position);
-  window.addEventListener('scroll', position, true);
+  window.addEventListener('resize', repositionSoon);
+  window.addEventListener('scroll', repositionSoon, true);
 }

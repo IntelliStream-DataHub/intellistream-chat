@@ -222,7 +222,9 @@
         : items.slice();
     const shown = matches.slice(0, MAX_ROWS);
 
-    list.textContent = '';
+    // Built detached and attached once. Appending each row to the live list re-laid the visible
+    // combobox on every keystroke, up to sixty times per keypress.
+    const rows = document.createDocumentFragment();
     shown.forEach((item, index) => {
       const li = document.createElement('li');
       li.className = 'tz-combo-option';
@@ -248,22 +250,25 @@
         e.preventDefault();
         choose(item.value);
       });
-      list.appendChild(li);
+      rows.appendChild(li);
     });
 
     if (!shown.length) {
       note.textContent = 'No time zone matches “' + query.trim() + '”.';
-      list.appendChild(note);
+      rows.appendChild(note);
     } else if (matches.length > shown.length) {
       note.textContent = (matches.length - shown.length) + ' more — keep typing to narrow it down.';
-      list.appendChild(note);
+      rows.appendChild(note);
     }
+    list.replaceChildren(rows);
     setActive(shown.findIndex((i) => i.value === select.value));
   }
 
   function setActive(index) {
     const options = list.querySelectorAll('.tz-combo-option');
     activeIndex = Math.max(-1, Math.min(index, options.length - 1));
+    // All the class writes, then the one scroll: scrollIntoView measures, so calling it inside the
+    // loop would force a layout with rows still unwritten.
     options.forEach((el, i) => el.classList.toggle('is-active', i === activeIndex));
     if (activeIndex >= 0) {
       input.setAttribute('aria-activedescendant', 'tz-opt-' + activeIndex);
