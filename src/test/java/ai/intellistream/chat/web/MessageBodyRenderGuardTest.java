@@ -146,15 +146,26 @@ class MessageBodyRenderGuardTest {
 
     @Test
     void theSetHtmlPolyfillIsNotTreatedAsASecurityControl() throws Exception {
-        // It implements no sanitizer — its only DOM work is declarative shadow DOM — so on a
-        // browser that needs it, setHTML is innerHTML. It is here so the search dropdown's call
-        // sites need no feature test on Safari < 26, and the snippets are safe because the server
-        // escapes them, not because of this file.
+        // It implements no sanitizer — its only DOM work is declarative shadow DOM — and it does not
+        // define setHTML at all, only the *Unsafe family. Chrome, Firefox and Edge ship setHTML;
+        // Safari does not yet, so the search dropdown cannot assume it exists: search-box.js feature
+        // tests and rebuilds the snippet from text nodes where there is no sanitizer. The snippets
+        // are safe because the server escapes them and because that fallback creates no elements,
+        // not because of this file.
         var polyfill = read(JS.resolve("vendor/html-setters-polyfill.min.js"));
         assertThat(polyfill)
                 .as("if the polyfill ever grows a sanitizer, revisit what we claim about it")
                 .doesNotContain("allowAttributes")
                 .doesNotContain("removeAttributes");
+        var searchBox = codeOnly(read(JS.resolve("chat/search-box.js")));
+        assertThat(searchBox)
+                .as("the dropdown must feature-test setHTML rather than assume the polyfill supplies it")
+                .contains("typeof el.setHTML === 'function'")
+                .contains("createElement('mark')");
+        assertThat(searchBox)
+                .as("the fallback must build nodes, never hand the snippet to innerHTML")
+                .doesNotContain("innerHTML = text")
+                .doesNotContain("innerHTML = html");
         assertThat(read(Path.of("THIRD-PARTY-NOTICES.md")))
                 .as("the notice must say the polyfill is a shim, not a security control")
                 .contains("Compatibility shim, not a security control");
@@ -190,23 +201,25 @@ class MessageBodyRenderGuardTest {
 
     @Test
     void escapedSnippetsDoGoThroughTheBrowserSanitizer() throws Exception {
-        // The opposite case: a search snippet is escaped text plus <mark>, so the default
-        // sanitizer costs nothing and is a second lock under the server's escaping.
+        // The opposite case: a search snippet is escaped text plus <mark>, so the browser's
+        // sanitizer costs nothing and is a second lock under the server's escaping. Both call sites
+        // go through renderSnippet, which uses that sanitizer where the browser has one.
         var searchBox = read(JS.resolve("chat/search-box.js"));
         assertThat(searchBox)
-                .as("the search dropdown's snippet and filenames should use Element.setHTML")
-                .contains(".setHTML(m.bodySnippet || m.bodyHtml || '')")
-                .contains(".setHTML(matchedFiles.join(', '))");
+                .as("the snippet and the matched filenames both go through renderSnippet")
+                .contains("renderSnippet(row.querySelector('.search-dropdown-snippet')")
+                .contains("renderSnippet(files.querySelector('span')");
+        assertThat(codeOnly(searchBox))
+                .as("renderSnippet must prefer the browser's sanitizer when there is one")
+                .contains("el.setHTML(text)");
 
-        // setHTML is not Baseline, so the pages that run search-box.js must carry the polyfill —
-        // otherwise the call throws on Safari < 26 and the row renders empty.
+        // setHTML is not Baseline — Safari has not shipped it — and the vendored polyfill supplies
+        // only the *Unsafe family, so the dropdown cannot depend on either. It feature-tests and
+        // falls back to building the snippet out of text nodes; these assertions are in
+        // theSetHtmlPolyfillIsNotTreatedAsASecurityControl.
         assertThat(Files.exists(JS.resolve("vendor/html-setters-polyfill.min.js")))
-                .as("the setHTML polyfill must be vendored").isTrue();
-        for (String page : List.of("channels.html", "conversation.html", "search.html")) {
-            assertThat(read(TEMPLATES.resolve(page)))
-                    .as("%s runs the search dropdown, so it needs the setHTML polyfill", page)
-                    .contains("html-setters-polyfill.min.js");
-        }
+                .as("the polyfill is still vendored for declarative shadow DOM and the *Unsafe family")
+                .isTrue();
     }
 
     @Test

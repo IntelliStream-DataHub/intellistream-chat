@@ -96,17 +96,25 @@
    * Slack/Mattermost-style auto-grow: textarea expands from its CSS min-height up
    * to {@code maxPx}, then scrolls. Resetting height to 'auto' before reading
    * scrollHeight avoids the runaway-growth bug after deletes.
+   *
+   * <p>One scrollHeight read, not two. Reading it forces the browser to lay the page out then and
+   * there, and this runs on every keystroke in every composer — the most frequently executed DOM
+   * code in the application. The second read used to decide overflowY, but it was asking a question
+   * the first read already answers: the height written is min(natural, maxPx), so the box scrolls
+   * exactly when the natural height exceeded the cap.
    */
   const wireAutoResize = (ta, maxPx = 260) => {
     if (!ta) return;
     const resize = () => {
       ta.style.height = 'auto';
-      const h = Math.min(ta.scrollHeight, maxPx);
-      ta.style.height = h + 'px';
-      ta.style.overflowY = ta.scrollHeight > maxPx ? 'auto' : 'hidden';
+      const natural = ta.scrollHeight;
+      ta.style.height = Math.min(natural, maxPx) + 'px';
+      ta.style.overflowY = natural > maxPx ? 'auto' : 'hidden';
     };
     ta.addEventListener('input', resize);
     resize();
+    // Once more after the first frame: fonts and the sidebar settle after this runs, and a composer
+    // that starts with text in it measures short until they do. Once per composer, not per keystroke.
     requestAnimationFrame(resize);
     ta._autoResize = resize;
   };
@@ -606,7 +614,10 @@
       return false;
     };
     const renderGroups = () => {
-      results.innerHTML = '';
+      // Every section into one fragment, attached once: each section used to go into the live
+      // grid on its own, so opening the picker (and every clearing of the search box) re-laid it
+      // once per category.
+      const sections = document.createDocumentFragment();
       displayGroups.forEach((g, i) => {
         const section = document.createElement('section');
         section.className = 'emoji-picker-section';
@@ -618,8 +629,9 @@
         grid.className = 'emoji-picker-grid';
         for (const e of g.emojis) grid.appendChild(buildEmojiBtn(e));
         section.appendChild(grid);
-        results.appendChild(section);
+        sections.appendChild(section);
       });
+      results.replaceChildren(sections);
     };
     const renderSearch = (q) => {
       results.innerHTML = '';
@@ -681,12 +693,16 @@
 
     renderGroups();
     document.body.appendChild(picker);
+    // Measure the anchor and the picker once each, then write. Reading offsetHeight and then
+    // offsetWidth after each style write made the browser lay the page out three times to place
+    // one popup; one rect read answers both questions.
     const rect = anchor.getBoundingClientRect();
     picker.style.position = 'fixed';
-    const desiredTop = rect.top - picker.offsetHeight - 6;
+    const size = picker.getBoundingClientRect();
+    const desiredTop = rect.top - size.height - 6;
     picker.style.top = Math.max(8, desiredTop) + 'px';
-    const desiredLeft = rect.left - picker.offsetWidth + rect.width;
-    picker.style.left = Math.max(8, Math.min(desiredLeft, window.innerWidth - picker.offsetWidth - 8)) + 'px';
+    const desiredLeft = rect.left - size.width + rect.width;
+    picker.style.left = Math.max(8, Math.min(desiredLeft, window.innerWidth - size.width - 8)) + 'px';
     emojiPickerEl = picker;
     // Autofocus the search on desktop only — on touch devices it would pop the
     // software keyboard over the picker the moment it opens.

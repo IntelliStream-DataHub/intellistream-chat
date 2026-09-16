@@ -1107,18 +1107,24 @@ presenceMenu.init();
     async function backfillMissedMessages() {
       backfilling = true;
       try {
-        for (let page = 0; page < 50; page++) { // safety cap: 50 pages * 50 = 2500 messages
-          const last = lastMessageEl();
-          const after = last ? last.dataset.createdAt : null;
-          if (!after) break;
+        // Fetch every page first, render once. Rendering a page per iteration put each one in its
+        // own task: the browser laid the list out between pages, and within a page every message
+        // measured the list again. The cursor comes from the rows themselves rather than from the
+        // last <li>, which is what let the DOM work move out of the loop.
+        const lastEl = lastMessageEl();
+        let after = lastEl ? lastEl.dataset.createdAt : null;
+        const missed = [];
+        for (let page = 0; after && page < 50; page++) { // safety cap: 50 pages * 50 = 2500 messages
           const rows = await fetch('/api/channels/' + activeChannelId + '/messages?after='
                 + encodeURIComponent(after) + '&limit=50', { headers: headers() })
             .then((r) => (r.ok ? r.json() : []))
             .catch(() => []);
           if (!rows || rows.length === 0) break;
-          rows.forEach(appendMessage);
+          missed.push(...rows);
+          after = rows[rows.length - 1].createdAt;
           if (rows.length < 50) break; // short page => we've caught up
         }
+        appendMessages(missed);
       } finally {
         backfilling = false;
         pendingLive.splice(0).forEach(handleMessageEvent);
@@ -1587,15 +1593,26 @@ presenceMenu.init();
         if (!body && !hasFiles) return;
 
         if (hasFiles) {
-          // Upload each file as its own message (caption = body, only on the first one).
+          // Upload each file as its own message (caption = body, only on the first one). Sequential
+          // on purpose: each file becomes its own message, so the order is the posting order, and
+          // taking each chip away as its upload lands is the progress indicator. What does not need
+          // repeating is the composer reset — clearing and re-measuring it once per file meant two
+          // forced layouts each time for a box that was already empty.
           let caption = body;
+          let composerCleared = false;
+          const clearComposer = () => {
+            if (composerCleared) return;
+            composerCleared = true;
+            input.value = '';
+            input._autoResize?.();
+          };
           for (const [localId, item] of Array.from(pending.entries())) {
             try {
               await uploadAttachment(item.file, caption);
               // Clear the composer as soon as the caption is consumed — otherwise a later file's
               // failure returns with the caption still in the box, and resubmitting re-posts it
               // against the remaining files (N14).
-              if (caption) { input.value = ''; input._autoResize?.(); }
+              if (caption) clearComposer();
               caption = '';
               removePendingAttachment(localId);
             } catch (err) {
@@ -1603,8 +1620,7 @@ presenceMenu.init();
               return;
             }
           }
-          input.value = '';
-          input._autoResize?.();
+          clearComposer();
         } else {
           if (await sendChannelMessage(body)) {
             input.value = '';
@@ -1797,7 +1813,32 @@ presenceMenu.init();
     });
   };
 
-  const appendMessage = (msg) => {
+  /**
+   * Append several messages as one piece of work: measure once, insert them all, scroll once.
+   *
+   * appendMessage on its own is right for a live message — one arrives, one is drawn. Called in a
+   * loop it is not: each call reads scrollHeight/scrollTop to decide whether to follow the tail,
+   * and that read comes after the previous call's insert, so the browser must lay the whole message
+   * list out again before it can answer. Fifty messages meant fifty layouts. Here the decision is
+   * taken once, before anything is inserted, and the dividers are repositioned once at the end.
+   */
+  const appendMessages = (rows) => {
+    if (!rows || rows.length === 0) return;
+    const nearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 120;
+    let last = null;
+    rows.forEach((msg) => { last = appendMessage(msg, { batched: true }) || last; });
+    if (last && (nearBottom || rows.some((m) => m.authorUsername === myUsernameMeta))) {
+      stickToBottomThroughImageLoads(last);
+    }
+    positionDayDividers();
+  };
+
+  /**
+   * @param opts.batched set by {@link appendMessages}: skip this message's own tail measurement,
+   *        scroll and divider pass, because the batch does each of them once for the whole run.
+   * @return the appended <li>, or undefined when the message was a duplicate
+   */
+  const appendMessage = (msg, opts) => {
     // De-dupe: a live broadcast can race the final infinite-scroll page (which flips
     // infiniteScrollDownDone) and arrive for a message already rendered — without this
     // guard it would append a duplicate <li> and a duplicate day-divider anchor.
@@ -1820,15 +1861,22 @@ presenceMenu.init();
 
     // Only follow the tail if the reader is already near the bottom; otherwise a live
     // message would yank someone reading history straight down. (The prepend/history path
-    // preserves the viewport separately.) Measure BEFORE appending.
-    const nearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 120;
+    // preserves the viewport separately.) Measure BEFORE appending — and not at all when a batch
+    // has already measured for the whole run.
+    const batched = !!(opts && opts.batched);
+    const nearBottom = batched
+        ? false
+        : messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 120;
     messagesEl.append(li);
     attachActions(li);
     flagAsAppearing(li);
-    if (nearBottom || msg.authorUsername === myUsernameMeta) {
-      stickToBottomThroughImageLoads(li);
+    if (!batched) {
+      if (nearBottom || msg.authorUsername === myUsernameMeta) {
+        stickToBottomThroughImageLoads(li);
+      }
+      positionDayDividers();
     }
-    positionDayDividers();
+    return li;
   };
 
   /**
@@ -1894,27 +1942,41 @@ presenceMenu.init();
   let olderSentinel = null;
   let olderObserver = null;
 
+  /** The ids already on screen, for a batch that would otherwise ask the DOM once per row. */
+  const renderedMessageIds = () => {
+    const ids = new Set();
+    messagesEl.querySelectorAll('li.message[data-id]').forEach((li) => ids.add(li.dataset.id));
+    return ids;
+  };
+
   const prependOlderMessages = (rows) => {
     // Server returns oldest-first inside the batch (MessageService re-sorts ascending after
-    // the descending DB fetch). Inserting each row before the current first.message LI
-    // preserves that order: row[0] ends up at the new top, row[N-1] right above the prior top.
+    // the descending DB fetch). The fragment keeps that order and goes in above the current
+    // first .message: row[0] ends up at the new top, row[N-1] right above the prior top.
+    //
+    // One insertion, not fifty. Each row used to be inserted on its own into the live list, with
+    // a querySelector per row to de-dupe; the whole page is assembled off-document instead and
+    // attached once, which is also one style and layout pass instead of a growing list being
+    // touched fifty times.
     const firstExisting = messagesEl.querySelector('li.message');
-    let inserted = 0;
+    const seen = renderedMessageIds();
+    const batch = document.createDocumentFragment();
+    const attachTo = [];
     for (const msg of rows) {
       // De-dupe in case of overlap with the existing batch (shouldn't happen with the
       // before=<instant> contract, but handle it defensively).
-      if (messagesEl.querySelector('li.message[data-id="' + CSS.escape(msg.id) + '"]')) continue;
+      if (seen.has(String(msg.id))) continue;
       const li = buildMessageLi(msg);
-      if (firstExisting) {
-        messagesEl.insertBefore(li, firstExisting);
-      } else {
-        messagesEl.append(li);
-      }
-      attachActions(li);
+      batch.append(li);
+      attachTo.push(li);
       // Don't flagAsAppearing — these are old messages, no slide-in animation.
-      inserted++;
     }
-    return inserted;
+    if (!attachTo.length) return 0;
+    if (firstExisting) messagesEl.insertBefore(batch, firstExisting);
+    else messagesEl.append(batch);
+    // After they are in the document: attachActions reads each row's own dataset, not geometry.
+    attachTo.forEach(attachActions);
+    return attachTo.length;
   };
 
   const loadOlder = async () => {
@@ -1992,20 +2054,25 @@ presenceMenu.init();
   let newerObserver = null;
 
   const appendNewerMessages = (rows) => {
-    let inserted = 0;
+    // Same shape as prependOlderMessages: assembled off-document, attached once.
+    const seen = renderedMessageIds();
+    const batch = document.createDocumentFragment();
+    const attachTo = [];
     for (const msg of rows) {
-      if (messagesEl.querySelector('li.message[data-id="' + CSS.escape(msg.id) + '"]')) continue;
+      if (seen.has(String(msg.id))) continue;
       const li = buildMessageLi(msg);
-      // Insert before the bottom sentinel so it stays the last child.
-      if (newerSentinel && newerSentinel.parentNode === messagesEl) {
-        messagesEl.insertBefore(li, newerSentinel);
-      } else {
-        messagesEl.append(li);
-      }
-      attachActions(li);
-      inserted++;
+      batch.append(li);
+      attachTo.push(li);
     }
-    return inserted;
+    if (!attachTo.length) return 0;
+    // Insert before the bottom sentinel so it stays the last child.
+    if (newerSentinel && newerSentinel.parentNode === messagesEl) {
+      messagesEl.insertBefore(batch, newerSentinel);
+    } else {
+      messagesEl.append(batch);
+    }
+    attachTo.forEach(attachActions);
+    return attachTo.length;
   };
 
   const loadNewer = async () => {
@@ -2125,20 +2192,28 @@ presenceMenu.init();
     if (dividerRaf) return;
     dividerRaf = requestAnimationFrame(() => {
       dividerRaf = 0;
+      // Read every position first, then write every position. Interleaving them — measure this
+      // divider's anchor, move this divider, measure the next — makes each measurement force a
+      // layout, because the write before it dirtied the one the browser had just computed. Two
+      // passes cost one layout for the whole row of dividers, however many there are, and this runs
+      // on every scroll frame.
       const scrollTop = messagesEl.scrollTop;
+      const placements = [];
       dividerLayer.querySelectorAll('.day-divider').forEach((div) => {
         const anchorId = div.dataset.anchorId;
         const anchor = anchorId
             ? messagesEl.querySelector('li.message[data-id="' + CSS.escape(anchorId) + '"]')
             : null;
-        if (!anchor) {
-          div.style.visibility = 'hidden';
+        // Center the divider in the gap created by .first-of-day's margin-top (≈2.5rem ≈ 40px).
+        placements.push({ div: div, top: anchor ? anchor.offsetTop - scrollTop - 32 : null });
+      });
+      placements.forEach((p) => {
+        if (p.top === null) {
+          p.div.style.visibility = 'hidden';
           return;
         }
-        // Center the divider in the gap created by .first-of-day's margin-top (≈2.5rem ≈ 40px).
-        const top = anchor.offsetTop - scrollTop - 32;
-        div.style.top = top + 'px';
-        div.style.visibility = 'visible';
+        p.div.style.top = p.top + 'px';
+        p.div.style.visibility = 'visible';
       });
     });
   };
@@ -2720,22 +2795,20 @@ presenceMenu.init();
   const hydratePollPlaceholders = async () => {
     const placeholders = document.querySelectorAll('.poll-placeholder[data-poll-id]');
     if (!placeholders.length) return;
-    await Promise.all([...placeholders].map(async (el) => {
+    // Fetch in parallel, then swap in one block. Swapping inside each fetch's own continuation put
+    // every poll on the page in a separate task, so a channel showing five polls laid itself out
+    // five times while they arrived; the widgets are built detached and attached together instead.
+    const fetched = await Promise.all([...placeholders].map((el) => {
       const id = el.dataset.pollId;
-      try {
-        const res = await fetch('/api/polls/' + encodeURIComponent(id), {
-          headers: headers(), credentials: 'same-origin',
-        });
-        if (!res.ok) {
-          el.remove();
-          return;
-        }
-        const dto = await res.json();
-        el.replaceWith(renderPollWidget(dto));
-      } catch (e) {
-        el.remove();
-      }
+      return fetch('/api/polls/' + encodeURIComponent(id), { headers: headers(), credentials: 'same-origin' })
+          .then((res) => (res.ok ? res.json() : null))
+          .then((dto) => ({ el: el, widget: dto ? renderPollWidget(dto) : null }))
+          .catch(() => ({ el: el, widget: null }));
     }));
+    fetched.forEach((row) => {
+      if (row.widget) row.el.replaceWith(row.widget);
+      else row.el.remove();
+    });
   };
   hydratePollPlaceholders();
 
@@ -2961,8 +3034,11 @@ presenceMenu.init();
       // already on screen (an edit undone while typing, whitespace, a poll-less retype) look like
       // nothing had happened. The response is the one signal that says *this* save succeeded, so
       // it is what closes the box, and the DTO it carries repaints the row immediately.
-      wrap.replaceWith(body);
+      // The DTO is read before either write, so closing the edit box and repainting the row happen
+      // in one block. With the read between them, the browser rendered the old body in the gap —
+      // a visible flash of the text the person had just changed — and laid the page out twice.
       const dto = await res.json().catch(() => null);
+      wrap.replaceWith(body);
       if (dto) replaceMessageDom(dto, li);
     });
     ta.addEventListener('keydown', (ev) => {
