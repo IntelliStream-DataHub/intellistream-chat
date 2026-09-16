@@ -209,6 +209,28 @@ ichat:
     threads: ${ICHAT_LINK_PREVIEWS_THREADS:2}
     queue-capacity: ${ICHAT_LINK_PREVIEWS_QUEUE_CAPACITY:500}
 
+  # One-time secrets (/secrets, links under /s/). The browser encrypts a secret before it leaves;
+  # the server stores ciphertext it has no key for and releases it once, to whoever presents the
+  # verifier derived from the link's key. Who may open a secret without an account is an admin
+  # setting (/admin), not a property.
+  #   max-plaintext-bytes   largest secret, in UTF-8 bytes, before encryption
+  #   max-waiting-per-user  how many unopened, unexpired secrets one account may hold at once
+  #   display-seconds       how long a revealed secret stays on screen; 1–300, and a larger value
+  #                         fails at startup — five minutes is a ceiling, not a default
+  #   lifetimes             the choices offered for how long an unopened link lives
+  #   default-lifetime      which of them is preselected; must be one of `lifetimes`
+  #   retention             how long an ended secret's row — its receipt, including an anonymous
+  #                         opener's IP address and browser summary — is kept before deletion
+  #   sweep-ms              how often expired ciphertext is forgotten and old rows are deleted
+  secrets:
+    max-plaintext-bytes: ${ICHAT_SECRETS_MAX_PLAINTEXT_BYTES:16384}
+    max-waiting-per-user: ${ICHAT_SECRETS_MAX_WAITING_PER_USER:50}
+    display-seconds: ${ICHAT_SECRETS_DISPLAY_SECONDS:300}
+    lifetimes: ${ICHAT_SECRETS_LIFETIMES:1h,1d,7d}
+    default-lifetime: ${ICHAT_SECRETS_DEFAULT_LIFETIME:1d}
+    retention: ${ICHAT_SECRETS_RETENTION:30d}
+    sweep-ms: ${ICHAT_SECRETS_SWEEP_MS:300000}
+
   # Moderation. An admin removing messages is a SOFT delete: the rows stay, drop out of every
   # read path, and stay recoverable until the retention window passes — the first ban is
   # sometimes the wrong ban. RetentionPurgeScheduler then hard-deletes them for good.

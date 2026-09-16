@@ -70,7 +70,28 @@
     return items.length ? items[items.length - 1] : null;
   };
 
-  const appendMessage = (msg) => {
+/**
+   * Append several messages as one piece of work: measure once, insert them all, scroll once.
+   *
+   * appendMessage is right for a live message — one arrives, one is drawn. In a loop it is not:
+   * each call reads scrollHeight/scrollTop after the previous call inserted, so the browser must
+   * lay the whole list out again before it can answer, once per message.
+   */
+  const appendMessages = (rows) => {
+    if (!rows || rows.length === 0) return;
+    const nearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 120;
+    let last = null;
+    rows.forEach((msg) => { last = appendMessage(msg, { batched: true }) || last; });
+    if (last && (nearBottom || rows.some((m) => m.authorUsername === myUsername))) {
+      last.scrollIntoView({ block: 'end' });
+    }
+  };
+
+  /**
+   * @param opts.batched set by {@link appendMessages}; see there.
+   * @return the appended <li>, or undefined when the message was a duplicate or a thread reply
+   */
+  const appendMessage = (msg, opts) => {
     if (!msg || !msg.id) return;
     // A reply belongs in its thread, not in the feed. Its parent's "N replies" indicator moves
     // either way — that is the only trace a thread leaves in the conversation, and it has to move
@@ -83,8 +104,13 @@
     // De-dupe across WS replays (and the upcoming local-append optimisation).
     if (messagesEl.querySelector('li.message[data-id="' + msg.id + '"]')) return;
     // Measure BEFORE appending: only follow the tail if the reader is already near it, or the
-    // message is their own — otherwise don't yank someone reading history down (BUG-15).
-    const nearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 120;
+    // message is their own — otherwise don't yank someone reading history down (BUG-15). A batch
+    // (see appendMessages) has already measured for the whole run, so it does not measure here:
+    // this read comes after the previous message's insert, and would force a fresh layout each time.
+    const batched = !!(opts && opts.batched);
+    const nearBottom = batched
+        ? false
+        : messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 120;
     const created = new Date(msg.createdAt);
     const curDay = dayKey(created);
     const prev = lastMessageEl();
@@ -150,6 +176,7 @@
     li.append(avatar, right);
     messagesEl.appendChild(li);
     attachActions(li);
+    if (batched) return li;
     if (nearBottom || msg.authorUsername === myUsername) {
       // Scroll now and again as each image lands. An image attachment has no height until its
       // bytes arrive, so a single scroll stops at what is momentarily the bottom and the picture
@@ -444,8 +471,11 @@
       // from the body differing and deliberately keeps an open edit box when it doesn't, which
       // made such a save look like nothing had happened. The response is what confirms this save,
       // and the DTO it carries repaints the row without waiting for the round trip.
-      wrap.replaceWith(body);
+      // The DTO is read before either write, so closing the edit box and repainting the row happen
+      // in one block. With the read between them, the browser rendered the old body in the gap —
+      // a visible flash of the text the person had just changed — and laid the page out twice.
       const dto = await res.json().catch(() => null);
+      wrap.replaceWith(body);
       if (dto) replaceMessageDom(dto, li);
     });
     ta.addEventListener('keydown', (ev) => {
@@ -674,18 +704,23 @@
   async function backfillMissedMessages() {
     backfilling = true;
     try {
-      for (let page = 0; page < 50; page++) {
-        const last = lastMessageEl();
-        const after = last ? last.dataset.createdAt : null;
-        if (!after) break;
+      // Fetch every page first, render once: a page per iteration rendered in its own task, and
+      // every message inside it measured the list again. The cursor comes from the rows rather
+      // than from the last <li>, which is what lets the DOM work leave the loop.
+      const lastEl = lastMessageEl();
+      let after = lastEl ? lastEl.dataset.createdAt : null;
+      const missed = [];
+      for (let page = 0; after && page < 50; page++) {
         const rows = await fetch('/api/conversations/' + conversationId + '/messages?after='
               + encodeURIComponent(after), { headers: headers() })
           .then((r) => (r.ok ? r.json() : []))
           .catch(() => []);
         if (!rows || rows.length === 0) break;
-        rows.forEach(appendMessage);
+        missed.push(...rows);
+        after = rows[rows.length - 1].createdAt;
         if (rows.length < 50) break;
       }
+      appendMessages(missed);
     } finally {
       backfilling = false;
       pendingLive.splice(0).forEach(handleFrame);

@@ -71,6 +71,14 @@ public class AppSettings {
     @Column(name = "channel_creation", nullable = false, length = 16)
     private ChannelCreationPolicy channelCreation = ChannelCreationPolicy.EVERYONE;
 
+    /**
+     * Whether a one-time secret may be opened by anyone holding its link, account or not. Default
+     * {@code true}. Off means creating such a secret is refused and an existing one asks for sign-in
+     * — see {@link SecretShare#effectiveAudience}.
+     */
+    @Column(name = "allow_public_secrets", nullable = false)
+    private boolean allowPublicSecrets = true;
+
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt = Instant.now();
 
@@ -104,6 +112,11 @@ public class AppSettings {
 
     public void setExposeUserEmails(boolean expose) {
         this.exposeUserEmails = expose;
+        this.updatedAt = Instant.now();
+    }
+
+    public void setAllowPublicSecrets(boolean allow) {
+        this.allowPublicSecrets = allow;
         this.updatedAt = Instant.now();
     }
 

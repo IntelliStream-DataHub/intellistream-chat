@@ -80,6 +80,20 @@ public class AppSettingsService {
         return s;
     }
 
+    /** Whether one-time secrets may be opened without an account; see {@code SecretShareService}. */
+    @Transactional(readOnly = true)
+    public boolean publicSecretsAllowed() {
+        return current().isAllowPublicSecrets();
+    }
+
+    /** Admin action. */
+    @Transactional
+    public AppSettings setAllowPublicSecrets(boolean allow) {
+        var s = current();
+        s.setAllowPublicSecrets(allow);
+        return repo.save(s);
+    }
+
     /**
      * Who may create channels. Read on every create, so it goes through the same cached settings
      * lookup the branding does rather than a query per attempt.

@@ -16,7 +16,7 @@
 
 /**
  * Slack/Mattermost-style presence-kind picker under the topbar avatar: the four kinds
- * (Active / Away / DND / Offline), then profile / status / saved / files / admin / about /
+ * (Active / Away / DND / Offline), then profile / status / saved / files / secrets / admin / about /
  * sign out. Picking a kind calls PUT /api/presence/kind and the server broadcasts via
  * /topic/presence so all the user's tabs (and other users) update live.
  *
@@ -57,9 +57,29 @@ let menuEl = null;
 /** Index of the currently keyboard-focused item; -1 means nothing focused. */
 let focusedIdx = -1;
 
-/** Is the menu on screen right now, whether pinned open or merely hovered? */
+/**
+ * Is the menu on screen right now, whether pinned open or merely hovered?
+ *
+ * Answered from state, never by measuring. This is the first line of a keydown listener bound to
+ * the *document*, so it runs for every character typed anywhere on the page — and
+ * `getClientRects()` forces the browser to lay the page out before it can answer, right beside the
+ * composer's own auto-resize. The two conditions below are exactly the two CSS rules that show the
+ * menu: `.me-menu.is-open .presence-menu`, and `.me-menu:hover .presence-menu` inside
+ * `@media (hover: hover)`. Matching `:hover` reads the hover flag, not geometry.
+ */
 function isShown() {
-    return !!menuEl && menuEl.getClientRects().length > 0;
+    if (!menuEl || !wrapEl) return false;
+    if (wrapEl.classList.contains('is-open')) return true;
+    return hoverCapable() && wrapEl.matches(':hover');
+}
+
+/** Cached, because it cannot change without a new pointing device and it is read per keystroke. */
+let hoverCapableCache = null;
+function hoverCapable() {
+    if (hoverCapableCache === null) {
+        hoverCapableCache = !window.matchMedia || window.matchMedia('(hover: hover)').matches;
+    }
+    return hoverCapableCache;
 }
 
 function openMenu(opts = {}) {
@@ -193,6 +213,15 @@ function buildMenu() {
     filesLink.href = '/files';
     filesLink.innerHTML = '<span class="presence-menu-label">Your files</span>';
     menu.appendChild(filesLink);
+
+    // Share a secret — one-time links for passwords and tokens. Per-person like the two above: the
+    // page lists what became of the links this account shared, from any room or none.
+    const secretsLink = document.createElement('a');
+    secretsLink.className = 'presence-menu-item presence-menu-link';
+    secretsLink.setAttribute('role', 'menuitem');
+    secretsLink.href = '/secrets';
+    secretsLink.innerHTML = '<span class="presence-menu-label">Share a secret</span>';
+    menu.appendChild(secretsLink);
 
     // Admin console — only for workspace admins (realm role ichat-admin → ROLE_ADMIN;
     // the me-is-workspace-admin meta is emitted via sec:authorize on every page).

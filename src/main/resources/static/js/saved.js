@@ -199,8 +199,11 @@
         if (page === 0) renderCount(0);
         if (pagerEl) pagerEl.hidden = page === 0;
       } else {
-        list.textContent = '';
-        for (const row of rows) list.append(renderRow(row));
+        // Built off-document and attached once: appending each row to the visible list re-laid it
+        // per row.
+        const items = document.createDocumentFragment();
+        for (const row of rows) items.append(renderRow(row));
+        list.replaceChildren(items);
         // A short first page is the whole list, so it is also the exact count. A full one only
         // proves there are at least this many, and the server's figure is still the better answer.
         if (page === 0 && rows.length < PAGE_SIZE) renderCount(rows.length);

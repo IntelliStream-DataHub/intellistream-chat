@@ -232,15 +232,18 @@ export function openFindUserModal(opts) {
       if (mySeq !== requestSeq) return;   // superseded by a newer keystroke
       if (!res.ok) throw new Error('search failed: ' + res.status);
       const rows = await res.json();
-      listEl.textContent = '';
       if (!rows.length) {
+        listEl.textContent = '';
         statusEl.textContent = 'No one matches those filters.';
         return;
       }
       statusEl.textContent = rows.length >= 100
           ? 'Showing the first 100 matches — narrow the filters to find someone further down.'
           : rows.length + ' ' + (rows.length === 1 ? 'person' : 'people');
-      for (const u of rows) listEl.appendChild(renderRow(u));
+      // One insertion for up to a hundred rows, rather than a hundred into the open dialog.
+      const found = document.createDocumentFragment();
+      for (const u of rows) found.appendChild(renderRow(u));
+      listEl.replaceChildren(found);
     } catch (e) {
       if (mySeq !== requestSeq) return;
       statusEl.textContent = 'Could not load users.';

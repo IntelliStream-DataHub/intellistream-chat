@@ -6163,3 +6163,251 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
     padding-bottom: max(0.9rem, env(safe-area-inset-bottom));
   }
 }
+
+/* ---------- One-time secrets ----------
+   Two pages: /secrets (inside the app shell, beside /saved and /files) and /s/{id}, the page a link
+   opens, which may be seen signed out and so borrows the landing page's backdrop rather than the app
+   chrome. Appended as one self-contained section.
+   ============================================================================================ */
+
+/* /secrets */
+.secrets-wrap h1 { display: flex; align-items: center; gap: 0.5rem; }
+.secrets-wrap h1 .icon { color: var(--accent-fg); }
+.secrets-form,
+.secrets-result { display: grid; gap: 0.95rem; max-width: 44rem; }
+.secrets-form[hidden],
+.secrets-result[hidden],
+.secrets-field[hidden] { display: none; }
+.secrets-field { display: grid; gap: 0.3rem; }
+.secrets-field-label { font-size: var(--fs-sm); font-weight: 600; color: var(--text); }
+.secrets-field-label small { font-weight: 400; color: var(--muted); }
+.secrets-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 7rem;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.secrets-field input[type="text"] { width: 100%; box-sizing: border-box; }
+.secrets-hint,
+.secrets-size { font-size: var(--fs-xs); color: var(--muted); line-height: 1.45; }
+.secrets-size.is-over { color: var(--danger); }
+.secrets-row { display: flex; gap: 1rem; flex-wrap: wrap; }
+.secrets-options { border: 0; margin: 0; padding: 0; display: grid; gap: 0.55rem; min-width: 0; }
+.secrets-options legend { padding: 0; margin-bottom: 0.35rem; }
+.secrets-check {
+  display: flex;
+  gap: 0.55rem;
+  align-items: flex-start;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--muted);
+}
+.secrets-check input { margin-top: 0.2rem; flex: none; }
+.secrets-check strong { color: var(--text); }
+.secrets-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+.secrets-result h2 { margin: 0; font-size: var(--fs-md); }
+/* .link-btn is coloured for the dark top bar (muted white); these two sit on the page. */
+.secrets-wrap .secrets-another,
+.secrets-wrap #secret-more { color: var(--accent-fg); padding-inline: 0; }
+.secrets-wrap .secrets-another:hover,
+.secrets-wrap #secret-more:hover { background: transparent; color: var(--accent-2); }
+.secrets-copy-row { display: flex; gap: 0.5rem; }
+.secrets-copy-row input {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.secrets-list { list-style: none; margin: 0; padding: 0; }
+.secrets-item { padding: 0.75rem 0; border-top: 1px solid var(--border); }
+.secrets-item:first-child { border-top: 0; }
+.secrets-item-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.secrets-label { font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.secrets-state {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  padding: 0.05rem 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--panel-3);
+  color: var(--muted);
+}
+.secrets-state-waiting { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent-fg); }
+.secrets-state-opened { background: color-mix(in srgb, #1f9d55 18%, transparent); color: var(--text); }
+.secrets-chip {
+  font-size: var(--fs-xs);
+  padding: 0 0.45rem;
+  border-radius: var(--radius-full);
+  border: 1px solid color-mix(in srgb, var(--warning) 55%, transparent);
+  color: var(--warning);
+}
+.secrets-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 1rem;
+  margin-top: 0.25rem;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.secrets-ip {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  text-decoration: underline dotted;
+  cursor: help;
+}
+.secrets-item-actions { margin-top: 0.4rem; }
+/* Restates colour on hover: the global button:hover rule would otherwise turn it white-on-tint. */
+.secrets-revoke {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--danger);
+  padding: 0.2rem 0.65rem;
+  font-weight: 500;
+}
+.secrets-revoke:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); color: var(--danger); }
+.secrets-revoke.is-armed,
+.secrets-revoke.is-armed:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
+
+/* /s/{id} */
+.secret-page { padding: 1.5rem 1rem; box-sizing: border-box; }
+.secret-page main.secret-card {
+  width: min(40rem, 100%);
+  max-width: none;
+  box-sizing: border-box;
+  padding: 1.6rem 1.8rem;
+  text-align: left;
+  background: var(--panel);
+  color: var(--text);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+}
+.secret-page h1.secret-title {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0 0 0.6rem;
+  font-size: var(--fs-xl);
+  color: var(--text);
+}
+.secret-title .icon { width: 1.6rem; height: 1.6rem; flex: none; color: var(--accent-fg); }
+/* The landing page styles its hero wordmark (.landing h1 > span) white with a shadow for the dark
+   backdrop, and its secondary button for the same backdrop; both sit on a light card here. */
+.secret-page .secret-card .secret-title > span {
+  color: var(--text);
+  text-shadow: none;
+  font-weight: 700;
+  letter-spacing: normal;
+}
+.secret-page .secret-card .btn-secondary {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.secret-page .secret-card .btn-secondary:hover { background: var(--panel-2); color: var(--text); }
+/* .landing p is muted white for the dark backdrop; the card and the dialog are light panels. */
+.secret-page .secret-card p,
+.secret-page .secret-why-body p { color: var(--text); margin: 0.7rem 0; line-height: 1.5; }
+.secret-page .secret-card .secret-note,
+.secret-page .secret-why-body .secret-note { color: var(--muted); font-size: var(--fs-sm); }
+.secret-page .secret-card .secret-lede { font-size: var(--fs-lg); }
+.secret-panel[hidden],
+.secret-why-backdrop[hidden] { display: none; }
+.secret-key-form { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.secret-key-form input {
+  flex: 1 1 16rem;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.secret-reveal { padding: 0.7rem 1.4rem; font-size: var(--fs-base); }
+
+/* The flash banner: arrives with the secret, and says the one thing a person holding a phone needs
+   to hear before they reach for it. */
+.secret-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--warning) 60%, transparent);
+  background: color-mix(in srgb, var(--warning) 14%, var(--panel));
+  color: var(--text);
+  font-size: var(--fs-md);
+  line-height: 1.45;
+}
+.secret-warning .icon { flex: none; width: 1.4rem; height: 1.4rem; margin-top: 0.05rem; color: var(--warning); }
+.secret-warning strong { display: block; }
+.secret-why,
+.secret-why:hover {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-fg);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.secret-why:hover { color: var(--accent-2); }
+.secret-warning.is-flashing { animation: secret-flash 1.8s ease-out 1; }
+@keyframes secret-flash {
+  0%   { opacity: 0; transform: translateY(-6px); box-shadow: 0 0 0 0 color-mix(in srgb, var(--warning) 55%, transparent); }
+  15%  { opacity: 1; transform: none; box-shadow: 0 0 0 6px color-mix(in srgb, var(--warning) 40%, transparent); }
+  45%  { box-shadow: 0 0 0 0 color-mix(in srgb, var(--warning) 0%, transparent); }
+  60%  { box-shadow: 0 0 0 6px color-mix(in srgb, var(--warning) 30%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--warning) 0%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .secret-warning.is-flashing { animation: none; }
+}
+
+.secret-text {
+  margin: 0.9rem 0 0.5rem;
+  padding: 0.9rem 1rem;
+  max-height: 40vh;
+  overflow: auto;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.95rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.secret-timer { display: flex; align-items: center; gap: 0.6rem; font-size: var(--fs-sm); color: var(--muted); }
+.secret-timer-bar { flex: 1; height: 4px; border-radius: var(--radius-full); background: var(--panel-3); overflow: hidden; }
+/* The countdown bar empties itself. Driven by CSS rather than a JS timer writing style.width, and
+   by transform rather than width, so the compositor runs it: no style or layout pass per frame, and
+   nothing on the main thread between the reveal and the wipe. secret-view.js sets the duration once
+   (animation-duration: 0s here means "not yet"). */
+.secret-timer-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--accent);
+  transform-origin: left center;
+  animation: secret-countdown linear forwards;
+  animation-duration: 0s;
+}
+@keyframes secret-countdown {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+.secret-timer-text { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.secret-page .secret-card .secret-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+.secret-why-modal { width: min(38rem, 100%); }
+.secret-why-body { gap: 0.2rem; font-size: var(--fs-md); line-height: 1.5; }
+.secret-why-body ul { margin: 0.2rem 0 0.6rem; padding-left: 1.2rem; display: grid; gap: 0.45rem; }
+.secret-why-body kbd {
+  font: inherit;
+  font-size: 0.85em;
+  padding: 0 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+
+@media (max-width: 520px) {
+  .secret-page main.secret-card { padding: 1.2rem 1.1rem; }
+  .secrets-copy-row { flex-wrap: wrap; }
+}

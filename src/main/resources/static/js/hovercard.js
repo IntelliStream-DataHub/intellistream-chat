@@ -196,6 +196,13 @@
     }
   };
 
+  /**
+   * Place the card against its anchor.
+   *
+   * Both reads happen together, before either write. They still force one layout — the card's size
+   * is not knowable without one — but the pair used to straddle a full innerHTML replacement of the
+   * card, so the anchor's geometry was measured against a page the card had just invalidated.
+   */
   const position = (anchor) => {
     const el = ensureCard(anchor);
     const rect = anchor.getBoundingClientRect();

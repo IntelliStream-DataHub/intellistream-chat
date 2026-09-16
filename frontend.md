@@ -91,9 +91,17 @@ server {
 
     # Read by server.forward-headers-strategy=framework. X-Forwarded-Proto is what decides the
     # Secure flag on the session and CSRF cookies; without it over TLS they go out unmarked.
+    #
+    # X-Forwarded-For is SET to the connecting address, not appended to with
+    # $proxy_add_x_forwarded_for. The app treats the leftmost entry as the client's address, and
+    # appending keeps whatever the client itself sent in front of it — so any client could choose
+    # the address the app records (a one-time secret's receipt names an anonymous opener by it) and
+    # the address its per-address rate limits count. This proxy is the only hop in front of the app,
+    # so the connecting address is the client's. Behind a CDN or another load balancer, set it from
+    # that hop's trusted header instead (real_ip_header + set_real_ip_from).
     proxy_set_header Host              $host;
     proxy_set_header X-Real-IP         $remote_addr;
-    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-For   $remote_addr;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header X-Forwarded-Host  $host;
     proxy_set_header X-Forwarded-Port  $server_port;
@@ -142,7 +150,7 @@ server {
     proxy_http_version 1.1;
     proxy_set_header   Host              $host;
     proxy_set_header   X-Real-IP         $remote_addr;
-    proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header   X-Forwarded-For   $remote_addr;
     proxy_set_header   X-Forwarded-Proto $scheme;
 
     location / { proxy_pass http://127.0.0.1:8081; }
@@ -287,7 +295,6 @@ global
 defaults
     mode    http
     option  httplog
-    option  forwardfor
     timeout connect 5s
     # Long, because WebSocket sessions idle between heartbeats and large uploads take as long as
     # they take. `tunnel` governs an already-upgraded connection and is the one people forget:
@@ -299,6 +306,10 @@ defaults
 frontend https
     bind :443 ssl crt /etc/haproxy/certs/chat.example.com.pem alpn h2,http/1.1   # TODO
     http-request set-header X-Forwarded-Proto https
+    # Set, not `option forwardfor`: that appends, leaving a client-sent X-Forwarded-For in front,
+    # and the app reads the leftmost entry as the client's address — the one a one-time secret's
+    # receipt records and per-address rate limits count. See the nginx block for the full reason.
+    http-request set-header X-Forwarded-For %[src]
     http-response set-header Strict-Transport-Security "max-age=31536000; includeSubDomains"
 
     # No request-body limit, matching the application: no per-file cap, an ordinary account bounded

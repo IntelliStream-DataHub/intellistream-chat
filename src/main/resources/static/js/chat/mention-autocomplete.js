@@ -194,6 +194,11 @@ export function attachMentionAutocomplete(input) {
     input.removeAttribute('aria-activedescendant');
   };
 
+  /**
+   * Re-place the panel against the field. Three measurements, so it is throttled to one animation
+   * frame by repositionSoon() below: it is bound to scroll in the capture phase and fires for every
+   * scroller on the page, and measuring per event forces a layout per event.
+   */
   const position = () => {
     if (!panel) return;
     const r = input.getBoundingClientRect();
@@ -206,18 +211,32 @@ export function attachMentionAutocomplete(input) {
     panel.style.top = (above >= 8 ? above : Math.min(r.bottom + 6, window.innerHeight - h - 8)) + 'px';
   };
 
+  let positionRaf = 0;
+  const repositionSoon = () => {
+    if (positionRaf || !panel) return;
+    positionRaf = requestAnimationFrame(() => {
+      positionRaf = 0;
+      position();
+    });
+  };
+
   const highlight = () => {
     if (!panel) return;
     const rows = panel.querySelectorAll('.mention-row');
+    // Every write first, then the one measurement. scrollIntoView inside the loop forced a layout
+    // mid-loop, with the remaining rows' classes still unwritten — and it ran on every arrow key
+    // and every row the pointer crossed.
+    let activeRow = null;
     rows.forEach((row, i) => {
       const on = i === activeIndex;
       row.classList.toggle('active', on);
       row.setAttribute('aria-selected', on ? 'true' : 'false');
-      if (on) {
-        input.setAttribute('aria-activedescendant', row.id);
-        row.scrollIntoView({ block: 'nearest' });
-      }
+      if (on) activeRow = row;
     });
+    if (activeRow) {
+      input.setAttribute('aria-activedescendant', activeRow.id);
+      activeRow.scrollIntoView({ block: 'nearest' });
+    }
   };
 
   const complete = (item) => {
@@ -419,8 +438,8 @@ export function attachMentionAutocomplete(input) {
     if (panel.contains(e.target) || e.target === input) return;
     close();
   });
-  window.addEventListener('resize', position);
-  window.addEventListener('scroll', position, true);
+  window.addEventListener('resize', repositionSoon);
+  window.addEventListener('scroll', repositionSoon, true);
 }
 
 /** Attach to every composer on the page that exists. */

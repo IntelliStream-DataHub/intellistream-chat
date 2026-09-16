@@ -108,9 +108,20 @@
     document.querySelectorAll(sel).forEach((el) => applyToElement(el, dto));
   }
 
-  function update(dto) {
+  /** Everything about a user that the DOM shows, so an unchanged sweep can be skipped. */
+  function paintKey(dto) {
+    return [dto.kind, dto.online, dto.statusEmoji, dto.statusText, dto.busy].join('\u0001');
+  }
+
+  function update(dto, opts) {
     if (!dto || !dto.username) return;
+    // A periodic sweep re-reports the same state for everyone almost every time. Writing it anyway
+    // meant a querySelectorAll per user plus class and attribute writes on every avatar on the
+    // page, once a minute, for no visible change.
+    const previous = state.get(dto.username);
+    const unchanged = previous && paintKey(previous) === paintKey(dto);
     state.set(dto.username, dto);
+    if (unchanged && opts && opts.skipUnchanged) return;
     if (myUsername && dto.username.toLowerCase() === myUsername.toLowerCase()) {
       selfState = dto;
       // Hoisted onto <html> so the stylesheet can react to your own state without a second
@@ -132,7 +143,7 @@
       const res = await fetch(url, { headers: csrfHeader(), credentials: 'same-origin' });
       if (!res.ok) return;
       const list = await res.json();
-      list.forEach((dto) => update(dto));
+      list.forEach((dto) => update(dto, { skipUnchanged: true }));
     } catch (e) {
       // Network blip — try again next refresh cycle.
     }

@@ -199,26 +199,44 @@ export function initSidebarSearch() {
 
     const noMatch = document.getElementById('sidebar-no-match');
 
+    /**
+     * Filter the sidebar to rows matching what has been typed.
+     *
+     * Runs on every keystroke over every channel the person is in, so it writes only where the
+     * answer changed. Setting style.display on all of them each time invalidated every row's style
+     * whether or not anything moved, and the second pass then read those values back to decide
+     * which groups to hide — the counts come out of the first pass instead.
+     */
     const narrowShortlist = (q) => {
         let shown = 0;
         let rows = 0;
+        // Seeded with every group, so one that holds no rows at all still gets its answer below.
+        const visibleByGroup = new Map();
+        document.querySelectorAll('.sidebar .channel-group').forEach((group) => visibleByGroup.set(group, 0));
         document.querySelectorAll('.sidebar .channel-list > li').forEach((li) => {
             rows++;
             const keep = !q || fuzzyMatch(q, li.dataset.name || '');
-            li.style.display = keep ? '' : 'none';
-            if (keep) shown++;
+            const wasHidden = li.style.display === 'none';
+            if (keep === wasHidden) li.style.display = keep ? '' : 'none';
+            if (keep) {
+                shown++;
+                const group = li.closest('.channel-group');
+                if (group && visibleByGroup.has(group)) visibleByGroup.set(group, visibleByGroup.get(group) + 1);
+            }
         });
         // Hide the Favourites group when every row in it filtered out, so its heading doesn't sit
         // above nothing. Only .channel-group sections — the Channels section keeps its heading
         // whatever happens, because that is where the create-channel button and the "none of yours
         // match" line live. Only while filtering, too: with an empty query the groups are whatever
         // the server rendered.
-        document.querySelectorAll('.sidebar .channel-group').forEach((group) => {
-            const visible = [...group.querySelectorAll('.channel-list > li')]
-                .some((li) => li.style.display !== 'none');
-            group.hidden = !!q && !visible;
+        visibleByGroup.forEach((visible, group) => {
+            const hide = !!q && visible === 0;
+            if (group.hidden !== hide) group.hidden = hide;
         });
-        if (noMatch) noMatch.hidden = !q || rows === 0 || shown > 0;
+        if (noMatch) {
+            const hide = !q || rows === 0 || shown > 0;
+            if (noMatch.hidden !== hide) noMatch.hidden = hide;
+        }
     };
 
     const render = (q, results) => {

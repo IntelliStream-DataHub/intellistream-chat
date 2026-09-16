@@ -74,8 +74,11 @@
   }
 
   function renderList(items) {
-    list.replaceChildren();
+    // One insertion, not one per item: the list is on screen, so each append re-laid it.
+    const rows = document.createDocumentFragment();
     if (!items.length) {
+      // Still clears: this is the branch that runs when the last mention is read.
+      list.replaceChildren();
       empty.hidden = false;
       return;
     }
@@ -109,8 +112,9 @@
 
       link.append(head, snippet);
       li.append(link);
-      list.append(li);
+      rows.append(li);
     }
+    list.replaceChildren(rows);
   }
 
   async function refresh() {
@@ -119,14 +123,19 @@
         fetch('/api/mentions?limit=' + FETCH_LIMIT, { headers: csrfHeaders(), credentials: 'same-origin' }),
         fetch('/api/mentions/count', { headers: csrfHeaders(), credentials: 'same-origin' }),
       ]);
-      if (inboxRes.ok) {
-        lastFetched = await inboxRes.json();
+      // Both bodies first, then both paints. Reading the second body between the two DOM updates
+      // put a task boundary there: the list repainted, the browser laid the page out and could
+      // paint it, and only then did the badge catch up — two style and layout passes, and a visible
+      // moment where the list and the number beside it disagreed.
+      const [inbox, count] = await Promise.all([
+        inboxRes.ok ? inboxRes.json().catch(() => null) : null,
+        countRes.ok ? countRes.json().catch(() => null) : null,
+      ]);
+      if (inbox) {
+        lastFetched = inbox;
         renderList(lastFetched);
       }
-      if (countRes.ok) {
-        const body = await countRes.json();
-        setCount(body.unread || 0);
-      }
+      if (count) setCount(count.unread || 0);
     } catch (e) {
       // Network error — leave the existing badge in place.
     }

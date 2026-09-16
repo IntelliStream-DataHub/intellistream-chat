@@ -52,6 +52,9 @@ def assetBundles = [
 		[name: 'channel-files', type: 'js', manifest: 'js/channel-files.manifest.js', output: 'js/channel-files.bundle.min.js'],
 		// Per-user saved items (/saved).
 		[name: 'saved',        type: 'js',  manifest: 'js/saved.manifest.js',        output: 'js/saved.bundle.min.js'],
+		// One-time secrets: create and list (/secrets), and the page a link opens (/s/{id}).
+		[name: 'secrets',      type: 'js',  manifest: 'js/secrets.manifest.js',      output: 'js/secrets.bundle.min.js'],
+		[name: 'secret-view',  type: 'js',  manifest: 'js/secret-view.manifest.js',  output: 'js/secret-view.bundle.min.js'],
 		// Full-page search results (/search) — top-bar chrome only, no message feed.
 		[name: 'search',       type: 'js',  manifest: 'js/search.manifest.js',       output: 'js/search.bundle.min.js'],
 		// Site stylesheet (vendor highlight.js themes stay separate — theme-loader.js picks one

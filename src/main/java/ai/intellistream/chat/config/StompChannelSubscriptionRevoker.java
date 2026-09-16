@@ -44,12 +44,13 @@ import org.springframework.stereotype.Component;
  * message send path, which is deliberately query-free and is the hottest code in the application.
  * Revoking on the rare event beats taxing the common one.
  *
- * <p><b>Why the session-id detour.</b> {@code SimpUser.getName()} is the security principal's name,
- * which is Keycloak's {@code preferred_username}; the domain username is a sanitised,
- * collision-suffixed derivative and the two differ for exactly the email-shaped accounts (see the N19
- * note in {@code ChatWebSocketController}). {@code SuspendedSessionEvictor} already maps STOMP session
- * id to domain user id — it is tagged at CONNECT for the ban feature — so that is the bridge, rather
- * than a second map saying the same thing.
+ * <p><b>Why the session-id detour.</b> A user id, not a name, is what this is given, and
+ * {@code SuspendedSessionEvictor} already maps STOMP session id to domain user id — it is tagged at
+ * CONNECT for the ban feature — so that is the bridge, rather than a second map saying the same
+ * thing. ({@code SimpUser.getName()} would now work too: {@code DomainHandleHandshakeHandler} names
+ * every session after the domain handle. It did not before, and a name lookup used to miss exactly
+ * the email-shaped and collision-suffixed accounts — the N19 note in {@code ChatWebSocketController}.
+ * An id cannot drift like a name, so the bridge stays.)
  *
  * <p><b>Single node.</b> Both the registry and the session map are per-process, so this revokes on
  * this node only. That is the same scope as {@code RateLimiter}, {@code ChannelAccessCache} and the

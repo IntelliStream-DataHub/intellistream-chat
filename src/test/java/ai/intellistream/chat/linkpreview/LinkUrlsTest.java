@@ -92,6 +92,22 @@ class LinkUrlsTest {
     }
 
     @Test
+    void aOneTimeSecretLinkIsNeverUnfurledOnAnyHost() {
+        // Fetching it could not open it, but the URL — #fragment, and so the key, included — would be
+        // stored in link_previews. The server does not know its own public host, so the path decides.
+        var key = "A".repeat(43);
+        assertThat(LinkUrls.firstPreviewable("here: https://chat.example.com/s/AbCdEfGhIjKlMnOpQrStUv#" + key)).isEmpty();
+        assertThat(LinkUrls.firstPreviewable("http://localhost:8080/s/AbCdEfGhIjKlMnOpQrStUv")).isEmpty();
+        // The next link still gets its card.
+        assertThat(LinkUrls.firstPreviewable("https://chat.example.com/s/AbCdEfGhIjKlMnOpQrStUv#" + key
+                + " and https://example.com/article")).contains("https://example.com/article");
+        // Only that exact shape: other /s/ paths are ordinary links.
+        assertThat(LinkUrls.firstPreviewable("https://example.com/s/short")).contains("https://example.com/s/short");
+        assertThat(LinkUrls.firstPreviewable("https://example.com/docs/s/AbCdEfGhIjKlMnOpQrStUv"))
+                .contains("https://example.com/docs/s/AbCdEfGhIjKlMnOpQrStUv");
+    }
+
+    @Test
     void theHashIsStableAndHex() {
         assertThat(LinkUrls.hash("https://example.com/")).hasSize(64).matches("[0-9a-f]+")
                 .isEqualTo(LinkUrls.hash("https://example.com/"));

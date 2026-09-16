@@ -509,23 +509,9 @@ final class MarkdownEmitter {
 
     // ---------- escaping ----------
 
-    /**
-     * Escapes everything with an inline Markdown meaning, plus {@code <} and {@code &}:
-     * the renderer passes raw inline HTML through to the sanitizer, so a pasted literal
-     * "&lt;b&gt;" would otherwise come back as actual bold, and "&amp;copy;" as ©.
-     */
+    /** See {@link MarkdownEscape#inline}. */
     private static String escapeInline(String s) {
-        var sb = new StringBuilder(s.length() + 8);
-        for (var i = 0; i < s.length(); i++) {
-            var c = s.charAt(i);
-            switch (c) {
-                case '\\', '*', '_', '`', '~', '|', '[', ']' -> sb.append('\\').append(c);
-                case '<' -> sb.append("\\<");
-                case '&' -> sb.append("\\&");
-                default -> sb.append(c);
-            }
-        }
-        return sb.toString();
+        return MarkdownEscape.inline(s);
     }
 
     private static final Pattern ORDERED_START = Pattern.compile("^(\\d{1,9})([.)])(\\s.*|$)");
