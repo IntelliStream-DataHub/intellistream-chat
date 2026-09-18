@@ -24,6 +24,7 @@ import ai.intellistream.chat.service.UserService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -34,6 +35,7 @@ import org.springframework.stereotype.Component;
 
 import java.security.Principal;
 import java.util.Collection;
+import java.util.Optional;
 
 @Component
 public class CurrentUser {
@@ -57,6 +59,35 @@ public class CurrentUser {
     public User require() {
         var auth = SecurityContextHolder.getContext().getAuthentication();
         return resolve(auth);
+    }
+
+    /**
+     * The domain user when the request is signed in, or empty when it is not — for the few routes
+     * that serve both, like opening a one-time secret. {@link #resolve} is the wrong call there: it
+     * throws for the anonymous token Spring puts on a signed-out request, and logs a warning doing it.
+     *
+     * @param fromArgument the handler's {@code Authentication} argument, which may be null; the
+     *                     security context is consulted when it is
+     */
+    public Optional<User> signedIn(Authentication fromArgument) {
+        var auth = signedInAuthentication(fromArgument);
+        return auth == null ? Optional.empty() : Optional.of(resolve(auth));
+    }
+
+    /**
+     * The authentication behind a request if it belongs to someone signed in, else null. Two shapes
+     * mean "signed out" and both must be caught: no authentication at all, and the anonymous token,
+     * which Spring marks {@code isAuthenticated() == true}. Testing only the first is how an expired
+     * session comes to look like a live one.
+     */
+    public static Authentication signedInAuthentication(Authentication fromArgument) {
+        var auth = fromArgument != null ? fromArgument : SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()
+                || auth instanceof AnonymousAuthenticationToken
+                || "anonymousUser".equals(auth.getPrincipal())) {
+            return null;
+        }
+        return auth;
     }
 
     public User resolve(Principal principal) {

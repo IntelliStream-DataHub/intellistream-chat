@@ -17,6 +17,7 @@
 // Saved-items page. Same shape as files.manifest.js: chat-kit.js is here for the shared avatar
 // colouring and time formatting, so a name and a timestamp read identically on this page and in the
 // feed. Its own initialisers key off .message elements, of which this page has none.
+//= require theme-loader.js
 //= require time-format.js
 //= require session-watch.js
 //= require chat-kit.js

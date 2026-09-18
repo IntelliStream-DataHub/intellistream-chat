@@ -48,6 +48,9 @@ import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter;
 import org.springframework.security.web.savedrequest.HttpSessionRequestCache;
 import org.springframework.security.web.savedrequest.RequestCache;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
+import org.springframework.security.web.util.matcher.OrRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 
 import java.io.IOException;
 import java.net.URI;
@@ -58,6 +61,28 @@ import java.util.Set;
 
 @Configuration
 public class SecurityConfig {
+
+    /**
+     * Where an unauthenticated browser is sent: straight into the Keycloak round-trip for the one
+     * registration this app has. Also the target of {@code /login} (see {@link LoginRedirectConfig}).
+     */
+    public static final String LOGIN_URL = "/oauth2/authorization/keycloak";
+
+    /** The one-time-secret calls reachable signed out and exempt from CSRF; see the web chain. */
+    static final String[] SECRET_KEY_HOLDER_ROUTES = {"/api/secrets/*/status", "/api/secrets/*/open"};
+
+    /**
+     * {@link #SECRET_KEY_HOLDER_ROUTES} as POST-only matchers for the CSRF exemption. The
+     * {@code String...} overload of {@code ignoringRequestMatchers} matches every method, which
+     * would exempt a DELETE or PUT on the same path too; the exemption is for two calls, not two
+     * paths.
+     */
+    private static RequestMatcher secretKeyHolderPosts() {
+        var paths = PathPatternRequestMatcher.withDefaults();
+        return new OrRequestMatcher(java.util.Arrays.stream(SECRET_KEY_HOLDER_ROUTES)
+                .map(route -> (RequestMatcher) paths.matcher(HttpMethod.POST, route))
+                .toList());
+    }
 
     /** Where a browser lands after signing in with nothing else to go back to. */
     static final String DEFAULT_LANDING_PAGE = "/channels";
@@ -179,7 +204,7 @@ public class SecurityConfig {
 
         http
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/", "/css/**", "/js/**", "/img/**", "/webjars/**",
+                        .requestMatchers("/", "/css/**", "/js/**", "/img/**", "/fonts/**", "/webjars/**",
                                          "/actuator/health", "/branding/logo").permitAll()
                         // The session probe has to be reachable *after* the session dies, or it
                         // cannot report that it did — an authenticated route answers an expired
@@ -187,13 +212,32 @@ public class SecurityConfig {
                         // resolves as a 200 full of login-page HTML. See SessionRestController.
                         // It discloses nothing: the caller's own sign-in state and their own name.
                         .requestMatchers(HttpMethod.GET, "/api/session").permitAll()
+                        // /login is a redirect into the Keycloak round-trip (LoginRedirectConfig),
+                        // reachable signed out or in, so it must not itself trigger the round-trip.
+                        .requestMatchers(HttpMethod.GET, "/login").permitAll()
+                        // One-time secrets: the page a link opens, and the two calls it makes. A
+                        // secret may be meant for someone with no account, and a signed-in person
+                        // arriving from an email carries no session cookie on that first navigation
+                        // (SameSite=Strict), so neither can be behind the login redirect. The page
+                        // looks nothing up; both calls answer 404 to anyone without the verifier
+                        // derived from the link's key. See SecretShareRestController. The
+                        // /s/{id}/sign-in route is deliberately NOT here: being refused is its job.
+                        .requestMatchers(HttpMethod.GET, "/s/*").permitAll()
+                        .requestMatchers(HttpMethod.POST, SECRET_KEY_HOLDER_ROUTES).permitAll()
                         // Admin console + branding mutations require the ichat-admin realm role
                         // (mapped to ROLE_ADMIN by KeycloakRolesConverter).
                         .requestMatchers("/admin", "/admin/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(csrfRepo)
-                        .csrfTokenRequestHandler(csrfHandler))
+                        .csrfTokenRequestHandler(csrfHandler)
+                        // Only the two secret calls a link holder makes. They cannot carry a token:
+                        // the page that makes them must not render one (it would rotate the
+                        // SameSite=Strict CSRF cookie under every other open tab), and a visitor
+                        // without an account has no session to tie one to. What CSRF would protect
+                        // is already out of a forger's reach — each call does nothing without the
+                        // verifier from the link's key, and a cross-site request carries no session.
+                        .ignoringRequestMatchers(secretKeyHolderPosts()))
                 .headers(h -> h
                         .contentSecurityPolicy(c -> c.policyDirectives(csp))
                         .contentTypeOptions(Customizer.withDefaults())
@@ -205,6 +249,22 @@ public class SecurityConfig {
                 // deliberately NOT remembered.
                 .requestCache(rc -> rc.requestCache(requestCache))
                 .oauth2Login(login -> login
+                        // Naming a login page is how Spring's generated one is switched OFF. With
+                        // a single registration the entry point already went straight to Keycloak,
+                        // but DefaultLoginPageGeneratingFilter still answered GET /login with a
+                        // bare "Please sign in / Login with OAuth 2.0 / keycloak" page — and /login
+                        // is exactly where Keycloak's "Back to Application" link after an email
+                        // verification (or a password reset opened in another browser) lands, and
+                        // what every Spring tutorial tells operators to put in the client's Home
+                        // URL. LoginRedirectConfig turns the path into this same redirect, so the
+                        // page is never seen; see the failureUrl note below before changing it.
+                        .loginPage(LOGIN_URL)
+                        // Must be explicit. The default is loginPage + "?error", which here would
+                        // be the authorization endpoint itself: a failed token exchange (wrong
+                        // client secret, clock skew) would bounce into Keycloak, whose SSO session
+                        // answers silently, fail again, and loop without ever showing an error.
+                        // The landing page is permitAll and says what happened.
+                        .failureUrl("/?login=failed")
                         .authorizationEndpoint(ep -> ep.authorizationRequestResolver(registrationResolver))
                         .userInfoEndpoint(uie -> uie.userAuthoritiesMapper(keycloakAuthoritiesMapper()))
                         .successHandler(loginSuccessHandler(requestCache)))

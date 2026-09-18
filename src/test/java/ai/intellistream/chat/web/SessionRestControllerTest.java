@@ -16,14 +16,23 @@
 
 package ai.intellistream.chat.web;
 
+import ai.intellistream.chat.domain.User;
+import ai.intellistream.chat.security.CurrentUser;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.AuthorityUtils;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * The endpoint exists to be able to answer <em>no</em>, so that is what these are mostly about.
@@ -32,10 +41,23 @@ import static org.assertj.core.api.Assertions.assertThat;
  * {@code Authentication} when nothing populated the context at all, and a populated but anonymous
  * token when Spring substituted one — and a check that only handles the first reports a dead
  * session as a live one, which is exactly the silence this whole thing replaces.
+ *
+ * <p>The username it reports is the domain handle from {@link CurrentUser}, never the principal
+ * name: those differ for every email-shaped login, and the page compares against the handle.
  */
 class SessionRestControllerTest {
 
-    private final SessionRestController controller = new SessionRestController();
+    private final CurrentUser currentUser = mock(CurrentUser.class);
+    private final SessionRestController controller = new SessionRestController(currentUser);
+
+    private static Authentication signedInAs(String login) {
+        return new UsernamePasswordAuthenticationToken(
+                login, "n/a", AuthorityUtils.createAuthorityList("ROLE_USER"));
+    }
+
+    private void resolvesTo(Authentication auth, String handle) {
+        when(currentUser.resolve(auth)).thenReturn(new User("kc-" + handle, handle, handle + "@example.com", handle));
+    }
 
     @AfterEach
     void clearContext() {
@@ -44,14 +66,43 @@ class SessionRestControllerTest {
 
     @Test
     void aSignedInSessionReportsItselfAndItsUser() {
-        var auth = new UsernamePasswordAuthenticationToken(
-                "alice", "n/a", AuthorityUtils.createAuthorityList("ROLE_USER"));
+        var auth = signedInAs("alice");
+        resolvesTo(auth, "alice");
 
         var body = controller.status(auth).getBody();
 
         assertThat(body).isNotNull();
         assertThat(body.authenticated()).isTrue();
         assertThat(body.username()).isEqualTo("alice");
+    }
+
+    @Test
+    void theUsernameIsTheDomainHandleNotThePrincipalName() {
+        // An email-shaped login: preferred_username is the address, the handle is its local part.
+        // The page's me-username meta carries the handle, so reporting the address made every
+        // poll from such an account announce an account switch that never happened.
+        var auth = signedInAs("olav@example.com");
+        resolvesTo(auth, "olav");
+
+        var body = controller.status(auth).getBody();
+
+        assertThat(body).isNotNull();
+        assertThat(body.authenticated()).isTrue();
+        assertThat(body.username()).isEqualTo("olav");
+    }
+
+    @Test
+    void anUnresolvableHandleIsStillSignedInButNameless() {
+        // Still a live session — the probe must not turn a resolution hiccup into a "signed out"
+        // bar. A null username is "no news" to the client, which skips the identity check.
+        var auth = signedInAs("carol");
+        when(currentUser.resolve(auth)).thenThrow(new AccessDeniedException("Unsupported principal type"));
+
+        var body = controller.status(auth).getBody();
+
+        assertThat(body).isNotNull();
+        assertThat(body.authenticated()).isTrue();
+        assertThat(body.username()).isNull();
     }
 
     @Test
@@ -75,12 +126,13 @@ class SessionRestControllerTest {
         assertThat(body).isNotNull();
         assertThat(body.authenticated()).isFalse();
         assertThat(body.username()).isNull();
+        verify(currentUser, never()).resolve(any(Authentication.class));
     }
 
     @Test
     void theContextIsTheFallbackWhenTheArgumentIsNotResolved() {
-        var auth = new UsernamePasswordAuthenticationToken(
-                "bob", "n/a", AuthorityUtils.createAuthorityList("ROLE_USER"));
+        var auth = signedInAs("bob");
+        resolvesTo(auth, "bob");
         SecurityContextHolder.getContext().setAuthentication(auth);
 
         var body = controller.status(null).getBody();

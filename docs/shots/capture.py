@@ -337,6 +337,49 @@ async def shot_files(page, ctx):
     return None
 
 
+async def _reveal_a_secret(page):
+    """Bob shares a secret from his own browser and this page opens the link: what a recipient sees.
+
+    Bob, not the photographed account, creates it. A secret's receipt lands in its creator's own
+    conversation, so sealing and opening it as the same person would put an unread "You" row in the
+    sidebar of every slide captured after this one — and in the README hero.
+    """
+    sharer_ctx = await page.context.browser.new_context(viewport=VIEWPORT)
+    try:
+        sharer = await sharer_ctx.new_page()
+        await sharer.goto(f"{BASE}/oauth2/authorization/keycloak", wait_until="domcontentloaded")
+        await sharer.wait_for_timeout(700)
+        if "realms" in sharer.url:
+            await sharer.fill("#username", SECOND_USER)
+            await sharer.fill("#password", SECOND_USER)
+            await sharer.click("input[type=submit], button[type=submit]")
+            await sharer.wait_for_load_state("domcontentloaded")
+        await sharer.goto(f"{BASE}/secrets", wait_until="domcontentloaded")
+        await sharer.fill("#secret-text", "correct-horse-battery-staple-4217")
+        await sharer.fill("#secret-label", "Staging database for Alice")
+        await sharer.click("#secret-submit")
+        await sharer.wait_for_selector("#secret-result:not([hidden])", timeout=5000)
+        link = await sharer.input_value("#secret-link")
+    finally:
+        await sharer_ctx.close()
+    await page.goto(link, wait_until="domcontentloaded")
+    await page.wait_for_selector("#sv-ready:not([hidden])", timeout=5000)
+    await page.click("#sv-reveal")
+    await page.wait_for_selector("#sv-revealed:not([hidden])", timeout=5000)
+    # Let the warning banner's entrance finish, and the countdown move off its first second.
+    await page.wait_for_timeout(2200)
+
+
+async def shot_secret(page, ctx):
+    await _reveal_a_secret(page)
+    return None
+
+
+async def doc_secret(page, ctx):
+    await _reveal_a_secret(page)
+    return await page.query_selector("#secret-view")
+
+
 async def shot_poll(page, ctx):
     await page.goto(f"{BASE}/channels/{ctx['channel']}", wait_until="domcontentloaded")
     await page.wait_for_timeout(1300)
@@ -589,6 +632,9 @@ SHOTS = [
     ("files", shot_files,
      "Every file you have uploaded, in one place, searchable — and deleting one leaves the message that posted it standing.",
      "carbon"),
+    ("secret", shot_secret,
+     "One-time secrets: encrypted in your browser, opened once, and gone from the screen within five minutes — with a reminder that a screenshot would undo all of it.",
+     "default"),
     ("channel-files", shot_channel_files,
      "The files shared in one channel, with the message each came from a click away.",
      "default"),
@@ -803,6 +849,8 @@ DOC_SHOTS = [
      "A call in progress. Mute and hang up are the whole of the in-call UI for an audio call; a video call adds the camera toggle and the picture."),
     ("files", doc_files,
      "Your files: everything you have uploaded, searchable by name, with the storage it accounts for."),
+    ("secrets", doc_secret,
+     "A revealed secret: the warning arrives with it, and the countdown shows how long it stays on screen."),
     ("notifications", doc_notifications,
      "Per-channel notifications. \u201cDefault\u201d inherits the account setting, so changing that moves every channel you have not overridden."),
     ("admin", doc_admin,

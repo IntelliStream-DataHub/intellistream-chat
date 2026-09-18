@@ -120,17 +120,31 @@ export function openForwardDialog(opts) {
   };
   ackInput.addEventListener('change', syncSubmit);
 
+  /** Move the chosen marker between two buttons, rather than rebuilding the list to show it. */
+  const markChosen = (btn) => {
+    const previous = listEl.querySelector('.forward-target.is-chosen');
+    if (previous === btn) return;
+    if (previous) {
+      previous.classList.remove('is-chosen');
+      previous.setAttribute('aria-selected', 'false');
+    }
+    btn.classList.add('is-chosen');
+    btn.setAttribute('aria-selected', 'true');
+  };
+
   const render = () => {
     const q = filter.value.trim().toLowerCase();
-    listEl.textContent = '';
     const shown = targets.filter((t) => !q || t.label.toLowerCase().includes(q));
     if (!shown.length) {
       const empty = document.createElement('li');
       empty.className = 'forward-empty';
       empty.textContent = targets.length ? 'Nothing matches that.' : 'Nowhere to forward this to.';
-      listEl.append(empty);
+      listEl.replaceChildren(empty);
       return;
     }
+    // Built off-document and attached once; picking a target moves a class instead of coming back
+    // through here, which used to rebuild all sixty rows to show which one was chosen.
+    const rows = document.createDocumentFragment();
     for (const t of shown.slice(0, 60)) {
       const li = document.createElement('li');
       const btn = document.createElement('button');
@@ -150,12 +164,13 @@ export function openForwardDialog(opts) {
       btn.append(icon, label);
       btn.addEventListener('click', () => {
         chosen = t;
-        render();
+        markChosen(btn);
         syncSubmit();
       });
       li.append(btn);
-      listEl.append(li);
+      rows.append(li);
     }
+    listEl.replaceChildren(rows);
   };
 
   const loadTargets = async () => {

@@ -17,6 +17,7 @@
 package ai.intellistream.chat.integration;
 
 import ai.intellistream.chat.config.ClientIdleHeader;
+import ai.intellistream.chat.config.StompAuthorizationConfig;
 import ai.intellistream.chat.domain.PresenceKind;
 import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.repository.UserPresenceRepository;
@@ -280,6 +281,76 @@ class PresenceFlowIT {
         var captor = ArgumentCaptor.forClass(PresenceDto.class);
         verify(broker).convertAndSend(eq("/topic/presence"), captor.capture());
         assertThat(captor.getValue().kind()).isEqualTo(PresenceKind.ACTIVE);
+    }
+
+    // ---------- Who the session belongs to ----------
+    //
+    // The principal's name is Keycloak's preferred_username; the domain handle is derived from it
+    // (local part of an email-shaped login, collision-suffixed when taken). The listener used to
+    // look the name up as a handle, which for exactly those accounts found nothing — the connect
+    // was never tracked and the person stayed grey while typing over a live socket. The user the
+    // interceptor cached on the session at CONNECT is resolved from the subject and is the one
+    // every other STOMP handler uses, so it is what presence has to key on too.
+
+    @Test
+    void connectTracksTheSessionsUserNotThePrincipalName() {
+        var olav = newUser("olav");
+        var login = olav.getUsername() + "@example.com"; // email-shaped preferred_username
+
+        withSessionAttribute("tab-1", StompAuthorizationConfig.SESSION_USER_KEY, olav,
+                () -> listener.onConnect(connectEventFor(login, "tab-1")));
+
+        assertThat(tracker.isOnline(olav.getUsername())).isTrue();
+        assertThat(tracker.isOnline(login)).isFalse();
+        var captor = ArgumentCaptor.forClass(PresenceDto.class);
+        verify(broker).convertAndSend(eq("/topic/presence"), captor.capture());
+        assertThat(captor.getValue().username()).isEqualTo(olav.getUsername());
+        assertThat(captor.getValue().kind()).isEqualTo(PresenceKind.ACTIVE);
+    }
+
+    @Test
+    void disconnectTracksTheSessionsUserNotThePrincipalName() {
+        var olav = newUser("olav");
+        var login = olav.getUsername() + "@example.com";
+        withSessionAttribute("tab-1", StompAuthorizationConfig.SESSION_USER_KEY, olav,
+                () -> listener.onConnect(connectEventFor(login, "tab-1")));
+        org.mockito.Mockito.clearInvocations(broker);
+
+        withSessionAttribute("tab-1", StompAuthorizationConfig.SESSION_USER_KEY, olav,
+                () -> listener.onDisconnect(disconnectEventFor(login, "tab-1")));
+
+        assertThat(tracker.isOnline(olav.getUsername())).isFalse();
+        var captor = ArgumentCaptor.forClass(PresenceDto.class);
+        verify(broker).convertAndSend(eq("/topic/presence"), captor.capture());
+        assertThat(captor.getValue().username()).isEqualTo(olav.getUsername());
+        assertThat(captor.getValue().kind()).isEqualTo(PresenceKind.OFFLINE);
+    }
+
+    /**
+     * Two Keycloak accounts whose logins share a local part: the second gets a suffixed handle.
+     * Resolving by name found the <em>first</em> account, so the second person's connects and
+     * disconnects moved somebody else's dot.
+     */
+    @Test
+    void collisionSuffixedHandleDoesNotDriveTheBareNamesPresence() {
+        var bare = newUser("bob");                                    // holds the bare handle
+        var suffixed = users.save(new User("kc-pres-bob-other", bare.getUsername() + "-kc1",
+                "bob.other@example.com", "Other Bob"));
+
+        withSessionAttribute("tab-1", StompAuthorizationConfig.SESSION_USER_KEY, suffixed,
+                () -> listener.onConnect(connectEventFor(bare.getUsername(), "tab-1")));
+
+        assertThat(tracker.isOnline(suffixed.getUsername())).isTrue();
+        assertThat(tracker.isOnline(bare.getUsername())).isFalse();
+    }
+
+    @Test
+    void withoutACachedUserTheNameLookupStillWorks() {
+        var alice = newUser("alice");
+        // A harness or a pre-interceptor socket: attributes bound, but no user parked on them.
+        withSessionAttribute("tab-1", "unrelated", "x",
+                () -> listener.onConnect(connectEventFor(alice.getUsername(), "tab-1")));
+        assertThat(tracker.isOnline(alice.getUsername())).isTrue();
     }
 
     private static void withSessionAttribute(String sessionId, String key, Object value, Runnable body) {

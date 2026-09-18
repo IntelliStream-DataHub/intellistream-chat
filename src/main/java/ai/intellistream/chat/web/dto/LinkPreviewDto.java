@@ -17,6 +17,7 @@
 package ai.intellistream.chat.web.dto;
 
 import ai.intellistream.chat.domain.LinkPreview;
+import ai.intellistream.chat.linkpreview.VideoLinks;
 
 /**
  * The card under a message that contains a link: what the page said about itself, and where the
@@ -30,13 +31,38 @@ public record LinkPreviewDto(
         String title,
         String description,
         String siteName,
-        String imageUrl
+        String imageUrl,
+        /**
+         * Set when {@code url} is a playable video link. It turns the card into a click-to-play
+         * facade: the poster is {@code imageUrl} — this origin's copy, like every other card
+         * picture — and the client builds the {@code <iframe>} only once somebody clicks it. See
+         * {@link VideoLinks} for why the player is here rather than inside the message body.
+         *
+         * <p>Derived from the URL with no I/O, so a video link whose page could not be fetched
+         * still gets a play button; it simply has no poster or title behind it.
+         */
+        VideoLinks.VideoRef video
 ) {
     public static final String IMAGE_PATH = "/api/link-previews/images/";
 
     /** Only for a {@link LinkPreview#isShowable() showable} row; the caller filters. */
     public static LinkPreviewDto from(LinkPreview p) {
         return new LinkPreviewDto(p.getUrl(), p.getTitle(), p.getDescription(), p.getSiteName(),
-                p.hasImage() ? IMAGE_PATH + p.getImageKey() : null);
+                p.hasImage() ? IMAGE_PATH + p.getImageKey() : null, VideoLinks.of(p.getUrl()));
+    }
+
+    /**
+     * The card for a video link with nothing unfurled behind it — no title, no poster, just the
+     * play button. This is why the video descriptor cannot ride on a successful fetch: a YouTube
+     * page that answers slowly, or not at all, must not take the player away with it.
+     */
+    public static LinkPreviewDto videoOnly(String url) {
+        var video = VideoLinks.of(url);
+        return video == null ? null : new LinkPreviewDto(url, null, null, null, null, video);
+    }
+
+    /** A card is worth rendering when it has something to say, or something to play. */
+    public boolean isRenderable() {
+        return video != null || (url != null && title != null);
     }
 }

@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+//= require theme-loader.js
 //= require time-format.js
 //= require session-watch.js
 //= require favicon-alert.js

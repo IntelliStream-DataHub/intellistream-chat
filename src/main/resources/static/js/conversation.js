@@ -57,7 +57,6 @@
     createThreadPanel,
     dayKey,
     formatTime,
-    formatBytes,
     insertAtCursor,
     wireAutoResize,
     wireAllFormatToolbars,
@@ -71,7 +70,28 @@
     return items.length ? items[items.length - 1] : null;
   };
 
-  const appendMessage = (msg) => {
+/**
+   * Append several messages as one piece of work: measure once, insert them all, scroll once.
+   *
+   * appendMessage is right for a live message — one arrives, one is drawn. In a loop it is not:
+   * each call reads scrollHeight/scrollTop after the previous call inserted, so the browser must
+   * lay the whole list out again before it can answer, once per message.
+   */
+  const appendMessages = (rows) => {
+    if (!rows || rows.length === 0) return;
+    const nearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 120;
+    let last = null;
+    rows.forEach((msg) => { last = appendMessage(msg, { batched: true }) || last; });
+    if (last && (nearBottom || rows.some((m) => m.authorUsername === myUsername))) {
+      last.scrollIntoView({ block: 'end' });
+    }
+  };
+
+  /**
+   * @param opts.batched set by {@link appendMessages}; see there.
+   * @return the appended <li>, or undefined when the message was a duplicate or a thread reply
+   */
+  const appendMessage = (msg, opts) => {
     if (!msg || !msg.id) return;
     // A reply belongs in its thread, not in the feed. Its parent's "N replies" indicator moves
     // either way — that is the only trace a thread leaves in the conversation, and it has to move
@@ -84,8 +104,13 @@
     // De-dupe across WS replays (and the upcoming local-append optimisation).
     if (messagesEl.querySelector('li.message[data-id="' + msg.id + '"]')) return;
     // Measure BEFORE appending: only follow the tail if the reader is already near it, or the
-    // message is their own — otherwise don't yank someone reading history down (BUG-15).
-    const nearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 120;
+    // message is their own — otherwise don't yank someone reading history down (BUG-15). A batch
+    // (see appendMessages) has already measured for the whole run, so it does not measure here:
+    // this read comes after the previous message's insert, and would force a fresh layout each time.
+    const batched = !!(opts && opts.batched);
+    const nearBottom = batched
+        ? false
+        : messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 120;
     const created = new Date(msg.createdAt);
     const curDay = dayKey(created);
     const prev = lastMessageEl();
@@ -129,9 +154,7 @@
     }
 
     if (msg.bodyMarkdown) {
-      const body = document.createElement('div');
-      body.className = 'message-body';
-      body.innerHTML = msg.bodyHtml || '';
+      const body = window.ChatKit.buildMessageBodyEl(msg.bodyHtml);
       right.appendChild(body);
     }
 
@@ -153,6 +176,7 @@
     li.append(avatar, right);
     messagesEl.appendChild(li);
     attachActions(li);
+    if (batched) return li;
     if (nearBottom || msg.authorUsername === myUsername) {
       // Scroll now and again as each image lands. An image attachment has no height until its
       // bytes arrive, so a single scroll stops at what is momentarily the bottom and the picture
@@ -319,8 +343,11 @@
     applyThreadIndicator(right, delta);
   };
 
-  const replaceMessageDom = (msg) => {
-    const li = findMessageEl(msg.id);
+  // `target` names the row to repaint. The broadcast path has none in hand and looks one up; the
+  // author's own save passes the row it just edited, so an edit made in the thread panel repaints
+  // that copy rather than the feed's.
+  const replaceMessageDom = (msg, target) => {
+    const li = target || findMessageEl(msg.id);
     if (!li) return;
     const right = li.querySelector(':scope > div');
     if (!right) return;
@@ -338,9 +365,7 @@
     right.querySelectorAll('.message-body, .link-preview, .message-reactions, .message-attachments, .message-edit, .edited-tag, .thread-indicator').forEach(n => n.remove());
     const meta = right.querySelector('.message-meta');
     if (msg.bodyMarkdown) {
-      const body = document.createElement('div');
-      body.className = 'message-body';
-      body.innerHTML = msg.bodyHtml || '';
+      const body = window.ChatKit.buildMessageBodyEl(msg.bodyHtml);
       meta.after(body);
       const preview = window.ChatKit.buildLinkPreviewEl(msg.linkPreview);
       if (preview) body.after(preview);
@@ -427,6 +452,9 @@
     wrap.querySelector('.message-edit-save').addEventListener('click', async () => {
       const newBody = ta.value.trim();
       if (!newBody) { alert('Body cannot be empty'); return; }
+      // Saving the text you were handed is a cancel, not an edit: no request, no index rewrite,
+      // and no "(edited)" marker for a change nobody made.
+      if (newBody === original.trim()) { wrap.replaceWith(body); return; }
       const id = li.dataset.id;
       const res = await fetch('/api/conversations/messages/' + id, {
         method: 'PATCH',
@@ -438,7 +466,17 @@
         alert('Edit failed: ' + (err.error || err.message || res.statusText));
         return;
       }
-      // WS broadcast triggers replaceMessageDom — nothing else to do.
+      // Retire the form here rather than leaving it to the broadcast — same reason as the channel
+      // feed: an `updated` frame carries no "what changed", so replaceMessageDom infers an edit
+      // from the body differing and deliberately keeps an open edit box when it doesn't, which
+      // made such a save look like nothing had happened. The response is what confirms this save,
+      // and the DTO it carries repaints the row without waiting for the round trip.
+      // The DTO is read before either write, so closing the edit box and repainting the row happen
+      // in one block. With the read between them, the browser rendered the old body in the gap —
+      // a visible flash of the text the person had just changed — and laid the page out twice.
+      const dto = await res.json().catch(() => null);
+      wrap.replaceWith(body);
+      if (dto) replaceMessageDom(dto, li);
     });
     ta.addEventListener('keydown', (ev) => {
       if (ev.key === 'Escape') { ev.preventDefault(); wrap.replaceWith(body); }
@@ -521,9 +559,7 @@
     }
     right.appendChild(meta);
     if (msg.bodyMarkdown) {
-      const body = document.createElement('div');
-      body.className = 'message-body';
-      body.innerHTML = msg.bodyHtml || '';
+      const body = window.ChatKit.buildMessageBodyEl(msg.bodyHtml);
       right.appendChild(body);
     }
     const preview = window.ChatKit.buildLinkPreviewEl(msg.linkPreview);
@@ -560,47 +596,14 @@
   });
 
   // ---------- Attachment rendering ----------
-  // Mirrors chat.js's renderAttachmentTray + buildAttachmentLink for DMs. Image attachments
-  // open an in-page lightbox via the document-level delegate that ships in chat.js — but
-  // chat.js isn't loaded here, so wire a minimal local delegate further below.
-  function buildAttachmentLink(a) {
-    // Tombstone: the file was deleted from the file manager, the message stayed.
-    if (a.deletedAt) return window.ChatKit.buildRemovedAttachmentEl(a);
-    const isImage = (a.contentType || '').startsWith('image/');
-    const link = document.createElement('a');
-    link.href = a.downloadUrl;
-    link.title = a.filename;
-    if (isImage) {
-      link.className = 'attachment-image';
-      link.target = '_blank';
-      link.rel = 'noopener';
-      const img = document.createElement('img');
-      img.src = a.downloadUrl;
-      img.alt = a.filename;
-      img.loading = 'lazy';
-      link.append(img);
-    } else {
-      link.className = 'attachment';
-      link.dataset.contentType = a.contentType;
-      link.innerHTML = '<svg class="icon attachment-icon"><use href="#icon-paperclip"/></svg>' +
-          '<span class="attachment-info"><span class="attachment-name"></span>' +
-          '<span class="attachment-meta"></span></span>' +
-          '<svg class="icon attachment-download"><use href="#icon-download"/></svg>';
-      link.querySelector('.attachment-name').textContent = a.filename;
-      link.querySelector('.attachment-meta').textContent =
-          (a.contentType || '') + ' · ' + formatBytes(a.sizeBytes);
-    }
-    return link;
-  }
+  // The tray, its chips and the in-page viewer behind them all come from ChatKit, so a DM's files
+  // look and behave exactly like a channel's. They didn't always: this page carried its own copy
+  // of the chip builder and opened images in a new browser tab, which is a different product
+  // decision made by accident in a copy nobody compared.
   function renderAttachmentTray(attachments) {
-    const tray = document.createElement('div');
-    tray.className = 'message-attachments';
-    for (const a of attachments) tray.append(buildAttachmentLink(a));
-    return tray;
+    return window.ChatKit.buildAttachmentTray(attachments);
   }
-  // The same in-page lightbox the channel page uses. This was a window.open to a new browser
-  // tab — the "minimal" version — which is why image attachments felt different in a DM.
-  window.ChatKit.wireImageLightbox();
+  window.ChatKit.wireAttachmentViewer();
 
   // ---------- Typing indicator ----------
   // Receiving and sending halves both come from ChatKit; what is local is the destination and the
@@ -701,18 +704,23 @@
   async function backfillMissedMessages() {
     backfilling = true;
     try {
-      for (let page = 0; page < 50; page++) {
-        const last = lastMessageEl();
-        const after = last ? last.dataset.createdAt : null;
-        if (!after) break;
+      // Fetch every page first, render once: a page per iteration rendered in its own task, and
+      // every message inside it measured the list again. The cursor comes from the rows rather
+      // than from the last <li>, which is what lets the DOM work leave the loop.
+      const lastEl = lastMessageEl();
+      let after = lastEl ? lastEl.dataset.createdAt : null;
+      const missed = [];
+      for (let page = 0; after && page < 50; page++) {
         const rows = await fetch('/api/conversations/' + conversationId + '/messages?after='
               + encodeURIComponent(after), { headers: headers() })
           .then((r) => (r.ok ? r.json() : []))
           .catch(() => []);
         if (!rows || rows.length === 0) break;
-        rows.forEach(appendMessage);
+        missed.push(...rows);
+        after = rows[rows.length - 1].createdAt;
         if (rows.length < 50) break;
       }
+      appendMessages(missed);
     } finally {
       backfilling = false;
       pendingLive.splice(0).forEach(handleFrame);

@@ -78,7 +78,7 @@ presenceMenu.init();
     // Any channel list, not just the main one — there is a Favourites group above it now. The
     // closest('a') test is what keeps the star button from counting as "picked a channel".
     document.getElementById('app-sidebar')?.addEventListener('click', (e) => {
-      if (e.target.closest('.channel-list a, .dm-list a')) setOpen(false);
+      if (e.target.closest('.channel-list a, .dm-list a, #sidebar-browse-btn')) setOpen(false);
     });
     window.addEventListener('resize', () => {
       if (window.innerWidth > 768 && document.body.classList.contains('sidebar-open')) setOpen(false);
@@ -381,11 +381,7 @@ presenceMenu.init();
           }
           li.append(head);
 
-          // bodyHtml is server-rendered and server-sanitized (MarkdownRenderer + jsoup), the same
-          // string the feed renders with innerHTML.
-          const body = document.createElement('div');
-          body.className = 'message-body channel-pin-body';
-          body.innerHTML = msg.bodyHtml || '';
+          const body = window.ChatKit.buildMessageBodyEl(msg.bodyHtml, 'channel-pin-body');
           li.append(body);
 
           const actions = document.createElement('div');
@@ -564,7 +560,7 @@ presenceMenu.init();
 
   // Composer/textarea helpers (auto-resize, caret insert, format toolbar, emoji picker)
   // come from window.ChatKit (chat-kit.js). Pull them into local scope for terseness.
-  const { wireAutoResize, insertAtCursor, openEmojiPicker } = ChatKit;
+  const { wireAutoResize, insertAtCursor, openEmojiPicker, wireLivePreview } = ChatKit;
 
   // ---------- Joined channels: the subscription set ----------
   // Every channel the user is a member of, straight from the server (meta me-channel-ids, built
@@ -1111,18 +1107,24 @@ presenceMenu.init();
     async function backfillMissedMessages() {
       backfilling = true;
       try {
-        for (let page = 0; page < 50; page++) { // safety cap: 50 pages * 50 = 2500 messages
-          const last = lastMessageEl();
-          const after = last ? last.dataset.createdAt : null;
-          if (!after) break;
+        // Fetch every page first, render once. Rendering a page per iteration put each one in its
+        // own task: the browser laid the list out between pages, and within a page every message
+        // measured the list again. The cursor comes from the rows themselves rather than from the
+        // last <li>, which is what let the DOM work move out of the loop.
+        const lastEl = lastMessageEl();
+        let after = lastEl ? lastEl.dataset.createdAt : null;
+        const missed = [];
+        for (let page = 0; after && page < 50; page++) { // safety cap: 50 pages * 50 = 2500 messages
           const rows = await fetch('/api/channels/' + activeChannelId + '/messages?after='
                 + encodeURIComponent(after) + '&limit=50', { headers: headers() })
             .then((r) => (r.ok ? r.json() : []))
             .catch(() => []);
           if (!rows || rows.length === 0) break;
-          rows.forEach(appendMessage);
+          missed.push(...rows);
+          after = rows[rows.length - 1].createdAt;
           if (rows.length < 50) break; // short page => we've caught up
         }
+        appendMessages(missed);
       } finally {
         backfilling = false;
         pendingLive.splice(0).forEach(handleMessageEvent);
@@ -1591,15 +1593,26 @@ presenceMenu.init();
         if (!body && !hasFiles) return;
 
         if (hasFiles) {
-          // Upload each file as its own message (caption = body, only on the first one).
+          // Upload each file as its own message (caption = body, only on the first one). Sequential
+          // on purpose: each file becomes its own message, so the order is the posting order, and
+          // taking each chip away as its upload lands is the progress indicator. What does not need
+          // repeating is the composer reset — clearing and re-measuring it once per file meant two
+          // forced layouts each time for a box that was already empty.
           let caption = body;
+          let composerCleared = false;
+          const clearComposer = () => {
+            if (composerCleared) return;
+            composerCleared = true;
+            input.value = '';
+            input._autoResize?.();
+          };
           for (const [localId, item] of Array.from(pending.entries())) {
             try {
               await uploadAttachment(item.file, caption);
               // Clear the composer as soon as the caption is consumed — otherwise a later file's
               // failure returns with the caption still in the box, and resubmitting re-posts it
               // against the remaining files (N14).
-              if (caption) { input.value = ''; input._autoResize?.(); }
+              if (caption) clearComposer();
               caption = '';
               removePendingAttachment(localId);
             } catch (err) {
@@ -1607,8 +1620,7 @@ presenceMenu.init();
               return;
             }
           }
-          input.value = '';
-          input._autoResize?.();
+          clearComposer();
         } else {
           if (await sendChannelMessage(body)) {
             input.value = '';
@@ -1624,45 +1636,15 @@ presenceMenu.init();
       });
 
       // Live markdown preview — server-rendered so the preview matches the posted message
-      // exactly (mentions, code highlighting, sanitisation, all identical).
-      const previewPane = document.getElementById('composer-preview');
-      const previewBody = document.getElementById('composer-preview-body');
-      let previewDebounce = null;
-      let previewReq = 0;
-      async function refreshPreview() {
-        if (!previewPane || !previewBody || !composerInput) return;
-        const body = composerInput.value;
-        if (!body.trim()) {
-          previewPane.hidden = true;
-          previewBody.innerHTML = '';
-          return;
-        }
-        const myReq = ++previewReq;
-        try {
-          const res = await fetch('/api/preview', {
-            method: 'POST',
-            headers: headers(),
-            body: JSON.stringify({ body })
-          });
-          if (!res.ok) return;
-          const data = await res.json();
-          if (myReq !== previewReq) return; // stale response, dropped
-          previewBody.innerHTML = data.html || '';
-          highlightCode(previewBody);
-          previewPane.hidden = !data.html;
-        } catch (_) {
-          // Network blip — leave the prior preview in place rather than blanking it.
-        }
-      }
-      composerInput?.addEventListener('input', () => {
-        clearTimeout(previewDebounce);
-        previewDebounce = setTimeout(refreshPreview, 220);
-      });
-      // Hide preview after sending so an empty composer doesn't show a stale render.
-      composer.addEventListener('submit', () => {
-        clearTimeout(previewDebounce);
-        if (previewPane) previewPane.hidden = true;
-        if (previewBody) previewBody.innerHTML = '';
+      // exactly (mentions, code highlighting, sanitisation, all identical). The wiring is
+      // ChatKit's, shared with the thread composer below and both of the DM page's, so the
+      // debounce, the stale-response guard and the hide-on-send behave the same in all four.
+      wireLivePreview({
+        textarea: composerInput,
+        pane: document.getElementById('composer-preview'),
+        body: document.getElementById('composer-preview-body'),
+        form: composer,
+        headers,
       });
 
       const addPendingAttachment = (file) => {
@@ -1781,10 +1763,7 @@ presenceMenu.init();
     right.append(meta);
 
     if (msg.bodyMarkdown && msg.bodyMarkdown.length > 0) {
-      const body = document.createElement('div');
-      body.className = 'message-body';
-      body.innerHTML = msg.bodyHtml;
-      highlightCode(body);
+      const body = ChatKit.buildMessageBodyEl(msg.bodyHtml);
       right.append(body);
     }
 
@@ -1834,7 +1813,32 @@ presenceMenu.init();
     });
   };
 
-  const appendMessage = (msg) => {
+  /**
+   * Append several messages as one piece of work: measure once, insert them all, scroll once.
+   *
+   * appendMessage on its own is right for a live message — one arrives, one is drawn. Called in a
+   * loop it is not: each call reads scrollHeight/scrollTop to decide whether to follow the tail,
+   * and that read comes after the previous call's insert, so the browser must lay the whole message
+   * list out again before it can answer. Fifty messages meant fifty layouts. Here the decision is
+   * taken once, before anything is inserted, and the dividers are repositioned once at the end.
+   */
+  const appendMessages = (rows) => {
+    if (!rows || rows.length === 0) return;
+    const nearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 120;
+    let last = null;
+    rows.forEach((msg) => { last = appendMessage(msg, { batched: true }) || last; });
+    if (last && (nearBottom || rows.some((m) => m.authorUsername === myUsernameMeta))) {
+      stickToBottomThroughImageLoads(last);
+    }
+    positionDayDividers();
+  };
+
+  /**
+   * @param opts.batched set by {@link appendMessages}: skip this message's own tail measurement,
+   *        scroll and divider pass, because the batch does each of them once for the whole run.
+   * @return the appended <li>, or undefined when the message was a duplicate
+   */
+  const appendMessage = (msg, opts) => {
     // De-dupe: a live broadcast can race the final infinite-scroll page (which flips
     // infiniteScrollDownDone) and arrive for a message already rendered — without this
     // guard it would append a duplicate <li> and a duplicate day-divider anchor.
@@ -1857,15 +1861,22 @@ presenceMenu.init();
 
     // Only follow the tail if the reader is already near the bottom; otherwise a live
     // message would yank someone reading history straight down. (The prepend/history path
-    // preserves the viewport separately.) Measure BEFORE appending.
-    const nearBottom = messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 120;
+    // preserves the viewport separately.) Measure BEFORE appending — and not at all when a batch
+    // has already measured for the whole run.
+    const batched = !!(opts && opts.batched);
+    const nearBottom = batched
+        ? false
+        : messagesEl.scrollHeight - messagesEl.scrollTop - messagesEl.clientHeight < 120;
     messagesEl.append(li);
     attachActions(li);
     flagAsAppearing(li);
-    if (nearBottom || msg.authorUsername === myUsernameMeta) {
-      stickToBottomThroughImageLoads(li);
+    if (!batched) {
+      if (nearBottom || msg.authorUsername === myUsernameMeta) {
+        stickToBottomThroughImageLoads(li);
+      }
+      positionDayDividers();
     }
-    positionDayDividers();
+    return li;
   };
 
   /**
@@ -1931,27 +1942,41 @@ presenceMenu.init();
   let olderSentinel = null;
   let olderObserver = null;
 
+  /** The ids already on screen, for a batch that would otherwise ask the DOM once per row. */
+  const renderedMessageIds = () => {
+    const ids = new Set();
+    messagesEl.querySelectorAll('li.message[data-id]').forEach((li) => ids.add(li.dataset.id));
+    return ids;
+  };
+
   const prependOlderMessages = (rows) => {
     // Server returns oldest-first inside the batch (MessageService re-sorts ascending after
-    // the descending DB fetch). Inserting each row before the current first.message LI
-    // preserves that order: row[0] ends up at the new top, row[N-1] right above the prior top.
+    // the descending DB fetch). The fragment keeps that order and goes in above the current
+    // first .message: row[0] ends up at the new top, row[N-1] right above the prior top.
+    //
+    // One insertion, not fifty. Each row used to be inserted on its own into the live list, with
+    // a querySelector per row to de-dupe; the whole page is assembled off-document instead and
+    // attached once, which is also one style and layout pass instead of a growing list being
+    // touched fifty times.
     const firstExisting = messagesEl.querySelector('li.message');
-    let inserted = 0;
+    const seen = renderedMessageIds();
+    const batch = document.createDocumentFragment();
+    const attachTo = [];
     for (const msg of rows) {
       // De-dupe in case of overlap with the existing batch (shouldn't happen with the
       // before=<instant> contract, but handle it defensively).
-      if (messagesEl.querySelector('li.message[data-id="' + CSS.escape(msg.id) + '"]')) continue;
+      if (seen.has(String(msg.id))) continue;
       const li = buildMessageLi(msg);
-      if (firstExisting) {
-        messagesEl.insertBefore(li, firstExisting);
-      } else {
-        messagesEl.append(li);
-      }
-      attachActions(li);
+      batch.append(li);
+      attachTo.push(li);
       // Don't flagAsAppearing — these are old messages, no slide-in animation.
-      inserted++;
     }
-    return inserted;
+    if (!attachTo.length) return 0;
+    if (firstExisting) messagesEl.insertBefore(batch, firstExisting);
+    else messagesEl.append(batch);
+    // After they are in the document: attachActions reads each row's own dataset, not geometry.
+    attachTo.forEach(attachActions);
+    return attachTo.length;
   };
 
   const loadOlder = async () => {
@@ -2029,20 +2054,25 @@ presenceMenu.init();
   let newerObserver = null;
 
   const appendNewerMessages = (rows) => {
-    let inserted = 0;
+    // Same shape as prependOlderMessages: assembled off-document, attached once.
+    const seen = renderedMessageIds();
+    const batch = document.createDocumentFragment();
+    const attachTo = [];
     for (const msg of rows) {
-      if (messagesEl.querySelector('li.message[data-id="' + CSS.escape(msg.id) + '"]')) continue;
+      if (seen.has(String(msg.id))) continue;
       const li = buildMessageLi(msg);
-      // Insert before the bottom sentinel so it stays the last child.
-      if (newerSentinel && newerSentinel.parentNode === messagesEl) {
-        messagesEl.insertBefore(li, newerSentinel);
-      } else {
-        messagesEl.append(li);
-      }
-      attachActions(li);
-      inserted++;
+      batch.append(li);
+      attachTo.push(li);
     }
-    return inserted;
+    if (!attachTo.length) return 0;
+    // Insert before the bottom sentinel so it stays the last child.
+    if (newerSentinel && newerSentinel.parentNode === messagesEl) {
+      messagesEl.insertBefore(batch, newerSentinel);
+    } else {
+      messagesEl.append(batch);
+    }
+    attachTo.forEach(attachActions);
+    return attachTo.length;
   };
 
   const loadNewer = async () => {
@@ -2162,20 +2192,28 @@ presenceMenu.init();
     if (dividerRaf) return;
     dividerRaf = requestAnimationFrame(() => {
       dividerRaf = 0;
+      // Read every position first, then write every position. Interleaving them — measure this
+      // divider's anchor, move this divider, measure the next — makes each measurement force a
+      // layout, because the write before it dirtied the one the browser had just computed. Two
+      // passes cost one layout for the whole row of dividers, however many there are, and this runs
+      // on every scroll frame.
       const scrollTop = messagesEl.scrollTop;
+      const placements = [];
       dividerLayer.querySelectorAll('.day-divider').forEach((div) => {
         const anchorId = div.dataset.anchorId;
         const anchor = anchorId
             ? messagesEl.querySelector('li.message[data-id="' + CSS.escape(anchorId) + '"]')
             : null;
-        if (!anchor) {
-          div.style.visibility = 'hidden';
+        // Center the divider in the gap created by .first-of-day's margin-top (≈2.5rem ≈ 40px).
+        placements.push({ div: div, top: anchor ? anchor.offsetTop - scrollTop - 32 : null });
+      });
+      placements.forEach((p) => {
+        if (p.top === null) {
+          p.div.style.visibility = 'hidden';
           return;
         }
-        // Center the divider in the gap created by .first-of-day's margin-top (≈2.5rem ≈ 40px).
-        const top = anchor.offsetTop - scrollTop - 32;
-        div.style.top = top + 'px';
-        div.style.visibility = 'visible';
+        p.div.style.top = p.top + 'px';
+        p.div.style.visibility = 'visible';
       });
     });
   };
@@ -2216,27 +2254,9 @@ presenceMenu.init();
   }
 
   // ---------- Syntax highlighting ----------
-  const highlightCode = (root) => {
-    if (!root) return;
-    if (!window.hljs) {
-      if (!highlightCode._warned) {
-        highlightCode._warned = true;
-        console.warn('[hljs] highlight.js not loaded — code blocks will render unhighlighted');
-      }
-      return;
-    }
-    root.querySelectorAll('pre code').forEach((block) => {
-      // hljs v11 marks processed blocks with data-highlighted="yes"; re-running just spams a warning.
-      if (block.dataset.highlighted === 'yes') return;
-      try {
-        window.hljs.highlightElement(block);
-      } catch (err) {
-        console.warn('[hljs] failed to highlight a block:', err);
-      }
-    });
-  };
-  // Highlight everything currently on the page (server-rendered messages, search results, etc.).
-  highlightCode(document);
+  // Nothing here on purpose. Bodies are built by ChatKit.buildMessageBodyEl / renderMessageBody,
+  // which highlight as part of rendering, and chat-kit sweeps the server-rendered history on load
+  // for every page at once. See its doc comment for why this isn't per-page code any more.
 
   // ---------- Color server-rendered avatars (delegated to ChatKit) ----------
   ChatKit.backfillAvatarColors();
@@ -2600,44 +2620,12 @@ presenceMenu.init();
     li.appendChild(buildActions(li));
   };
 
-  const buildAttachmentLink = (a) => {
-    // Tombstone: the file was deleted from the file manager, the message stayed.
-    if (a.deletedAt) return window.ChatKit.buildRemovedAttachmentEl(a);
-    const isImage = (a.contentType || '').startsWith('image/');
-    const link = document.createElement('a');
-    link.href = a.downloadUrl;
-    link.title = a.filename;
-    if (isImage) {
-      link.className = 'attachment-image';
-      // Keep href + target so middle-click and "Open in new tab" still work; left-click
-      // is intercepted by the document-level delegate that opens the lightbox.
-      link.target = '_blank';
-      link.rel = 'noopener';
-      const img = document.createElement('img');
-      img.src = a.downloadUrl;
-      img.alt = a.filename;
-      img.loading = 'lazy';
-      link.append(img);
-    } else {
-      link.className = 'attachment';
-      link.dataset.contentType = a.contentType;
-      link.innerHTML = '<svg class="icon attachment-icon"><use href="#icon-paperclip"/></svg>' +
-          '<span class="attachment-info"><span class="attachment-name"></span>' +
-          '<span class="attachment-meta"></span></span>' +
-          '<svg class="icon attachment-download"><use href="#icon-download"/></svg>';
-      link.querySelector('.attachment-name').textContent = a.filename;
-      link.querySelector('.attachment-meta').textContent =
-          (a.contentType || '') + ' · ' + formatBytes(a.sizeBytes);
-    }
-    return link;
-  };
-
-  const renderAttachmentTray = (attachments) => {
-    const tray = document.createElement('div');
-    tray.className = 'message-attachments';
-    for (const a of attachments) tray.append(buildAttachmentLink(a));
-    return tray;
-  };
+  // The chips under a message come from ChatKit — one builder for this page, the DM page and the
+  // Thymeleaf history, because two copies of it is how the image lightbox ended up on one page
+  // and not the other. It is also what puts the preview button on a markdown or HTML attachment.
+  function renderAttachmentTray(attachments) {
+    return window.ChatKit.buildAttachmentTray(attachments);
+  }
 
   // ---------- Poll widget ----------
   // Click-to-vote with bar visualisation. Reactions on the host message stay independent —
@@ -2775,22 +2763,20 @@ presenceMenu.init();
   const hydratePollPlaceholders = async () => {
     const placeholders = document.querySelectorAll('.poll-placeholder[data-poll-id]');
     if (!placeholders.length) return;
-    await Promise.all([...placeholders].map(async (el) => {
+    // Fetch in parallel, then swap in one block. Swapping inside each fetch's own continuation put
+    // every poll on the page in a separate task, so a channel showing five polls laid itself out
+    // five times while they arrived; the widgets are built detached and attached together instead.
+    const fetched = await Promise.all([...placeholders].map((el) => {
       const id = el.dataset.pollId;
-      try {
-        const res = await fetch('/api/polls/' + encodeURIComponent(id), {
-          headers: headers(), credentials: 'same-origin',
-        });
-        if (!res.ok) {
-          el.remove();
-          return;
-        }
-        const dto = await res.json();
-        el.replaceWith(renderPollWidget(dto));
-      } catch (e) {
-        el.remove();
-      }
+      return fetch('/api/polls/' + encodeURIComponent(id), { headers: headers(), credentials: 'same-origin' })
+          .then((res) => (res.ok ? res.json() : null))
+          .then((dto) => ({ el: el, widget: dto ? renderPollWidget(dto) : null }))
+          .catch(() => ({ el: el, widget: null }));
     }));
+    fetched.forEach((row) => {
+      if (row.widget) row.el.replaceWith(row.widget);
+      else row.el.remove();
+    });
   };
   hydratePollPlaceholders();
 
@@ -2798,10 +2784,13 @@ presenceMenu.init();
   // Lives in chat-kit.js: the conversation page needs the identical one, and it used to make do
   // with window.open — a new browser tab instead of the in-page viewer, which is the difference
   // people notice when they say attachments "behave differently" in a DM.
-  window.ChatKit.wireImageLightbox();
+  window.ChatKit.wireAttachmentViewer();
 
-  const replaceMessageDom = (msg) => {
-    const li = findMessageEl(msg.id);
+  // `target` names the row to repaint. The broadcast path has none in hand and looks one up; the
+  // author's own save passes the row it just edited, so an edit made in the thread panel repaints
+  // that copy rather than the feed's.
+  const replaceMessageDom = (msg, target) => {
+    const li = target || findMessageEl(msg.id);
     if (!li) return;
     // Detect an actual body edit (vs. a reaction-only update) so we only flash on edits.
     const prevBody = li.dataset.bodyMarkdown || '';
@@ -2833,10 +2822,7 @@ presenceMenu.init();
     right.querySelectorAll('.message-body, .link-preview, .message-attachments, .message-reactions, .message-edit, .edited-tag, .poll-widget').forEach(n => n.remove());
     const meta = right.querySelector('.message-meta');
     if (msg.bodyMarkdown) {
-      const body = document.createElement('div');
-      body.className = 'message-body';
-      body.innerHTML = msg.bodyHtml;
-      highlightCode(body);
+      const body = ChatKit.buildMessageBodyEl(msg.bodyHtml);
       meta.after(body);
       if (isEdit) flashEdited(body);
       // The update frame carries the card the message already has (the server decorates it);
@@ -2996,6 +2982,9 @@ presenceMenu.init();
     wrap.querySelector('.message-edit-save').addEventListener('click', async () => {
       const newBody = ta.value.trim();
       if (!newBody) { alert('Body cannot be empty'); return; }
+      // Saving the text you were handed is a cancel, not an edit: no request, no index rewrite,
+      // and no "(edited)" marker for a change nobody made.
+      if (newBody === original.trim()) { wrap.replaceWith(body); return; }
       const id = li.dataset.id;
       const res = await fetch('/api/messages/' + id, {
         method: 'PATCH',
@@ -3007,7 +2996,18 @@ presenceMenu.init();
         alert('Edit failed: ' + (err.error || res.statusText));
         return;
       }
-      // WS broadcast triggers replaceMessageDom — nothing else to do.
+      // Retire the form here rather than leaving it to the broadcast. An `updated` frame carries
+      // no "what changed", so replaceMessageDom infers an edit from the body differing and keeps
+      // an open edit box when it doesn't — which made a save whose result matched what was
+      // already on screen (an edit undone while typing, whitespace, a poll-less retype) look like
+      // nothing had happened. The response is the one signal that says *this* save succeeded, so
+      // it is what closes the box, and the DTO it carries repaints the row immediately.
+      // The DTO is read before either write, so closing the edit box and repainting the row happen
+      // in one block. With the read between them, the browser rendered the old body in the gap —
+      // a visible flash of the text the person had just changed — and laid the page out twice.
+      const dto = await res.json().catch(() => null);
+      wrap.replaceWith(body);
+      if (dto) replaceMessageDom(dto, li);
     });
     ta.addEventListener('keydown', (ev) => {
       if (ev.key === 'Escape') {
@@ -3163,10 +3163,7 @@ presenceMenu.init();
     }
     const right = li.querySelector(':scope > div');
     if (msg.bodyMarkdown) {
-      const body = document.createElement('div');
-      body.className = 'message-body';
-      body.innerHTML = msg.bodyHtml;
-      highlightCode(body);
+      const body = ChatKit.buildMessageBodyEl(msg.bodyHtml);
       right.appendChild(body);
     }
     const preview = ChatKit.buildLinkPreviewEl(msg.linkPreview);
@@ -3221,46 +3218,15 @@ presenceMenu.init();
   // Enter-to-send is handled by the top-level document keydown handler.
   wireAutoResize(threadInput);
 
-  // Live markdown preview for the thread reply composer — same /api/preview path the
-  // channel composer uses so the rendered HTML is identical.
-  (function wireThreadPreview() {
-    const pane = document.getElementById('thread-preview');
-    const body = document.getElementById('thread-preview-body');
-    if (!pane || !body || !threadInput) return;
-    let debounce = null;
-    let req = 0;
-    async function refresh() {
-      const text = threadInput.value;
-      if (!text.trim()) {
-        pane.hidden = true;
-        body.innerHTML = '';
-        return;
-      }
-      const myReq = ++req;
-      try {
-        const res = await fetch('/api/preview', {
-          method: 'POST',
-          headers: headers(),
-          body: JSON.stringify({ body: text }),
-        });
-        if (!res.ok) return;
-        const data = await res.json();
-        if (myReq !== req) return;
-        body.innerHTML = data.html || '';
-        highlightCode(body);
-        pane.hidden = !data.html;
-      } catch (_) { /* leave previous render */ }
-    }
-    threadInput.addEventListener('input', () => {
-      clearTimeout(debounce);
-      debounce = setTimeout(refresh, 220);
-    });
-    threadComposerForm?.addEventListener('submit', () => {
-      clearTimeout(debounce);
-      pane.hidden = true;
-      body.innerHTML = '';
-    });
-  })();
+  // Live markdown preview for the thread reply composer — the same ChatKit wiring as the
+  // channel composer, so the rendered HTML and the behaviour around it are identical.
+  wireLivePreview({
+    textarea: threadInput,
+    pane: document.getElementById('thread-preview'),
+    body: document.getElementById('thread-preview-body'),
+    form: threadComposerForm,
+    headers,
+  });
 
   // Tutorial overlay + sidebar filter were moved to ./chrome.js — see chrome.init() at the
   // top of this file. They were structurally independent of the message-feed code in here.

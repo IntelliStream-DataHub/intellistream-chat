@@ -56,7 +56,9 @@ import static org.mockito.Mockito.mock;
                 // Link previews: LinkPreviewService, its properties and the URL/SSRF helpers.
                 // Service-layer; the fetch pool never runs in an IT unless a test posts a URL and
                 // the guard refuses anything a Testcontainers box could reach anyway.
-                "ai.intellistream.chat.linkpreview"
+                "ai.intellistream.chat.linkpreview",
+                // One-time secrets: SecretShareService, its properties and sweeper. Service-layer.
+                "ai.intellistream.chat.secretshare"
         },
         exclude = {
                 SecurityAutoConfiguration.class,

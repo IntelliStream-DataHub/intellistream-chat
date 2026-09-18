@@ -24,9 +24,12 @@ import org.junit.jupiter.api.Test;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
+import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Arrays;
+import java.util.List;
+import java.util.concurrent.Flow;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -174,6 +177,39 @@ class LinkPreviewFetcherTest {
         assertThat(meta.title()).isEqualTo("Big");
     }
 
+    /**
+     * The YouTube case, and the reason the cap is measured in megabytes: a watch page carries some
+     * 700 KB of inline script before its {@code <title>}, and a cut above that is a page with no
+     * title — an empty card, and a video link left with a play button on a black panel.
+     */
+    @Test
+    void aHeadThatStartsHundredsOfKilobytesInIsStillRead() throws Exception {
+        var script = new char[700_000];
+        Arrays.fill(script, 'x');
+        html("/late", "<html><head><script>var a=\"" + new String(script) + "\";</script>"
+                + "<title>Late</title><meta property=\"og:image\" content=\"/pic.png\">"
+                + "</head><body></body></html>");
+        var meta = fetcher(2 << 20, 1 << 20).fetchPage(base + "/late").orElseThrow();
+        assertThat(meta.title()).isEqualTo("Late");
+        assertThat(meta.imageUrl()).isEqualTo(URI.create(base + "/pic.png"));
+    }
+
+    /**
+     * …and the reason that cap is affordable: the read stops at the end of the head, so an ordinary
+     * page costs its head and not its cap. Without this, raising the limit would mean pulling a
+     * megabyte off every site anyone links.
+     */
+    @Test
+    void theBodyAfterTheHeadIsNeverRead() throws Exception {
+        var filler = new char[900_000];
+        Arrays.fill(filler, 'x');
+        html("/fat", "<html><HEAD><title>Small head</title></HeAd><body>" + new String(filler) + "</body></html>");
+        var fetched = fetcher(2 << 20, 1 << 20)
+                .get(URI.create(base + "/fat"), "text/html", 2 << 20, true);
+        assertThat(fetched.body().length).isLessThan(1000);
+        assertThat(new String(fetched.body(), StandardCharsets.UTF_8)).endsWith("</HeAd");
+    }
+
     @Test
     void imagesAreCopiedSniffedAndCapped() {
         serve("/pic.png", 200, "image/png", PNG);
@@ -188,6 +224,46 @@ class LinkPreviewFetcherTest {
         assertThat(f.fetchImage(URI.create(base + "/lie.png"))).as("declared png, sniffed html").isEmpty();
         assertThat(f.fetchImage(URI.create(base + "/huge.png"))).as("over the image cap").isEmpty();
         assertThat(f.fetchImage(URI.create("http://169.254.169.254/x.png"))).as("refused address").isEmpty();
+    }
+
+    /**
+     * The subscriber's own contract, because the loopback server above cannot exercise it: it
+     * speaks HTTP/1.1, and it is over HTTP/2 that cancelling the stream fails the response future.
+     * {@code send} then falls back on these two methods, so a deliberate stop has to be
+     * distinguishable from a real failure and the bytes have to survive it.
+     */
+    @Test
+    void aDeliberateStopKeepsItsBytesAndSaysSo() throws Exception {
+        var cancelled = new AtomicInteger();
+        var sub = new LinkPreviewFetcher.LimitedBodySubscriber(1 << 20, true);
+        sub.onSubscribe(new Flow.Subscription() {
+            @Override public void request(long n) { }
+            @Override public void cancel() { cancelled.incrementAndGet(); }
+        });
+        // The tag is split across two reads, and the third would never be looked at.
+        sub.onNext(List.of(ByteBuffer.wrap("<html><HEAD><title>T</title></HE".getBytes(StandardCharsets.UTF_8))));
+        sub.onNext(List.of(ByteBuffer.wrap("AD><body>ignored".getBytes(StandardCharsets.UTF_8))));
+        sub.onNext(List.of(ByteBuffer.wrap("also ignored".getBytes(StandardCharsets.UTF_8))));
+
+        assertThat(new String(sub.collected(), StandardCharsets.UTF_8))
+                .isEqualTo("<html><HEAD><title>T</title></HEAD");
+        assertThat(sub.stoppedOnPurpose()).isTrue();
+        assertThat(cancelled.get()).isOne();
+        // And the failure the cancellation provokes must not overwrite what we collected.
+        sub.onError(new IOException("Stream 1 cancelled"));
+        assertThat(sub.stoppedOnPurpose()).isTrue();
+        assertThat(sub.collected()).hasSize(34);
+    }
+
+    @Test
+    void anImageOverTheCapIsAFailureNotADeliberateStop() {
+        var sub = new LinkPreviewFetcher.LimitedBodySubscriber(8, false);
+        sub.onSubscribe(new Flow.Subscription() {
+            @Override public void request(long n) { }
+            @Override public void cancel() { }
+        });
+        sub.onNext(List.of(ByteBuffer.wrap(new byte[64])));
+        assertThat(sub.stoppedOnPurpose()).isFalse();
     }
 
     @Test

@@ -46,6 +46,7 @@ import './api.test.js';
 import './stomp.test.js';
 import './notifications.test.js';
 import './emoji.test.js';
+import './paste.test.js';
 
 window.runTests = async function runTests() {
     let pass = 0;

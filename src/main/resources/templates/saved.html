@@ -79,6 +79,10 @@
     </div>
 </main>
 
+<!-- A saved item is a whole message body, fenced code included, and it is built by the same
+     ChatKit.buildMessageBodyEl the feeds use — so this page needs the highlighter the feeds have.
+     theme-loader.js (in the 'saved' bundle) picks the matching light/dark stylesheet. -->
+<script th:src="@{/js/vendor/highlight.min.js}"></script>
 <!-- Bundled page scripts (assets.gradle); dev serves the source files. See ASSETS.md. -->
 <th:block th:replace="~{fragments/assets :: js('saved')}"/>
 <!-- Avatar dropdown (presence + sign out); ES module, outside the Closure bundle. -->

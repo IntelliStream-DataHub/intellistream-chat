@@ -15,7 +15,27 @@
   which the lightbox delegate would catch: a preview picture is a link to a page, not a picture to
   zoom.
 */-->
-<a th:fragment="card(p)" th:if="${p != null}" class="link-preview"
+<th:block th:fragment="card(p)" th:if="${p != null}">
+<!--/* A video link is a click-to-play facade, not a player: the poster is our own copy of the
+       page's picture and the <iframe> is built by chat-kit's delegated click handler when
+       somebody actually asks to watch. The server used to put the iframe straight in the message
+       body, which called YouTube on every render — see linkpreview/VideoLinks. */-->
+<div th:if="${p.video != null}" class="link-preview link-preview-video"
+     th:attr="data-orientation=${p.video.orientation}">
+    <button type="button" class="video-facade" th:attr="data-embed-url=${p.video.embedUrl},
+            aria-label=${p.title != null ? 'Play ' + p.title : 'Play video'}">
+        <img th:if="${p.imageUrl != null}" class="video-facade-poster" th:src="@{${p.imageUrl}}"
+             alt="" loading="lazy"/>
+        <span class="video-facade-play"><svg class="icon" aria-hidden="true"><use href="#icon-play"/></svg></span>
+    </button>
+    <a th:if="${p.title != null or p.siteName != null}" class="link-preview-text"
+       th:href="${p.url}" target="_blank" rel="noopener noreferrer nofollow">
+        <span th:if="${p.siteName != null or p.video.provider != null}" class="link-preview-site"
+              th:text="${p.siteName != null ? p.siteName : p.video.provider}">YouTube</span>
+        <span th:if="${p.title != null}" class="link-preview-title" th:text="${p.title}">Title</span>
+    </a>
+</div>
+<a th:if="${p.video == null and p.title != null}" class="link-preview"
    th:href="${p.url}" target="_blank" rel="noopener noreferrer nofollow">
     <img th:if="${p.imageUrl != null}" class="link-preview-image" th:src="@{${p.imageUrl}}" alt="" loading="lazy"/>
     <span class="link-preview-text">
@@ -24,5 +44,6 @@
         <span th:if="${p.description != null}" class="link-preview-desc" th:text="${p.description}">Description</span>
     </span>
 </a>
+</th:block>
 </body>
 </html>

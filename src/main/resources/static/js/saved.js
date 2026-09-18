@@ -142,12 +142,12 @@
     head.append(when);
     li.append(head);
 
-    const body = document.createElement('div');
+    let body;
     if (row.readable) {
-      // Server-rendered, server-sanitized markdown — the identical string the feed renders.
-      body.className = 'message-body saved-body';
-      body.innerHTML = row.bodyHtml || '';
+      // The same builder the feeds use — identical string, identical treatment.
+      body = window.ChatKit.buildMessageBodyEl(row.bodyHtml, 'saved-body');
     } else {
+      body = document.createElement('div');
       // The save outlived the access. Say so plainly and keep the row so it can be cleared —
       // a bookmark that silently vanishes reads as data loss, and one that 500s reads as a bug.
       body.className = 'saved-body saved-unavailable';
@@ -199,8 +199,11 @@
         if (page === 0) renderCount(0);
         if (pagerEl) pagerEl.hidden = page === 0;
       } else {
-        list.textContent = '';
-        for (const row of rows) list.append(renderRow(row));
+        // Built off-document and attached once: appending each row to the visible list re-laid it
+        // per row.
+        const items = document.createDocumentFragment();
+        for (const row of rows) items.append(renderRow(row));
+        list.replaceChildren(items);
         // A short first page is the whole list, so it is also the exact count. A full one only
         // proves there are at least this many, and the server's figure is still the better answer.
         if (page === 0 && rows.length < PAGE_SIZE) renderCount(rows.length);

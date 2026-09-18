@@ -22,23 +22,36 @@ import ai.intellistream.chat.domain.NotificationLevel;
 import ai.intellistream.chat.domain.User;
 import ai.intellistream.chat.repository.ChannelMemberRepository;
 import ai.intellistream.chat.repository.ChannelRepository;
+import ai.intellistream.chat.web.dto.ChannelBrowseDto;
 import ai.intellistream.chat.web.dto.ChannelSidebarDto;
 import ai.intellistream.chat.web.dto.SidebarView;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import static ai.intellistream.chat.domain.ChannelRole.ADMIN;
 import static ai.intellistream.chat.domain.ChannelType.PUBLIC;
 
 /**
  * Builds the left-sidebar channel list: every channel the viewer is a member of, and — separately,
- * through {@link #search} — the channels they could join but haven't.
+ * through {@link #search} and {@link #browse} — the channels they could join but haven't.
  */
 @Service
 public class SidebarService {
+
+    /** How many channels the first-login <em>Suggested for you</em> group offers. */
+    public static final int SUGGESTION_COUNT = 5;
+
+    /**
+     * How many rows the Browse channels directory returns. A page, not a sidebar, so it can be
+     * generous; a workspace with more live public channels than this has a search box for the tail.
+     */
+    public static final int BROWSE_LIMIT = 200;
 
     private final ChannelRepository channelRepository;
     private final ChannelMemberRepository memberRepository;
@@ -77,7 +90,11 @@ public class SidebarService {
         // unread and mention counts below are not computed for rows nothing renders.
         var memberships = memberRepository.findLiveByUserFetchingChannel(user); // avoid channel N+1 (N28)
         if (memberships.isEmpty()) {
-            return new SidebarView(List.of(), notifyDefault, notifyDmDefault(user));
+            // Nothing to list, so the column shows where everybody else is instead. Only here:
+            // once there is a list, it is alphabetical and nothing ranks anything (see SidebarView).
+            // The viewer belongs to nothing, so there is no membership to subtract from the result.
+            return new SidebarView(List.of(), largestPublic(Set.of(), SUGGESTION_COUNT),
+                    notifyDefault, notifyDmDefault(user));
         }
 
         var rows = new ArrayList<ChannelSidebarDto>(memberships.size());
@@ -93,7 +110,32 @@ public class SidebarService {
         rows.replaceAll(d -> d.withCounts(
                 unread.getOrDefault(d.id(), 0L), mentions.getOrDefault(d.id(), 0L)));
         rows.sort(ChannelSidebarDto.BY_NAME);
-        return new SidebarView(List.copyOf(rows), notifyDefault, notifyDmDefault(user));
+        return new SidebarView(List.copyOf(rows), List.of(), notifyDefault, notifyDmDefault(user));
+    }
+
+    /**
+     * The channel directory: every live public channel, most populated first, each marked with
+     * whether {@code user} is already in it. Private channels are not listed even for their own
+     * members — they are in the sidebar already, and a directory is for finding what you are not in.
+     */
+    @Transactional(readOnly = true)
+    public List<ChannelBrowseDto> browse(User user) {
+        var joined = new HashSet<Long>();
+        for (var m : memberRepository.findAllByUser(user)) {
+            joined.add(m.getChannel().getId());
+        }
+        return largestPublic(joined, BROWSE_LIMIT);
+    }
+
+    private List<ChannelBrowseDto> largestPublic(Set<Long> joinedIds, int limit) {
+        var rows = channelRepository.findLargestPublic(PUBLIC, PageRequest.of(0, limit));
+        var out = new ArrayList<ChannelBrowseDto>(rows.size());
+        for (var row : rows) {
+            var channel = (Channel) row[0];
+            var members = ((Number) row[1]).longValue();
+            out.add(ChannelBrowseDto.of(channel, members, joinedIds.contains(channel.getId())));
+        }
+        return List.copyOf(out);
     }
 
     /** The viewer's account-wide conversation default, tolerating a row written before V13. */

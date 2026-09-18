@@ -33,6 +33,14 @@
             second password to manage or leak.</li>
     </ul>
 
+    <!-- The oauth2Login failure target (SecurityConfig.failureUrl). A failed sign-in used to end
+         on Spring's generated /login?error page, which said "Invalid credentials" for what is
+         almost never a credentials problem on this path: the token exchange failed after Keycloak
+         had already accepted the person. Stated plainly, without the internal cause. -->
+    <p class="landing-error" role="alert" th:if="${param.login != null and param.login[0] == 'failed'}">
+        Signing in didn't complete. Keycloak accepted you, but the hand-over to the app failed —
+        try again, and if it keeps happening, tell whoever runs this server.
+    </p>
     <p>
         <a class="btn" th:href="@{/oauth2/authorization/keycloak}">Sign in with Keycloak</a>
         <a class="btn btn-secondary" th:href="@{/oauth2/authorization/keycloak(action=register)}">Create account</a>

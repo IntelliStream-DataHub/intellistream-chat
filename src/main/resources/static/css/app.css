@@ -258,6 +258,17 @@ input:focus, textarea:focus, select:focus {
   max-width: 34rem;
   margin-inline: auto;
 }
+/* Shown only after ?login=failed — the oauth2Login failure target. */
+.landing-error {
+  max-width: 34rem;
+  margin: 1rem auto;
+  padding: 0.6rem 0.9rem;
+  border-radius: var(--radius-md);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: var(--fs-md);
+  line-height: 1.4;
+}
 /* Feature list: left-aligned inside a centred column. Centring the text as well would make each
    line start at a different x and the list would read as four unrelated fragments. */
 .landing-features {
@@ -1761,17 +1772,47 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
 .avatar.avatar-large .avatar-status-emoji { width: 22px; height: 22px; font-size: 14px; }
 
 /* ---------- Presence kind menu (topbar avatar dropdown) ----------
-   Slack-style four-item picker: Active / Away / DND / Offline. Anchored below
-   the .me .avatar via JS-set inline position. Each item renders its own colored
-   dot using the same data-presence-kind variants the avatars use. */
+   Slack-style picker: Active / Away / DND / Offline, then the "about me" links. presence-menu.js
+   builds it once and mounts it beside the .me trigger inside a .me-menu wrapper; from there on
+   showing it is this stylesheet's job. `.me-menu:hover` covers the trigger and the open menu
+   alike, so the pointer can travel between them with no mouseenter/mouseleave bookkeeping and no
+   close timer. `.is-open` is the pin JS sets on a click or Enter/Space — the only way in on touch,
+   where hover is not a thing, and what keeps the menu up after the pointer has moved on. */
+.me-menu {
+  position: relative;
+  display: inline-flex;
+}
 .presence-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
   background: var(--panel);
+  /* Explicit, not inherited: the menu sits inside the topbar, whose text colour is the
+     light-on-dark --sb-text — inherited onto a --panel background that is white on white. */
+  color: var(--text);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-3);
   padding: 4px;
   z-index: 1000;
   min-width: 220px;
+}
+/* The 6px gap between avatar and menu is outside both, so crossing it would drop :hover and
+   close the menu on the way down. A transparent strip across the gap keeps it one hover target. */
+.presence-menu::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 6px;
+}
+.me-menu.is-open .presence-menu { display: block; }
+/* Pointer devices only. A touch browser keeps :hover stuck on the last tapped element, so with
+   this rule on touch a second tap could never close what the first had opened. */
+@media (hover: hover) {
+  .me-menu:hover .presence-menu { display: block; }
 }
 .presence-menu-item {
   display: grid;
@@ -1793,10 +1834,16 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
   transition: background-color 0.1s;
 }
 /* Hover/focus tint — var(--hover), not var(--bg): in the light theme --bg equals the
-   menu panel's white, which made the old hover invisible. */
+   menu panel's white, which made the old hover invisible.
+   `color: inherit` is restated here on purpose. The items are plain <button>s and <a>s, and the
+   global `button:hover { color: var(--accent-on) }` and `a:hover { color: var(--accent-2) }`
+   rules (one tag + one pseudo-class) outrank the item's resting `color: inherit` (one class).
+   Only the background was overridden before, so a hovered button went white-on-white and a
+   hovered link went accent-on-tint. Two classes' worth of specificity here settles both. */
 .presence-menu-item:hover,
 .presence-menu-item:focus {
   background: var(--hover);
+  color: inherit;
   outline: none;
 }
 /* The destructive item hovers red-tinted, matching its label. */
@@ -2098,35 +2145,70 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
   font-weight: 700;
 }
 
-/* Responsive wrapper for YouTube / Vimeo embeds inserted by MarkdownRenderer.
-   Default is the landscape 4:1 compact strip used for /watch, /embed, youtu.be, and Vimeo.
-   Shorts ("data-orientation=vertical") flip to a 9:16 phone-shaped frame instead. */
-.video-embed-wrapper {
-  position: relative;
-  padding-bottom: 25%;
-  height: 0;
-  overflow: hidden;
-  max-width: 640px;          /* wider preview; combined with padding-bottom:25% gives ≈160px tall */
+/* A video link's card: a poster with a play button, and the <iframe> only after a click.
+   Nothing here contacts YouTube until then — the poster is our own copy of the page picture,
+   served from this origin like every other link-preview image. See linkpreview/VideoLinks.
+   Shorts ("data-orientation=vertical") are 9:16; everything else is 16:9. */
+.link-preview-video {
+  display: block;
+  max-width: 480px;
   margin: 0.5rem 0;
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-raised, var(--bg));
+}
+.link-preview-video .video-facade {
+  position: relative;
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+  aspect-ratio: 16 / 9;
   background: #000;
 }
-.video-embed-wrapper[data-orientation="vertical"] {
-  /* Shorts are 9:16. aspect-ratio replaces the padding-bottom hack and is well-supported
-     by every browser shipped since 2021. max-width pinned narrow so the embed sits
-     phone-sized in the feed instead of dominating the column. */
-  padding-bottom: 0;
-  height: auto;
-  aspect-ratio: 9 / 16;
+.link-preview-video[data-orientation="vertical"] {
   max-width: 280px;
 }
-.video-embed-wrapper iframe.video-embed {
-  position: absolute;
-  top: 0;
-  left: 0;
+.link-preview-video[data-orientation="vertical"] .video-facade,
+.link-preview-video[data-orientation="vertical"] iframe.video-embed {
+  aspect-ratio: 9 / 16;
+}
+.video-facade-poster {
   width: 100%;
   height: 100%;
+  object-fit: cover;
+  display: block;
+}
+/* The play badge sits centred over the poster — and over the bare black panel when the unfurl
+   found no picture, which is what keeps a link playable even when its page wouldn't answer. */
+.video-facade-play {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+.video-facade-play .icon {
+  width: 48px;
+  height: 48px;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.6));
+}
+.video-facade:hover .video-facade-play .icon,
+.video-facade:focus-visible .video-facade-play .icon {
+  transform: scale(1.08);
+}
+.link-preview-video iframe.video-embed {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
   border: 0;
+}
+.link-preview-video .link-preview-text {
+  display: block;
+  padding: 0.5rem 0.6rem;
 }
 
 /* ---------- Composer ---------- */
@@ -3285,6 +3367,39 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
 }
 .attachment:hover .attachment-download { color: var(--accent-fg); }
 
+/* A chip whose file can be shown in place carries a preview button beside its download. It is a
+   sibling of the chip rather than a child, because the chip is an <a> and a <button> inside a link
+   is neither valid markup nor reachable by keyboard. The wrapper is rendered for every file chip,
+   with or without the button, so both lay out identically. */
+.attachment-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.attachment-row .attachment { flex: 1 1 auto; min-width: 0; }
+.attachment-preview {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 2.75rem; /* 44px: a comfortable tap target next to the chip on a phone */
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--panel-2);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+/* Restating color is not redundant: the global `button:hover { color: var(--accent-on) }` would
+   otherwise win here and paint the icon in the accent's foreground. */
+.attachment-preview:hover {
+  background: var(--panel-3);
+  border-color: var(--border-strong);
+  color: var(--accent-fg);
+}
+
 .attachment-image {
   display: inline-block;
   max-width: 480px;
@@ -3357,10 +3472,84 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
   color: #fff;
   text-decoration: none;
 }
+/* These two carry `display` in a class rule, which outranks the UA's [hidden] { display: none } —
+   without restating it, hiding the image or the open-in-tab button does nothing at all. */
+.lightbox-btn[hidden] { display: none; }
+.lightbox-img[hidden] { display: none; }
 body.lightbox-open { overflow: hidden; }
+
+/* The same overlay also shows documents: a rendered markdown file on a sheet, and an uploaded
+   HTML file inside a sandboxed frame. Only the content node changes — chrome, Escape and the
+   backdrop click are shared. */
+.lightbox-title {
+  margin-right: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #fff;
+  font-weight: 600;
+  font-size: var(--fs-md);
+  padding-left: 0.35rem;
+}
+.lightbox-doc,
+.lightbox-frame-wrap {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1rem;
+  overflow: auto;
+}
+.lightbox-doc[hidden],
+.lightbox-frame-wrap[hidden] { display: none; }
+/* A page of text, not a full-bleed wall of it: the same measure a document would have on paper. */
+.lightbox-sheet {
+  width: min(56rem, 100%);
+  background: var(--panel);
+  color: var(--text);
+  border-radius: var(--radius-md);
+  padding: 1.5rem 1.75rem;
+}
+.lightbox-frame-wrap { padding: 0.75rem; }
+.lightbox-frame-slot {
+  width: min(64rem, 100%);
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+/* White, not var(--panel): the frame holds somebody's own page, which will assume a page's
+   default background, and a dark sheet under light-themed content is unreadable. */
+.lightbox-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+.lightbox-note {
+  width: min(56rem, 100%);
+  margin: 0 0 0.6rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: var(--fs-sm);
+}
+.lightbox-note[hidden] { display: none; }
+.lightbox-status {
+  margin: auto;
+  color: #fff;
+  font-size: var(--fs-md);
+}
+.lightbox-status[hidden] { display: none; }
 @media (max-width: 640px) {
   .lightbox-toolbar { padding: 0.4rem 0.6rem; }
   .lightbox-img { margin: 0.5rem; }
+  .lightbox-doc { padding: 0.5rem; }
+  .lightbox-sheet { padding: 1rem; }
+  .lightbox-frame-wrap { padding: 0.5rem; }
 }
 
 /* Composer pending-attachment chips */
@@ -3627,6 +3816,62 @@ main.content.searching > :not(.channel-search-results) { display: none; }
   line-height: 1.4;
   color: var(--sb-muted);
 }
+/* Browse channels — a row at the foot of the channel list, dressed like one of its rows rather
+   than like a button, so it reads as "...and the rest of them" and not as a call to action
+   competing with the channels above it. The global button skin (accent fill, white text, bold)
+   is reset here for that reason. */
+.sidebar-browse-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  margin-top: 0.15rem;
+  padding: 0.32rem 0.7rem;
+  background: transparent;
+  color: var(--sb-muted);
+  border: 0;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-md);
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+.sidebar-browse-btn:hover,
+.sidebar-browse-btn:focus-visible {
+  background: var(--sb-bg-2);
+  color: var(--sb-text);
+}
+.sidebar-browse-btn[disabled] { opacity: 0.6; cursor: progress; }
+/* Suggested for you: the same row as a channel, with the member count where the unread badge
+   would sit and a Join beside the link. Join is always visible — unlike the star, it is the whole
+   point of the row, and a newcomer has no way to know a hidden control is there. */
+.suggestion-members {
+  flex: 0 0 auto;
+  font-size: var(--fs-xs);
+  color: inherit;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+.suggestion-join {
+  flex: 0 0 auto;
+  margin-right: 0.15rem;
+  padding: 0.1rem 0.55rem;
+  background: transparent;
+  color: var(--sb-text);
+  border: 1px solid var(--sb-muted);
+  border-radius: var(--radius-full);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.suggestion-join:hover,
+.suggestion-join:focus-visible {
+  background: var(--sb-text);
+  color: var(--sb-bg);
+  border-color: var(--sb-text);
+}
+.suggestion-join[disabled] { opacity: 0.6; cursor: progress; }
 /* Channel search results live in the main content area, not the sidebar — there is room here to
    say what a channel is and whether you're in it, which a 200px column cannot. */
 .channel-search-results { padding: 1.5rem 2rem; }
@@ -3658,6 +3903,40 @@ main.content.searching > :not(.channel-search-results) { display: none; }
   border-radius: var(--radius-full);
   padding: 0.05rem 0.4rem;
 }
+/* Browse channels shares the results panel and adds what a directory row needs: a member count,
+   the description on its own line under the name, and a Join on the rows you are not in. The row
+   wraps so the description can take the full width; everything before it stays on one line. */
+.channel-search-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+.channel-search-head h2 { margin: 0; }
+.channel-browse-list li { flex-wrap: wrap; }
+.channel-search-members {
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.channel-search-desc {
+  flex: 1 0 100%;
+  order: 10;
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.channel-search-join {
+  margin-left: auto;
+  padding: 0.2rem 0.8rem;
+  font-size: var(--fs-sm);
+  border-radius: var(--radius-full);
+}
+.channel-search-join[disabled] { opacity: 0.6; cursor: progress; }
 
 /* ---------- Optimistic send ----------
    A message the sender has submitted but the server hasn't confirmed yet. Broadcasts wait for the
@@ -5883,4 +6162,252 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
        would otherwise sit under the system gesture area. */
     padding-bottom: max(0.9rem, env(safe-area-inset-bottom));
   }
+}
+
+/* ---------- One-time secrets ----------
+   Two pages: /secrets (inside the app shell, beside /saved and /files) and /s/{id}, the page a link
+   opens, which may be seen signed out and so borrows the landing page's backdrop rather than the app
+   chrome. Appended as one self-contained section.
+   ============================================================================================ */
+
+/* /secrets */
+.secrets-wrap h1 { display: flex; align-items: center; gap: 0.5rem; }
+.secrets-wrap h1 .icon { color: var(--accent-fg); }
+.secrets-form,
+.secrets-result { display: grid; gap: 0.95rem; max-width: 44rem; }
+.secrets-form[hidden],
+.secrets-result[hidden],
+.secrets-field[hidden] { display: none; }
+.secrets-field { display: grid; gap: 0.3rem; }
+.secrets-field-label { font-size: var(--fs-sm); font-weight: 600; color: var(--text); }
+.secrets-field-label small { font-weight: 400; color: var(--muted); }
+.secrets-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 7rem;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.secrets-field input[type="text"] { width: 100%; box-sizing: border-box; }
+.secrets-hint,
+.secrets-size { font-size: var(--fs-xs); color: var(--muted); line-height: 1.45; }
+.secrets-size.is-over { color: var(--danger); }
+.secrets-row { display: flex; gap: 1rem; flex-wrap: wrap; }
+.secrets-options { border: 0; margin: 0; padding: 0; display: grid; gap: 0.55rem; min-width: 0; }
+.secrets-options legend { padding: 0; margin-bottom: 0.35rem; }
+.secrets-check {
+  display: flex;
+  gap: 0.55rem;
+  align-items: flex-start;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--muted);
+}
+.secrets-check input { margin-top: 0.2rem; flex: none; }
+.secrets-check strong { color: var(--text); }
+.secrets-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+.secrets-result h2 { margin: 0; font-size: var(--fs-md); }
+/* .link-btn is coloured for the dark top bar (muted white); these two sit on the page. */
+.secrets-wrap .secrets-another,
+.secrets-wrap #secret-more { color: var(--accent-fg); padding-inline: 0; }
+.secrets-wrap .secrets-another:hover,
+.secrets-wrap #secret-more:hover { background: transparent; color: var(--accent-2); }
+.secrets-copy-row { display: flex; gap: 0.5rem; }
+.secrets-copy-row input {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.secrets-list { list-style: none; margin: 0; padding: 0; }
+.secrets-item { padding: 0.75rem 0; border-top: 1px solid var(--border); }
+.secrets-item:first-child { border-top: 0; }
+.secrets-item-head { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.secrets-label { font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.secrets-state {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  padding: 0.05rem 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--panel-3);
+  color: var(--muted);
+}
+.secrets-state-waiting { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent-fg); }
+.secrets-state-opened { background: color-mix(in srgb, #1f9d55 18%, transparent); color: var(--text); }
+.secrets-chip {
+  font-size: var(--fs-xs);
+  padding: 0 0.45rem;
+  border-radius: var(--radius-full);
+  border: 1px solid color-mix(in srgb, var(--warning) 55%, transparent);
+  color: var(--warning);
+}
+.secrets-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 1rem;
+  margin-top: 0.25rem;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+}
+.secrets-ip {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  text-decoration: underline dotted;
+  cursor: help;
+}
+.secrets-item-actions { margin-top: 0.4rem; }
+/* Restates colour on hover: the global button:hover rule would otherwise turn it white-on-tint. */
+.secrets-revoke {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--danger);
+  padding: 0.2rem 0.65rem;
+  font-weight: 500;
+}
+.secrets-revoke:hover { background: color-mix(in srgb, var(--danger) 10%, transparent); color: var(--danger); }
+.secrets-revoke.is-armed,
+.secrets-revoke.is-armed:hover { background: var(--danger); border-color: var(--danger); color: #fff; }
+
+/* /s/{id} */
+.secret-page { padding: 1.5rem 1rem; box-sizing: border-box; }
+.secret-page main.secret-card {
+  width: min(40rem, 100%);
+  max-width: none;
+  box-sizing: border-box;
+  padding: 1.6rem 1.8rem;
+  text-align: left;
+  background: var(--panel);
+  color: var(--text);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+}
+.secret-page h1.secret-title {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0 0 0.6rem;
+  font-size: var(--fs-xl);
+  color: var(--text);
+}
+.secret-title .icon { width: 1.6rem; height: 1.6rem; flex: none; color: var(--accent-fg); }
+/* The landing page styles its hero wordmark (.landing h1 > span) white with a shadow for the dark
+   backdrop, and its secondary button for the same backdrop; both sit on a light card here. */
+.secret-page .secret-card .secret-title > span {
+  color: var(--text);
+  text-shadow: none;
+  font-weight: 700;
+  letter-spacing: normal;
+}
+.secret-page .secret-card .btn-secondary {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+.secret-page .secret-card .btn-secondary:hover { background: var(--panel-2); color: var(--text); }
+/* .landing p is muted white for the dark backdrop; the card and the dialog are light panels. */
+.secret-page .secret-card p,
+.secret-page .secret-why-body p { color: var(--text); margin: 0.7rem 0; line-height: 1.5; }
+.secret-page .secret-card .secret-note,
+.secret-page .secret-why-body .secret-note { color: var(--muted); font-size: var(--fs-sm); }
+.secret-page .secret-card .secret-lede { font-size: var(--fs-lg); }
+.secret-panel[hidden],
+.secret-why-backdrop[hidden] { display: none; }
+.secret-key-form { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+.secret-key-form input {
+  flex: 1 1 16rem;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.secret-reveal { padding: 0.7rem 1.4rem; font-size: var(--fs-base); }
+
+/* The flash banner: arrives with the secret, and says the one thing a person holding a phone needs
+   to hear before they reach for it. */
+.secret-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.7rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: var(--radius-md);
+  border: 1px solid color-mix(in srgb, var(--warning) 60%, transparent);
+  background: color-mix(in srgb, var(--warning) 14%, var(--panel));
+  color: var(--text);
+  font-size: var(--fs-md);
+  line-height: 1.45;
+}
+.secret-warning .icon { flex: none; width: 1.4rem; height: 1.4rem; margin-top: 0.05rem; color: var(--warning); }
+.secret-warning strong { display: block; }
+.secret-why,
+.secret-why:hover {
+  display: inline;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-fg);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.secret-why:hover { color: var(--accent-2); }
+.secret-warning.is-flashing { animation: secret-flash 1.8s ease-out 1; }
+@keyframes secret-flash {
+  0%   { opacity: 0; transform: translateY(-6px); box-shadow: 0 0 0 0 color-mix(in srgb, var(--warning) 55%, transparent); }
+  15%  { opacity: 1; transform: none; box-shadow: 0 0 0 6px color-mix(in srgb, var(--warning) 40%, transparent); }
+  45%  { box-shadow: 0 0 0 0 color-mix(in srgb, var(--warning) 0%, transparent); }
+  60%  { box-shadow: 0 0 0 6px color-mix(in srgb, var(--warning) 30%, transparent); }
+  100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--warning) 0%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .secret-warning.is-flashing { animation: none; }
+}
+
+.secret-text {
+  margin: 0.9rem 0 0.5rem;
+  padding: 0.9rem 1rem;
+  max-height: 40vh;
+  overflow: auto;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.95rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.secret-timer { display: flex; align-items: center; gap: 0.6rem; font-size: var(--fs-sm); color: var(--muted); }
+.secret-timer-bar { flex: 1; height: 4px; border-radius: var(--radius-full); background: var(--panel-3); overflow: hidden; }
+/* The countdown bar empties itself. Driven by CSS rather than a JS timer writing style.width, and
+   by transform rather than width, so the compositor runs it: no style or layout pass per frame, and
+   nothing on the main thread between the reveal and the wipe. secret-view.js sets the duration once
+   (animation-duration: 0s here means "not yet"). */
+.secret-timer-fill {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--accent);
+  transform-origin: left center;
+  animation: secret-countdown linear forwards;
+  animation-duration: 0s;
+}
+@keyframes secret-countdown {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+.secret-timer-text { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.secret-page .secret-card .secret-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+.secret-why-modal { width: min(38rem, 100%); }
+.secret-why-body { gap: 0.2rem; font-size: var(--fs-md); line-height: 1.5; }
+.secret-why-body ul { margin: 0.2rem 0 0.6rem; padding-left: 1.2rem; display: grid; gap: 0.45rem; }
+.secret-why-body kbd {
+  font: inherit;
+  font-size: 0.85em;
+  padding: 0 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+}
+
+@media (max-width: 520px) {
+  .secret-page main.secret-card { padding: 1.2rem 1.1rem; }
+  .secrets-copy-row { flex-wrap: wrap; }
 }

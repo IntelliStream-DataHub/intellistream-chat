@@ -17,8 +17,10 @@
 package ai.intellistream.chat.web;
 
 import ai.intellistream.chat.linkpreview.LinkPreviewService;
+import ai.intellistream.chat.linkpreview.LinkUrls;
 import ai.intellistream.chat.web.dto.ConversationEvent;
 import ai.intellistream.chat.web.dto.ConversationMessageDto;
+import ai.intellistream.chat.web.dto.LinkPreviewDto;
 import ai.intellistream.chat.web.dto.MessageDto;
 import ai.intellistream.chat.web.dto.MessageEvent;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
@@ -49,37 +51,53 @@ public class LinkPreviews {
         this.broker = broker;
     }
 
+    /**
+     * The card for one body, or null. A fetched preview when there is one; otherwise a bare play
+     * button when the body's first link is a video, so the player never depends on the unfurl —
+     * a fetch that failed, or previews turned off entirely, must not take it away.
+     */
+    private static LinkPreviewDto orVideo(LinkPreviewDto fetched, String bodyMarkdown) {
+        if (fetched != null) return fetched;
+        return LinkUrls.firstPreviewable(bodyMarkdown).map(LinkPreviewDto::videoOnly).orElse(null);
+    }
+
     public List<MessageDto> decorate(List<MessageDto> messages) {
-        if (messages.isEmpty() || !service.isEnabled()) return messages;
-        var previews = service.previewsFor(messages.stream().map(MessageDto::bodyMarkdown).toList());
+        if (messages.isEmpty()) return messages;
+        var previews = service.isEnabled()
+                ? service.previewsFor(messages.stream().map(MessageDto::bodyMarkdown).toList())
+                : null;
         var out = new ArrayList<MessageDto>(messages.size());
         for (int i = 0; i < messages.size(); i++) {
-            var p = previews.get(i);
-            out.add(p == null ? messages.get(i) : messages.get(i).withLinkPreview(p));
+            var m = messages.get(i);
+            var p = orVideo(previews == null ? null : previews.get(i), m.bodyMarkdown());
+            out.add(p == null ? m : m.withLinkPreview(p));
         }
         return out;
     }
 
     public MessageDto decorate(MessageDto message) {
-        if (!service.isEnabled()) return message;
-        var p = service.previewFor(message.bodyMarkdown());
+        var p = orVideo(service.isEnabled() ? service.previewFor(message.bodyMarkdown()) : null,
+                message.bodyMarkdown());
         return p == null ? message : message.withLinkPreview(p);
     }
 
     public List<ConversationMessageDto> decorateConversation(List<ConversationMessageDto> messages) {
-        if (messages.isEmpty() || !service.isEnabled()) return messages;
-        var previews = service.previewsFor(messages.stream().map(ConversationMessageDto::bodyMarkdown).toList());
+        if (messages.isEmpty()) return messages;
+        var previews = service.isEnabled()
+                ? service.previewsFor(messages.stream().map(ConversationMessageDto::bodyMarkdown).toList())
+                : null;
         var out = new ArrayList<ConversationMessageDto>(messages.size());
         for (int i = 0; i < messages.size(); i++) {
-            var p = previews.get(i);
-            out.add(p == null ? messages.get(i) : messages.get(i).withLinkPreview(p));
+            var m = messages.get(i);
+            var p = orVideo(previews == null ? null : previews.get(i), m.bodyMarkdown());
+            out.add(p == null ? m : m.withLinkPreview(p));
         }
         return out;
     }
 
     public ConversationMessageDto decorate(ConversationMessageDto message) {
-        if (!service.isEnabled()) return message;
-        var p = service.previewFor(message.bodyMarkdown());
+        var p = orVideo(service.isEnabled() ? service.previewFor(message.bodyMarkdown()) : null,
+                message.bodyMarkdown());
         return p == null ? message : message.withLinkPreview(p);
     }
 

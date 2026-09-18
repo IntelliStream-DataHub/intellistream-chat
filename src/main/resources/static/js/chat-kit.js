@@ -96,17 +96,25 @@
    * Slack/Mattermost-style auto-grow: textarea expands from its CSS min-height up
    * to {@code maxPx}, then scrolls. Resetting height to 'auto' before reading
    * scrollHeight avoids the runaway-growth bug after deletes.
+   *
+   * <p>One scrollHeight read, not two. Reading it forces the browser to lay the page out then and
+   * there, and this runs on every keystroke in every composer — the most frequently executed DOM
+   * code in the application. The second read used to decide overflowY, but it was asking a question
+   * the first read already answers: the height written is min(natural, maxPx), so the box scrolls
+   * exactly when the natural height exceeded the cap.
    */
   const wireAutoResize = (ta, maxPx = 260) => {
     if (!ta) return;
     const resize = () => {
       ta.style.height = 'auto';
-      const h = Math.min(ta.scrollHeight, maxPx);
-      ta.style.height = h + 'px';
-      ta.style.overflowY = ta.scrollHeight > maxPx ? 'auto' : 'hidden';
+      const natural = ta.scrollHeight;
+      ta.style.height = Math.min(natural, maxPx) + 'px';
+      ta.style.overflowY = natural > maxPx ? 'auto' : 'hidden';
     };
     ta.addEventListener('input', resize);
     resize();
+    // Once more after the first frame: fonts and the sidebar settle after this runs, and a composer
+    // that starts with text in it measures short until they do. Once per composer, not per keystroke.
     requestAnimationFrame(resize);
     ta._autoResize = resize;
   };
@@ -195,6 +203,10 @@
       const f = map[e.key.toLowerCase()];
       if (f) { e.preventDefault(); applyFormat(ta, f); }
     });
+    // Every composer textarea has exactly one toolbar pointing at it, so this is the
+    // single wiring point that gives the channel, DM and both thread composers the
+    // rich-paste conversion — no page script has to remember it.
+    wirePasteMarkdown(ta);
   };
 
   /** Wire every toolbar with data-format-target on the page. Idempotent — call once at startup. */
@@ -202,14 +214,223 @@
     root.querySelectorAll('.composer-toolbar[data-format-target]').forEach(wireFormatToolbar);
   };
 
+  // ---------- CSRF ----------
+  /**
+   * Standard JSON headers plus the CSRF token from the page metas. Browser /api/** calls
+   * ride the session-cookie web chain, so this header is what authorises a POST.
+   */
+  const csrfHeaders = () => {
+    const token = document.querySelector('meta[name="_csrf"]')?.content;
+    const header = document.querySelector('meta[name="_csrf_header"]')?.content;
+    const h = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
+    if (token && header) h[header] = token;
+    return h;
+  };
+
+  // ---------- Paste rich text as Markdown ----------
+  /*
+   * Any app that copies rich text — Google Docs, Apple Notes, Word — puts a text/html
+   * flavor on the clipboard beside text/plain. The paste handler sends that HTML to
+   * POST /api/paste/markdown and inserts the returned Markdown; on convert:false, a
+   * non-ok response, a timeout or any error it inserts the plain flavor it captured up
+   * front, so a paste can be delayed by up to the 2s timeout but never lost.
+   * Ctrl+Shift+V (paste without formatting) ships no text/html and bypasses all of this
+   * natively; Ctrl+Z after a converted paste takes the whole paste back out.
+   */
+
+  /**
+   * Cheap pre-guard so the everyday "copied plain text off a page" paste — which still
+   * carries a bare-div text/html flavor — skips the round trip. Deliberately
+   * over-inclusive: the server's signal test is the authoritative answer.
+   */
+  const PASTE_RICH_HINT = /<(b|strong|em|i|s|del|h[1-6]|li|table|blockquote|pre|code|a)\b|font-weight|font-style:\s*(italic|oblique)|line-through|mso-list|docs-internal-guid/i;
+  const pasteWorthConverting = (html) =>
+      !!html && html.length <= 524288 && PASTE_RICH_HINT.test(html);
+
+  /** Transient banner above the composer that owns {@code ta}; reuses .composer-notice styling. */
+  const showPasteNotice = (ta, text) => {
+    const form = ta.closest('form') || ta.parentElement;
+    if (!form || !form.parentNode) return;
+    let notice = form.previousElementSibling;
+    if (!notice || !notice.classList.contains('composer-paste-notice')) {
+      notice = document.createElement('div');
+      notice.className = 'composer-notice composer-paste-notice';
+      notice.setAttribute('role', 'status');
+      form.parentNode.insertBefore(notice, form);
+    }
+    notice.textContent = text;
+    notice.hidden = false;
+    clearTimeout(notice._hideTimer);
+    notice._hideTimer = setTimeout(() => { notice.hidden = true; }, 4000);
+  };
+
+  /**
+   * Insert pasted text at the caret. execCommand is deprecated but universally
+   * implemented for textarea insertText, and it is the only insertion that keeps the
+   * native undo stack — which is the whole escape hatch for an unwanted conversion.
+   * insertAtCursor is the fallback where it reports failure: no undo, but never lost
+   * text. The pre-clamp to the remaining room matters because engines disagree on
+   * whether maxlength binds a scripted insert (Chrome truncates inside execCommand,
+   * others don't); clamping first makes them agree, and the hard slice after is only
+   * for a corner where one still overshoots.
+   */
+  const insertPasteText = (ta, text) => {
+    if (!text) return;
+    const max = Number(ta.getAttribute('maxlength')) || 8000;
+    const selection = (ta.selectionEnd ?? 0) - (ta.selectionStart ?? 0);
+    const room = max - (ta.value.length - selection);
+    if (room <= 0) {
+      showPasteNotice(ta, 'The message is already at the ' + max.toLocaleString() + '-character limit.');
+      return;
+    }
+    let clipped = text;
+    if (clipped.length > room) {
+      clipped = clipped.slice(0, room);
+      const tail = clipped.charCodeAt(clipped.length - 1);
+      if (tail >= 0xD800 && tail <= 0xDBFF) clipped = clipped.slice(0, -1); // don't split a surrogate pair
+      showPasteNotice(ta, 'Pasted text was shortened to fit the ' + max.toLocaleString() + '-character limit.');
+    }
+    if (document.activeElement !== ta) ta.focus();
+    let inserted = false;
+    try { inserted = document.execCommand('insertText', false, clipped); } catch (_) { inserted = false; }
+    if (!inserted) insertAtCursor(ta, clipped);
+    if (ta.value.length > max) {
+      ta.value = ta.value.slice(0, max);
+      ta.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+  };
+
+  /** Convert rich pastes to Markdown. Wired once per composer by wireFormatToolbar. */
+  const wirePasteMarkdown = (ta) => {
+    if (!ta || ta.dataset.pasteWired) return;
+    ta.dataset.pasteWired = '1';
+    ta.addEventListener('paste', (e) => {
+      const dt = e.clipboardData;
+      if (!dt) return;
+      // Both flavors must be read before anything async — clipboardData is only
+      // readable synchronously inside the event dispatch.
+      const html = dt.getData('text/html');
+      const plain = dt.getData('text/plain');
+      if (!html || !plain || !pasteWorthConverting(html)) return; // native paste
+      // A second paste while one is in flight stays native: it lands as plain text now
+      // rather than being dropped — degraded beats lost.
+      if (ta._pastePending) return;
+      e.preventDefault();
+      ta._pastePending = true;
+      const finish = (insertText) => {
+        ta._pastePending = false;
+        insertPasteText(ta, insertText);
+      };
+      const signal = (typeof AbortSignal !== 'undefined' && AbortSignal.timeout)
+          ? AbortSignal.timeout(2000) : undefined;
+      fetch('/api/paste/markdown', {
+        method: 'POST',
+        headers: csrfHeaders(),
+        body: JSON.stringify({ html }),
+        signal,
+      })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => finish(data && data.convert && data.markdown ? data.markdown : plain))
+        .catch(() => finish(plain));
+    });
+  };
+
+  // ---------- Syntax highlighting ----------
+  /**
+   * Run highlight.js over every {@code pre code} under {@code root}. Shared by the channel page,
+   * the DM page, and both of their thread panels / live previews, so a message rendered anywhere
+   * gets the same treatment — see the module doc for why a second implementation here is a bug
+   * waiting, not a shortcut. Pages that don't load {@code vendor/highlight.min.js} (a fenced code
+   * block is content, not chrome — nothing breaks by skipping it) get a one-time console warning
+   * instead of a hard dependency.
+   */
+  const highlightCode = (root) => {
+    if (!root) return;
+    const blocks = root.querySelectorAll('pre code');
+    // Nothing to do is not a problem worth a warning: chat-kit runs on pages that carry no code
+    // at all (/files, the file manager), and warning there trains people to ignore the line that
+    // matters — a page that has code blocks and no highlighter.
+    if (!blocks.length) return;
+    if (!window.hljs) {
+      if (!highlightCode._warned) {
+        highlightCode._warned = true;
+        console.warn('[hljs] highlight.js not loaded — code blocks will render unhighlighted');
+      }
+      return;
+    }
+    blocks.forEach((block) => {
+      // hljs v11 marks processed blocks with data-highlighted="yes"; re-running just spams a warning.
+      if (block.dataset.highlighted === 'yes') return;
+      try {
+        window.hljs.highlightElement(block);
+      } catch (err) {
+        console.warn('[hljs] failed to highlight a block:', err);
+      }
+    });
+  };
+
+  // ---------- Rendered message bodies ----------
+  /*
+   * The one way a server-rendered message body reaches the DOM.
+   *
+   * Every feed, panel and list that shows a message does the same two things: drop the server's
+   * sanitized bodyHtml in, then highlight the fenced code in it. That was eight copies of the
+   * pair — the channel feed, its edit re-render, its thread replies and pins panel, the DM feed
+   * and its two re-renders, and /saved — and four of them had the second line while four did not.
+   * The result was a code block that rendered coloured in the channel feed and plain in the DM
+   * history, the pins panel and saved items, with nothing thrown and nothing logged. Route a new
+   * body renderer through here and the step it would have forgotten is not optional any more.
+   *
+   * A body that is *typed* rather than rendered (the optimistic bubble's escaped text) has no
+   * markup to highlight and does not need this, but costs nothing by using it.
+   */
+  const renderMessageBody = (el, html) => {
+    if (!el) return el;
+    // innerHTML, deliberately, and NOT Element.setHTML(). A body is sanitized server-side
+    // (CommonMark → jsoup Safelist → MarkdownRenderer's own additions) and then deliberately
+    // given back two things the browser's sanitizer destroys:
+    //   - the <iframe> of a YouTube/Vimeo embed, which MarkdownRenderer.embedVideos injects
+    //     *after* the safelist pass. setHTML removes iframes unconditionally — a custom
+    //     SanitizerConfig cannot allow them back — so every video embed in the app would
+    //     silently disappear.
+    //   - data-* attributes, which the default sanitizer strips: data-username / data-mention
+    //     on a rendered mention, and data-orientation on the embed wrapper, which app.css reads
+    //     to give a Short its 9:16 frame.
+    // The escaped snippets in search-box.js are the opposite case and do use setHTML; see there.
+    el.innerHTML = html || '';
+    highlightCode(el);
+    return el;
+  };
+
+  /** {@link renderMessageBody} into a fresh {@code div.message-body}, plus any page-specific class. */
+  const buildMessageBodyEl = (html, extraClass) => {
+    const el = document.createElement('div');
+    el.className = extraClass ? 'message-body ' + extraClass : 'message-body';
+    return renderMessageBody(el, html);
+  };
+
+  /*
+   * The other half: the history Thymeleaf drew before any of this ran. Every page that renders
+   * messages server-side needs it, so it happens here once instead of being a line each page's
+   * own script has to remember — which is exactly the line the DM page didn't have, leaving a
+   * refreshed conversation's code blocks plain until something edited them.
+   */
+  const highlightServerRendered = () => highlightCode(document);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', highlightServerRendered, { once: true });
+  } else {
+    highlightServerRendered();
+  }
+
   // ---------- Markdown live preview ----------
   /**
    * Wire {@code textarea} to a paired preview pane. The pane is the container that
-   * shows/hides with the rendered output; {@code body} is the inner div whose innerHTML
-   * we set. Server-rendered preview ({@code POST /api/preview}) so the result is
-   * identical to the posted message. Also supplies a hook to reset on submit.
+   * shows/hides with the rendered output; {@code body} is the inner div we render into.
+   * Server-rendered preview ({@code POST /api/preview}) so the result is identical to the
+   * posted message — including its highlighting, since it goes through
+   * {@link renderMessageBody} like every other body. Also supplies a hook to reset on submit.
    */
-  const wireLivePreview = ({ textarea, pane, body, form, headers, highlight }) => {
+  const wireLivePreview = ({ textarea, pane, body, form, headers }) => {
     if (!textarea || !pane || !body) return;
     let debounce = null;
     let req = 0;
@@ -230,8 +451,7 @@
         if (!res.ok) return;
         const data = await res.json();
         if (myReq !== req) return; // stale
-        body.innerHTML = data.html || '';
-        if (typeof highlight === 'function') highlight(body);
+        renderMessageBody(body, data.html);
         pane.hidden = !data.html;
       } catch (_) { /* leave previous render */ }
     };
@@ -394,7 +614,10 @@
       return false;
     };
     const renderGroups = () => {
-      results.innerHTML = '';
+      // Every section into one fragment, attached once: each section used to go into the live
+      // grid on its own, so opening the picker (and every clearing of the search box) re-laid it
+      // once per category.
+      const sections = document.createDocumentFragment();
       displayGroups.forEach((g, i) => {
         const section = document.createElement('section');
         section.className = 'emoji-picker-section';
@@ -406,8 +629,9 @@
         grid.className = 'emoji-picker-grid';
         for (const e of g.emojis) grid.appendChild(buildEmojiBtn(e));
         section.appendChild(grid);
-        results.appendChild(section);
+        sections.appendChild(section);
       });
+      results.replaceChildren(sections);
     };
     const renderSearch = (q) => {
       results.innerHTML = '';
@@ -469,12 +693,16 @@
 
     renderGroups();
     document.body.appendChild(picker);
+    // Measure the anchor and the picker once each, then write. Reading offsetHeight and then
+    // offsetWidth after each style write made the browser lay the page out three times to place
+    // one popup; one rect read answers both questions.
     const rect = anchor.getBoundingClientRect();
     picker.style.position = 'fixed';
-    const desiredTop = rect.top - picker.offsetHeight - 6;
+    const size = picker.getBoundingClientRect();
+    const desiredTop = rect.top - size.height - 6;
     picker.style.top = Math.max(8, desiredTop) + 'px';
-    const desiredLeft = rect.left - picker.offsetWidth + rect.width;
-    picker.style.left = Math.max(8, Math.min(desiredLeft, window.innerWidth - picker.offsetWidth - 8)) + 'px';
+    const desiredLeft = rect.left - size.width + rect.width;
+    picker.style.left = Math.max(8, Math.min(desiredLeft, window.innerWidth - size.width - 8)) + 'px';
     emojiPickerEl = picker;
     // Autofocus the search on desktop only — on touch devices it would pop the
     // software keyboard over the picker the moment it opens.
@@ -706,6 +934,82 @@
     return el;
   };
 
+  // ---------- Attachment chips ----------
+  /**
+   * The tray of files under a message, and the chips in it. One builder for both feeds, their
+   * update paths and their thread panels — the channel page and the DM page each had their own
+   * copy of this, identical down to the comments, which is exactly the arrangement that let the
+   * image lightbox exist on one page and not the other for months. templates/channels.html and
+   * templates/conversation.html draw the same markup for the history Thymeleaf renders; keep the
+   * three in step.
+   *
+   * <p>Three shapes: a tombstone for a file deleted from the file manager, a picture, and a chip
+   * for everything else. A chip whose file the server can show as a document (the DTO's
+   * previewUrl — markdown and HTML today) gets a preview button beside its download, in a wrapper
+   * rather than inside the chip: the chip is an <a> and a button inside a link is neither valid
+   * markup nor operable by a keyboard.
+   */
+  const buildAttachmentEl = (a) => {
+    // Tombstone: the file was deleted from the file manager, the message stayed.
+    if (a.deletedAt) return buildRemovedAttachmentEl(a);
+    const isImage = (a.contentType || '').startsWith('image/');
+    const link = document.createElement('a');
+    link.href = a.downloadUrl;
+    link.title = a.filename;
+    if (isImage) {
+      link.className = 'attachment-image';
+      // Keep href + target so middle-click and "Open in new tab" still work; left-click is
+      // intercepted by the document-level delegate that opens the viewer.
+      link.target = '_blank';
+      link.rel = 'noopener';
+      const img = document.createElement('img');
+      img.src = a.downloadUrl;
+      img.alt = a.filename;
+      img.loading = 'lazy';
+      link.append(img);
+      return link;
+    }
+    link.className = 'attachment';
+    link.dataset.contentType = a.contentType;
+    link.innerHTML = '<svg class="icon attachment-icon"><use href="#icon-paperclip"/></svg>' +
+        '<span class="attachment-info"><span class="attachment-name"></span>' +
+        '<span class="attachment-meta"></span></span>' +
+        '<svg class="icon attachment-download"><use href="#icon-download"/></svg>';
+    link.querySelector('.attachment-name').textContent = a.filename;
+    link.querySelector('.attachment-meta').textContent =
+        (a.contentType || '') + ' · ' + formatBytes(a.sizeBytes);
+    // The wrapper is unconditional, so a chip with a preview button and one without lay out
+    // identically — and so this and the Thymeleaf mirror produce the same DOM for the same file.
+    const row = document.createElement('span');
+    row.className = 'attachment-row';
+    row.append(link);
+    if (a.previewUrl) row.append(buildPreviewButton(a));
+    return row;
+  };
+
+  const buildPreviewButton = (a) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'attachment-preview';
+    button.title = 'Show ' + a.filename;
+    button.setAttribute('aria-label', 'Show ' + a.filename);
+    // The delegate reads these rather than closing over the attachment, because the identical
+    // button is server-rendered by Thymeleaf for the history and one click handler serves both.
+    button.dataset.previewUrl = a.previewUrl;
+    button.dataset.previewKind = a.previewKind || '';
+    button.dataset.downloadUrl = a.downloadUrl || '';
+    button.dataset.filename = a.filename || '';
+    button.innerHTML = '<svg class="icon"><use href="#icon-eye"/></svg>';
+    return button;
+  };
+
+  const buildAttachmentTray = (attachments) => {
+    const tray = document.createElement('div');
+    tray.className = 'message-attachments';
+    for (const a of attachments || []) tray.append(buildAttachmentEl(a));
+    return tray;
+  };
+
   // ---------- Link preview card ----------
   // The card under a message that contains a link: site, title, description, and the server's
   // copy of the page's picture. One builder for every renderer on both pages — the channel feed,
@@ -717,8 +1021,96 @@
   // does, with the same rel. The image is NOT class="attachment-image", on purpose — that class
   // is what the lightbox delegate catches, and a preview picture is a link to a page, not a
   // picture to zoom.
+  /*
+   * A video link's card is a click-to-play facade, not a player.
+   *
+   * The server used to inject the <iframe> straight into the message body, which meant every
+   * reader's browser called YouTube just for scrolling past someone else's link — the exact leak
+   * that makes link-preview pictures a server-side *copy* served from this origin. Now the poster
+   * is that same copied picture, and the iframe is built here, once, by the person who actually
+   * wants to watch. See linkpreview/VideoLinks for the full reasoning.
+   *
+   * Markup is mirrored by fragments/link-preview.html for server-rendered messages, and the click
+   * is handled by one delegated listener below so both kinds of card behave the same.
+   */
+  const buildVideoFacadeEl = (p) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'link-preview link-preview-video';
+    if (p.video.orientation) wrap.dataset.orientation = p.video.orientation;
+
+    const play = document.createElement('button');
+    play.type = 'button';
+    play.className = 'video-facade';
+    // The embed URL is the server's, built from a regex-matched id — the client never assembles a
+    // third-party URL out of parts, which is what keeps frame-src meaningful.
+    play.dataset.embedUrl = p.video.embedUrl;
+    play.setAttribute('aria-label', p.title ? 'Play ' + p.title : 'Play video');
+    if (p.imageUrl) {
+      const poster = document.createElement('img');
+      poster.className = 'video-facade-poster';
+      poster.src = p.imageUrl;
+      poster.alt = '';
+      poster.loading = 'lazy';
+      play.appendChild(poster);
+    }
+    const glyph = document.createElement('span');
+    glyph.className = 'video-facade-play';
+    glyph.innerHTML = '<svg class="icon" aria-hidden="true"><use href="#icon-play"/></svg>';
+    play.appendChild(glyph);
+    wrap.appendChild(play);
+
+    // The words stay a plain link to the page, so the card still gets you there without playing.
+    if (p.title || p.siteName) {
+      const a = document.createElement('a');
+      a.className = 'link-preview-text';
+      a.href = p.url;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer nofollow';
+      if (p.siteName || p.video.provider) {
+        const site = document.createElement('span');
+        site.className = 'link-preview-site';
+        site.textContent = p.siteName || p.video.provider;
+        a.appendChild(site);
+      }
+      if (p.title) {
+        const title = document.createElement('span');
+        title.className = 'link-preview-title';
+        title.textContent = p.title;
+        a.appendChild(title);
+      }
+      wrap.appendChild(a);
+    }
+    return wrap;
+  };
+
+  /** Swap a facade for the real player. The one place an embed iframe is ever created. */
+  const playVideoFacade = (button) => {
+    const wrap = button.closest('.link-preview-video');
+    const src = button.dataset.embedUrl;
+    if (!wrap || !src) return;
+    const frame = document.createElement('iframe');
+    frame.className = 'video-embed';
+    // autoplay=1 because the click *was* the play instruction; without it the reader has to press
+    // play twice, once in our UI and once in YouTube's.
+    frame.src = src + (src.includes('?') ? '&' : '?') + 'autoplay=1';
+    frame.title = wrap.querySelector('.link-preview-title')?.textContent || 'Video';
+    frame.loading = 'lazy';
+    frame.allowFullscreen = true;
+    frame.setAttribute('allow',
+        'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture');
+    wrap.classList.add('is-playing');
+    button.replaceWith(frame);
+  };
+
+  document.addEventListener('click', (e) => {
+    const button = e.target.closest?.('.video-facade');
+    if (button) playVideoFacade(button);
+  });
+
   const buildLinkPreviewEl = (p) => {
-    if (!p || !p.url || !p.title) return null;
+    if (!p || !p.url) return null;
+    if (p.video) return buildVideoFacadeEl(p);
+    if (!p.title) return null;
     const a = document.createElement('a');
     a.className = 'link-preview';
     a.href = p.url;
@@ -772,37 +1164,28 @@
     if (body) body.after(el); else col.appendChild(el);
   };
 
-  // ---------- Image lightbox ----------
-  // Clicking an image attachment opens it in place, with download / open-in-tab / close, rather
-  // than navigating away. Shared because both pages have image attachments and only one of them
-  // had this: the conversation page opened a new browser tab instead, which is a different
-  // product decision made by accident, in a copy nobody compared.
+  // ---------- Attachment viewer ----------
+  // One overlay, three things it can hold: a picture, a rendered markdown document, and a
+  // sandboxed frame around an uploaded HTML file. It is one overlay because the chrome is the
+  // same question every time — a title, a download, a way out — and because Escape, the backdrop
+  // click and the scroll lock on <body> are the kind of thing that gets forgotten in the second
+  // copy. What differs per kind is only which node is shown and what is put in it.
   //
-  // Idempotent — the channel page calls it once and so does the conversation page, and a second
-  // call must not attach a second delegate.
-  let lightboxWired = false;
-  const wireImageLightbox = () => {
-    if (lightboxWired) return;
-    lightboxWired = true;
-  // One delegate covers both server-rendered messages (Thymeleaf in channels.html) and
-  // JS-rendered ones; otherwise the historical-message links would just download via href.
-  document.addEventListener('click', (e) => {
-    if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-    const link = e.target.closest('a.attachment-image');
-    if (!link) return;
-    e.preventDefault();
-    const img = link.querySelector('img');
-    openLightbox(link.getAttribute('href'), img?.alt || link.title || '');
-  });
-
-  let lightboxEl = null;
-  const ensureLightbox = () => {
-    if (lightboxEl) return lightboxEl;
-    lightboxEl = document.createElement('div');
-    lightboxEl.className = 'lightbox';
-    lightboxEl.hidden = true;
-    lightboxEl.innerHTML =
+  // Clicking an image attachment opens it in place rather than navigating away. Shared because
+  // both pages have image attachments and only one of them had this: the conversation page opened
+  // a new browser tab instead, which is a different product decision made by accident, in a copy
+  // nobody compared.
+  let viewerEl = null;
+  const ensureViewer = () => {
+    if (viewerEl) return viewerEl;
+    viewerEl = document.createElement('div');
+    viewerEl.className = 'lightbox';
+    viewerEl.setAttribute('role', 'dialog');
+    viewerEl.setAttribute('aria-modal', 'true');
+    viewerEl.hidden = true;
+    viewerEl.innerHTML =
         '<div class="lightbox-toolbar">' +
+          '<span class="lightbox-title"></span>' +
           '<a class="lightbox-btn" data-action="download" title="Download" aria-label="Download">' +
             '<svg class="icon"><use href="#icon-download"/></svg>' +
           '</a>' +
@@ -813,37 +1196,196 @@
             '<svg class="icon"><use href="#icon-close"/></svg>' +
           '</button>' +
         '</div>' +
-        '<img class="lightbox-img" alt=""/>';
-    document.body.appendChild(lightboxEl);
-    lightboxEl.addEventListener('click', (e) => {
-      if (e.target === lightboxEl) closeLightbox();
+        '<img class="lightbox-img" alt=""/>' +
+        '<div class="lightbox-doc" hidden><div class="lightbox-sheet">' +
+          '<p class="lightbox-note" hidden></p>' +
+          '<div class="message-body lightbox-doc-body"></div>' +
+        '</div></div>' +
+        '<div class="lightbox-frame-wrap" hidden>' +
+          '<p class="lightbox-note" hidden></p>' +
+          '<div class="lightbox-frame-slot"></div>' +
+        '</div>' +
+        '<p class="lightbox-status" hidden></p>';
+    document.body.appendChild(viewerEl);
+    viewerEl.addEventListener('click', (e) => {
+      if (e.target === viewerEl) closeViewer();
     });
-    lightboxEl.querySelector('[data-action="close"]').addEventListener('click', closeLightbox);
+    viewerEl.querySelector('[data-action="close"]').addEventListener('click', closeViewer);
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && lightboxEl && !lightboxEl.hidden) closeLightbox();
+      if (e.key === 'Escape' && viewerEl && !viewerEl.hidden) closeViewer();
     });
-    return lightboxEl;
+    return viewerEl;
   };
-  const openLightbox = (url, filename) => {
-    const el = ensureLightbox();
-    el.querySelector('.lightbox-img').src = url;
-    el.querySelector('.lightbox-img').alt = filename || '';
+
+  // Which of the content nodes is on show — 'image', 'doc', 'frame', or 'none' while a preview is
+  // still being fetched. Everything else about the overlay is shared, so this is the whole of
+  // "what kind of thing am I looking at".
+  const setViewerMode = (el, mode) => {
+    el.querySelector('.lightbox-img').hidden = mode !== 'image';
+    el.querySelector('.lightbox-doc').hidden = mode !== 'doc';
+    el.querySelector('.lightbox-frame-wrap').hidden = mode !== 'frame';
+    // Open-in-tab is offered only for images: the download endpoint serves everything else as an
+    // attachment on purpose (inline user-uploaded bytes in this origin is stored XSS), so the
+    // button would silently download instead of opening.
+    el.querySelector('[data-action="open"]').hidden = mode !== 'image';
+  };
+
+  const showViewer = (el, mode, opts = {}) => {
+    setViewerMode(el, mode);
     const dl = el.querySelector('[data-action="download"]');
-    dl.href = url;
-    dl.setAttribute('download', filename || '');
+    dl.hidden = !opts.downloadUrl;
+    if (opts.downloadUrl) {
+      dl.href = opts.downloadUrl;
+      dl.setAttribute('download', opts.filename || '');
+    }
+    el.querySelector('.lightbox-title').textContent = opts.filename || '';
+    el.setAttribute('aria-label', opts.filename ? 'Preview of ' + opts.filename : 'File preview');
+    setViewerStatus(el, opts.status || '');
+    el.hidden = false;
+    document.body.classList.add('lightbox-open');
+  };
+
+  const setViewerStatus = (el, text) => {
+    const status = el.querySelector('.lightbox-status');
+    status.textContent = text || '';
+    status.hidden = !text;
+  };
+
+  const setViewerNote = (host, text) => {
+    const note = host.querySelector('.lightbox-note');
+    note.textContent = text || '';
+    note.hidden = !text;
+  };
+
+  const TRUNCATED_NOTE = 'This file is too long to show in full — download it to read the rest.';
+
+  let viewerRequest = 0;
+
+  const openImageViewer = (url, filename) => {
+    const el = ensureViewer();
+    const img = el.querySelector('.lightbox-img');
+    img.src = url;
+    img.alt = filename || '';
+    showViewer(el, 'image', { filename, downloadUrl: url });
     // The download endpoint returns Content-Disposition: attachment by default, which would
     // trigger a download instead of rendering in the new tab. Ask for inline disposition here.
     const sep = url.indexOf('?') === -1 ? '?' : '&';
     el.querySelector('[data-action="open"]').href = url + sep + 'disposition=inline';
-    el.hidden = false;
-    document.body.classList.add('lightbox-open');
   };
-  const closeLightbox = () => {
-    if (!lightboxEl) return;
-    lightboxEl.hidden = true;
-    lightboxEl.querySelector('.lightbox-img').src = '';
+
+  /**
+   * Show an uploaded document. {@code kind} is the server's own word for it — the
+   * {@code previewKind} on the attachment DTO — so the client never guesses from a filename what
+   * a file is; see PreviewableAttachments on the Java side.
+   *
+   * <p>markdown: the server returns HTML that has already been through the message safelist, so it
+   * goes into the page through the same seam as a message body and comes out highlighted.
+   * html: the server returns the file's own markup, and the ONLY safe place for that is the
+   * sandboxed frame below.
+   */
+  const openDocumentViewer = ({ previewUrl, previewKind, downloadUrl, filename }) => {
+    if (!previewUrl) return;
+    const el = ensureViewer();
+    const frame = previewKind === 'html';
+    const host = el.querySelector(frame ? '.lightbox-frame-wrap' : '.lightbox-doc');
+    setViewerNote(host, '');
+    if (frame) {
+      el.querySelector('.lightbox-frame-slot').textContent = '';
+    } else {
+      el.querySelector('.lightbox-doc-body').textContent = '';
+    }
+    // 'none' until the bytes land: an empty sheet under a "Loading…" line reads as a document
+    // that rendered to nothing.
+    showViewer(el, 'none', { filename, downloadUrl, status: 'Loading preview…' });
+    const token = ++viewerRequest;
+    fetch(previewUrl, { headers: { Accept: 'application/json' } })
+        .then((res) => (res.ok ? res.json() : Promise.reject(new Error(String(res.status)))))
+        .then((data) => {
+          if (token !== viewerRequest) return; // a second preview was opened while this loaded
+          setViewerStatus(el, '');
+          setViewerMode(el, frame ? 'frame' : 'doc');
+          setViewerNote(host, data.truncated ? TRUNCATED_NOTE : '');
+          if (frame) {
+            el.querySelector('.lightbox-frame-slot').replaceChildren(
+                buildSandboxedFrame(data.source || '', filename));
+          } else {
+            renderMessageBody(el.querySelector('.lightbox-doc-body'), data.html || '');
+          }
+        })
+        .catch(() => {
+          if (token !== viewerRequest) return;
+          setViewerStatus(el, 'Sorry — that preview could not be loaded.');
+        });
+  };
+
+  /**
+   * The frame an uploaded HTML file is shown in, and the reason showing one at all is defensible.
+   *
+   * <p>A bare `sandbox` attribute — no allow-scripts, no allow-same-origin — puts the document in
+   * an opaque origin with scripting off, so it can neither run code nor reach this application's
+   * cookies, storage or DOM. Adding either token gives that away; there is no version of this
+   * feature that needs them.
+   *
+   * <p>It is `srcdoc`, not a URL, and that is load-bearing twice over. Nothing on this origin ever
+   * responds `text/html` with somebody's upload in it, so there is no address a victim could be
+   * sent to where the file would render as a top-level page. And a srcdoc document inherits this
+   * page's CSP, so the file's own `<style>` works while `img-src 'self' data:` and `connect-src
+   * 'self'` stop it fetching anything off-origin — an uploaded page cannot phone home to tell its
+   * author who read it, which is the same leak link-preview pictures are copied server-side to
+   * avoid.
+   *
+   * <p>A fresh element every time: the attribute has to be in place before the content is, and a
+   * new frame is also how the previous document is disposed of rather than left parked in memory.
+   */
+  const buildSandboxedFrame = (source, filename) => {
+    const frame = document.createElement('iframe');
+    frame.setAttribute('sandbox', '');
+    frame.setAttribute('referrerpolicy', 'no-referrer');
+    frame.className = 'lightbox-frame';
+    frame.title = filename ? 'Preview of ' + filename : 'File preview';
+    frame.srcdoc = source;
+    return frame;
+  };
+
+  const closeViewer = () => {
+    if (!viewerEl) return;
+    viewerRequest++; // an in-flight preview must not paint into a closed overlay
+    viewerEl.hidden = true;
+    viewerEl.querySelector('.lightbox-img').src = '';
+    viewerEl.querySelector('.lightbox-doc-body').textContent = '';
+    viewerEl.querySelector('.lightbox-frame-slot').textContent = '';
     document.body.classList.remove('lightbox-open');
   };
+
+  // One delegate covers both server-rendered messages (Thymeleaf in channels.html /
+  // conversation.html) and JS-rendered ones; otherwise the historical rows' image links would
+  // just download via href and their preview buttons would do nothing.
+  //
+  // Idempotent — the channel page calls it once and so does the conversation page, and a second
+  // call must not attach a second delegate.
+  let viewerWired = false;
+  const wireAttachmentViewer = () => {
+    if (viewerWired) return;
+    viewerWired = true;
+    document.addEventListener('click', (e) => {
+      const preview = e.target.closest?.('.attachment-preview');
+      if (preview) {
+        e.preventDefault();
+        openDocumentViewer({
+          previewUrl: preview.dataset.previewUrl,
+          previewKind: preview.dataset.previewKind,
+          downloadUrl: preview.dataset.downloadUrl,
+          filename: preview.dataset.filename,
+        });
+        return;
+      }
+      if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      const link = e.target.closest('a.attachment-image');
+      if (!link) return;
+      e.preventDefault();
+      const img = link.querySelector('img');
+      openImageViewer(link.getAttribute('href'), img?.alt || link.title || '');
+    });
   };
 
   // ---------- "New messages" divider ----------
@@ -1208,13 +1750,7 @@
     };
     membersInput.addEventListener('input', syncMode);
 
-    const csrfToken = document.querySelector('meta[name="_csrf"]')?.content;
-    const csrfHeader = document.querySelector('meta[name="_csrf_header"]')?.content;
-    const headers = () => {
-      const h = { 'Content-Type': 'application/json', 'Accept': 'application/json' };
-      if (csrfToken && csrfHeader) h[csrfHeader] = csrfToken;
-      return h;
-    };
+    const headers = csrfHeaders;
 
     const fail = (msg) => {
       hint.textContent = msg;
@@ -1351,9 +1887,12 @@
     createTypingTracker,
     throttledPing,
     applyUnreadDivider,
-    wireImageLightbox,
+    wireAttachmentViewer,
     buildRemovedAttachmentEl,
+    buildAttachmentEl,
+    buildAttachmentTray,
     buildLinkPreviewEl,
+    buildVideoFacadeEl,
     applyLinkPreview,
     hashCode,
     avatarColor,
@@ -1368,6 +1907,11 @@
     wireAllFormatToolbars,
     wireAutoResize,
     wireLivePreview,
+    wirePasteMarkdown,
+    // Exposed for the in-browser smoke tests: the guard and clamp are pure enough to
+    // assert without a clipboard.
+    pasteWorthConverting,
+    insertPasteText,
     openEmojiPicker,
     closeEmojiPicker,
     REACTION_PICKER_EMOJI,
@@ -1377,5 +1921,8 @@
     emojiRecents: { read: readRecentEmoji, remember: rememberEmoji, max: RECENT_EMOJI_MAX },
     appendAuthorHandle,
     setQuickReaction,
+    highlightCode,
+    renderMessageBody,
+    buildMessageBodyEl,
   };
 })();

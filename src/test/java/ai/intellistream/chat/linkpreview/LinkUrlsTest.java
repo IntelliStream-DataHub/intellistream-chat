@@ -69,19 +69,42 @@ class LinkUrlsTest {
     }
 
     @Test
-    void videoLinksAlreadyGetAPlayerSoTheyGetNoCard() {
-        assertThat(LinkUrls.firstPreviewable("https://www.youtube.com/watch?v=dQw4w9WgXcQ")).isEmpty();
-        assertThat(LinkUrls.firstPreviewable("https://youtu.be/dQw4w9WgXcQ")).isEmpty();
-        assertThat(LinkUrls.firstPreviewable("https://vimeo.com/123456789")).isEmpty();
-        // ...but a second, ordinary link in the same message still can.
+    void videoLinksGetACardBecauseTheCardIsNowThePlayer() {
+        // These used to be skipped: MarkdownRenderer injected an <iframe> after the link, so a
+        // card underneath would have been a second embed for one URL. The body carries no player
+        // any more — the card *is* the player (poster + play button) — so the unfurl is what
+        // supplies its poster and title, and skipping it would leave a play button over a blank.
+        assertThat(LinkUrls.firstPreviewable("https://www.youtube.com/watch?v=dQw4w9WgXcQ"))
+                .contains("https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+        assertThat(LinkUrls.firstPreviewable("https://youtu.be/dQw4w9WgXcQ"))
+                .contains("https://youtu.be/dQw4w9WgXcQ");
+        assertThat(LinkUrls.firstPreviewable("https://vimeo.com/123456789"))
+                .contains("https://vimeo.com/123456789");
+        // First link wins, video or not — one card per message is still the rule.
         assertThat(LinkUrls.firstPreviewable("https://youtu.be/dQw4w9WgXcQ and https://example.com/article"))
-                .contains("https://example.com/article");
+                .contains("https://youtu.be/dQw4w9WgXcQ");
     }
 
     @Test
     void anAbsurdlyLongUrlIsSkipped() {
         var url = "https://example.com/" + "a".repeat(LinkUrls.MAX_URL_LENGTH);
         assertThat(LinkUrls.firstPreviewable(url + " https://example.com/short")).contains("https://example.com/short");
+    }
+
+    @Test
+    void aOneTimeSecretLinkIsNeverUnfurledOnAnyHost() {
+        // Fetching it could not open it, but the URL — #fragment, and so the key, included — would be
+        // stored in link_previews. The server does not know its own public host, so the path decides.
+        var key = "A".repeat(43);
+        assertThat(LinkUrls.firstPreviewable("here: https://chat.example.com/s/AbCdEfGhIjKlMnOpQrStUv#" + key)).isEmpty();
+        assertThat(LinkUrls.firstPreviewable("http://localhost:8080/s/AbCdEfGhIjKlMnOpQrStUv")).isEmpty();
+        // The next link still gets its card.
+        assertThat(LinkUrls.firstPreviewable("https://chat.example.com/s/AbCdEfGhIjKlMnOpQrStUv#" + key
+                + " and https://example.com/article")).contains("https://example.com/article");
+        // Only that exact shape: other /s/ paths are ordinary links.
+        assertThat(LinkUrls.firstPreviewable("https://example.com/s/short")).contains("https://example.com/s/short");
+        assertThat(LinkUrls.firstPreviewable("https://example.com/docs/s/AbCdEfGhIjKlMnOpQrStUv"))
+                .contains("https://example.com/docs/s/AbCdEfGhIjKlMnOpQrStUv");
     }
 
     @Test

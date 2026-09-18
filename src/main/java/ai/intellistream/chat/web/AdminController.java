@@ -268,6 +268,22 @@ public class AdminController {
     }
 
     /**
+     * Whether one-time secrets may be made for people without an account. Off refuses new ones and
+     * makes existing ones ask for sign-in; it never deletes anything, so turning it back on restores
+     * the links that have not expired.
+     */
+    @PostMapping("/admin/public-secrets")
+    public String setPublicSecrets(@RequestParam(value = "allow", required = false) String allow,
+                                   RedirectAttributes ra) {
+        boolean enable = "true".equalsIgnoreCase(allow) || "on".equalsIgnoreCase(allow);
+        settings.setAllowPublicSecrets(enable);
+        ra.addFlashAttribute("flash", enable
+                ? "One-time secrets can now be opened by people without an account, when their creator allows it."
+                : "One-time secrets now always require sign-in to open.");
+        return "redirect:/admin";
+    }
+
+    /**
      * Mask an email like {@code alice@example.com} as {@code al…@example.com}. Single-letter
      * local parts become {@code a…@example.com}; emails without an "@" return as just "—" so
      * we never accidentally render an unstructured raw value.

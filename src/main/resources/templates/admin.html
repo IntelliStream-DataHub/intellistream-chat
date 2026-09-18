@@ -183,6 +183,25 @@
             </form>
         </section>
 
+        <section class="admin-section" id="admin-secrets">
+            <h2>One-time secrets</h2>
+            <p class="admin-help">
+                People can share a password or token through a link that opens once. Allow its creator
+                to let <strong>people without an account</strong> open it — a contractor, a customer.
+                Off means every secret requires sign-in, including ones already shared; nothing is
+                deleted, so turning it back on restores links that have not expired. When someone
+                without an account opens a secret, its creator is shown their IP address and browser.
+            </p>
+            <form th:action="@{/admin/public-secrets}" method="post" class="admin-form">
+                <label>
+                    <input type="checkbox" name="allow" value="true"
+                           th:checked="${settings.allowPublicSecrets}"/>
+                    Allow secrets that anyone with the link can open
+                </label>
+                <button type="submit">Save secrets setting</button>
+            </form>
+        </section>
+
         <section class="admin-section">
             <h2>Users <small th:text="'(' + ${#lists.size(userRows)} + ')'">(0)</small></h2>
             <p class="admin-help">
@@ -236,9 +255,13 @@
                               th:action="@{'/admin/users/' + ${u.id} + '/unsuspend'}" class="admin-inline-form">
                             <button type="submit">Restore access</button>
                         </form>
+                        <!--/* The confirmation is a data attribute read by admin.js, not an inline
+                               onsubmit: the CSP has no 'unsafe-inline' for scripts, so an inline
+                               handler is dropped by the browser — and a purge with a dropped
+                               confirm is a purge with no confirm at all. */-->
                         <form method="post" th:action="@{'/admin/users/' + ${u.id} + '/messages/purge'}"
                               class="admin-inline-form"
-                              onsubmit="return confirm('Remove every message from this account? This is reversible until the retention window expires.');">
+                              data-confirm="Remove every message from this account? This is reversible until the retention window expires.">
                             <button type="submit" class="admin-danger">Clear messages</button>
                         </form>
                         <form method="post" th:action="@{'/admin/users/' + ${u.id} + '/messages/restore'}"

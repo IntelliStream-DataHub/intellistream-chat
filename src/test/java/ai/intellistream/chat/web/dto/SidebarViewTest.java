@@ -54,7 +54,7 @@ class SidebarViewTest {
     @Test
     void theSubscriptionSetIsEveryChannelInTheView() {
         var view = new SidebarView(List.of(row(4, "a"), row(7, "b"), row(11, "c")),
-                NotificationLevel.MENTIONS, NotificationLevel.ALL);
+                List.of(), NotificationLevel.MENTIONS, NotificationLevel.ALL);
 
         assertThat(view.channelIds()).isEqualTo("4,7,11");
     }
@@ -63,7 +63,7 @@ class SidebarViewTest {
     void favouritesPartitionTheListWithoutLeavingAnythingOut() {
         var view = new SidebarView(List.of(
                 row(1, "alfa", true), row(2, "bravo"), row(3, "charlie", true), row(4, "delta")),
-                NotificationLevel.MENTIONS, NotificationLevel.ALL);
+                List.of(), NotificationLevel.MENTIONS, NotificationLevel.ALL);
 
         assertThat(view.favourites()).extracting(ChannelSidebarDto::id).containsExactly(1L, 3L);
         assertThat(view.unstarred()).extracting(ChannelSidebarDto::id).containsExactly(2L, 4L);
@@ -74,7 +74,7 @@ class SidebarViewTest {
 
     @Test
     void anEmptyViewHasAnEmptySubscriptionSet() {
-        var view = new SidebarView(List.of(), NotificationLevel.MENTIONS, NotificationLevel.ALL);
+        var view = new SidebarView(List.of(), List.of(), NotificationLevel.MENTIONS, NotificationLevel.ALL);
 
         assertThat(view.isEmpty()).isTrue();
         assertThat(view.channelIds()).isEmpty();
