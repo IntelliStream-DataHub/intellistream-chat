@@ -2287,6 +2287,35 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
 /* The preview renders the same .message-body the sent message will, so it needs no type rules
    of its own — see the "Messages" section. */
 
+/* Wide composer: the preview sits to the right of the textarea rather than under it. Keyed on the
+   composer's own width, not the viewport's, because an open thread panel takes 380px out of the
+   middle column — a viewport query would split a composer that is by then too narrow to split.
+   The thread composer is never inside .composer-wrap, so it keeps the stacked layout.
+   contain: size is what makes the textarea, not the preview, decide the row's height: the preview
+   contributes nothing to it, stretches to whatever the auto-grown textarea is, and scrolls past
+   that. Without it a long preview would stretch the row under a textarea whose height is pinned
+   inline by wireAutoResize, leaving a dead band below the text. No :has() means stacked, as before. */
+.composer-wrap { container: composer / inline-size; }
+@container composer (min-width: 760px) {
+  .composer:has(> .composer-preview:not([hidden])) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .composer:has(> .composer-preview:not([hidden])) > * { grid-column: 1 / -1; }
+  .composer:has(> .composer-preview:not([hidden])) > textarea { grid-column: 1; }
+  .composer:has(> .composer-preview:not([hidden])) > .composer-preview {
+    grid-column: 2;
+    border-top: 0;
+    border-left: 1px dashed var(--border);
+    max-height: none;
+    contain: size;
+  }
+  /* Top row of the box when no attachment tray sits above it: follow the composer's corner. */
+  .composer-attachments[hidden] + textarea + .composer-preview {
+    border-top-right-radius: calc(var(--radius-md) - 1px);
+  }
+}
+
 .composer-toolbar {
   display: flex;
   align-items: center;
@@ -3559,6 +3588,8 @@ body.lightbox-open { overflow: hidden; }
   gap: 0.4rem;
   padding: 0.5rem 0.6rem 0;
 }
+/* display: flex outranks the UA's [hidden] rule, so the empty tray kept its top padding. */
+.composer-attachments[hidden] { display: none; }
 .composer-chip {
   display: inline-flex;
   align-items: center;
