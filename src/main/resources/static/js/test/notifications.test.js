@@ -84,3 +84,19 @@ add('Do Not Disturb suppresses the toast', () => {
     // all — is what every real mention already demonstrates, and asserting it here would mean
     // firing a chime and a desktop banner at whoever typed runTests().
 });
+
+add('Do Not Disturb silences the chime', () => {
+    const n = window.MentionNotifications;
+    const real = window.Presence.isDnd;
+    try {
+        window.Presence.isDnd = () => true;
+        const why = n.playChime('direct');
+        if (why !== 'dnd') {
+            throw new Error('playChime under Do Not Disturb answered ' + why + ', expected dnd');
+        }
+    } finally {
+        window.Presence.isDnd = real;
+    }
+    // Same one-direction rule as the toast check above: proving the chime plays would mean
+    // playing it at whoever typed runTests().
+});

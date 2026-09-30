@@ -106,23 +106,42 @@
       localStorage.setItem(soundKeyFor(kind), on ? 'on' : 'off');
 
   let audioCtx = null;
-  // Browsers refuse to start an AudioContext until the user has interacted with the page, and a
-  // context created before that starts 'suspended' and stays silent. So it is created on the
-  // first real gesture and reused — not on the first notification, which is exactly the moment
-  // there has been no gesture and the sound would be dropped.
-  const unlockAudio = () => {
-    if (audioCtx) return;
+  // Browsers refuse to start an AudioContext until the page has had a user gesture, and a
+  // context that is not running is silent. Two things follow, and the old version got both wrong.
+  //
+  // Created at load, not on the first gesture. Every channel and conversation is a full page
+  // load, and Chrome starts a context created on a page reached by clicking a same-origin link
+  // already running. Waiting for a gesture on the *new* page instead meant that after clicking
+  // into a channel nothing could sound until you clicked or typed again — a chime that arrived
+  // while you sat reading was dropped without a trace. On a page opened cold (a reload, a
+  // bookmark, the redirect back from Keycloak) the context starts suspended, which costs nothing.
+  //
+  // Resumed on every gesture, not just the first. resume() is only honoured inside one — called
+  // from a WebSocket frame it sits pending until the user next clicks — and a browser can
+  // suspend a running context again later (Safari's 'interrupted'). A once-only listener that
+  // returned early because a context existed never got a second chance to fix either.
+  const ensureAudio = () => {
+    if (audioCtx) return audioCtx;
     const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
+    if (!Ctx) return null;
     try {
       audioCtx = new Ctx();
     } catch (e) {
       audioCtx = null;
     }
+    return audioCtx;
   };
-  ['pointerdown', 'keydown'].forEach((evt) => {
-    document.addEventListener(evt, unlockAudio, { once: true, passive: true });
+  const unlockAudio = () => {
+    const ctx = ensureAudio();
+    if (ctx && ctx.state !== 'running') ctx.resume().catch(() => {});
+  };
+  ensureAudio();
+  ['pointerdown', 'keydown', 'touchend'].forEach((evt) => {
+    document.addEventListener(evt, unlockAudio, { capture: true, passive: true });
   });
+  // Coming back to the window is not a gesture, but once the page has had one it is enough to
+  // resume a context the browser suspended while it was in the background.
+  window.addEventListener('focus', unlockAudio);
 
   // Fifteen voices, synthesised like the original rather than shipped as files — same reasoning:
   // no binary assets, no licences to track, no media-src in the CSP, nothing to 404. Each is a
@@ -186,15 +205,21 @@
   /** [{name, label}] for building a picker without exporting the synthesis details. */
   const soundVoices = () => Object.entries(VOICES).map(([name, v]) => ({ name, label: v.label }));
 
-  const emit = (voiceName) => {
-    if (!audioCtx) return;
+  /**
+   * Schedule a voice. Returns true when it will be heard — the context was running — and false
+   * when it could not be, so the caller can fall back to another way of making a sound.
+   */
+  const emit = (voiceName, { defer = false } = {}) => {
+    const ctx = ensureAudio();
+    if (!ctx) return false;
     const v = VOICES[voiceName] || VOICES[DEFAULT_VOICE];
-    // A context can be suspended again by the browser (backgrounded tab, media policy). Resuming
-    // is async, so the notes are scheduled off the resulting time rather than "now".
-    const start = (t0) => {
+    const start = () => {
+      // A few ms of lead: a note scheduled at exactly currentTime can lose its attack to the
+      // block that is already rendering.
+      const t0 = ctx.currentTime + 0.02;
       v.notes.forEach(([freq, delay]) => {
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
         osc.type = v.type;
         osc.frequency.value = freq;
         const at = t0 + delay;
@@ -202,17 +227,38 @@
         gain.gain.setValueAtTime(0.0001, at);
         gain.gain.exponentialRampToValueAtTime(v.gain, at + 0.008);
         gain.gain.exponentialRampToValueAtTime(0.0001, at + v.decay);
-        osc.connect(gain).connect(audioCtx.destination);
+        osc.connect(gain).connect(ctx.destination);
         osc.start(at);
         osc.stop(at + v.decay + 0.02);
       });
     };
-    if (audioCtx.state === 'suspended') {
-      audioCtx.resume().then(() => start(audioCtx.currentTime)).catch(() => {});
-    } else {
-      start(audioCtx.currentTime);
+    if (ctx.state === 'running') {
+      start();
+      return true;
     }
+    // A preview is the one sound that may wait: it was asked for by the click now resuming the
+    // context, so "late" is a few milliseconds, not whenever the user next touches the page.
+    if (defer) {
+      ctx.resume().then(start).catch(() => {});
+      return false;
+    }
+    // Suspended or interrupted: this one is dropped, not deferred. The old version scheduled the
+    // notes off resume(), and a resume() outside a gesture sits pending until the user next
+    // clicks — so the chime played then, seconds or minutes after the message, attached to
+    // nothing. Late is worse than silent, and silent is what the desktop banner's own sound
+    // covers (see show()). The resume is still asked for, so the next chime can play if the page
+    // has had a gesture by then.
+    ctx.resume().catch(() => {});
+    return false;
   };
+
+  // One sound per three seconds, whatever the kind. A burst — a busy channel set to ALL, a
+  // thread waking up, someone who sends a thought as six messages — is one event to the person
+  // hearing it, and six chimes back to back is how notification sound gets switched off for good.
+  // Leading edge, so the first message of a burst is the one that sounds. Mattermost uses the
+  // same rule and the same three seconds (utils/notification_sounds.tsx).
+  const CHIME_THROTTLE_MS = 3000;
+  let lastChimeAt = -Infinity;
 
   /**
    * Play the sound this kind is configured for, if that kind is switched on at all and the
@@ -221,11 +267,19 @@
    * <p>Gated separately from show() because one call site plays a chime without a toast: a
    * mention in the channel you are already looking at is worth hearing and not worth
    * re-drawing on screen. That path must go quiet under DND too.
+   *
+   * @return why it did or did not sound — 'played', 'dnd', 'off', 'throttled', or 'blocked' when
+   *     the sound was wanted but the browser would not let this page make one yet.
    */
   const playChime = (kind) => {
-    if (dndActive()) return;
-    if (!soundEnabled(kind)) return;
-    emit(soundVoice(kind));
+    if (dndActive()) return 'dnd';
+    if (!soundEnabled(kind)) return 'off';
+    const now = performance.now();
+    if (now - lastChimeAt < CHIME_THROTTLE_MS) return 'throttled';
+    // Taken before emit, not after it succeeds: a blocked chime hands its sound to the desktop
+    // banner, and that sound is under the same one-per-three-seconds rule as the chime.
+    lastChimeAt = now;
+    return emit(soundVoice(kind)) ? 'played' : 'blocked';
   };
 
   /**
@@ -234,7 +288,7 @@
    * the user choosing a sound, and refusing to play the thing somebody just clicked to hear
    * is not respecting their focus, it is breaking the control.
    */
-  const playVoice = (name) => emit(name);
+  const playVoice = (name) => { emit(name, { defer: true }); };
 
   function ensureStack() {
     if (stack) return stack;
@@ -272,13 +326,14 @@
     return author + ' mentioned you in #' + channel;
   }
 
-  function fireOsNotification({ author, channel, snippet, url, kind }) {
+  function fireOsNotification({ author, channel, snippet, url, kind }, silent = false) {
     if (permissionState() !== 'granted') return null;
     try {
       const n = new Notification(headline({ author, channel, kind }), {
         body: snippet || '',
         tag: 'mention:' + url,        // collapses repeated mentions to the same message
         renotify: false,
+        silent,
       });
       n.onclick = () => {
         try { window.focus(); } catch (e) {}
@@ -326,7 +381,8 @@
         cta.disabled = true;
         Notification.requestPermission().then((perm) => {
           if (perm === 'granted') {
-            fireOsNotification({ author, channel, snippet, url, kind });
+            // Silent: this message has already had its sound, when the toast arrived.
+            fireOsNotification({ author, channel, snippet, url, kind }, true);
             cta.remove();
           } else {
             cta.textContent = 'Desktop alerts blocked';
@@ -356,11 +412,17 @@
     // suppresses none of them. A silent banner is still a banner across your screen.
     if (dndActive()) return;
     ensureStack().appendChild(buildToast(opts));
-    fireOsNotification(opts);
     // Independent of the OS-notification permission on purpose. Denying desktop alerts is a
     // statement about banners, not about sound, and the two are separately useful: the sound is
     // what reaches you when the window is behind something else.
-    playChime(opts.kind);
+    const chime = playChime(opts.kind);
+    // The desktop banner is silent unless the chime could not play. Most desktops give a banner a
+    // sound of their own, so a banner that is not silent is a second noise on top of the chime —
+    // and, with the chime failing on a page that had no gesture yet, it was the *only* noise, which
+    // is how sound could seem to work only once the window was minimised. So: one sound per message.
+    // The chime when it can; the system's when it cannot; none when sound is off, DND is on, or
+    // the throttle has just let one through.
+    fireOsNotification(opts, chime !== 'blocked');
   }
 
   window.MentionNotifications = {
