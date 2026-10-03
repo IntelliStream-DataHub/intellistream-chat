@@ -1781,7 +1781,7 @@ presenceMenu.init();
     }
 
     if (msg.attachments && msg.attachments.length > 0) {
-      right.append(renderAttachmentTray(msg.attachments));
+      right.append(ChatKit.buildAttachmentTray(msg.attachments));
     }
 
     // Thread indicator anchors the bottom of the message, like Slack's "N replies" widget.
@@ -2620,45 +2620,6 @@ presenceMenu.init();
     li.appendChild(buildActions(li));
   };
 
-  const buildAttachmentLink = (a) => {
-    // Tombstone: the file was deleted from the file manager, the message stayed.
-    if (a.deletedAt) return window.ChatKit.buildRemovedAttachmentEl(a);
-    const isImage = (a.contentType || '').startsWith('image/');
-    const link = document.createElement('a');
-    link.href = a.downloadUrl;
-    link.title = a.filename;
-    if (isImage) {
-      link.className = 'attachment-image';
-      // Keep href + target so middle-click and "Open in new tab" still work; left-click
-      // is intercepted by the document-level delegate that opens the lightbox.
-      link.target = '_blank';
-      link.rel = 'noopener';
-      const img = document.createElement('img');
-      img.src = a.downloadUrl;
-      img.alt = a.filename;
-      img.loading = 'lazy';
-      link.append(img);
-    } else {
-      link.className = 'attachment';
-      link.dataset.contentType = a.contentType;
-      link.innerHTML = '<svg class="icon attachment-icon"><use href="#icon-paperclip"/></svg>' +
-          '<span class="attachment-info"><span class="attachment-name"></span>' +
-          '<span class="attachment-meta"></span></span>' +
-          '<svg class="icon attachment-download"><use href="#icon-download"/></svg>';
-      link.querySelector('.attachment-name').textContent = a.filename;
-      link.querySelector('.attachment-meta').textContent =
-          (a.contentType || '') + ' · ' + formatBytes(a.sizeBytes);
-    }
-    return link;
-  };
-
-  const renderAttachmentTray = (attachments) => {
-    const tray = document.createElement('div');
-    tray.className = 'message-attachments';
-    for (const a of attachments) tray.append(buildAttachmentLink(a));
-    return tray;
-  };
-
   // ---------- Poll widget ----------
   // Click-to-vote with bar visualisation. Reactions on the host message stay independent —
   // they're emoji reactions, not votes. Mobile: each option is a full-width ≥44px button so
@@ -2840,7 +2801,7 @@ presenceMenu.init();
     if (right.querySelector('.message-edit') && !isEdit) {
       right.querySelectorAll('.message-attachments, .message-reactions, .poll-widget').forEach(n => n.remove());
       if (msg.poll) right.appendChild(renderPollWidget(msg.poll));
-      if (msg.attachments && msg.attachments.length) right.appendChild(renderAttachmentTray(msg.attachments));
+      if (msg.attachments && msg.attachments.length) right.appendChild(ChatKit.buildAttachmentTray(msg.attachments));
       if (msg.reactions && msg.reactions.length) right.appendChild(renderReactionTray(msg.reactions));
       // Someone else pinning this message while its author has the edit box open is not a reason
       // to lose their draft, but it is still a reason to show the marker.
@@ -2876,7 +2837,7 @@ presenceMenu.init();
       right.appendChild(renderPollWidget(msg.poll));
     }
     if (msg.attachments && msg.attachments.length) {
-      right.appendChild(renderAttachmentTray(msg.attachments));
+      right.appendChild(ChatKit.buildAttachmentTray(msg.attachments));
     }
     if (msg.reactions && msg.reactions.length) {
       right.appendChild(renderReactionTray(msg.reactions));
@@ -3204,7 +3165,7 @@ presenceMenu.init();
       right.appendChild(renderReactionTray(msg.reactions));
     }
     if (msg.attachments && msg.attachments.length) {
-      right.appendChild(renderAttachmentTray(msg.attachments));
+      right.appendChild(ChatKit.buildAttachmentTray(msg.attachments));
     }
     if (msg.parentId) li.dataset.parentId = msg.parentId;
     // Before attachActions: the toolbar reads data-pinned to decide whether it offers Pin or

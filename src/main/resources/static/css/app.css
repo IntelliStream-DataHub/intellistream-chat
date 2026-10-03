@@ -3391,6 +3391,34 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
   cursor: zoom-in;
 }
 
+/* Video attachment: chat-kit.js's upgradeVideoCard puts a <video> above the file card, and the
+   card stays as the caption (name, type, size, download). The player box is a fixed 16:9 of the
+   tray's width rather than the video's own shape, on purpose: its metadata arrives after the feed
+   has been scrolled to the bottom, and a box that resized then would push the newest message
+   below the fold. Portrait clips are pillarboxed; fullscreen gives them the whole screen. */
+.attachment-video {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--panel-2);
+}
+.attachment-video-player {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  height: auto;
+  background: #000;
+  object-fit: contain;
+}
+.attachment-video > .attachment {
+  border: 0;
+  border-top: 1px solid var(--border);
+  border-radius: 0;
+}
+.attachment-note { color: var(--muted); }
+
 /* Fullscreen image preview */
 .lightbox {
   position: fixed;

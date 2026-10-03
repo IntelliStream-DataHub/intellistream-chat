@@ -1517,10 +1517,22 @@
   </p>
   <p>
     The content type is sniffed from the bytes with Apache Tika and the sniffed type wins over
-    whatever the browser claimed. Images render inline and, in channels, open in a full-screen
-    lightbox with download and open-in-new-tab actions; <kbd>Esc</kbd> closes it. Everything else
-    renders as a card with the filename, type and size. Downloads are served as attachments by
-    default, and only real raster images may be displayed inline, which is why SVG is excluded.
+    whatever the browser claimed. Images render inline and open in a full-screen lightbox with
+    download and open-in-new-tab actions; <kbd>Esc</kbd> closes it. Everything else renders as a
+    card with the filename, type and size. Downloads are served as attachments by default, and only
+    real raster images and video may be displayed inline, which is why SVG is excluded.
+  </p>
+  <p>
+    <b>Videos play in the message</b>, with the browser's own controls and fullscreen, and the card
+    stays underneath as the caption and download link. Whether a format plays is your browser's
+    decision. H.264 MP4 and WebM play in every current browser. A <code>.mov</code> is tried as well
+    and plays when the video inside is H.264. iPhones set to <i>High Efficiency</i> record HEVC,
+    which only some browser and hardware combinations decode. Something like AVI plays nowhere. When
+    your browser can't play a file you get the ordinary card with <i>Can't play in this browser</i>
+    on it, and the download still works. This applies to videos uploaded before the player existed
+    too, since nothing about it is recorded at upload time. Until you press play, the player fetches
+    little more than it needs to show the length and first frame, and seeking fetches just the part
+    you jump to.
   </p>
   <h4>Finding a file again</h4>
   <p>

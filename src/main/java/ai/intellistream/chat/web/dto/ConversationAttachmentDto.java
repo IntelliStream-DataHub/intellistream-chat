@@ -16,6 +16,7 @@
 
 package ai.intellistream.chat.web.dto;
 
+import ai.intellistream.chat.attachments.AttachmentMedia;
 import ai.intellistream.chat.domain.ConversationAttachment;
 
 import java.time.Instant;
@@ -35,7 +36,9 @@ public record ConversationAttachmentDto(
         Instant createdAt,
         /** See {@link AttachmentDto} — same tombstone, same reason. Null for a live attachment. */
         Instant deletedAt,
-        String deletedBy
+        String deletedBy,
+        /** See {@link AttachmentDto#videoType()} — same derivation, same reason. */
+        String videoType
 ) {
     public static ConversationAttachmentDto from(ConversationAttachment a) {
         var convId = a.getMessage().getConversation().getId();
@@ -49,7 +52,8 @@ public record ConversationAttachmentDto(
                      : "/api/conversations/" + convId + "/attachments/" + a.getId() + "/download",
                 a.getCreatedAt(),
                 a.getDeletedAt(),
-                gone ? a.getDeletedByUsername() : null
+                gone ? a.getDeletedByUsername() : null,
+                gone ? null : AttachmentMedia.videoType(a.getContentType(), a.getFilename())
         );
     }
 }

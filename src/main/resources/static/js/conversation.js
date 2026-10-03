@@ -57,7 +57,6 @@
     createThreadPanel,
     dayKey,
     formatTime,
-    formatBytes,
     insertAtCursor,
     wireAutoResize,
     wireAllFormatToolbars,
@@ -168,7 +167,7 @@
     }
 
     if (msg.attachments && msg.attachments.length) {
-      right.appendChild(renderAttachmentTray(msg.attachments));
+      right.appendChild(window.ChatKit.buildAttachmentTray(msg.attachments));
     }
     if (msg.replyCount > 0) {
       right.appendChild(window.ChatKit.buildThreadIndicator(msg.replyCount));
@@ -358,7 +357,7 @@
     // their unsaved draft the moment anyone reacts (BUG-14).
     if (right.querySelector('.message-edit') && !isEdit) {
       right.querySelectorAll('.message-reactions, .message-attachments').forEach(n => n.remove());
-      if (msg.attachments && msg.attachments.length) right.appendChild(renderAttachmentTray(msg.attachments));
+      if (msg.attachments && msg.attachments.length) right.appendChild(window.ChatKit.buildAttachmentTray(msg.attachments));
       if (msg.reactions && msg.reactions.length) right.appendChild(renderReactionTray(msg.reactions));
       return;
     }
@@ -381,7 +380,7 @@
       right.appendChild(renderReactionTray(msg.reactions));
     }
     if (msg.attachments && msg.attachments.length) {
-      right.appendChild(renderAttachmentTray(msg.attachments));
+      right.appendChild(window.ChatKit.buildAttachmentTray(msg.attachments));
     }
     // Re-added last so it keeps its place at the bottom of the message. It was stripped above with
     // the rest of the content column rather than preserved: leaving it in place would put the
@@ -567,7 +566,7 @@
     if (preview) right.appendChild(preview);
     if (msg.reactions && msg.reactions.length) right.appendChild(renderReactionTray(msg.reactions));
     if (msg.attachments && msg.attachments.length) {
-      right.appendChild(renderAttachmentTray(msg.attachments));
+      right.appendChild(window.ChatKit.buildAttachmentTray(msg.attachments));
     }
     li.append(avatar, right);
     attachActions(li);
@@ -597,44 +596,8 @@
   });
 
   // ---------- Attachment rendering ----------
-  // Mirrors chat.js's renderAttachmentTray + buildAttachmentLink for DMs. Image attachments
-  // open an in-page lightbox via the document-level delegate that ships in chat.js — but
-  // chat.js isn't loaded here, so wire a minimal local delegate further below.
-  function buildAttachmentLink(a) {
-    // Tombstone: the file was deleted from the file manager, the message stayed.
-    if (a.deletedAt) return window.ChatKit.buildRemovedAttachmentEl(a);
-    const isImage = (a.contentType || '').startsWith('image/');
-    const link = document.createElement('a');
-    link.href = a.downloadUrl;
-    link.title = a.filename;
-    if (isImage) {
-      link.className = 'attachment-image';
-      link.target = '_blank';
-      link.rel = 'noopener';
-      const img = document.createElement('img');
-      img.src = a.downloadUrl;
-      img.alt = a.filename;
-      img.loading = 'lazy';
-      link.append(img);
-    } else {
-      link.className = 'attachment';
-      link.dataset.contentType = a.contentType;
-      link.innerHTML = '<svg class="icon attachment-icon"><use href="#icon-paperclip"/></svg>' +
-          '<span class="attachment-info"><span class="attachment-name"></span>' +
-          '<span class="attachment-meta"></span></span>' +
-          '<svg class="icon attachment-download"><use href="#icon-download"/></svg>';
-      link.querySelector('.attachment-name').textContent = a.filename;
-      link.querySelector('.attachment-meta').textContent =
-          (a.contentType || '') + ' · ' + formatBytes(a.sizeBytes);
-    }
-    return link;
-  }
-  function renderAttachmentTray(attachments) {
-    const tray = document.createElement('div');
-    tray.className = 'message-attachments';
-    for (const a of attachments) tray.append(buildAttachmentLink(a));
-    return tray;
-  }
+  // Trays are built by ChatKit.buildAttachmentTray, shared with the channel page; this file used
+  // to carry its own copy, which is how a DM would have ended up without the video player.
   // The same in-page lightbox the channel page uses. This was a window.open to a new browser
   // tab — the "minimal" version — which is why image attachments felt different in a DM.
   window.ChatKit.wireImageLightbox();
