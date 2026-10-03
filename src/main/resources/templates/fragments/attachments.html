@@ -15,6 +15,12 @@
   in-page viewer), and a chip for everything else. A chip whose file the server can show as a
   document carries a preview button beside its download — previewUrl and previewKind are the
   server's answer to "can this be shown, and how", so nothing here guesses from a filename.
+
+  A chip is also what a video starts as. A video chip carries data-video-type, and chat-kit.js
+  turns it into a player on DOM-ready *if the browser says it can play that type*. The decision has
+  to be the browser's, so it is made there, once, for this markup and for every live-rendered
+  message alike; without script, or on a browser that can't play the format, the chip is simply
+  what you get, and it still downloads.
 */-->
 <div th:fragment="tray(attachments)"
      th:if="${attachments != null and !attachments.isEmpty()}"
@@ -45,9 +51,9 @@
               class="attachment-row">
             <a class="attachment"
                th:href="@{${a.downloadUrl}}"
-               th:attr="data-content-type=${a.contentType}"
+               th:attr="data-content-type=${a.contentType},data-video-type=${a.videoType}"
                th:title="${a.filename}">
-                <svg class="icon attachment-icon"><use href="#icon-paperclip"/></svg>
+                <svg class="icon attachment-icon"><use th:href="${a.videoType != null} ? '#icon-video' : '#icon-paperclip'" href="#icon-paperclip"/></svg>
                 <span class="attachment-info">
                     <span class="attachment-name" th:text="${a.filename}">file</span>
                     <span class="attachment-meta">

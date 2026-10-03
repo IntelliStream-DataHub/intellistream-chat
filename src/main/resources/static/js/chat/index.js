@@ -1781,7 +1781,7 @@ presenceMenu.init();
     }
 
     if (msg.attachments && msg.attachments.length > 0) {
-      right.append(renderAttachmentTray(msg.attachments));
+      right.append(ChatKit.buildAttachmentTray(msg.attachments));
     }
 
     // Thread indicator anchors the bottom of the message, like Slack's "N replies" widget.
@@ -2620,13 +2620,6 @@ presenceMenu.init();
     li.appendChild(buildActions(li));
   };
 
-  // The chips under a message come from ChatKit — one builder for this page, the DM page and the
-  // Thymeleaf history, because two copies of it is how the image lightbox ended up on one page
-  // and not the other. It is also what puts the preview button on a markdown or HTML attachment.
-  function renderAttachmentTray(attachments) {
-    return window.ChatKit.buildAttachmentTray(attachments);
-  }
-
   // ---------- Poll widget ----------
   // Click-to-vote with bar visualisation. Reactions on the host message stay independent —
   // they're emoji reactions, not votes. Mobile: each option is a full-width ≥44px button so
@@ -2808,7 +2801,7 @@ presenceMenu.init();
     if (right.querySelector('.message-edit') && !isEdit) {
       right.querySelectorAll('.message-attachments, .message-reactions, .poll-widget').forEach(n => n.remove());
       if (msg.poll) right.appendChild(renderPollWidget(msg.poll));
-      if (msg.attachments && msg.attachments.length) right.appendChild(renderAttachmentTray(msg.attachments));
+      if (msg.attachments && msg.attachments.length) right.appendChild(ChatKit.buildAttachmentTray(msg.attachments));
       if (msg.reactions && msg.reactions.length) right.appendChild(renderReactionTray(msg.reactions));
       // Someone else pinning this message while its author has the edit box open is not a reason
       // to lose their draft, but it is still a reason to show the marker.
@@ -2844,7 +2837,7 @@ presenceMenu.init();
       right.appendChild(renderPollWidget(msg.poll));
     }
     if (msg.attachments && msg.attachments.length) {
-      right.appendChild(renderAttachmentTray(msg.attachments));
+      right.appendChild(ChatKit.buildAttachmentTray(msg.attachments));
     }
     if (msg.reactions && msg.reactions.length) {
       right.appendChild(renderReactionTray(msg.reactions));
@@ -3172,7 +3165,7 @@ presenceMenu.init();
       right.appendChild(renderReactionTray(msg.reactions));
     }
     if (msg.attachments && msg.attachments.length) {
-      right.appendChild(renderAttachmentTray(msg.attachments));
+      right.appendChild(ChatKit.buildAttachmentTray(msg.attachments));
     }
     if (msg.parentId) li.dataset.parentId = msg.parentId;
     // Before attachActions: the toolbar reads data-pinned to decide whether it offers Pin or

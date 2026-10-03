@@ -112,7 +112,7 @@ class AttachmentPreviewGuardTest {
         for (String script : List.of("chat/index.js", "conversation.js")) {
             assertThat(read(JS.resolve(script)))
                     .as("%s must build its attachment tray through ChatKit", script)
-                    .contains("window.ChatKit.buildAttachmentTray(attachments)")
+                    .contains("ChatKit.buildAttachmentTray(msg.attachments)")
                     // The click delegate is what makes both the image links and the preview
                     // buttons do anything at all — including on the rows Thymeleaf rendered,
                     // which no page script ever touches.

@@ -29,7 +29,6 @@ import ai.intellistream.chat.web.dto.MessageEvent;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -39,8 +38,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.IOException;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.security.Principal;
 import java.util.List;
@@ -110,8 +107,8 @@ public class AttachmentRestController {
      * preview button.
      *
      * <p>This is what makes showing the file safe. {@link #download} refuses {@code inline}
-     * disposition for everything but images, because letting user-uploaded bytes render as a
-     * document in this origin is how an upload becomes stored XSS. Here the bytes never reach the
+     * disposition for everything but raster images and video, because letting user-uploaded bytes
+     * render as a document in this origin is how an upload becomes stored XSS. Here the bytes never reach the
      * browser: they are read, parsed and sanitised on the server, and the client gets HTML that
      * went through the same safelist as every message body.
      *
@@ -163,25 +160,8 @@ public class AttachmentRestController {
         if (!Files.isRegularFile(path)) {
             return ResponseEntity.notFound().build();
         }
-        var resource = new FileSystemResource(path);
-        var encoded = URLEncoder.encode(attachment.getFilename(), StandardCharsets.UTF_8)
-                .replace("+", "%20");
-        // Only honor inline for image types — letting arbitrary user-uploaded HTML/SVG render
-        // in-browser would be an XSS vector even with nosniff. The X-Content-Type-Options header
-        // below blocks MIME sniffing, but inline-rendering an image/svg+xml would still execute
-        // scripts in some browsers, so cap inline to image/* (excluding SVG).
-        var contentType = attachment.getContentType() == null ? "" : attachment.getContentType();
-        var inlineSafe = contentType.startsWith("image/") && !contentType.equalsIgnoreCase("image/svg+xml");
-        var inline = "inline".equalsIgnoreCase(dispositionParam) && inlineSafe;
-        var disposition = (inline ? "inline" : "attachment") + "; filename*=UTF-8''" + encoded;
-
-        return ResponseEntity.ok()
-                .contentType(UploadParts.parseMediaType(attachment.getContentType()))
-                .contentLength(attachment.getSizeBytes())
-                .header(HttpHeaders.CONTENT_DISPOSITION, disposition)
-                .header(HttpHeaders.CACHE_CONTROL, "private, max-age=3600")
-                .header("X-Content-Type-Options", "nosniff")
-                .body(resource);
+        return UploadParts.fileResponse(new FileSystemResource(path),
+                attachment.getFilename(), attachment.getContentType(), dispositionParam);
     }
 
 }

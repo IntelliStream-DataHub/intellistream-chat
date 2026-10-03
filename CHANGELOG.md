@@ -55,6 +55,10 @@ against anything: there is no released version for something to have been fixed 
   filename and caption in percent-encoded headers. Bytes go straight to disk and are never fully
   buffered in memory, so there is **no per-file size cap**: a file is as large as it is.
 - **Inline image previews** with an in-page lightbox.
+- **Videos play in the message** when the browser can play the format, with the file card kept
+  underneath for the name and the download; otherwise the card says it can't be played here.
+  Decided from the stored row on every view, so videos uploaded before the player existed play
+  too. Downloads answer Range requests, so seeking fetches only what it needs.
 - **A per-user file manager** at `/files`: browse and search everything you have uploaded, see
   where it was posted and what it costs you, and delete it. Deleting a file leaves its message
   standing and records in place that the file was removed, when, and by whom — your caption and

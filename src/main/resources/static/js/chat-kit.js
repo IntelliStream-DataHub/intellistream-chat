@@ -939,15 +939,20 @@
    * The tray of files under a message, and the chips in it. One builder for both feeds, their
    * update paths and their thread panels — the channel page and the DM page each had their own
    * copy of this, identical down to the comments, which is exactly the arrangement that let the
-   * image lightbox exist on one page and not the other for months. templates/channels.html and
-   * templates/conversation.html draw the same markup for the history Thymeleaf renders; keep the
-   * three in step.
+   * image lightbox exist on one page and not the other for months.
+   * templates/fragments/attachments.html draws the same markup for the history Thymeleaf renders;
+   * keep the two in step.
    *
    * <p>Three shapes: a tombstone for a file deleted from the file manager, a picture, and a chip
    * for everything else. A chip whose file the server can show as a document (the DTO's
    * previewUrl — markdown and HTML today) gets a preview button beside its download, in a wrapper
    * rather than inside the chip: the chip is an <a> and a button inside a link is neither valid
    * markup nor operable by a keyboard.
+   *
+   * <p>A video is a chip too, carrying data-video-type, and becomes a player here (see
+   * upgradeVideoCard below) when this browser says it can play the type. The player takes the
+   * chip's place inside the same row, with the chip kept underneath as its caption — the same DOM
+   * the DOM-ready sweep makes of a server-rendered video chip.
    */
   const buildAttachmentEl = (a) => {
     // Tombstone: the file was deleted from the file manager, the message stayed.
@@ -969,20 +974,30 @@
       link.append(img);
       return link;
     }
+    if (a.videoType) {
+      const kept = takeDetachedPlayer(a.downloadUrl);
+      if (kept) return buildAttachmentRow(kept, a);
+    }
     link.className = 'attachment';
     link.dataset.contentType = a.contentType;
-    link.innerHTML = '<svg class="icon attachment-icon"><use href="#icon-paperclip"/></svg>' +
+    if (a.videoType) link.dataset.videoType = a.videoType;
+    link.innerHTML = '<svg class="icon attachment-icon"><use href="#icon-' +
+          (a.videoType ? 'video' : 'paperclip') + '"/></svg>' +
         '<span class="attachment-info"><span class="attachment-name"></span>' +
         '<span class="attachment-meta"></span></span>' +
         '<svg class="icon attachment-download"><use href="#icon-download"/></svg>';
     link.querySelector('.attachment-name').textContent = a.filename;
     link.querySelector('.attachment-meta').textContent =
         (a.contentType || '') + ' · ' + formatBytes(a.sizeBytes);
-    // The wrapper is unconditional, so a chip with a preview button and one without lay out
-    // identically — and so this and the Thymeleaf mirror produce the same DOM for the same file.
+    return buildAttachmentRow(a.videoType ? upgradeVideoCard(link) : link, a);
+  };
+
+  // The wrapper is unconditional, so a chip with a preview button and one without lay out
+  // identically — and so this and the Thymeleaf mirror produce the same DOM for the same file.
+  const buildAttachmentRow = (chip, a) => {
     const row = document.createElement('span');
     row.className = 'attachment-row';
-    row.append(link);
+    row.append(chip);
     if (a.previewUrl) row.append(buildPreviewButton(a));
     return row;
   };
@@ -1009,6 +1024,128 @@
     for (const a of attachments || []) tray.append(buildAttachmentEl(a));
     return tray;
   };
+
+  // ---------- Video attachments ----------
+  /*
+   * A video arrives as an ordinary file card carrying data-video-type (the server's
+   * AttachmentMedia decides that, from the stored row, so files uploaded before this existed
+   * qualify too). Whether it becomes a player is the browser's call and nobody else's: the server
+   * cannot know what this browser decodes, and an AVI or a Matroska file is a video on every
+   * browser and playable on few. So the card is the starting point and the fallback, and the
+   * player is an enhancement made here — once, for live-rendered cards (buildAttachmentEl) and
+   * for the history Thymeleaf drew (the DOM-ready sweep below) alike.
+   *
+   * Two gates. canPlayType answers "is it worth asking", and an '' means no request is made at
+   * all. Then the element's own `error` answers the rest — "maybe" is a guess, and an MP4 holding
+   * HEVC is "maybe" on a browser with no HEVC decoder — by putting the card back. Either way the
+   * card says why there is no player, so a missing one doesn't read as a bug.
+   *
+   * The player sits in a fixed 16:9 box (app.css), so its metadata arriving never changes the
+   * feed's height — the image-load scroll-pinning in both pages has nothing to do for it.
+   */
+  const videoProbe = document.createElement('video');
+  // QuickTime, .m4v and 3GPP are ISO base media files, the box structure MP4 itself was
+  // derived from. Chromium's MP4 demuxer reads them, yet canPlayType answers '' for their own
+  // names — so an iPhone's .mov would never be tried. Ask about MP4 instead; if the codec inside
+  // turns out not to be decodable, the error handler restores the card.
+  const ISO_BMFF_VIDEO = new Set(['video/quicktime', 'video/x-m4v', 'video/3gpp']);
+  const canPlayVideo = (type) => {
+    if (!type || typeof videoProbe.canPlayType !== 'function') return false;
+    if (videoProbe.canPlayType(type) !== '') return true;
+    return ISO_BMFF_VIDEO.has(type) && videoProbe.canPlayType('video/mp4') !== '';
+  };
+
+  /*
+   * A player outlives the tray it was built in. Every update to a message — a reaction, an edit,
+   * a reply count — takes its attachment tray out and builds a new one from the DTO, and a fresh
+   * <video> for the same file would stop whoever is watching, rewind them to 0:00 and fetch the
+   * metadata again (against the download rate limit, too). So a player that has just been taken
+   * out of the document is handed to the next tray built for the same file. The callers remove
+   * the old tray and append the new one in the same task, and a media element only pauses itself
+   * if it is still out of the document once that task ends, so playback carries straight on.
+   * (Fullscreen does not survive: leaving the document ends it at once, whatever happens next.)
+   *
+   * Weak references, so a player whose message is gone for good is not kept alive by this map;
+   * a list per URL, because one file can be on screen twice — the feed and a thread panel.
+   */
+  const playersByUrl = new Map();
+  const rememberPlayer = (url, wrap) => {
+    const refs = (playersByUrl.get(url) || []).filter((r) => r.deref());
+    refs.push(new WeakRef(wrap));
+    playersByUrl.set(url, refs);
+  };
+  const forgetPlayer = (url, wrap) => {
+    const refs = (playersByUrl.get(url) || []).filter((r) => r.deref() && r.deref() !== wrap);
+    if (refs.length) playersByUrl.set(url, refs); else playersByUrl.delete(url);
+  };
+  const takeDetachedPlayer = (url) => {
+    if (typeof WeakRef !== 'function') return null;
+    for (const ref of playersByUrl.get(url) || []) {
+      const wrap = ref.deref();
+      if (wrap && !wrap.isConnected) return wrap;
+    }
+    return null;
+  };
+
+  const markUnplayable = (card) => {
+    card.dataset.videoState = 'unplayable';
+    const meta = card.querySelector('.attachment-meta');
+    if (!meta || meta.querySelector('.attachment-note')) return;
+    const note = document.createElement('span');
+    note.className = 'attachment-note';
+    note.textContent = ' · Can’t play in this browser';
+    meta.appendChild(note);
+  };
+
+  /**
+   * Turn a video card into a player when this browser can play it, keeping the card itself as
+   * the caption underneath (name, type, size, download). Returns whichever element now stands for
+   * the attachment; a card that is already in the document is swapped in place.
+   */
+  const upgradeVideoCard = (card) => {
+    if (card.dataset.videoState) return card.closest('.attachment-video') || card;
+    if (!canPlayVideo(card.dataset.videoType)) {
+      markUnplayable(card);
+      return card;
+    }
+    card.dataset.videoState = 'player';
+    const wrap = document.createElement('div');
+    wrap.className = 'attachment-video';
+    const video = document.createElement('video');
+    video.className = 'attachment-video-player';
+    video.controls = true;
+    // Enough for the duration and, on most browsers, the first frame — not the whole file.
+    video.preload = 'metadata';
+    video.playsInline = true;
+    video.setAttribute('aria-label', card.title || 'Video');
+    const href = card.getAttribute('href');
+    // Listening before src is set, so not even an instant failure can slip past. A failed player
+    // is also forgotten, or the next rebuild of its message would hand the broken one back.
+    video.addEventListener('error', () => {
+      video.removeAttribute('src');
+      forgetPlayer(href, wrap);
+      if (wrap.parentNode) wrap.replaceWith(card);
+      markUnplayable(card);
+    }, { once: true });
+    // inline, so the player's own "Open video in new tab" plays the file rather than saving it.
+    video.src = href + (href.indexOf('?') === -1 ? '?' : '&') + 'disposition=inline';
+    if (card.parentNode) card.replaceWith(wrap);
+    wrap.append(video, card);
+    if (typeof WeakRef === 'function') rememberPlayer(href, wrap);
+    return wrap;
+  };
+
+  const upgradeVideoCards = (root) => {
+    root.querySelectorAll('a.attachment[data-video-type]:not([data-video-state])')
+        .forEach(upgradeVideoCard);
+  };
+  // The server-rendered history, swept once here for every page — the same reasoning as the
+  // highlightCode sweep above: a line each page's own script must remember is a line one forgets.
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => upgradeVideoCards(document), { once: true });
+  } else {
+    upgradeVideoCards(document);
+  }
 
   // ---------- Link preview card ----------
   // The card under a message that contains a link: site, title, description, and the server's
@@ -1891,6 +2028,7 @@
     buildRemovedAttachmentEl,
     buildAttachmentEl,
     buildAttachmentTray,
+    upgradeVideoCards,
     buildLinkPreviewEl,
     buildVideoFacadeEl,
     applyLinkPreview,

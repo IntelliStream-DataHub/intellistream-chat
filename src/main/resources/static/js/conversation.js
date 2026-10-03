@@ -167,7 +167,7 @@
     }
 
     if (msg.attachments && msg.attachments.length) {
-      right.appendChild(renderAttachmentTray(msg.attachments));
+      right.appendChild(window.ChatKit.buildAttachmentTray(msg.attachments));
     }
     if (msg.replyCount > 0) {
       right.appendChild(window.ChatKit.buildThreadIndicator(msg.replyCount));
@@ -357,7 +357,7 @@
     // their unsaved draft the moment anyone reacts (BUG-14).
     if (right.querySelector('.message-edit') && !isEdit) {
       right.querySelectorAll('.message-reactions, .message-attachments').forEach(n => n.remove());
-      if (msg.attachments && msg.attachments.length) right.appendChild(renderAttachmentTray(msg.attachments));
+      if (msg.attachments && msg.attachments.length) right.appendChild(window.ChatKit.buildAttachmentTray(msg.attachments));
       if (msg.reactions && msg.reactions.length) right.appendChild(renderReactionTray(msg.reactions));
       return;
     }
@@ -380,7 +380,7 @@
       right.appendChild(renderReactionTray(msg.reactions));
     }
     if (msg.attachments && msg.attachments.length) {
-      right.appendChild(renderAttachmentTray(msg.attachments));
+      right.appendChild(window.ChatKit.buildAttachmentTray(msg.attachments));
     }
     // Re-added last so it keeps its place at the bottom of the message. It was stripped above with
     // the rest of the content column rather than preserved: leaving it in place would put the
@@ -566,7 +566,7 @@
     if (preview) right.appendChild(preview);
     if (msg.reactions && msg.reactions.length) right.appendChild(renderReactionTray(msg.reactions));
     if (msg.attachments && msg.attachments.length) {
-      right.appendChild(renderAttachmentTray(msg.attachments));
+      right.appendChild(window.ChatKit.buildAttachmentTray(msg.attachments));
     }
     li.append(avatar, right);
     attachActions(li);
@@ -596,13 +596,10 @@
   });
 
   // ---------- Attachment rendering ----------
-  // The tray, its chips and the in-page viewer behind them all come from ChatKit, so a DM's files
-  // look and behave exactly like a channel's. They didn't always: this page carried its own copy
-  // of the chip builder and opened images in a new browser tab, which is a different product
-  // decision made by accident in a copy nobody compared.
-  function renderAttachmentTray(attachments) {
-    return window.ChatKit.buildAttachmentTray(attachments);
-  }
+  // Trays are built by ChatKit.buildAttachmentTray, shared with the channel page, and so is the
+  // in-page viewer behind them; this file used to carry its own copy of the chip builder and
+  // opened images in a new browser tab, which is a different product decision made by accident in
+  // a copy nobody compared — and how a DM would have ended up without the video player.
   window.ChatKit.wireAttachmentViewer();
 
   // ---------- Typing indicator ----------

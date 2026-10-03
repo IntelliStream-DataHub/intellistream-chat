@@ -30,8 +30,8 @@ import java.util.Set;
  * Which uploaded files can be shown in the page, and how their text is read.
  *
  * <p>An attachment is otherwise opaque: {@code AttachmentRestController.download} refuses
- * {@code inline} disposition for everything but images, precisely so user-supplied bytes never
- * render as a document in this origin. The two kinds here are the exceptions, and each earns it
+ * {@code inline} disposition for everything but raster images and video, precisely so
+ * user-supplied bytes never render as a document in this origin. The two kinds here are the exceptions, and each earns it
  * differently — a markdown file is rendered to sanitised HTML server-side and never reaches the
  * browser as a file at all; an HTML file is shown as itself, inside a sandboxed iframe with no
  * script and no origin. Adding a third kind means answering the same question: what stops the

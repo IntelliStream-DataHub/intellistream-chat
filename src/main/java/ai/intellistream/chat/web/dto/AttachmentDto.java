@@ -16,6 +16,7 @@
 
 package ai.intellistream.chat.web.dto;
 
+import ai.intellistream.chat.attachments.AttachmentMedia;
 import ai.intellistream.chat.attachments.PreviewableAttachments;
 import ai.intellistream.chat.domain.Attachment;
 
@@ -49,7 +50,14 @@ public record AttachmentDto(
          * these two fields are that something. Null for a live attachment.
          */
         Instant deletedAt,
-        String deletedBy
+        String deletedBy,
+        /**
+         * The type to offer the browser's video player, or null when this isn't a video (or is a
+         * tombstone). Derived from the stored row on every read — see {@link AttachmentMedia} —
+         * so files uploaded before the player existed get one too. Whether the browser can
+         * actually play it is decided client-side; this only says it is worth asking.
+         */
+        String videoType
 ) {
     public static AttachmentDto from(Attachment a) {
         boolean gone = a.isDeleted();
@@ -66,6 +74,7 @@ public record AttachmentDto(
                 kind == null ? null : kind.slug(),
                 a.getCreatedAt(),
                 a.getDeletedAt(),
-                gone ? a.getDeletedByUsername() : null);
+                gone ? a.getDeletedByUsername() : null,
+                gone ? null : AttachmentMedia.videoType(a.getContentType(), a.getFilename()));
     }
 }
