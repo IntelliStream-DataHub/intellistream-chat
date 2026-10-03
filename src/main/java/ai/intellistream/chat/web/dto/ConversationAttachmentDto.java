@@ -17,6 +17,7 @@
 package ai.intellistream.chat.web.dto;
 
 import ai.intellistream.chat.attachments.AttachmentMedia;
+import ai.intellistream.chat.attachments.PreviewableAttachments;
 import ai.intellistream.chat.domain.ConversationAttachment;
 
 import java.time.Instant;
@@ -33,6 +34,10 @@ public record ConversationAttachmentDto(
         String contentType,
         long sizeBytes,
         String downloadUrl,
+        /** See {@link AttachmentDto#previewUrl()} — same rule, namespaced under the conversation. */
+        String previewUrl,
+        /** See {@link AttachmentDto#previewKind()}. */
+        String previewKind,
         Instant createdAt,
         /** See {@link AttachmentDto} — same tombstone, same reason. Null for a live attachment. */
         Instant deletedAt,
@@ -43,6 +48,7 @@ public record ConversationAttachmentDto(
     public static ConversationAttachmentDto from(ConversationAttachment a) {
         var convId = a.getMessage().getConversation().getId();
         boolean gone = a.isDeleted();
+        var kind = gone ? null : PreviewableAttachments.kindOf(a.getFilename(), a.getContentType());
         return new ConversationAttachmentDto(
                 a.getId(),
                 a.getFilename(),
@@ -50,6 +56,9 @@ public record ConversationAttachmentDto(
                 a.getSizeBytes(),
                 gone ? null
                      : "/api/conversations/" + convId + "/attachments/" + a.getId() + "/download",
+                kind == null ? null
+                     : "/api/conversations/" + convId + "/attachments/" + a.getId() + "/" + kind.slug(),
+                kind == null ? null : kind.slug(),
                 a.getCreatedAt(),
                 a.getDeletedAt(),
                 gone ? a.getDeletedByUsername() : null,

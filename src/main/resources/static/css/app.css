@@ -2287,6 +2287,35 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
 /* The preview renders the same .message-body the sent message will, so it needs no type rules
    of its own — see the "Messages" section. */
 
+/* Wide composer: the preview sits to the right of the textarea rather than under it. Keyed on the
+   composer's own width, not the viewport's, because an open thread panel takes 380px out of the
+   middle column — a viewport query would split a composer that is by then too narrow to split.
+   The thread composer is never inside .composer-wrap, so it keeps the stacked layout.
+   contain: size is what makes the textarea, not the preview, decide the row's height: the preview
+   contributes nothing to it, stretches to whatever the auto-grown textarea is, and scrolls past
+   that. Without it a long preview would stretch the row under a textarea whose height is pinned
+   inline by wireAutoResize, leaving a dead band below the text. No :has() means stacked, as before. */
+.composer-wrap { container: composer / inline-size; }
+@container composer (min-width: 760px) {
+  .composer:has(> .composer-preview:not([hidden])) {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .composer:has(> .composer-preview:not([hidden])) > * { grid-column: 1 / -1; }
+  .composer:has(> .composer-preview:not([hidden])) > textarea { grid-column: 1; }
+  .composer:has(> .composer-preview:not([hidden])) > .composer-preview {
+    grid-column: 2;
+    border-top: 0;
+    border-left: 1px dashed var(--border);
+    max-height: none;
+    contain: size;
+  }
+  /* Top row of the box when no attachment tray sits above it: follow the composer's corner. */
+  .composer-attachments[hidden] + textarea + .composer-preview {
+    border-top-right-radius: calc(var(--radius-md) - 1px);
+  }
+}
+
 .composer-toolbar {
   display: flex;
   align-items: center;
@@ -3367,6 +3396,42 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
 }
 .attachment:hover .attachment-download { color: var(--accent-fg); }
 
+/* A chip whose file can be shown in place carries a preview button beside its download. It is a
+   sibling of the chip rather than a child, because the chip is an <a> and a <button> inside a link
+   is neither valid markup nor reachable by keyboard. The wrapper is rendered for every file chip,
+   with or without the button, so both lay out identically. */
+.attachment-row {
+  display: flex;
+  align-items: stretch;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.attachment-row .attachment { flex: 1 1 auto; min-width: 0; }
+/* A playable video's chip is swapped for the player inside the same row, so the player has to
+   take the chip's full width — content-sized, a 100%-wide <video> collapses to nothing. */
+.attachment-row > .attachment-video { flex: 1 1 auto; min-width: 0; }
+.attachment-preview {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 2.75rem; /* 44px: a comfortable tap target next to the chip on a phone */
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--panel-2);
+  color: var(--muted);
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+/* Restating color is not redundant: the global `button:hover { color: var(--accent-on) }` would
+   otherwise win here and paint the icon in the accent's foreground. */
+.attachment-preview:hover {
+  background: var(--panel-3);
+  border-color: var(--border-strong);
+  color: var(--accent-fg);
+}
+
 .attachment-image {
   display: inline-block;
   max-width: 480px;
@@ -3467,10 +3532,84 @@ html[data-self-presence="DND"] .topbar .me .avatar:has(.avatar-status-emoji)::af
   color: #fff;
   text-decoration: none;
 }
+/* These two carry `display` in a class rule, which outranks the UA's [hidden] { display: none } —
+   without restating it, hiding the image or the open-in-tab button does nothing at all. */
+.lightbox-btn[hidden] { display: none; }
+.lightbox-img[hidden] { display: none; }
 body.lightbox-open { overflow: hidden; }
+
+/* The same overlay also shows documents: a rendered markdown file on a sheet, and an uploaded
+   HTML file inside a sandboxed frame. Only the content node changes — chrome, Escape and the
+   backdrop click are shared. */
+.lightbox-title {
+  margin-right: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #fff;
+  font-weight: 600;
+  font-size: var(--fs-md);
+  padding-left: 0.35rem;
+}
+.lightbox-doc,
+.lightbox-frame-wrap {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 1rem;
+  overflow: auto;
+}
+.lightbox-doc[hidden],
+.lightbox-frame-wrap[hidden] { display: none; }
+/* A page of text, not a full-bleed wall of it: the same measure a document would have on paper. */
+.lightbox-sheet {
+  width: min(56rem, 100%);
+  background: var(--panel);
+  color: var(--text);
+  border-radius: var(--radius-md);
+  padding: 1.5rem 1.75rem;
+}
+.lightbox-frame-wrap { padding: 0.75rem; }
+.lightbox-frame-slot {
+  width: min(64rem, 100%);
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+}
+/* White, not var(--panel): the frame holds somebody's own page, which will assume a page's
+   default background, and a dark sheet under light-themed content is unreadable. */
+.lightbox-frame {
+  flex: 1 1 auto;
+  width: 100%;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+.lightbox-note {
+  width: min(56rem, 100%);
+  margin: 0 0 0.6rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+  font-size: var(--fs-sm);
+}
+.lightbox-note[hidden] { display: none; }
+.lightbox-status {
+  margin: auto;
+  color: #fff;
+  font-size: var(--fs-md);
+}
+.lightbox-status[hidden] { display: none; }
 @media (max-width: 640px) {
   .lightbox-toolbar { padding: 0.4rem 0.6rem; }
   .lightbox-img { margin: 0.5rem; }
+  .lightbox-doc { padding: 0.5rem; }
+  .lightbox-sheet { padding: 1rem; }
+  .lightbox-frame-wrap { padding: 0.5rem; }
 }
 
 /* Composer pending-attachment chips */
@@ -3480,6 +3619,8 @@ body.lightbox-open { overflow: hidden; }
   gap: 0.4rem;
   padding: 0.5rem 0.6rem 0;
 }
+/* display: flex outranks the UA's [hidden] rule, so the empty tray kept its top padding. */
+.composer-attachments[hidden] { display: none; }
 .composer-chip {
   display: inline-flex;
   align-items: center;

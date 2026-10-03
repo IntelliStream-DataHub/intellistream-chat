@@ -482,7 +482,7 @@
                                     <span class="reaction-count" th:text="${r.count}">1</span>
                                 </button>
                             </div>
-                            <div th:replace="~{fragments/attachment :: tray(${msg.attachments})}"></div>
+                            <div th:replace="~{fragments/attachments :: tray(${msg.attachments})}"></div>
                             <button th:if="${msg.replyCount > 0}" type="button"
                                     class="thread-indicator"
                                     th:attr="data-count=${msg.replyCount}"

@@ -596,11 +596,11 @@
   });
 
   // ---------- Attachment rendering ----------
-  // Trays are built by ChatKit.buildAttachmentTray, shared with the channel page; this file used
-  // to carry its own copy, which is how a DM would have ended up without the video player.
-  // The same in-page lightbox the channel page uses. This was a window.open to a new browser
-  // tab — the "minimal" version — which is why image attachments felt different in a DM.
-  window.ChatKit.wireImageLightbox();
+  // Trays are built by ChatKit.buildAttachmentTray, shared with the channel page, and so is the
+  // in-page viewer behind them; this file used to carry its own copy of the chip builder and
+  // opened images in a new browser tab, which is a different product decision made by accident in
+  // a copy nobody compared — and how a DM would have ended up without the video player.
+  window.ChatKit.wireAttachmentViewer();
 
   // ---------- Typing indicator ----------
   // Receiving and sending halves both come from ChatKit; what is local is the destination and the

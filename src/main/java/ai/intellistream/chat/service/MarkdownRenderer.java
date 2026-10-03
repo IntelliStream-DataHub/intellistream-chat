@@ -91,14 +91,36 @@ public class MarkdownRenderer {
     }
 
     public String render(String markdown, Room room) {
+        var hardened = toSafeHtml(markdown);
+        if (hardened.isEmpty()) return hardened;
+        return decorateMentions(hardened, mentionService.resolvedUsernames(markdown), room);
+    }
+
+    /**
+     * As {@link #render(String)}, for markdown that is <b>not</b> a message — today the rendered
+     * preview of an uploaded {@code .md} file (see
+     * {@link ai.intellistream.chat.attachments.MarkdownAttachments}).
+     *
+     * <p>Same parse, same safelist, same hardened anchors; what it leaves out is the mention pass,
+     * for two reasons. An {@code @name} in a file notified nobody — nothing wrote a
+     * {@code message_mentions} row for it — so painting it as a mention pill would be the UI
+     * claiming something untrue. And the pass costs one user lookup per distinct handle in the
+     * text, which is a fine price for a chat message and a bad one for a document that may hold
+     * thousands.
+     */
+    public String renderDocument(String markdown) {
+        return toSafeHtml(markdown);
+    }
+
+    /** CommonMark, then the safelist, then hardened anchors. Everything the two paths share. */
+    private String toSafeHtml(String markdown) {
         if (markdown == null || markdown.isBlank()) {
             return "";
         }
         var node = parser.parse(markdown);
         var rawHtml = renderer.render(node);
         var clean = Jsoup.clean(rawHtml, safelist);
-        var hardened = hardenAnchors(clean);
-        return decorateMentions(hardened, mentionService.resolvedUsernames(markdown), room);
+        return hardenAnchors(clean);
     }
 
     /**

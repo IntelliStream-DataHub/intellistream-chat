@@ -115,7 +115,9 @@ against anything: there is no released version for something to have been fixed 
   conversations to every message — which is what lets a large group DM be set to mentions-only
   and have it mean that.
 - **Notification sounds**, set separately for mentions and direct messages, chosen from fifteen
-  synthesised in the browser — no audio files to ship, serve or license.
+  synthesised in the browser — no audio files to ship, serve or license. One sound per message:
+  the chime when the browser allows it, the desktop banner's own sound when it does not, and at
+  most one every three seconds however fast a channel is moving.
 - In-tab toasts, plus OS notifications where the browser permits them.
 
 ### Administration

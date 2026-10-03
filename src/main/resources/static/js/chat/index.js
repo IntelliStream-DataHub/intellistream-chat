@@ -2777,7 +2777,7 @@ presenceMenu.init();
   // Lives in chat-kit.js: the conversation page needs the identical one, and it used to make do
   // with window.open — a new browser tab instead of the in-page viewer, which is the difference
   // people notice when they say attachments "behave differently" in a DM.
-  window.ChatKit.wireImageLightbox();
+  window.ChatKit.wireAttachmentViewer();
 
   // `target` names the row to repaint. The broadcast path has none in hand and looks one up; the
   // author's own save passes the row it just edited, so an edit made in the thread panel repaints

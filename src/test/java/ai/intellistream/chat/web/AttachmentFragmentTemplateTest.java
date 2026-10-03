@@ -48,7 +48,7 @@ import java.util.regex.Pattern;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * The attachment tray both server-rendered feeds share ({@code fragments/attachment.html}),
+ * The attachment tray both server-rendered feeds share ({@code fragments/attachments.html}),
  * rendered for real from DTOs built the way the controllers build them.
  *
  * <p>What it guards: a video row has to leave the server as a card carrying
@@ -93,7 +93,7 @@ class AttachmentFragmentTemplateTest {
                 new ThymeleafEvaluationContext(applicationContext, null));
         variables.put("fmt", new TimeFormats("UTC").forUser(null, Locale.ENGLISH));
         variables.put("attachments", attachments);
-        return engine.process("fragments/attachment", Set.of("tray"),
+        return engine.process("fragments/attachments", Set.of("tray"),
                 new WebContext(exchange, Locale.ENGLISH, variables));
     }
 
@@ -151,7 +151,7 @@ class AttachmentFragmentTemplateTest {
         var image = row(5, "cat.png", "image/png");
         var gone = row(6, "clip.mp4", "video/mp4");
         var deleted = new AttachmentDto(gone.id(), gone.filename(), gone.contentType(), gone.sizeBytes(),
-                null, gone.createdAt(), java.time.Instant.parse("2026-10-01T12:00:00Z"), "alice", null);
+                null, null, null, gone.createdAt(), java.time.Instant.parse("2026-10-01T12:00:00Z"), "alice", null);
         var html = render(List.of(image, deleted));
 
         assertThat(tagFor(html, 5)).contains("class=\"attachment-image\"");
@@ -170,7 +170,7 @@ class AttachmentFragmentTemplateTest {
         // grows its own copy again is a page whose history never gets the player.
         for (var page : List.of("channels.html", "conversation.html")) {
             var src = Files.readString(TEMPLATES.resolve(page));
-            assertThat(src).as(page).contains("~{fragments/attachment :: tray(${msg.attachments})}");
+            assertThat(src).as(page).contains("~{fragments/attachments :: tray(${msg.attachments})}");
             assertThat(src).as(page + " must not render attachment cards itself")
                     .doesNotContain("class=\"attachment-image\"")
                     .doesNotContain("class=\"attachment\"");
