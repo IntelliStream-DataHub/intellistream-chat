@@ -20,7 +20,7 @@ services:
       retries: 10
 
   keycloak:
-    image: quay.io/keycloak/keycloak:26.7
+    image: quay.io/keycloak/keycloak:26.8
     # The three --spi-theme flags are the edit loop for keycloak/themes/intellistream: no
     # resolved-theme cache, no compiled-template cache, and Cache-Control: no-cache instead of the
     # thirty-day max-age on theme resources (CSS, fonts, the logo). A browser reload is then the
@@ -113,7 +113,7 @@ services:
   # localhost is the only origin exempt from the HTTPS requirement — over a LAN IP the camera and
   # microphone are blocked outright, with no prompt and no obvious error.
   coturn:
-    image: docker.io/coturn/coturn:4.6
+    image: docker.io/coturn/coturn:4.18
     # Host networking rather than published ports, because a relay needs a range of UDP ports
     # and asking podman to map forty of them makes `up` take visibly longer for no benefit on a
     # machine where the relay is only ever reached from the same host. A production deployment

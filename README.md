@@ -307,7 +307,7 @@ proxy, JVM/GC tuning, and SELinux on AlmaLinux/RHEL — see:
 
 ### Runtime / build
 - **Java 25** toolchain
-- **Spring Boot 4.1.0**, Gradle Kotlin DSL
+- **Spring Boot 4.1.2**, Gradle Kotlin DSL
 - **PostgreSQL 18** (bigint identity PKs, partial indexes)
 - **Keycloak 26** as the OIDC issuer (runs out-of-process via `podman compose`)
 

@@ -39,8 +39,8 @@ This starts:
 | Service  | Image                        | Address                 | Credentials |
 |----------|------------------------------|-------------------------|-------------|
 | Postgres | `postgres:18-alpine`         | `127.0.0.1:5432`        | `ichat_role` / `ichat_role`, db `intellistream_chat` |
-| Keycloak | `keycloak:26.0`              | port `8081` (see note)  | admin console: `admin` / `admin` |
-| coturn   | `coturn:4.6`                 | `127.0.0.1:3478/udp`    | shared secret `dev-turn-secret` |
+| Keycloak | `keycloak:26.8`              | port `8081` (see note)  | admin console: `admin` / `admin` |
+| coturn   | `coturn:4.18`                | `127.0.0.1:3478/udp`    | shared secret `dev-turn-secret` |
 
 coturn is the TURN relay that carries voice and video for 1:1 calls. It binds to loopback, which is
 both what the quick start needs — two browsers on this machine — and the only safe default for a

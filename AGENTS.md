@@ -14,12 +14,12 @@ Production proxy (nginx/haproxy, sizing, the SameSite gotcha): `frontend.md`.
 
 ## Stack
 
-- **Java 25** (toolchain), **Spring Boot 4.1.0**, **Gradle Kotlin DSL**.
+- **Java 25** (toolchain), **Spring Boot 4.1.2**, **Gradle Kotlin DSL**.
 - **Postgres 18** for storage, **Flyway** for migrations.
 - **Keycloak 26** for OAuth2/OIDC.
 - **Container runtime: Podman.** Docker is **not** installed. Use `podman compose` (or `podman-compose`) for the local stack. Testcontainers needs `DOCKER_HOST=unix:///run/user/$UID/podman/podman.sock` (start the user socket with `systemctl --user enable --now podman.socket`).
 - **STOMP over native WebSocket** (`/ws`) for real-time messages. No SockJS fallback — its `iframe`/`htmlfile`/`jsonp-polling` transports inject inline `<script>` and break the strict CSP.
-- **Thymeleaf + vanilla JS only.** No React/Vue/Svelte, no npm bundler. StompJS (`@stomp/stompjs` 7.3.0, the unmodified `bundles/stomp.umd.min.js` from the npm tarball), highlight.js, Mermaid (`mermaid` 12.2.0, the unmodified `dist/mermaid.min.js`, loaded on demand) and `html-setters-polyfill` (for `Element.setHTML`) are vendored under `static/js/vendor/`; everything else is hand-written.
+- **Thymeleaf + vanilla JS only.** No React/Vue/Svelte, no npm bundler. StompJS (`@stomp/stompjs` 7.5.0, the unmodified `bundles/stomp.umd.min.js` from the npm tarball), highlight.js (`@highlightjs/cdn-assets` 11.12.0), Mermaid (`mermaid` 12.2.0, the unmodified `dist/mermaid.min.js`, loaded on demand) and `html-setters-polyfill` (for `Element.setHTML`) are vendored under `static/js/vendor/`; everything else is hand-written.
 - **UI font: Figtree** (SIL OFL), self-hosted as variable woff2 under `static/fonts/` — the CSP (`font-src 'self'`) bans font CDNs, so never link fonts.googleapis.com; vendor new fonts the same way.
 - **CommonMark + jsoup** for Markdown rendering and sanitization.
 - **Uploads are raw request bodies, not multipart.** The file is the body; filename/caption are percent-encoded `X-Upload-*` headers (`RawUpload`). Multipart's boundary scan capped throughput well below line rate, so `commons-fileupload` is gone — don't reintroduce it. Spring's own multipart support is still used for the admin branding form.
