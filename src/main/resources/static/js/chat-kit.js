@@ -600,7 +600,9 @@
    */
   const highlightCode = (root) => {
     if (!root) return;
-    const blocks = root.querySelectorAll('pre code');
+    // Mermaid sources are not code to colour; renderDiagrams turns them into pictures, and
+    // highlight.js has no grammar for them (it would only log that it doesn't).
+    const blocks = root.querySelectorAll('pre code:not(.language-mermaid)');
     // Nothing to do is not a problem worth a warning: chat-kit runs on pages that carry no code
     // at all (/files, the file manager), and warning there trains people to ignore the line that
     // matters — a page that has code blocks and no highlighter.
@@ -620,6 +622,137 @@
       } catch (err) {
         console.warn('[hljs] failed to highlight a block:', err);
       }
+    });
+  };
+
+  // ---------- Mermaid diagrams ----------
+  /*
+   * A ```mermaid fence draws as a diagram, the way GitHub draws one in a README. The server does
+   * nothing new: CommonMark already turns the fence into <pre><code class="language-mermaid">, and
+   * the safelist already keeps that class. The browser swaps the block for an SVG.
+   *
+   * - Mermaid is 5 MB, so it is fetched only when a page actually has a diagram, and with a
+   *   ?v= URL so StaticAssetCacheConfig serves it immutable — a second page view costs nothing.
+   *   Bump MERMAID_VERSION with the vendored file or every browser keeps the old one.
+   * - securityLevel 'strict' is what makes drawing someone else's text safe: labels are run
+   *   through Mermaid's DOMPurify, HTML in them is escaped, and click/callback directives are
+   *   ignored. Never loosen it — the source is whatever any channel member typed.
+   * - The source is kept, hidden, behind a "Source" toggle: it is what the author wrote, and what
+   *   a reader copies to edit the diagram.
+   * - A diagram that fails to parse stays a code block with a one-line reason under it, rather
+   *   than Mermaid's own bomb graphic (suppressErrorRendering).
+   */
+  const MERMAID_VERSION = '12.2.0';
+  const MERMAID_MAX_SOURCE = 20000;
+  let mermaidLoading = null;
+  let mermaidSeq = 0;
+
+  const loadMermaid = () => {
+    if (window.mermaid) return Promise.resolve(window.mermaid);
+    if (mermaidLoading) return mermaidLoading;
+    mermaidLoading = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = '/js/vendor/mermaid.min.js?v=' + MERMAID_VERSION;
+      script.async = true;
+      script.onload = () => {
+        if (!window.mermaid) { reject(new Error('Mermaid did not load')); return; }
+        window.mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: 'strict',
+          suppressErrorRendering: true,
+          theme: window.ChatTheme?.isDark?.() ? 'dark' : 'default',
+          fontFamily: 'Figtree, system-ui, sans-serif',
+        });
+        resolve(window.mermaid);
+      };
+      script.onerror = () => {
+        mermaidLoading = null; // let a later message try again
+        reject(new Error('Mermaid failed to load'));
+      };
+      document.head.append(script);
+    });
+    return mermaidLoading;
+  };
+
+  // A diagram arrives after the message it sits in, and has a height nobody knew in advance. If
+  // the feed was parked at the bottom, keep it there; otherwise leave the reader where they are.
+  const scrollParentOf = (el) => {
+    for (let p = el.parentElement; p; p = p.parentElement) {
+      const oy = getComputedStyle(p).overflowY;
+      if ((oy === 'auto' || oy === 'scroll') && p.scrollHeight > p.clientHeight) return p;
+    }
+    return null;
+  };
+  const keepBottomPinned = (el, change) => {
+    const scroller = scrollParentOf(el);
+    const pinned = scroller
+        && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 40;
+    change();
+    if (pinned) scroller.scrollTop = scroller.scrollHeight;
+  };
+
+  const showDiagramError = (pre, err) => {
+    const note = document.createElement('div');
+    note.className = 'mermaid-error';
+    const reason = String(err?.message || err || '').split('\n')[0].slice(0, 200);
+    note.textContent = "Couldn't draw this diagram" + (reason ? ': ' + reason : '.');
+    pre.after(note);
+  };
+
+  const drawDiagram = async (mermaid, pre, source) => {
+    const id = 'mermaid-' + (++mermaidSeq);
+    try {
+      const { svg } = await mermaid.render(id, source);
+      const figure = document.createElement('div');
+      figure.className = 'mermaid-diagram';
+      figure.innerHTML = `<div class="mermaid-diagram-canvas"></div>
+        <button type="button" class="mermaid-diagram-toggle" aria-pressed="false">Source</button>`;
+      // Mermaid's own output, built under securityLevel 'strict' and passed through its DOMPurify.
+      figure.querySelector('.mermaid-diagram-canvas').innerHTML = svg;
+      const toggle = figure.querySelector('.mermaid-diagram-toggle');
+      toggle.addEventListener('click', () => {
+        const showSource = pre.hidden;
+        pre.hidden = !showSource;
+        figure.querySelector('.mermaid-diagram-canvas').hidden = showSource;
+        toggle.textContent = showSource ? 'Diagram' : 'Source';
+        toggle.setAttribute('aria-pressed', String(showSource));
+      });
+      keepBottomPinned(pre, () => {
+        pre.before(figure);
+        pre.hidden = true;
+        figure.append(pre); // the toggle swaps between the two inside one box
+      });
+    } catch (err) {
+      // render() can leave its scratch element behind on a parse failure.
+      document.getElementById('d' + id)?.remove();
+      keepBottomPinned(pre, () => showDiagramError(pre, err));
+    }
+  };
+
+  const renderDiagrams = (root) => {
+    if (!root) return;
+    const blocks = Array.from(root.querySelectorAll('pre > code.language-mermaid'))
+        .filter((code) => !code.dataset.diagram);
+    if (!blocks.length) return;
+    for (const code of blocks) code.dataset.diagram = 'pending';
+    loadMermaid().then(async (mermaid) => {
+      // One at a time, in document order: render() measures text in a scratch element, and the
+      // diagrams in a long history land top to bottom rather than in whatever order they finish.
+      for (const code of blocks) {
+        const pre = code.parentElement;
+        if (!pre.isConnected) continue; // re-rendered (an edit) before we got to it
+        const source = code.textContent || '';
+        code.dataset.diagram = 'done';
+        if (!source.trim()) continue;
+        if (source.length > MERMAID_MAX_SOURCE) {
+          showDiagramError(pre, 'it is longer than ' + MERMAID_MAX_SOURCE.toLocaleString() + ' characters');
+          continue;
+        }
+        await drawDiagram(mermaid, pre, source);
+      }
+    }).catch((err) => {
+      console.warn('[mermaid]', err);
+      for (const code of blocks) code.dataset.diagram = 'failed';
     });
   };
 
@@ -653,6 +786,7 @@
     // The escaped snippets in search-box.js are the opposite case and do use setHTML; see there.
     el.innerHTML = html || '';
     highlightCode(el);
+    renderDiagrams(el);
     return el;
   };
 
@@ -669,7 +803,10 @@
    * own script has to remember — which is exactly the line the DM page didn't have, leaving a
    * refreshed conversation's code blocks plain until something edited them.
    */
-  const highlightServerRendered = () => highlightCode(document);
+  const highlightServerRendered = () => {
+    highlightCode(document);
+    renderDiagrams(document);
+  };
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', highlightServerRendered, { once: true });
   } else {
@@ -2322,6 +2459,7 @@
     appendAuthorHandle,
     setQuickReaction,
     highlightCode,
+    renderDiagrams,
     renderMessageBody,
     buildMessageBodyEl,
   };

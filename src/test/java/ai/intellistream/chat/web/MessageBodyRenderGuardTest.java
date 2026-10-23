@@ -116,7 +116,26 @@ class MessageBodyRenderGuardTest {
         assertThat(src.substring(render, end))
                 .as("renderMessageBody must highlight what it renders — that pairing is the fix")
                 .contains("el.innerHTML = html")
-                .contains("highlightCode(el)");
+                .contains("highlightCode(el)")
+                .as("renderMessageBody must draw ```mermaid diagrams too, or one surface shows a picture "
+                        + "and the next shows the source")
+                .contains("renderDiagrams(el)");
+    }
+
+    @Test
+    void mermaidDrawsUntrustedTextOnlyInStrictMode() throws Exception {
+        // The diagram source is whatever any channel member typed. 'strict' is what escapes HTML in
+        // labels and ignores click/callback directives; 'loose' or 'antiscript' would hand every
+        // poster markup in everyone else's feed.
+        var src = codeOnly(read(JS.resolve(SEAM_FILE)));
+        assertThat(src)
+                .contains("securityLevel: 'strict'")
+                .doesNotContain("securityLevel: 'loose'")
+                .doesNotContain("securityLevel: 'antiscript'")
+                .doesNotContain("securityLevel: 'sandbox'");
+        assertThat(JS.resolve("vendor/mermaid.min.js"))
+                .as("the vendored Mermaid the loader asks for")
+                .exists();
     }
 
     @Test

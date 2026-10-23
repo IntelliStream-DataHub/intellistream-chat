@@ -25,6 +25,15 @@ These files are checked into `src/main/resources/static/` and served to browsers
 - Part of the highlight.js styles collection.
 - License: **BSD 3-Clause** (same as highlight.js above).
 
+### Mermaid
+- File: `static/js/vendor/mermaid.min.js`
+- Project: https://github.com/mermaid-js/mermaid (v12.2.0, `dist/mermaid.min.js` from the npm tarball, unmodified)
+- License: **MIT** — https://github.com/mermaid-js/mermaid/blob/develop/LICENSE
+- Copyright © 2014 - 2022 Knut Sveidqvist. The bundle carries the notices of the libraries it
+  includes (d3, dagre, DOMPurify, KaTeX and others) in its trailing comment block.
+- Why: draws ```` ```mermaid ```` fences in message bodies as diagrams. Loaded on demand by
+  `chat-kit.js` only on a page that has one, and always with `securityLevel: 'strict'`.
+
 ### HTML setters polyfill
 - File: `static/js/vendor/html-setters-polyfill.min.js`
 - Project: https://github.com/GoogleChromeLabs/html-setters-polyfill (v0.1.1, `index.min.js`, unmodified)
