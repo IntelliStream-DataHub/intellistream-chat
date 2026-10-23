@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
-  contents: write # to attach the jar to the release
+  contents: write # to attach the release files to the release
 
 jobs:
   build:
@@ -35,20 +35,18 @@ jobs:
         run: ./gradlew build --no-daemon --stacktrace
 
       # bootJar's name comes from build.gradle.kts's `version`, a fixed placeholder that isn't
-      # bumped per tag — so the jar on disk reads e.g. intellistream-chat-1.0.0.jar regardless of
-      # which release this is. Renaming to the release tag is what makes the asset on the GitHub
-      # release page actually match the release it is attached to. The plain (non-executable)
-      # classes jar Boot's plugin also drops in build/libs/ is excluded on purpose — it can't run
-      # on its own and isn't what a release download is for.
-      - name: Rename jar to match the release tag
-        run: |
-          jar=$(ls build/libs/*.jar | grep -v -- '-plain.jar')
-          cp "$jar" "intellistream-chat-${{ github.event.release.tag_name }}.jar"
+      # bumped per tag, so the script names everything after the release tag instead. It picks the
+      # runnable jar and leaves the plain classes jar Boot also writes out of the release.
+      - name: Package the release tarball
+        run: ./scripts/package-release.sh "${{ github.event.release.tag_name }}"
 
-      - name: Attach jar to the release
+      - name: Attach the tarball, jar and checksums to the release
         uses: softprops/action-gh-release@v2
         with:
-          files: intellistream-chat-${{ github.event.release.tag_name }}.jar
+          files: |
+            build/release/intellistream-chat-${{ github.event.release.tag_name }}.tar.gz
+            build/release/intellistream-chat-${{ github.event.release.tag_name }}.jar
+            build/release/SHA256SUMS
 
       - name: Upload test report on failure
         if: failure()
