@@ -1489,9 +1489,12 @@
 <section class="doc" id="files">
   <h3><span class="marker"></span>Files and attachments</h3>
   <p>
-    Attach with the paperclip in the composer. You can select several files at once; each becomes
-    its own message, and any text you typed becomes the caption of the first one.
-    <b>Drag-and-drop and paste-to-upload do not exist</b>, the file dialog is the only route.
+    Attach with the paperclip in the composer, or drag files from your desktop onto the message
+    history or the composer. You can add several files at once; each becomes its own message, and
+    any text you typed becomes the caption of the first one. In a channel the files wait in the
+    composer until you press Send; in a direct message they are sent as soon as they are added.
+    Each file shows a progress bar while it uploads, and its &times; cancels it. Folders cannot be
+    uploaded and are skipped. <b>Paste-to-upload does not exist.</b>
   </p>
   <p>
     Uploads are sent as the raw request body rather than as a multipart form, with the filename and

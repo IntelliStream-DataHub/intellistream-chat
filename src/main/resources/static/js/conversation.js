@@ -870,7 +870,7 @@
   }
 
   // ---------- Attach (file upload) ----------
-  // Multipart POST to /api/conversations/{id}/attachments. Server creates a new conversation
+  // Raw-body POST to /api/conversations/{id}/attachments. Server creates a new conversation
   // message with the attachment, broadcasts via STOMP, our subscription appends it. The
   // composer's text body, if any, is sent as a regular STOMP send before the upload so the
   // user's typed message and their file don't collapse into a single attachment caption.
@@ -878,10 +878,46 @@
   const fileInput = document.getElementById('composer-file');
   if (attachBtn && fileInput) {
     attachBtn.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', async () => {
+    fileInput.addEventListener('change', () => {
       const files = Array.from(fileInput.files || []);
       fileInput.value = '';
-      if (files.length === 0) return;
+      uploadFiles(files);
+    });
+    // Dropping files on the history or the composer uploads them the same way the paperclip does.
+    ChatKit.wireFileDrop({
+      zones: [messagesEl?.closest('.messages-stack'), composer.closest('.composer-wrap')],
+      overlayHost: messagesEl?.closest('.messages-stack'),
+      verb: 'send',
+      hint: 'Each file is sent straight away as its own message',
+      onFiles: uploadFiles,
+    });
+
+    // The tray's status line counts what is still in it rather than tracking one batch, so a
+    // second drop while the first is still going up just makes the number bigger.
+    function refreshStatus(prefix = '') {
+      const tray = document.getElementById('composer-attachments');
+      if (!tray) return;
+      const left = tray.querySelectorAll('.composer-chip').length;
+      if (left === 0 && !prefix) {
+        ChatKit.setUploadStatus(tray, '');
+        tray.hidden = true;
+        return;
+      }
+      const text = left === 0 ? ''
+          : 'Uploading ' + (left === 1 ? '1 file' : left + ' files')
+            + (left > 1 ? ' — each posts as its own message when it finishes.' : '…');
+      ChatKit.setUploadStatus(tray, prefix + text, prefix ? 'warn' : undefined);
+    }
+
+    async function uploadFiles(files, skippedFolders = 0) {
+      const tray = document.getElementById('composer-attachments');
+      if (files.length === 0) {
+        if (skippedFolders) {
+          ChatKit.setUploadStatus(tray, ChatKit.skippedFoldersText(skippedFolders), 'warn');
+          setTimeout(refreshStatus, 6000);
+        }
+        return;
+      }
 
       // Flush any typed text first as its own message, before the attachments arrive,
       // so the order in the thread reads naturally.
@@ -892,7 +928,30 @@
         input._autoResize?.();
       }
 
-      for (const f of files) {
+      // Each file gets a chip in the composer tray with a progress bar while it uploads (fetch
+      // can't report upload progress — see ChatKit.uploadWithProgress), and × cancels it. All the
+      // chips are drawn up front so the queue is visible; they go away as each upload lands.
+      const queue = files.map((f) => {
+        const item = { file: f, upload: null, cancelled: false };
+        item.ui = ChatKit.buildUploadChip(f, () => {
+          item.cancelled = true;
+          if (item.upload) item.upload.abort();
+          else dropChip(item);
+        });
+        tray?.append(item.ui.chip);
+        return item;
+      });
+      if (tray && queue.length) tray.hidden = false;
+      refreshStatus(ChatKit.skippedFoldersText(skippedFolders));
+      function dropChip(item) {
+        item.ui.chip.remove();
+        refreshStatus();
+      }
+
+      for (let i = 0; i < queue.length; i++) {
+        const item = queue[i];
+        const f = item.file;
+        if (item.cancelled) continue;
         try {
           // Raw-body upload — the File is the request body, streamed straight through to disk.
           // See the channel uploader in chat/index.js for why this isn't multipart.
@@ -901,11 +960,12 @@
             'X-Upload-Filename': encodeURIComponent(f.name),
           };
           if (csrfToken && csrfHeader) headersOut[csrfHeader] = csrfToken;
-          const res = await fetch('/api/conversations/' + conversationId + '/attachments', {
-            method: 'POST',
-            headers: headersOut,
-            body: f,
-          });
+          item.ui.setProgress(0, f.size);
+          item.upload = ChatKit.uploadWithProgress(
+              '/api/conversations/' + conversationId + '/attachments', f, headersOut,
+              (loaded, total) => item.ui.setProgress(loaded, total));
+          const res = await item.upload;
+          item.upload = null;
           if (!res.ok) {
             const err = await res.json().catch(() => ({ error: res.statusText }));
             let msg;
@@ -915,17 +975,25 @@
             } else {
               msg = err.message || err.error || res.statusText;
             }
+            queue.slice(i).forEach(dropChip);
             alert('Upload failed for ' + f.name + ': ' + msg);
             return;
           }
+          dropChip(item);
           // The WebSocket broadcast will deliver the new ConversationMessageDto to all
           // subscribers (including us) and appendMessage handles rendering.
         } catch (err) {
+          item.upload = null;
+          if (err?.name === 'AbortError') {
+            dropChip(item);
+            continue;
+          }
+          queue.slice(i).forEach(dropChip);
           alert('Upload failed for ' + f.name + ': ' + (err?.message || err));
           return;
         }
       }
-    });
+    }
   }
 
   // ---------- Notification level ----------

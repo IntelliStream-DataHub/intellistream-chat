@@ -80,6 +80,212 @@
     return (u === 0 ? v : v.toFixed(1)) + ' ' + units[u];
   };
 
+  // ---------- Attachment upload with progress ----------
+  // fetch() has no upload-progress event, so a large file used to sit in the composer with no sign
+  // that anything was happening. XHR does, so the attachment uploaders on both pages go through
+  // this one function. It resolves with the bits of a Response the callers read (ok, status,
+  // statusText, json()), so their error handling is unchanged. onProgress gets (loaded, total).
+  // The returned promise carries abort(); an aborted upload rejects with an AbortError.
+  const uploadWithProgress = (url, file, headers, onProgress) => {
+    const xhr = new XMLHttpRequest();
+    const promise = new Promise((resolve, reject) => {
+      xhr.open('POST', url);
+      for (const [k, v] of Object.entries(headers || {})) xhr.setRequestHeader(k, v);
+      if (onProgress) {
+        xhr.upload.addEventListener('progress', (e) => {
+          onProgress(e.loaded, e.lengthComputable ? e.total : file.size);
+        });
+      }
+      xhr.addEventListener('load', () => {
+        const text = xhr.responseText;
+        resolve({
+          ok: xhr.status >= 200 && xhr.status < 300,
+          status: xhr.status,
+          statusText: xhr.statusText,
+          json: async () => JSON.parse(text),
+        });
+      });
+      xhr.addEventListener('error', () => reject(new Error('Network error')));
+      xhr.addEventListener('abort', () => reject(new DOMException('Upload cancelled', 'AbortError')));
+      xhr.send(file);
+    });
+    promise.abort = () => xhr.abort();
+    return promise;
+  };
+
+  /**
+   * One composer attachment chip: name, size, remove button, and a progress bar that shows once
+   * the upload starts. Shared by the channel composer (chips wait for Send) and the DM composer
+   * (chips appear while the upload runs). {@code onRemove} fires from the × button.
+   */
+  const buildUploadChip = (file, onRemove) => {
+    const chip = document.createElement('div');
+    chip.className = 'composer-chip';
+    chip.innerHTML = `<span class="composer-chip-name"></span>
+      <span class="composer-chip-size"></span>
+      <button type="button" class="composer-chip-remove" title="Remove" aria-label="Remove">
+        <svg class="icon icon-sm"><use href="#icon-close"/></svg>
+      </button>
+      <span class="composer-chip-progress" hidden><span class="composer-chip-progress-fill"></span></span>`;
+    chip.querySelector('.composer-chip-name').textContent = file.name;
+    const size = chip.querySelector('.composer-chip-size');
+    size.textContent = formatBytes(file.size);
+    const removeBtn = chip.querySelector('.composer-chip-remove');
+    removeBtn.addEventListener('click', () => onRemove?.());
+    const bar = chip.querySelector('.composer-chip-progress');
+    const fill = chip.querySelector('.composer-chip-progress-fill');
+    bar.setAttribute('role', 'progressbar');
+    bar.setAttribute('aria-label', 'Uploading ' + file.name);
+    bar.setAttribute('aria-valuemin', '0');
+    bar.setAttribute('aria-valuemax', '100');
+    const setProgress = (loaded, total) => {
+      const pct = total > 0 ? Math.min(100, Math.floor((loaded / total) * 100)) : 0;
+      chip.classList.add('is-uploading');
+      bar.hidden = false;
+      fill.style.width = pct + '%';
+      bar.setAttribute('aria-valuenow', String(pct));
+      size.textContent = pct >= 100 ? 'Processing…' : pct + '% of ' + formatBytes(total);
+      removeBtn.title = 'Cancel upload';
+      removeBtn.setAttribute('aria-label', 'Cancel upload');
+    };
+    const reset = () => {
+      chip.classList.remove('is-uploading');
+      bar.hidden = true;
+      fill.style.width = '0%';
+      size.textContent = formatBytes(file.size);
+      removeBtn.title = 'Remove';
+      removeBtn.setAttribute('aria-label', 'Remove');
+    };
+    return { chip, setProgress, reset };
+  };
+
+  // ---------- Drag-and-drop files onto the feed ----------
+  // Only drags carrying files count: a text selection dragged within the page, or dragged into
+  // the composer, keeps the browser's own behaviour.
+  const dragHasFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files');
+
+  // Files from a drop, minus folders. A dropped folder arrives as a File with no type and a
+  // platform-dependent size, and uploading it fails with nothing useful to say about why.
+  const filesFromDrop = (dt) => {
+    const items = Array.from(dt.items || []).filter((it) => it.kind === 'file');
+    if (items.length && typeof items[0].webkitGetAsEntry === 'function') {
+      const folders = items.filter((it) => it.webkitGetAsEntry()?.isDirectory);
+      const files = items
+          .filter((it) => !folders.includes(it))
+          .map((it) => it.getAsFile())
+          .filter(Boolean);
+      return { files, skippedFolders: folders.length };
+    }
+    return { files: Array.from(dt.files || []), skippedFolders: 0 };
+  };
+
+  // How many files a drag carries. The items list is readable during dragenter (the files
+  // themselves are not, until the drop); some browsers leave it empty, hence the null.
+  const dragFileCount = (e) => {
+    const n = Array.from(e.dataTransfer?.items || []).filter((it) => it.kind === 'file').length;
+    return n > 0 ? n : null;
+  };
+  const plural = (n, word) => n + ' ' + word + (n === 1 ? '' : 's');
+
+  let dropGuardInstalled = false;
+
+  /**
+   * Accept files dropped anywhere on {@code zones} (the message history and the composer) and
+   * hand them to {@code onFiles}. While a file drag is over a zone, {@code overlayHost} carries
+   * the drop overlay. {@code verb} finishes its sentence ("Drop 3 files to <verb>") and
+   * {@code hint} is the smaller line under it, so the overlay says what will actually happen.
+   * {@code onFiles(files, skippedFolders)} gets the files with any folders taken out. A file
+   * dropped anywhere else on the page is swallowed rather than letting the browser navigate away
+   * to it, which throws the whole chat away.
+   */
+  const wireFileDrop = ({ zones, overlayHost, onFiles, verb = 'upload', hint = '' }) => {
+    const targets = (zones || []).filter(Boolean);
+    if (!targets.length || !onFiles) return;
+
+    if (!dropGuardInstalled) {
+      dropGuardInstalled = true;
+      window.addEventListener('dragover', (e) => { if (dragHasFiles(e)) e.preventDefault(); });
+      window.addEventListener('drop', (e) => { if (dragHasFiles(e)) e.preventDefault(); });
+    }
+
+    let overlay = null;
+    if (overlayHost) {
+      overlay = document.createElement('div');
+      overlay.className = 'file-drop-overlay';
+      overlay.hidden = true;
+      overlay.innerHTML = `<div class="file-drop-overlay-inner">
+          <svg class="icon" aria-hidden="true"><use href="#icon-paperclip"/></svg>
+          <span class="file-drop-overlay-title"></span>
+          <span class="file-drop-overlay-hint"></span>
+        </div>`;
+      overlay.querySelector('.file-drop-overlay-hint').textContent = hint;
+      overlayHost.append(overlay);
+    }
+    const setTitle = (count) => {
+      if (!overlay) return;
+      overlay.querySelector('.file-drop-overlay-title').textContent =
+          'Drop ' + (count ? plural(count, 'file') : 'files') + ' to ' + verb;
+    };
+
+    // dragenter/dragleave fire for every child crossed, so a depth count across all zones is
+    // what tells "left the zone" apart from "moved onto a message inside it".
+    let depth = 0;
+    const show = (on) => { if (overlay) overlay.hidden = !on; };
+    for (const zone of targets) {
+      zone.addEventListener('dragenter', (e) => {
+        if (!dragHasFiles(e)) return;
+        e.preventDefault();
+        if (depth === 0) setTitle(dragFileCount(e));
+        depth++;
+        show(true);
+      });
+      zone.addEventListener('dragover', (e) => {
+        if (!dragHasFiles(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+      });
+      zone.addEventListener('dragleave', (e) => {
+        if (!dragHasFiles(e)) return;
+        depth = Math.max(0, depth - 1);
+        if (depth === 0) show(false);
+      });
+      zone.addEventListener('drop', (e) => {
+        if (!dragHasFiles(e)) return;
+        e.preventDefault();
+        depth = 0;
+        show(false);
+        const { files, skippedFolders } = filesFromDrop(e.dataTransfer);
+        if (files.length || skippedFolders) onFiles(files, skippedFolders);
+      });
+    }
+    // A drag cancelled with Escape, or dropped outside the window, sends no dragleave to us.
+    window.addEventListener('dragend', () => { depth = 0; show(false); });
+    window.addEventListener('drop', () => { depth = 0; show(false); });
+  };
+
+  /**
+   * The one-line status at the top of the composer's attachment tray: what the chips are waiting
+   * for, or how far through the batch the uploads are. Empty text removes it. {@code tone}
+   * 'warn' is for things the user should notice but that stopped nothing (a skipped folder).
+   */
+  const setUploadStatus = (tray, text, tone) => {
+    if (!tray) return;
+    let line = tray.querySelector('.composer-upload-status');
+    if (!text) { line?.remove(); return; }
+    if (!line) {
+      line = document.createElement('div');
+      line.className = 'composer-upload-status';
+      line.setAttribute('role', 'status');
+      line.setAttribute('aria-live', 'polite');
+      tray.prepend(line);
+    }
+    line.textContent = text;
+    line.classList.toggle('is-warn', tone === 'warn');
+    tray.hidden = false;
+  };
+  const skippedFoldersText = (n) =>
+      n ? 'Skipped ' + plural(n, 'folder') + ' — only files can be uploaded. ' : '';
+
   // ---------- Composer textarea: caret insert + auto-resize ----------
   const insertAtCursor = (ta, text) => {
     if (!ta) return;
@@ -2039,6 +2245,11 @@
     dayKey,
     formatTime,
     formatBytes,
+    uploadWithProgress,
+    buildUploadChip,
+    wireFileDrop,
+    setUploadStatus,
+    skippedFoldersText,
     insertAtCursor,
     applyFormat,
     wireFormatToolbar,

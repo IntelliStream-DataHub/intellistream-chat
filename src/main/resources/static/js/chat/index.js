@@ -1567,7 +1567,9 @@ presenceMenu.init();
     if (composer) {
       const fileInput = document.getElementById('composer-file');
       const attachBtn = document.getElementById('composer-attach');
-      const pending = new Map(); // localId -> { file, chip }
+      const pending = new Map(); // localId -> { file, chip, ui, upload }
+      // A second Send while files are going up would start the same uploads again.
+      let uploading = false;
 
       if (attachBtn && fileInput) {
         attachBtn.addEventListener('click', () => fileInput.click());
@@ -1576,6 +1578,43 @@ presenceMenu.init();
           fileInput.value = '';
         });
       }
+
+      // Dropping files on the history or the composer does what the paperclip does: chips wait
+      // in the tray for a caption and Send. Only wired where there is a composer, i.e. where the
+      // viewer may post.
+      ChatKit.wireFileDrop({
+        zones: [messagesEl?.closest('.messages-stack'), composer.closest('.composer-wrap')],
+        overlayHost: messagesEl?.closest('.messages-stack'),
+        verb: 'attach',
+        hint: 'They wait in the composer until you press Send',
+        onFiles: (files, skippedFolders) => {
+          for (const f of files) addPendingAttachment(f, { quiet: true });
+          refreshTrayStatus(ChatKit.skippedFoldersText(skippedFolders));
+          document.getElementById('composer-input')?.focus();
+        },
+      });
+
+      // The tray's status line. Before Send it says what the chips are waiting for, which is the
+      // part of the paperclip flow nobody could see: picking a file posts nothing yet. A prefix
+      // (a skipped-folder note) rides in front of it until the tray next changes.
+      const refreshTrayStatus = (prefix = '') => {
+        if (uploading) return;
+        const tray = document.getElementById('composer-attachments');
+        const n = pending.size;
+        if (n === 0 && !prefix) { ChatKit.setUploadStatus(tray, ''); return; }
+        const ready = n === 0 ? '' : (n === 1 ? '1 file' : n + ' files')
+            + ' ready — add a message if you like, then press Enter to send'
+            + (n > 1 ? ' (each file becomes its own message).' : '.');
+        ChatKit.setUploadStatus(tray, prefix + ready, prefix ? 'warn' : undefined);
+        // A warning about a drop that added nothing has no chips to clear it, so it fades itself.
+        if (n === 0) {
+          setTimeout(() => {
+            if (pending.size || uploading) return;
+            ChatKit.setUploadStatus(tray, '');
+            if (tray) tray.hidden = true;
+          }, 6000);
+        }
+      };
 
       const emojiBtn = document.getElementById('composer-emoji');
       if (emojiBtn) {
@@ -1594,8 +1633,8 @@ presenceMenu.init();
 
         if (hasFiles) {
           // Upload each file as its own message (caption = body, only on the first one). Sequential
-          // on purpose: each file becomes its own message, so the order is the posting order, and
-          // taking each chip away as its upload lands is the progress indicator. What does not need
+          // on purpose: each file becomes its own message, so the order is the posting order. Each
+          // chip shows its own progress bar while it uploads and is taken away when it lands. What does not need
           // repeating is the composer reset — clearing and re-measuring it once per file meant two
           // forced layouts each time for a box that was already empty.
           let caption = body;
@@ -1606,21 +1645,41 @@ presenceMenu.init();
             input.value = '';
             input._autoResize?.();
           };
-          for (const [localId, item] of Array.from(pending.entries())) {
-            try {
-              await uploadAttachment(item.file, caption);
-              // Clear the composer as soon as the caption is consumed — otherwise a later file's
-              // failure returns with the caption still in the box, and resubmitting re-posts it
-              // against the remaining files (N14).
-              if (caption) clearComposer();
-              caption = '';
-              removePendingAttachment(localId);
-            } catch (err) {
-              alert('Upload failed for ' + item.file.name + ': ' + err.message);
-              return;
+          if (uploading) return;
+          uploading = true;
+          const tray = document.getElementById('composer-attachments');
+          const batch = Array.from(pending.entries());
+          try {
+            for (const [index, [localId, item]] of batch.entries()) {
+              ChatKit.setUploadStatus(tray, batch.length > 1
+                  ? 'Uploading ' + (index + 1) + ' of ' + batch.length + '…'
+                  : 'Uploading…');
+              try {
+                await uploadAttachment(item, caption);
+                // Clear the composer as soon as the caption is consumed — otherwise a later file's
+                // failure returns with the caption still in the box, and resubmitting re-posts it
+                // against the remaining files (N14).
+                if (caption) clearComposer();
+                caption = '';
+                removePendingAttachment(localId);
+              } catch (err) {
+                if (err?.name === 'AbortError') {
+                  // Cancelled from the chip: drop that file, keep going with the rest.
+                  removePendingAttachment(localId);
+                  continue;
+                }
+                item.ui.reset();
+                alert('Upload failed for ' + item.file.name + ': ' + err.message);
+                return;
+              }
             }
+          } finally {
+            uploading = false;
+            refreshTrayStatus();
           }
-          clearComposer();
+          // An empty caption means it was posted (or there never was one). If every upload was
+          // cancelled the caption was never sent, so leave it in the box.
+          if (!caption) clearComposer();
         } else {
           if (await sendChannelMessage(body)) {
             input.value = '';
@@ -1647,24 +1706,21 @@ presenceMenu.init();
         headers,
       });
 
-      const addPendingAttachment = (file) => {
+      const addPendingAttachment = (file, { quiet = false } = {}) => {
         const tray = document.getElementById('composer-attachments');
         if (!tray) return;
         const localId = 'p' + Math.random().toString(36).slice(2);
-        const chip = document.createElement('div');
-        chip.className = 'composer-chip';
-        chip.innerHTML = `<span class="composer-chip-name"></span>
-          <span class="composer-chip-size"></span>
-          <button type="button" class="composer-chip-remove" title="Remove" aria-label="Remove">
-            <svg class="icon icon-sm"><use href="#icon-close"/></svg>
-          </button>`;
-        chip.querySelector('.composer-chip-name').textContent = file.name;
-        chip.querySelector('.composer-chip-size').textContent = formatBytes(file.size);
-        chip.querySelector('.composer-chip-remove')
-            .addEventListener('click', () => removePendingAttachment(localId));
-        tray.append(chip);
+        // While its upload runs, × cancels it rather than just dropping the chip; the submit loop
+        // sees the AbortError and stops without an alert.
+        const ui = ChatKit.buildUploadChip(file, () => {
+          const item = pending.get(localId);
+          if (item?.upload) item.upload.abort();
+          else removePendingAttachment(localId);
+        });
+        tray.append(ui.chip);
         tray.hidden = false;
-        pending.set(localId, { file, chip });
+        pending.set(localId, { file, chip: ui.chip, ui, upload: null });
+        if (!quiet) refreshTrayStatus();
       };
       const removePendingAttachment = (localId) => {
         const item = pending.get(localId);
@@ -1672,9 +1728,11 @@ presenceMenu.init();
         item.chip.remove();
         pending.delete(localId);
         const tray = document.getElementById('composer-attachments');
+        refreshTrayStatus();
         if (tray && pending.size === 0) tray.hidden = true;
       };
-      async function uploadAttachment(file, caption) {
+      async function uploadAttachment(item, caption) {
+        const file = item.file;
         // Raw-body upload: the File itself is the request body, so the browser streams it and the
         // server copies socket -> disk. Multipart would wrap it in boundaries that the server then
         // has to scan for byte by byte, which is what used to cap upload speed. Filename and
@@ -1684,12 +1742,18 @@ presenceMenu.init();
         h['Content-Type'] = file.type || 'application/octet-stream';
         h['X-Upload-Filename'] = encodeURIComponent(file.name);
         if (caption) h['X-Upload-Caption'] = encodeURIComponent(caption);
-        const res = await fetch('/api/channels/' + activeChannelId + '/attachments', {
-          method: 'POST',
-          headers: h,
-          body: file,
-        });
+        item.ui.setProgress(0, file.size);
+        item.upload = ChatKit.uploadWithProgress(
+            '/api/channels/' + activeChannelId + '/attachments', file, h,
+            (loaded, total) => item.ui.setProgress(loaded, total));
+        let res;
+        try {
+          res = await item.upload;
+        } finally {
+          item.upload = null;
+        }
         if (!res.ok) {
+          item.ui.reset();
           const err = await res.json().catch(() => ({ error: res.statusText }));
           // 413 carries the actual cap as `maxBytes` so we can render a precise message.
           if (res.status === 413 && typeof err.maxBytes === 'number') {
