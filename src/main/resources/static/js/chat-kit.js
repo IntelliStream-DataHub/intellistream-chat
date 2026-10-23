@@ -541,6 +541,54 @@
     });
   };
 
+  // ---------- Paste files (screenshots, copied files) as attachments ----------
+  /*
+   * A paste is treated as files only when the clipboard carries no real text. Word, Excel and
+   * Google Sheets put a picture of the selection on the clipboard *beside* the text, and that paste
+   * belongs to wirePasteMarkdown above, never here: uploading a PNG of a table someone meant to
+   * paste as text would be the worst possible reading of it. What counts as "no real text" is
+   * empty text/plain, or text/plain that is just the copied files' own names (what a file copied
+   * in a file manager carries).
+   */
+  const pastedFiles = (dt) => {
+    const files = Array.from(dt?.files || []);
+    if (!files.length) return [];
+    const plain = (dt.getData('text/plain') || '').trim();
+    if (plain) {
+      const names = new Set(files.map((f) => f.name));
+      if (!plain.split(/\r?\n/).every((line) => names.has(line.trim()))) return [];
+    }
+    return files.map(namePastedFile);
+  };
+
+  // A screenshot comes off the clipboard as "image.png" every time, so three of them in a channel
+  // are three files nobody can tell apart. Give a generic name the time it was pasted.
+  const GENERIC_PASTE_NAME = /^image\.(png|jpe?g|gif|webp|bmp|tiff?)$/i;
+  const namePastedFile = (f) => {
+    const m = GENERIC_PASTE_NAME.exec(f.name || '');
+    if (!m && f.name) return f;
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, '0');
+    const stamp = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+        + ' ' + p(d.getHours()) + '.' + p(d.getMinutes()) + '.' + p(d.getSeconds());
+    const ext = m ? m[1].toLowerCase() : ((f.type || '').split('/')[1] || 'bin');
+    return new File([f], 'Pasted image ' + stamp + '.' + ext,
+        { type: f.type, lastModified: f.lastModified });
+  };
+
+  /** Hand files pasted into {@code ta} to {@code onFiles}; text pastes are left alone. */
+  const wirePasteFiles = (ta, onFiles) => {
+    if (!ta || !onFiles || ta.dataset.pasteFilesWired) return;
+    ta.dataset.pasteFilesWired = '1';
+    ta.addEventListener('paste', (e) => {
+      if (e.defaultPrevented) return; // the rich-text converter already took it
+      const files = pastedFiles(e.clipboardData);
+      if (!files.length) return;
+      e.preventDefault();
+      onFiles(files);
+    });
+  };
+
   // ---------- Syntax highlighting ----------
   /**
    * Run highlight.js over every {@code pre code} under {@code root}. Shared by the channel page,
@@ -2257,6 +2305,9 @@
     wireAutoResize,
     wireLivePreview,
     wirePasteMarkdown,
+    wirePasteFiles,
+    // Exposed for the smoke tests, which can build a DataTransfer but not a real paste.
+    pastedFiles,
     // Exposed for the in-browser smoke tests: the guard and clamp are pure enough to
     // assert without a clipboard.
     pasteWorthConverting,

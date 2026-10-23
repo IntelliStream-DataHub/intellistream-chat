@@ -909,6 +909,9 @@
       ChatKit.setUploadStatus(tray, prefix + text, prefix ? 'warn' : undefined);
     }
 
+    // Pasting a screenshot or a copied file sends it, the same as picking it with the paperclip.
+    ChatKit.wirePasteFiles(input, (files) => uploadFiles(files));
+
     async function uploadFiles(files, skippedFolders = 0) {
       const tray = document.getElementById('composer-attachments');
       if (files.length === 0) {

@@ -1494,7 +1494,10 @@
     any text you typed becomes the caption of the first one. In a channel the files wait in the
     composer until you press Send; in a direct message they are sent as soon as they are added.
     Each file shows a progress bar while it uploads, and its &times; cancels it. Folders cannot be
-    uploaded and are skipped. <b>Paste-to-upload does not exist.</b>
+    uploaded and are skipped. Pasting a screenshot or a copied file into the composer attaches it
+    the same way; a pasted screenshot is named after the time it was pasted. A paste that carries
+    text (a table copied from Word or Excel, say) is always pasted as text, even though those apps
+    put a picture of it on the clipboard too.
   </p>
   <p>
     Uploads are sent as the raw request body rather than as a multipart form, with the filename and

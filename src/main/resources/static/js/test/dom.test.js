@@ -189,6 +189,36 @@ add('the attachment tray status line appears, updates in place and goes away', (
     if (tray.querySelector('.composer-upload-status')) throw new Error('empty text left the line behind');
 });
 
+add('a pasted screenshot becomes a file, a pasted Word table stays text', () => {
+    const png = () => new File([new Uint8Array([137, 80, 78, 71])], 'image.png', { type: 'image/png' });
+
+    const shot = new DataTransfer();
+    shot.items.add(png());
+    const files = window.ChatKit.pastedFiles(shot);
+    if (files.length !== 1) throw new Error('a screenshot paste produced ' + files.length + ' files');
+    if (!/^Pasted image \d{4}-\d{2}-\d{2} [\d.]+\.png$/.test(files[0].name)) {
+        throw new Error('the generic image.png name was kept: ' + files[0].name);
+    }
+
+    // Office puts a rendering of the selection beside the text; that paste is text.
+    const word = new DataTransfer();
+    word.setData('text/plain', 'Q1\t42');
+    word.setData('text/html', '<table><tr><td>Q1</td><td>42</td></tr></table>');
+    word.items.add(png());
+    if (window.ChatKit.pastedFiles(word).length !== 0) {
+        throw new Error('a paste carrying real text was taken as a file upload');
+    }
+
+    // A file copied in a file manager carries its own name as the text flavour.
+    const copied = new DataTransfer();
+    copied.items.add(new File(['x'], 'report.pdf', { type: 'application/pdf' }));
+    copied.setData('text/plain', 'report.pdf');
+    const out = window.ChatKit.pastedFiles(copied);
+    if (out.length !== 1 || out[0].name !== 'report.pdf') {
+        throw new Error('a copied file was not uploaded under its own name');
+    }
+});
+
 add('a video card is a facade until it is clicked', () => {
     const card = window.ChatKit.buildVideoFacadeEl({
         url: 'https://youtu.be/dQw4w9WgXcQ',

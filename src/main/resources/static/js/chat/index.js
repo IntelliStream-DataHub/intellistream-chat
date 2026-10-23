@@ -1594,6 +1594,11 @@ presenceMenu.init();
         },
       });
 
+      // Pasting a screenshot or a copied file into the composer adds it like the paperclip does.
+      ChatKit.wirePasteFiles(document.getElementById('composer-input'), (files) => {
+        for (const f of files) addPendingAttachment(f);
+      });
+
       // The tray's status line. Before Send it says what the chips are waiting for, which is the
       // part of the paperclip flow nobody could see: picking a file posts nothing yet. A prefix
       // (a skipped-folder note) rides in front of it until the tray next changes.
