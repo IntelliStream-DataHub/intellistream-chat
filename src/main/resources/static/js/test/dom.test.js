@@ -153,6 +153,72 @@ add('an attachment chip offers a preview only when the server said it can', () =
     }
 });
 
+add('a composer upload chip shows progress while uploading and resets after', () => {
+    const file = new File(['x'.repeat(2048)], 'big.bin');
+    let removed = 0;
+    const ui = window.ChatKit.buildUploadChip(file, () => { removed++; });
+    const bar = ui.chip.querySelector('.composer-chip-progress');
+    if (!bar || !bar.hidden) throw new Error('the progress bar showed before any upload started');
+    ui.setProgress(1024, 2048);
+    if (bar.hidden) throw new Error('the progress bar stayed hidden during an upload');
+    if (bar.getAttribute('aria-valuenow') !== '50') {
+        throw new Error('expected 50% for half the bytes, got ' + bar.getAttribute('aria-valuenow'));
+    }
+    if (ui.chip.querySelector('.composer-chip-progress-fill').style.width !== '50%') {
+        throw new Error('the fill width does not follow the progress');
+    }
+    ui.chip.querySelector('.composer-chip-remove').click();
+    if (removed !== 1) throw new Error('the × button did not reach the remove/cancel callback');
+    ui.reset();
+    if (!bar.hidden) throw new Error('reset left the progress bar showing');
+});
+
+add('the attachment tray status line appears, updates in place and goes away', () => {
+    const tray = document.createElement('div');
+    tray.hidden = true;
+    window.ChatKit.setUploadStatus(tray, '2 files ready');
+    window.ChatKit.setUploadStatus(tray, 'Uploading 1 of 2…');
+    const lines = tray.querySelectorAll('.composer-upload-status');
+    if (lines.length !== 1) throw new Error('expected one status line, got ' + lines.length);
+    if (lines[0].textContent !== 'Uploading 1 of 2…') throw new Error('status was not updated in place');
+    if (tray.hidden) throw new Error('a status line in a hidden tray is invisible');
+    if (lines[0].getAttribute('aria-live') !== 'polite') {
+        throw new Error('screen readers are not told when the upload status changes');
+    }
+    window.ChatKit.setUploadStatus(tray, '');
+    if (tray.querySelector('.composer-upload-status')) throw new Error('empty text left the line behind');
+});
+
+add('a pasted screenshot becomes a file, a pasted Word table stays text', () => {
+    const png = () => new File([new Uint8Array([137, 80, 78, 71])], 'image.png', { type: 'image/png' });
+
+    const shot = new DataTransfer();
+    shot.items.add(png());
+    const files = window.ChatKit.pastedFiles(shot);
+    if (files.length !== 1) throw new Error('a screenshot paste produced ' + files.length + ' files');
+    if (!/^Pasted image \d{4}-\d{2}-\d{2} [\d.]+\.png$/.test(files[0].name)) {
+        throw new Error('the generic image.png name was kept: ' + files[0].name);
+    }
+
+    // Office puts a rendering of the selection beside the text; that paste is text.
+    const word = new DataTransfer();
+    word.setData('text/plain', 'Q1\t42');
+    word.setData('text/html', '<table><tr><td>Q1</td><td>42</td></tr></table>');
+    word.items.add(png());
+    if (window.ChatKit.pastedFiles(word).length !== 0) {
+        throw new Error('a paste carrying real text was taken as a file upload');
+    }
+
+    // A file copied in a file manager carries its own name as the text flavour.
+    const copied = new DataTransfer();
+    copied.items.add(new File(['x'], 'report.pdf', { type: 'application/pdf' }));
+    copied.setData('text/plain', 'report.pdf');
+    const out = window.ChatKit.pastedFiles(copied);
+    if (out.length !== 1 || out[0].name !== 'report.pdf') {
+        throw new Error('a copied file was not uploaded under its own name');
+    }
+});
+
 add('a video card is a facade until it is clicked', () => {
     const card = window.ChatKit.buildVideoFacadeEl({
         url: 'https://youtu.be/dQw4w9WgXcQ',

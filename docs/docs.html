@@ -856,6 +856,7 @@
       <tr><td><code>**bold**</code>, <code>_italic_</code>, <code>`code`</code></td><td>The toolbar's B, I and <code>{ }</code> buttons insert these.</td></tr>
       <tr><td><code>~~strikethrough~~</code></td><td>The toolbar's S button; renders as <code>&lt;del&gt;</code>.</td></tr>
       <tr><td>Fenced code blocks</td><td>Syntax highlighted client-side with highlight.js.</td></tr>
+      <tr><td>Mermaid diagrams</td><td>A fence tagged <code>mermaid</code> is drawn as a diagram, as GitHub does in a README: flowcharts, sequence, class, state, ER, Gantt and the rest. <b>Source</b> in the diagram's corner shows the text. A diagram that cannot be parsed stays a code block with the reason under it. Works in messages, the live preview and previews of uploaded <code>.md</code> files.</td></tr>
       <tr><td>Headings <code>#</code> through <code>######</code></td><td>Explicitly re-allowed after sanitization.</td></tr>
       <tr><td>Bullet and numbered lists</td><td></td></tr>
       <tr><td>Blockquotes <code>&gt;</code></td><td></td></tr>
@@ -1489,9 +1490,15 @@
 <section class="doc" id="files">
   <h3><span class="marker"></span>Files and attachments</h3>
   <p>
-    Attach with the paperclip in the composer. You can select several files at once; each becomes
-    its own message, and any text you typed becomes the caption of the first one.
-    <b>Drag-and-drop and paste-to-upload do not exist</b>, the file dialog is the only route.
+    Attach with the paperclip in the composer, or drag files from your desktop onto the message
+    history or the composer. You can add several files at once; each becomes its own message, and
+    any text you typed becomes the caption of the first one. In a channel the files wait in the
+    composer until you press Send; in a direct message they are sent as soon as they are added.
+    Each file shows a progress bar while it uploads, and its &times; cancels it. Folders cannot be
+    uploaded and are skipped. Pasting a screenshot or a copied file into the composer attaches it
+    the same way; a pasted screenshot is named after the time it was pasted. A paste that carries
+    text (a table copied from Word or Excel, say) is always pasted as text, even though those apps
+    put a picture of it on the clipboard too.
   </p>
   <p>
     Uploads are sent as the raw request body rather than as a multipart form, with the filename and

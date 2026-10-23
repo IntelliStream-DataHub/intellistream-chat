@@ -3655,6 +3655,68 @@ body.lightbox-open { overflow: hidden; }
   font-weight: 700;
 }
 .composer-chip-remove:hover { color: var(--danger); background: transparent; }
+/* Upload progress: a thin bar along the chip's bottom edge, shown only while the upload runs. */
+.composer-chip { position: relative; overflow: hidden; }
+.composer-chip-progress {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3px;
+  background: var(--border);
+}
+.composer-chip-progress[hidden] { display: none; }
+.composer-chip-progress-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--accent);
+  transition: width 0.15s linear;
+}
+.composer-chip.is-uploading .composer-chip-size { font-variant-numeric: tabular-nums; }
+
+/* Drag-and-drop target over the message history (ChatKit.wireFileDrop). pointer-events: none so
+   the drag keeps hitting the feed underneath and the enter/leave count stays honest. */
+.file-drop-overlay {
+  position: absolute;
+  inset: 0.5rem var(--gutter);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px dashed var(--accent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--panel) 85%, transparent);
+  pointer-events: none;
+}
+.file-drop-overlay[hidden] { display: none; }
+.file-drop-overlay-inner {
+  display: grid;
+  grid-template-columns: auto auto;
+  align-items: center;
+  column-gap: 0.5rem;
+  row-gap: 0.2rem;
+  padding: 0 1rem;
+  text-align: center;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: var(--fs-base);
+}
+.file-drop-overlay-hint {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-weight: 400;
+  font-size: var(--fs-sm);
+}
+
+/* Status line at the top of the attachment tray: what the chips are waiting for, or how far the
+   uploads have got. Full width so the chips wrap underneath it. */
+.composer-upload-status {
+  flex-basis: 100%;
+  color: var(--muted);
+  font-size: var(--fs-sm);
+}
+.composer-upload-status.is-warn { color: var(--warning, var(--danger)); }
 
 /* ===========================================================
    Message hover toolbar + inline edit
@@ -6472,4 +6534,53 @@ body.sidebar-open .sidebar-toggle-bar:nth-child(3) { transform: translateY(-6px)
 @media (max-width: 520px) {
   .secret-page main.secret-card { padding: 1.2rem 1.1rem; }
   .secrets-copy-row { flex-wrap: wrap; }
+}
+
+/* ---------- Mermaid diagrams in message bodies (ChatKit.renderDiagrams) ----------
+   The drawn diagram replaces its ```mermaid block; the block stays inside the same box, hidden,
+   behind the Source toggle. A wide diagram scrolls sideways inside the box rather than widening
+   the feed. */
+.mermaid-diagram {
+  position: relative;
+  margin: 0.4rem 0;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--panel);
+  max-width: 100%;
+}
+.mermaid-diagram-canvas {
+  overflow-x: auto;
+  text-align: center;
+}
+.mermaid-diagram-canvas[hidden] { display: none; }
+.mermaid-diagram-canvas svg {
+  max-width: 100%;
+  height: auto;
+}
+.mermaid-diagram pre { margin: 0; }
+.mermaid-diagram-toggle {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.mermaid-diagram:hover .mermaid-diagram-toggle,
+.mermaid-diagram-toggle:focus-visible,
+.mermaid-diagram-toggle[aria-pressed="true"] { opacity: 1; }
+/* Touch has no hover, so the toggle is always there. */
+@media (hover: none) { .mermaid-diagram-toggle { opacity: 1; } }
+.mermaid-diagram-toggle:hover { color: var(--text); background: var(--panel-2); }
+.mermaid-error {
+  margin: -0.2rem 0 0.4rem;
+  color: var(--muted);
+  font-size: var(--fs-sm);
 }

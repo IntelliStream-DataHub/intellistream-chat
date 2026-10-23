@@ -80,6 +80,212 @@
     return (u === 0 ? v : v.toFixed(1)) + ' ' + units[u];
   };
 
+  // ---------- Attachment upload with progress ----------
+  // fetch() has no upload-progress event, so a large file used to sit in the composer with no sign
+  // that anything was happening. XHR does, so the attachment uploaders on both pages go through
+  // this one function. It resolves with the bits of a Response the callers read (ok, status,
+  // statusText, json()), so their error handling is unchanged. onProgress gets (loaded, total).
+  // The returned promise carries abort(); an aborted upload rejects with an AbortError.
+  const uploadWithProgress = (url, file, headers, onProgress) => {
+    const xhr = new XMLHttpRequest();
+    const promise = new Promise((resolve, reject) => {
+      xhr.open('POST', url);
+      for (const [k, v] of Object.entries(headers || {})) xhr.setRequestHeader(k, v);
+      if (onProgress) {
+        xhr.upload.addEventListener('progress', (e) => {
+          onProgress(e.loaded, e.lengthComputable ? e.total : file.size);
+        });
+      }
+      xhr.addEventListener('load', () => {
+        const text = xhr.responseText;
+        resolve({
+          ok: xhr.status >= 200 && xhr.status < 300,
+          status: xhr.status,
+          statusText: xhr.statusText,
+          json: async () => JSON.parse(text),
+        });
+      });
+      xhr.addEventListener('error', () => reject(new Error('Network error')));
+      xhr.addEventListener('abort', () => reject(new DOMException('Upload cancelled', 'AbortError')));
+      xhr.send(file);
+    });
+    promise.abort = () => xhr.abort();
+    return promise;
+  };
+
+  /**
+   * One composer attachment chip: name, size, remove button, and a progress bar that shows once
+   * the upload starts. Shared by the channel composer (chips wait for Send) and the DM composer
+   * (chips appear while the upload runs). {@code onRemove} fires from the × button.
+   */
+  const buildUploadChip = (file, onRemove) => {
+    const chip = document.createElement('div');
+    chip.className = 'composer-chip';
+    chip.innerHTML = `<span class="composer-chip-name"></span>
+      <span class="composer-chip-size"></span>
+      <button type="button" class="composer-chip-remove" title="Remove" aria-label="Remove">
+        <svg class="icon icon-sm"><use href="#icon-close"/></svg>
+      </button>
+      <span class="composer-chip-progress" hidden><span class="composer-chip-progress-fill"></span></span>`;
+    chip.querySelector('.composer-chip-name').textContent = file.name;
+    const size = chip.querySelector('.composer-chip-size');
+    size.textContent = formatBytes(file.size);
+    const removeBtn = chip.querySelector('.composer-chip-remove');
+    removeBtn.addEventListener('click', () => onRemove?.());
+    const bar = chip.querySelector('.composer-chip-progress');
+    const fill = chip.querySelector('.composer-chip-progress-fill');
+    bar.setAttribute('role', 'progressbar');
+    bar.setAttribute('aria-label', 'Uploading ' + file.name);
+    bar.setAttribute('aria-valuemin', '0');
+    bar.setAttribute('aria-valuemax', '100');
+    const setProgress = (loaded, total) => {
+      const pct = total > 0 ? Math.min(100, Math.floor((loaded / total) * 100)) : 0;
+      chip.classList.add('is-uploading');
+      bar.hidden = false;
+      fill.style.width = pct + '%';
+      bar.setAttribute('aria-valuenow', String(pct));
+      size.textContent = pct >= 100 ? 'Processing…' : pct + '% of ' + formatBytes(total);
+      removeBtn.title = 'Cancel upload';
+      removeBtn.setAttribute('aria-label', 'Cancel upload');
+    };
+    const reset = () => {
+      chip.classList.remove('is-uploading');
+      bar.hidden = true;
+      fill.style.width = '0%';
+      size.textContent = formatBytes(file.size);
+      removeBtn.title = 'Remove';
+      removeBtn.setAttribute('aria-label', 'Remove');
+    };
+    return { chip, setProgress, reset };
+  };
+
+  // ---------- Drag-and-drop files onto the feed ----------
+  // Only drags carrying files count: a text selection dragged within the page, or dragged into
+  // the composer, keeps the browser's own behaviour.
+  const dragHasFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files');
+
+  // Files from a drop, minus folders. A dropped folder arrives as a File with no type and a
+  // platform-dependent size, and uploading it fails with nothing useful to say about why.
+  const filesFromDrop = (dt) => {
+    const items = Array.from(dt.items || []).filter((it) => it.kind === 'file');
+    if (items.length && typeof items[0].webkitGetAsEntry === 'function') {
+      const folders = items.filter((it) => it.webkitGetAsEntry()?.isDirectory);
+      const files = items
+          .filter((it) => !folders.includes(it))
+          .map((it) => it.getAsFile())
+          .filter(Boolean);
+      return { files, skippedFolders: folders.length };
+    }
+    return { files: Array.from(dt.files || []), skippedFolders: 0 };
+  };
+
+  // How many files a drag carries. The items list is readable during dragenter (the files
+  // themselves are not, until the drop); some browsers leave it empty, hence the null.
+  const dragFileCount = (e) => {
+    const n = Array.from(e.dataTransfer?.items || []).filter((it) => it.kind === 'file').length;
+    return n > 0 ? n : null;
+  };
+  const plural = (n, word) => n + ' ' + word + (n === 1 ? '' : 's');
+
+  let dropGuardInstalled = false;
+
+  /**
+   * Accept files dropped anywhere on {@code zones} (the message history and the composer) and
+   * hand them to {@code onFiles}. While a file drag is over a zone, {@code overlayHost} carries
+   * the drop overlay. {@code verb} finishes its sentence ("Drop 3 files to <verb>") and
+   * {@code hint} is the smaller line under it, so the overlay says what will actually happen.
+   * {@code onFiles(files, skippedFolders)} gets the files with any folders taken out. A file
+   * dropped anywhere else on the page is swallowed rather than letting the browser navigate away
+   * to it, which throws the whole chat away.
+   */
+  const wireFileDrop = ({ zones, overlayHost, onFiles, verb = 'upload', hint = '' }) => {
+    const targets = (zones || []).filter(Boolean);
+    if (!targets.length || !onFiles) return;
+
+    if (!dropGuardInstalled) {
+      dropGuardInstalled = true;
+      window.addEventListener('dragover', (e) => { if (dragHasFiles(e)) e.preventDefault(); });
+      window.addEventListener('drop', (e) => { if (dragHasFiles(e)) e.preventDefault(); });
+    }
+
+    let overlay = null;
+    if (overlayHost) {
+      overlay = document.createElement('div');
+      overlay.className = 'file-drop-overlay';
+      overlay.hidden = true;
+      overlay.innerHTML = `<div class="file-drop-overlay-inner">
+          <svg class="icon" aria-hidden="true"><use href="#icon-paperclip"/></svg>
+          <span class="file-drop-overlay-title"></span>
+          <span class="file-drop-overlay-hint"></span>
+        </div>`;
+      overlay.querySelector('.file-drop-overlay-hint').textContent = hint;
+      overlayHost.append(overlay);
+    }
+    const setTitle = (count) => {
+      if (!overlay) return;
+      overlay.querySelector('.file-drop-overlay-title').textContent =
+          'Drop ' + (count ? plural(count, 'file') : 'files') + ' to ' + verb;
+    };
+
+    // dragenter/dragleave fire for every child crossed, so a depth count across all zones is
+    // what tells "left the zone" apart from "moved onto a message inside it".
+    let depth = 0;
+    const show = (on) => { if (overlay) overlay.hidden = !on; };
+    for (const zone of targets) {
+      zone.addEventListener('dragenter', (e) => {
+        if (!dragHasFiles(e)) return;
+        e.preventDefault();
+        if (depth === 0) setTitle(dragFileCount(e));
+        depth++;
+        show(true);
+      });
+      zone.addEventListener('dragover', (e) => {
+        if (!dragHasFiles(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+      });
+      zone.addEventListener('dragleave', (e) => {
+        if (!dragHasFiles(e)) return;
+        depth = Math.max(0, depth - 1);
+        if (depth === 0) show(false);
+      });
+      zone.addEventListener('drop', (e) => {
+        if (!dragHasFiles(e)) return;
+        e.preventDefault();
+        depth = 0;
+        show(false);
+        const { files, skippedFolders } = filesFromDrop(e.dataTransfer);
+        if (files.length || skippedFolders) onFiles(files, skippedFolders);
+      });
+    }
+    // A drag cancelled with Escape, or dropped outside the window, sends no dragleave to us.
+    window.addEventListener('dragend', () => { depth = 0; show(false); });
+    window.addEventListener('drop', () => { depth = 0; show(false); });
+  };
+
+  /**
+   * The one-line status at the top of the composer's attachment tray: what the chips are waiting
+   * for, or how far through the batch the uploads are. Empty text removes it. {@code tone}
+   * 'warn' is for things the user should notice but that stopped nothing (a skipped folder).
+   */
+  const setUploadStatus = (tray, text, tone) => {
+    if (!tray) return;
+    let line = tray.querySelector('.composer-upload-status');
+    if (!text) { line?.remove(); return; }
+    if (!line) {
+      line = document.createElement('div');
+      line.className = 'composer-upload-status';
+      line.setAttribute('role', 'status');
+      line.setAttribute('aria-live', 'polite');
+      tray.prepend(line);
+    }
+    line.textContent = text;
+    line.classList.toggle('is-warn', tone === 'warn');
+    tray.hidden = false;
+  };
+  const skippedFoldersText = (n) =>
+      n ? 'Skipped ' + plural(n, 'folder') + ' — only files can be uploaded. ' : '';
+
   // ---------- Composer textarea: caret insert + auto-resize ----------
   const insertAtCursor = (ta, text) => {
     if (!ta) return;
@@ -335,6 +541,54 @@
     });
   };
 
+  // ---------- Paste files (screenshots, copied files) as attachments ----------
+  /*
+   * A paste is treated as files only when the clipboard carries no real text. Word, Excel and
+   * Google Sheets put a picture of the selection on the clipboard *beside* the text, and that paste
+   * belongs to wirePasteMarkdown above, never here: uploading a PNG of a table someone meant to
+   * paste as text would be the worst possible reading of it. What counts as "no real text" is
+   * empty text/plain, or text/plain that is just the copied files' own names (what a file copied
+   * in a file manager carries).
+   */
+  const pastedFiles = (dt) => {
+    const files = Array.from(dt?.files || []);
+    if (!files.length) return [];
+    const plain = (dt.getData('text/plain') || '').trim();
+    if (plain) {
+      const names = new Set(files.map((f) => f.name));
+      if (!plain.split(/\r?\n/).every((line) => names.has(line.trim()))) return [];
+    }
+    return files.map(namePastedFile);
+  };
+
+  // A screenshot comes off the clipboard as "image.png" every time, so three of them in a channel
+  // are three files nobody can tell apart. Give a generic name the time it was pasted.
+  const GENERIC_PASTE_NAME = /^image\.(png|jpe?g|gif|webp|bmp|tiff?)$/i;
+  const namePastedFile = (f) => {
+    const m = GENERIC_PASTE_NAME.exec(f.name || '');
+    if (!m && f.name) return f;
+    const d = new Date();
+    const p = (n) => String(n).padStart(2, '0');
+    const stamp = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+        + ' ' + p(d.getHours()) + '.' + p(d.getMinutes()) + '.' + p(d.getSeconds());
+    const ext = m ? m[1].toLowerCase() : ((f.type || '').split('/')[1] || 'bin');
+    return new File([f], 'Pasted image ' + stamp + '.' + ext,
+        { type: f.type, lastModified: f.lastModified });
+  };
+
+  /** Hand files pasted into {@code ta} to {@code onFiles}; text pastes are left alone. */
+  const wirePasteFiles = (ta, onFiles) => {
+    if (!ta || !onFiles || ta.dataset.pasteFilesWired) return;
+    ta.dataset.pasteFilesWired = '1';
+    ta.addEventListener('paste', (e) => {
+      if (e.defaultPrevented) return; // the rich-text converter already took it
+      const files = pastedFiles(e.clipboardData);
+      if (!files.length) return;
+      e.preventDefault();
+      onFiles(files);
+    });
+  };
+
   // ---------- Syntax highlighting ----------
   /**
    * Run highlight.js over every {@code pre code} under {@code root}. Shared by the channel page,
@@ -346,7 +600,9 @@
    */
   const highlightCode = (root) => {
     if (!root) return;
-    const blocks = root.querySelectorAll('pre code');
+    // Mermaid sources are not code to colour; renderDiagrams turns them into pictures, and
+    // highlight.js has no grammar for them (it would only log that it doesn't).
+    const blocks = root.querySelectorAll('pre code:not(.language-mermaid)');
     // Nothing to do is not a problem worth a warning: chat-kit runs on pages that carry no code
     // at all (/files, the file manager), and warning there trains people to ignore the line that
     // matters — a page that has code blocks and no highlighter.
@@ -366,6 +622,137 @@
       } catch (err) {
         console.warn('[hljs] failed to highlight a block:', err);
       }
+    });
+  };
+
+  // ---------- Mermaid diagrams ----------
+  /*
+   * A ```mermaid fence draws as a diagram, the way GitHub draws one in a README. The server does
+   * nothing new: CommonMark already turns the fence into <pre><code class="language-mermaid">, and
+   * the safelist already keeps that class. The browser swaps the block for an SVG.
+   *
+   * - Mermaid is 5 MB, so it is fetched only when a page actually has a diagram, and with a
+   *   ?v= URL so StaticAssetCacheConfig serves it immutable — a second page view costs nothing.
+   *   Bump MERMAID_VERSION with the vendored file or every browser keeps the old one.
+   * - securityLevel 'strict' is what makes drawing someone else's text safe: labels are run
+   *   through Mermaid's DOMPurify, HTML in them is escaped, and click/callback directives are
+   *   ignored. Never loosen it — the source is whatever any channel member typed.
+   * - The source is kept, hidden, behind a "Source" toggle: it is what the author wrote, and what
+   *   a reader copies to edit the diagram.
+   * - A diagram that fails to parse stays a code block with a one-line reason under it, rather
+   *   than Mermaid's own bomb graphic (suppressErrorRendering).
+   */
+  const MERMAID_VERSION = '12.2.0';
+  const MERMAID_MAX_SOURCE = 20000;
+  let mermaidLoading = null;
+  let mermaidSeq = 0;
+
+  const loadMermaid = () => {
+    if (window.mermaid) return Promise.resolve(window.mermaid);
+    if (mermaidLoading) return mermaidLoading;
+    mermaidLoading = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = '/js/vendor/mermaid.min.js?v=' + MERMAID_VERSION;
+      script.async = true;
+      script.onload = () => {
+        if (!window.mermaid) { reject(new Error('Mermaid did not load')); return; }
+        window.mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: 'strict',
+          suppressErrorRendering: true,
+          theme: window.ChatTheme?.isDark?.() ? 'dark' : 'default',
+          fontFamily: 'Figtree, system-ui, sans-serif',
+        });
+        resolve(window.mermaid);
+      };
+      script.onerror = () => {
+        mermaidLoading = null; // let a later message try again
+        reject(new Error('Mermaid failed to load'));
+      };
+      document.head.append(script);
+    });
+    return mermaidLoading;
+  };
+
+  // A diagram arrives after the message it sits in, and has a height nobody knew in advance. If
+  // the feed was parked at the bottom, keep it there; otherwise leave the reader where they are.
+  const scrollParentOf = (el) => {
+    for (let p = el.parentElement; p; p = p.parentElement) {
+      const oy = getComputedStyle(p).overflowY;
+      if ((oy === 'auto' || oy === 'scroll') && p.scrollHeight > p.clientHeight) return p;
+    }
+    return null;
+  };
+  const keepBottomPinned = (el, change) => {
+    const scroller = scrollParentOf(el);
+    const pinned = scroller
+        && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 40;
+    change();
+    if (pinned) scroller.scrollTop = scroller.scrollHeight;
+  };
+
+  const showDiagramError = (pre, err) => {
+    const note = document.createElement('div');
+    note.className = 'mermaid-error';
+    const reason = String(err?.message || err || '').split('\n')[0].slice(0, 200);
+    note.textContent = "Couldn't draw this diagram" + (reason ? ': ' + reason : '.');
+    pre.after(note);
+  };
+
+  const drawDiagram = async (mermaid, pre, source) => {
+    const id = 'mermaid-' + (++mermaidSeq);
+    try {
+      const { svg } = await mermaid.render(id, source);
+      const figure = document.createElement('div');
+      figure.className = 'mermaid-diagram';
+      figure.innerHTML = `<div class="mermaid-diagram-canvas"></div>
+        <button type="button" class="mermaid-diagram-toggle" aria-pressed="false">Source</button>`;
+      // Mermaid's own output, built under securityLevel 'strict' and passed through its DOMPurify.
+      figure.querySelector('.mermaid-diagram-canvas').innerHTML = svg;
+      const toggle = figure.querySelector('.mermaid-diagram-toggle');
+      toggle.addEventListener('click', () => {
+        const showSource = pre.hidden;
+        pre.hidden = !showSource;
+        figure.querySelector('.mermaid-diagram-canvas').hidden = showSource;
+        toggle.textContent = showSource ? 'Diagram' : 'Source';
+        toggle.setAttribute('aria-pressed', String(showSource));
+      });
+      keepBottomPinned(pre, () => {
+        pre.before(figure);
+        pre.hidden = true;
+        figure.append(pre); // the toggle swaps between the two inside one box
+      });
+    } catch (err) {
+      // render() can leave its scratch element behind on a parse failure.
+      document.getElementById('d' + id)?.remove();
+      keepBottomPinned(pre, () => showDiagramError(pre, err));
+    }
+  };
+
+  const renderDiagrams = (root) => {
+    if (!root) return;
+    const blocks = Array.from(root.querySelectorAll('pre > code.language-mermaid'))
+        .filter((code) => !code.dataset.diagram);
+    if (!blocks.length) return;
+    for (const code of blocks) code.dataset.diagram = 'pending';
+    loadMermaid().then(async (mermaid) => {
+      // One at a time, in document order: render() measures text in a scratch element, and the
+      // diagrams in a long history land top to bottom rather than in whatever order they finish.
+      for (const code of blocks) {
+        const pre = code.parentElement;
+        if (!pre.isConnected) continue; // re-rendered (an edit) before we got to it
+        const source = code.textContent || '';
+        code.dataset.diagram = 'done';
+        if (!source.trim()) continue;
+        if (source.length > MERMAID_MAX_SOURCE) {
+          showDiagramError(pre, 'it is longer than ' + MERMAID_MAX_SOURCE.toLocaleString() + ' characters');
+          continue;
+        }
+        await drawDiagram(mermaid, pre, source);
+      }
+    }).catch((err) => {
+      console.warn('[mermaid]', err);
+      for (const code of blocks) code.dataset.diagram = 'failed';
     });
   };
 
@@ -399,6 +786,7 @@
     // The escaped snippets in search-box.js are the opposite case and do use setHTML; see there.
     el.innerHTML = html || '';
     highlightCode(el);
+    renderDiagrams(el);
     return el;
   };
 
@@ -415,7 +803,10 @@
    * own script has to remember — which is exactly the line the DM page didn't have, leaving a
    * refreshed conversation's code blocks plain until something edited them.
    */
-  const highlightServerRendered = () => highlightCode(document);
+  const highlightServerRendered = () => {
+    highlightCode(document);
+    renderDiagrams(document);
+  };
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', highlightServerRendered, { once: true });
   } else {
@@ -2039,6 +2430,11 @@
     dayKey,
     formatTime,
     formatBytes,
+    uploadWithProgress,
+    buildUploadChip,
+    wireFileDrop,
+    setUploadStatus,
+    skippedFoldersText,
     insertAtCursor,
     applyFormat,
     wireFormatToolbar,
@@ -2046,6 +2442,9 @@
     wireAutoResize,
     wireLivePreview,
     wirePasteMarkdown,
+    wirePasteFiles,
+    // Exposed for the smoke tests, which can build a DataTransfer but not a real paste.
+    pastedFiles,
     // Exposed for the in-browser smoke tests: the guard and clamp are pure enough to
     // assert without a clipboard.
     pasteWorthConverting,
@@ -2060,6 +2459,7 @@
     appendAuthorHandle,
     setQuickReaction,
     highlightCode,
+    renderDiagrams,
     renderMessageBody,
     buildMessageBodyEl,
   };

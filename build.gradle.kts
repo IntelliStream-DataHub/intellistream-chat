@@ -1,6 +1,6 @@
 plugins {
     java
-    id("org.springframework.boot") version "4.1.0"
+    id("org.springframework.boot") version "4.1.2"
     id("io.spring.dependency-management") version "1.1.7"
 }
 
@@ -24,9 +24,9 @@ repositories {
     mavenCentral()
 }
 
-val commonmarkVersion = "0.29.0"
+val commonmarkVersion = "0.31.0"
 val testcontainersVersion = "2.0.5"
-val luceneVersion = "10.5.0"
+val luceneVersion = "10.5.2"
 
 dependencyManagement {
     imports {
@@ -59,7 +59,7 @@ dependencies {
     // but without this extension the tildes rendered literally. See MarkdownRenderer.
     implementation("org.commonmark:commonmark-ext-gfm-strikethrough:$commonmarkVersion")
 
-    implementation("org.jsoup:jsoup:1.22.2")
+    implementation("org.jsoup:jsoup:1.23.2")
 
     implementation("org.apache.lucene:lucene-core:$luceneVersion")
     implementation("org.apache.lucene:lucene-analysis-common:$luceneVersion")
@@ -75,7 +75,7 @@ dependencies {
     // Replaces URLConnection.guessContentTypeFromStream which only knew ~10 magic-byte
     // families and mis-typed common formats (HEIC, AVIF, modern Office files, polyglot
     // PNG-with-HTML payloads).
-    implementation("org.apache.tika:tika-core:3.3.2")
+    implementation("org.apache.tika:tika-core:4.1.0")
 
     // Optional Vault / OpenBao secret backend. The processor talks to Vault's HTTP KV-v2
     // endpoint directly with Spring's RestClient — no spring-vault-core / spring-cloud-vault
@@ -86,8 +86,8 @@ dependencies {
 
     // Lombok generates entity boilerplate (getters/setters/no-arg ctors). Compile-only +
     // annotation processor so no Lombok bytecode lands on the runtime classpath.
-    compileOnly("org.projectlombok:lombok:1.18.46")
-    annotationProcessor("org.projectlombok:lombok:1.18.46")
+    compileOnly("org.projectlombok:lombok:1.18.48")
+    annotationProcessor("org.projectlombok:lombok:1.18.48")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.security:spring-security-test")
@@ -98,8 +98,8 @@ dependencies {
     testImplementation("org.testcontainers:testcontainers-vault")
     testImplementation("org.testcontainers:testcontainers-junit-jupiter")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
-    testCompileOnly("org.projectlombok:lombok:1.18.46")
-    testAnnotationProcessor("org.projectlombok:lombok:1.18.46")
+    testCompileOnly("org.projectlombok:lombok:1.18.48")
+    testAnnotationProcessor("org.projectlombok:lombok:1.18.48")
 }
 
 // JS/CSS bundling (Closure Compiler / Closure Stylesheets) — declarative bundles built from

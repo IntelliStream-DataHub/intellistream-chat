@@ -59,7 +59,7 @@ class VaultIntegrationIT {
 
     @SuppressWarnings("resource") // closed in @AfterAll
     private static final VaultContainer<?> VAULT = new VaultContainer<>(
-            DockerImageName.parse("hashicorp/vault:1.18"))
+            DockerImageName.parse("hashicorp/vault:2.2"))
             .withVaultToken(DEV_TOKEN);
 
     @BeforeAll

@@ -27,9 +27,15 @@
   // near-black token colors land on that theme's dark message-code background and the
   // highlighting becomes unreadable rather than absent, which is easy to miss in review.
   var DARK_THEMES = ['dark', 'midnight', 'carbon', 'forest', 'dusk'];
-  function injectHljsStylesheet() {
+  function isDark() {
     var theme = (document.body && document.body.dataset && document.body.dataset.theme) || 'default';
-    var dark = DARK_THEMES.indexOf(theme) !== -1;
+    return DARK_THEMES.indexOf(theme) !== -1;
+  }
+  // The same answer for anything else that draws in the theme's colours — chat-kit.js asks it
+  // which Mermaid theme to draw diagrams in — so this list stays the only copy.
+  window.ChatTheme = { isDark: isDark };
+  function injectHljsStylesheet() {
+    var dark = isDark();
     var link = document.createElement('link');
     link.rel = 'stylesheet';
     link.href = dark
