@@ -55,7 +55,7 @@ class AssetServiceTest {
         assertEquals("/js/theme-loader.js", sources.getFirst());
         // Tracks chat.manifest.js — bump it when you add a source there. What the count guards is
         // that the manifest was parsed at all rather than silently yielding a short list.
-        assertEquals(13, sources.size());
+        assertEquals(14, sources.size());
         assertTrue(sources.contains("/js/chat-kit.js"), sources.toString());
         // time-format.js must precede chat-kit.js: ChatKit's date helpers delegate to window.ChatTime
         // at definition time, so a bundle that ordered them the other way would throw on load.
