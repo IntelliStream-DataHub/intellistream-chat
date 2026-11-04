@@ -1514,6 +1514,38 @@ button.icon-btn > .icon {
   .session-lost-reload { width: 100%; }
 }
 
+/* "Connection lost." Built by connection-status.js while the page's STOMP socket is down. Top and
+   centred, unlike .session-lost: this one is expected to clear by itself within seconds, so it is a
+   status strip rather than an alert, warning-tinted rather than danger. It is not interactive and
+   does not take focus. */
+.connection-lost {
+  position: fixed;
+  top: 0.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 890;
+  max-width: min(36rem, calc(100vw - 2rem));
+  padding: 0.5rem 0.9rem;
+  background: color-mix(in srgb, var(--warning) 14%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--border));
+  border-radius: var(--radius-sm);
+  box-shadow: 0 6px 20px rgb(0 0 0 / 18%);
+  font-size: var(--fs-md);
+  color: var(--text);
+  pointer-events: none;
+}
+.connection-lost-text { margin: 0; }
+
+/* "You have been signed out" for inactivity (idle-logout.js). Reuses the shared modal shell and
+   only has to sit above everything else the app can put on screen, the sign-out bar included. The
+   two sign-out notices and the connection strip all say the same thing from different angles, so
+   when the dialog is up it is the only one shown. */
+.idle-modal-backdrop { z-index: 1000; }
+.idle-modal-text { margin: 0; line-height: 1.5; }
+body:has(.idle-modal-backdrop) .session-lost,
+body:has(.idle-modal-backdrop) .connection-lost,
+body:has(.session-lost) .connection-lost { display: none; }
+
 /* "We could not work out your time zone." Sits above the feed, in the same sticky slot and the
    same shape as the jump-to-latest banner, because it is the same kind of thing: a temporary strip
    about the state of the page rather than part of the conversation. Warning-tinted rather than

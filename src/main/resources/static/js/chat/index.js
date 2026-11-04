@@ -1468,6 +1468,8 @@ presenceMenu.init();
       }
     };
 
+    // Says so when the socket is down; wraps the onConnect above, so it must come after it.
+    if (window.ChatConnection) window.ChatConnection.watch(stomp);
     stomp.activate();
 
     // Typing indicator state: username -> { displayName, expiresAt }.

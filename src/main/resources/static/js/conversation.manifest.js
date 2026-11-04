@@ -23,6 +23,7 @@
 //= require hovercard.js
 //= require mention-inbox.js
 //= require presence.js
+//= require connection-status.js
 //= require idle-logout.js
 //= require notifications.js
 //= require call-transport.js
